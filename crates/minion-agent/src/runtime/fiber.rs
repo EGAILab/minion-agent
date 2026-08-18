@@ -92,7 +92,45 @@ struct Lifecycle {
     dispose_requested: bool,
     dependency_invalidated: bool,
     failure: Option<PluginInitError>,
-    last_cleanup: Option<(u64, Result<(), DisposeErrors>)>,
+    next_transition_id: u64,
+    in_flight: Option<InFlightTransition>,
+}
+
+struct InFlightTransition {
+    id: u64,
+    outcome: watch::Sender<Option<TransitionOutcome>>,
+}
+
+#[derive(Clone)]
+enum TransitionOutcome {
+    Completed(Result<(), FiberError>),
+    Panicked(PanicReport),
+}
+
+#[derive(Clone, Debug)]
+struct PanicReport {
+    message: String,
+}
+
+impl PanicReport {
+    fn from_payload(payload: Box<dyn Any + Send>) -> Self {
+        let message = payload
+            .downcast_ref::<&str>()
+            .map(|message| (*message).to_owned())
+            .or_else(|| payload.downcast_ref::<String>().cloned())
+            .unwrap_or_else(|| "non-string plugin or runtime panic".to_owned());
+        Self { message }
+    }
+
+    fn resume(self) -> ! {
+        panic!("{}", self.message)
+    }
+}
+
+#[derive(Clone, Copy)]
+enum LifecycleRequest {
+    Reconcile,
+    Dispose,
 }
 
 struct Generation {
@@ -159,7 +197,8 @@ impl FiberHandle {
                     dispose_requested: false,
                     dependency_invalidated: false,
                     failure: None,
-                    last_cleanup: None,
+                    next_transition_id: 0,
+                    in_flight: None,
                 }),
                 trace,
             }),
@@ -191,53 +230,112 @@ impl FiberHandle {
     }
 
     pub fn dependencies_changed(&self) {
-        if !(self.inner.dependencies_visible)() {
-            let mut lifecycle = self.inner.lifecycle.lock();
-            if lifecycle.state == FiberState::Active {
-                lifecycle.dependency_invalidated = true;
-                let generation = lifecycle
-                    .current
-                    .as_ref()
-                    .expect("active fiber has no owned generation");
-                let id = generation.id;
-                let effects = Arc::clone(&generation.effects);
-                let cancellation = generation.cancellation.clone();
-                if lifecycle.generation == id {
-                    lifecycle.generation = lifecycle
-                        .generation
-                        .checked_add(1)
-                        .expect("fiber generation space exhausted");
-                }
-                effects.close();
-                cancellation.cancel();
-            }
-            drop(lifecycle);
-            self.invalidate_loading(false);
-        }
+        drop(self.signal_dependency_change());
     }
 
     pub fn reconcile(&self) -> BoxFuture<'static, Result<(), FiberError>> {
-        self.dependencies_changed();
-        let fiber = self.clone();
-        async move { fiber.reconcile_serialized().await }.boxed()
-    }
-
-    pub fn dispose(&self) -> BoxFuture<'static, Result<(), FiberError>> {
-        let invalidated_generation = self.invalidate_loading(true);
+        let joined = self.signal_dependency_change();
         let fiber = self.clone();
         async move {
-            fiber.dispose_serialized().await?;
-            if let Some(generation) = invalidated_generation {
-                fiber.cleanup_outcome(generation)
-            } else {
-                Ok(())
-            }
+            fiber
+                .drive_transition(LifecycleRequest::Reconcile, joined)
+                .await
         }
         .boxed()
     }
 
-    async fn reconcile_serialized(&self) -> Result<(), FiberError> {
+    pub fn dispose(&self) -> BoxFuture<'static, Result<(), FiberError>> {
+        let joined = self.request_disposal();
+        let fiber = self.clone();
+        async move {
+            fiber
+                .drive_transition(LifecycleRequest::Dispose, joined)
+                .await
+        }
+        .boxed()
+    }
+
+    async fn drive_transition(
+        &self,
+        request: LifecycleRequest,
+        mut joined: Option<watch::Receiver<Option<TransitionOutcome>>>,
+    ) -> Result<(), FiberError> {
+        let mut prior_error = None;
+        loop {
+            let mut outcome = joined
+                .take()
+                .unwrap_or_else(|| self.join_or_start_transition(request));
+            let outcome = loop {
+                if let Some(outcome) = outcome.borrow_and_update().clone() {
+                    break outcome;
+                }
+                outcome
+                    .changed()
+                    .await
+                    .expect("in-flight fiber transition dropped without an outcome");
+            };
+            match outcome {
+                TransitionOutcome::Completed(Err(error)) => prior_error = Some(error),
+                TransitionOutcome::Completed(Ok(())) => {}
+                TransitionOutcome::Panicked(report) => report.resume(),
+            }
+            if !self.needs_follow_up_transition() {
+                return prior_error.map_or(Ok(()), Err);
+            }
+        }
+    }
+
+    fn join_or_start_transition(
+        &self,
+        request: LifecycleRequest,
+    ) -> watch::Receiver<Option<TransitionOutcome>> {
+        let (transition_id, sender, receiver) = {
+            let mut lifecycle = self.inner.lifecycle.lock();
+            if let Some(in_flight) = &lifecycle.in_flight {
+                return in_flight.outcome.subscribe();
+            }
+            let transition_id = lifecycle.next_transition_id;
+            lifecycle.next_transition_id = lifecycle
+                .next_transition_id
+                .checked_add(1)
+                .expect("fiber transition ID space exhausted");
+            let (sender, receiver) = watch::channel(None);
+            lifecycle.in_flight = Some(InFlightTransition {
+                id: transition_id,
+                outcome: sender.clone(),
+            });
+            (transition_id, sender, receiver)
+        };
+
+        let fiber = self.clone();
+        tokio::spawn(async move {
+            let transition = fiber.run_serialized_transition(request);
+            let outcome = match AssertUnwindSafe(transition).catch_unwind().await {
+                Ok(result) => TransitionOutcome::Completed(result),
+                Err(payload) => TransitionOutcome::Panicked(PanicReport::from_payload(payload)),
+            };
+            sender.send_replace(Some(outcome));
+            let mut lifecycle = fiber.inner.lifecycle.lock();
+            if lifecycle
+                .in_flight
+                .as_ref()
+                .is_some_and(|in_flight| in_flight.id == transition_id)
+            {
+                lifecycle.in_flight = None;
+            }
+        });
+
+        receiver
+    }
+
+    async fn run_serialized_transition(&self, request: LifecycleRequest) -> Result<(), FiberError> {
         let _transition = self.inner.transition.lock().await;
+        if self.disposal_requested() {
+            return self.dispose_serialized().await;
+        }
+        if matches!(request, LifecycleRequest::Dispose) {
+            panic!("dispose transition lost its sticky disposal request");
+        }
         match self.state() {
             FiberState::Pending
                 if !self.disposal_requested() && (self.inner.dependencies_visible)() =>
@@ -260,7 +358,6 @@ impl FiberHandle {
     }
 
     async fn dispose_serialized(&self) -> Result<(), FiberError> {
-        let _transition = self.inner.transition.lock().await;
         match self.state() {
             FiberState::Pending | FiberState::Failed => {
                 let mut lifecycle = self.inner.lifecycle.lock();
@@ -274,6 +371,12 @@ impl FiberHandle {
                 panic!("serialized transition lock observed an in-flight fiber state")
             }
         }
+    }
+
+    fn needs_follow_up_transition(&self) -> bool {
+        let lifecycle = self.inner.lifecycle.lock();
+        (lifecycle.dispose_requested && lifecycle.state != FiberState::Disposed)
+            || (lifecycle.dependency_invalidated && lifecycle.state == FiberState::Active)
     }
 
     async fn load(&self) -> Result<(), FiberError> {
@@ -357,7 +460,10 @@ impl FiberHandle {
 
     fn try_commit_active(&self, generation_id: u64) -> bool {
         if !(self.inner.dependencies_visible)() {
-            self.invalidate_loading(false);
+            let mut lifecycle = self.inner.lifecycle.lock();
+            if lifecycle.state == FiberState::Loading {
+                Self::close_current_generation(&mut lifecycle);
+            }
             return false;
         }
         let mut lifecycle = self.inner.lifecycle.lock();
@@ -414,7 +520,6 @@ impl FiberHandle {
             } else {
                 None
             };
-            lifecycle.last_cleanup = Some((generation_id, cleanup.clone()));
             self.transition_to(&mut lifecycle, target);
             target
         };
@@ -433,7 +538,7 @@ impl FiberHandle {
     }
 
     async fn unload(&self, disposing: bool) -> Result<(), FiberError> {
-        let (generation_id, effects) = {
+        let effects = {
             let mut lifecycle = self.inner.lifecycle.lock();
             assert_eq!(lifecycle.state, FiberState::Active);
             lifecycle.dispose_requested |= disposing;
@@ -441,7 +546,6 @@ impl FiberHandle {
                 .current
                 .as_ref()
                 .expect("active fiber has no owned generation");
-            let generation_id = generation.id;
             let effects = Arc::clone(&generation.effects);
             let cancellation = generation.cancellation.clone();
             lifecycle.generation = lifecycle
@@ -451,7 +555,7 @@ impl FiberHandle {
             effects.close();
             cancellation.cancel();
             self.transition_to(&mut lifecycle, FiberState::Unloading);
-            (generation_id, effects)
+            effects
         };
 
         let cleanup = effects.close_and_dispose().await;
@@ -463,53 +567,64 @@ impl FiberHandle {
             } else {
                 FiberState::Pending
             };
-            lifecycle.last_cleanup = Some((generation_id, cleanup.clone()));
             self.transition_to(&mut lifecycle, target);
         }
         cleanup.map_err(FiberError::Cleanup)
     }
 
-    fn invalidate_loading(&self, disposing: bool) -> Option<u64> {
+    fn signal_dependency_change(&self) -> Option<watch::Receiver<Option<TransitionOutcome>>> {
+        let dependencies_visible = (self.inner.dependencies_visible)();
         let mut lifecycle = self.inner.lifecycle.lock();
-        lifecycle.dispose_requested |= disposing;
-        if lifecycle.state != FiberState::Loading {
-            let current = lifecycle.current.as_ref().map(|generation| {
-                (
-                    generation.id,
-                    Arc::clone(&generation.effects),
-                    generation.cancellation.clone(),
-                )
-            });
-            if disposing
-                && lifecycle.state == FiberState::Active
-                && let Some((id, effects, cancellation)) = &current
-            {
-                if lifecycle.generation == *id {
-                    lifecycle.generation = lifecycle
-                        .generation
-                        .checked_add(1)
-                        .expect("fiber generation space exhausted");
+        if !dependencies_visible {
+            match lifecycle.state {
+                FiberState::Active => {
+                    lifecycle.dependency_invalidated = true;
+                    Self::close_current_generation(&mut lifecycle);
                 }
-                effects.close();
-                cancellation.cancel();
+                FiberState::Loading => Self::close_current_generation(&mut lifecycle),
+                FiberState::Pending
+                | FiberState::Failed
+                | FiberState::Unloading
+                | FiberState::Disposed => {}
             }
-            return disposing.then(|| current.map(|(id, _, _)| id)).flatten();
         }
-        let Some(generation) = lifecycle.current.as_ref() else {
-            panic!("loading fiber has no owned generation");
-        };
+        Self::subscribe_locked(&lifecycle)
+    }
+
+    fn request_disposal(&self) -> Option<watch::Receiver<Option<TransitionOutcome>>> {
+        let mut lifecycle = self.inner.lifecycle.lock();
+        lifecycle.dispose_requested = true;
+        if matches!(lifecycle.state, FiberState::Active | FiberState::Loading) {
+            Self::close_current_generation(&mut lifecycle);
+        }
+        Self::subscribe_locked(&lifecycle)
+    }
+
+    fn close_current_generation(lifecycle: &mut Lifecycle) {
+        let generation = lifecycle
+            .current
+            .as_ref()
+            .expect("active or loading fiber has no owned generation");
         let id = generation.id;
+        let effects = Arc::clone(&generation.effects);
+        let cancellation = generation.cancellation.clone();
         if lifecycle.generation == id {
-            let effects = Arc::clone(&generation.effects);
-            let cancellation = generation.cancellation.clone();
             lifecycle.generation = lifecycle
                 .generation
                 .checked_add(1)
                 .expect("fiber generation space exhausted");
-            effects.close();
-            cancellation.cancel();
         }
-        Some(id)
+        effects.close();
+        cancellation.cancel();
+    }
+
+    fn subscribe_locked(
+        lifecycle: &Lifecycle,
+    ) -> Option<watch::Receiver<Option<TransitionOutcome>>> {
+        lifecycle
+            .in_flight
+            .as_ref()
+            .map(|in_flight| in_flight.outcome.subscribe())
     }
 
     fn close_generation(&self, generation_id: u64) -> Arc<EffectStore> {
@@ -530,18 +645,6 @@ impl FiberHandle {
         effects.close();
         cancellation.cancel();
         effects
-    }
-
-    fn cleanup_outcome(&self, generation_id: u64) -> Result<(), FiberError> {
-        self.inner
-            .lifecycle
-            .lock()
-            .last_cleanup
-            .as_ref()
-            .filter(|(id, _)| *id == generation_id)
-            .map_or(Ok(()), |(_, result)| {
-                result.clone().map_err(FiberError::Cleanup)
-            })
     }
 
     fn transition_to(&self, lifecycle: &mut Lifecycle, state: FiberState) {

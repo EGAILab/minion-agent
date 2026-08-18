@@ -1,0 +1,38 @@
+use std::process::Command;
+
+fn run(args: &[&str]) -> std::process::Output {
+    Command::new(env!("CARGO_BIN_EXE_xtask"))
+        .args(args)
+        .output()
+        .expect("xtask binary should run")
+}
+
+#[test]
+fn help_prints_usage() {
+    let output = run(&["help"]);
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Usage: cargo run -p xtask -- <command>"));
+}
+
+#[test]
+fn accepts_all_supported_commands() {
+    for command in ["help", "conformance", "coverage", "layering"] {
+        assert!(
+            run(&[command]).status.success(),
+            "command failed: {command}"
+        );
+    }
+}
+
+#[test]
+fn missing_command_fails() {
+    let output = run(&[]);
+    assert!(!output.status.success());
+}
+
+#[test]
+fn unknown_command_fails() {
+    let output = run(&["unknown"]);
+    assert!(!output.status.success());
+}

@@ -36,6 +36,10 @@ impl DisposeErrors {
     pub fn into_inner(self) -> Vec<DisposeError> {
         self.0
     }
+
+    pub(crate) fn from_inner(errors: Vec<DisposeError>) -> Self {
+        Self(errors)
+    }
 }
 
 struct EffectSlot {

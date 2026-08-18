@@ -10,9 +10,16 @@ more steps.
 
 from __future__ import annotations
 
-from ..agent.decisions import Enter, PreStepDecision, PreStepReason, Reject
+from ..agent.decisions import (
+    Enter,
+    PreStepDecision,
+    PreStepReason,
+    Reject,
+    TurnStopping,
+    resolve_stopping,
+)
 from ..agent.envelope import ClaimPolicy, InboxTarget, InputEnvelope
-from ..agent.events import AGENT_PRE_STEP
+from ..agent.events import AGENT_PRE_STEP, AGENT_TURN_STOPPING
 from ..agent.identity import AgentStatus
 from ..agent.instance import AgentInstance
 from ..agent.tools import ToolService
@@ -97,6 +104,13 @@ class AgentLoop:
             if steps >= self.instance.definition.max_steps:
                 end_reason = "max_steps"
                 break
+
+            # Only now is there a decision to make. Hard termination has
+            # already been resolved above, so no listener can override it.
+            if await self._should_stop():
+                end_reason = "stopped"
+                break
+
             step_input = self._claim_step_input()
             reason = PreStepReason.STEERING if step_input else PreStepReason.TOOL_RESULTS
             decision = await self._pre_step(
@@ -109,6 +123,20 @@ class AgentLoop:
         # Repeated at the end so a consumer reading only completions can route
         # a result without replaying the whole turn.
         log.append(EventKind.TURN_END, {"reason": end_reason, "causes": causes})
+
+    async def _should_stop(self) -> bool:
+        """Ask listeners whether to stop, folding by first-opinion-wins.
+
+        Serial dispatch returns the last listener's value, so the fold is
+        applied to that single opinion here; it earns its keep once Plan 4
+        collects several.
+        """
+        decision = await self.instance.ctx.events.serial(
+            AGENT_TURN_STOPPING, self.instance, scope=self.instance.scope.key
+        )
+        if decision is None:
+            return False
+        return resolve_stopping([decision]) is TurnStopping.STOP
 
     def _claim_step_input(self) -> tuple[InputEnvelope, ...]:
         """Take whatever is waiting at the step boundary."""

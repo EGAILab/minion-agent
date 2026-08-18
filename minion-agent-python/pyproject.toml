@@ -29,7 +29,7 @@ packages = ["src/minion_agent"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
-addopts = "-q"
+addopts = "-q --cov --cov-report=term-missing"
 
 [tool.ruff]
 line-length = 100
@@ -49,4 +49,8 @@ source = ["src/minion_agent/runtime"]
 [tool.coverage.report]
 fail_under = 100
 show_missing = true
-exclude_lines = ["pragma: no cover"]
+exclude_lines = [
+    "pragma: no cover",
+    # Type-checking imports never execute at runtime by construction.
+    "if TYPE_CHECKING:",
+]

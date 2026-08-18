@@ -12,11 +12,12 @@ CONFORMANCE = Path(__file__).resolve().parents[2] / "conformance"
 FAMILIES = {
     "runtime": CONFORMANCE / "schema" / "runtime-scenario.schema.json",
     "agent": CONFORMANCE / "schema" / "agent-scenario.schema.json",
+    "session": CONFORMANCE / "schema" / "session-scenario.schema.json",
 }
 
 # Families whose scenarios arrive in a later plan. Their schema must still exist
 # and must still be a valid JSON Schema.
-UNPOPULATED = {"agent"}
+UNPOPULATED = {"agent", "session"}
 
 
 def _scenarios(family: str) -> list[Path]:

@@ -1,0 +1,73 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://minion-agent.dev/conformance/session-scenario.schema.json",
+  "title": "Minion Agent session conformance scenario",
+  "type": "object",
+  "required": ["name", "steps", "expect_messages"],
+  "additionalProperties": false,
+  "properties": {
+    "name": { "type": "string", "minLength": 1 },
+    "description": { "type": "string" },
+    "steps": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/step" }
+    },
+    "expect_messages": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["role"],
+        "additionalProperties": false,
+        "properties": {
+          "role": { "enum": ["user", "assistant", "tool_result"] },
+          "text": { "type": "string" }
+        }
+      }
+    },
+    "expect_error": {
+      "type": "object",
+      "required": ["type"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "type": "string" },
+        "message_contains": { "type": "string" }
+      }
+    }
+  },
+  "$defs": {
+    "step": {
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "maxProperties": 1,
+      "properties": {
+        "append": {
+          "type": "object",
+          "required": ["role", "text"],
+          "additionalProperties": false,
+          "properties": {
+            "role": { "enum": ["user", "assistant", "tool_result"] },
+            "text": { "type": "string" }
+          }
+        },
+        "fork": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": { "at": { "type": "integer", "minimum": 0 } }
+        },
+        "reset": { "type": "object", "additionalProperties": false },
+        "compact": {
+          "type": "object",
+          "required": ["summary"],
+          "additionalProperties": false,
+          "properties": {
+            "summary": { "type": "string" },
+            "keep": { "type": "integer", "minimum": 0 }
+          }
+        },
+        "derive": { "type": "object", "additionalProperties": false }
+      }
+    }
+  }
+}

@@ -17,7 +17,7 @@ FAMILIES = {
 
 # Families whose scenarios arrive in a later plan. Their schema must still exist
 # and must still be a valid JSON Schema.
-UNPOPULATED = {"agent", "session"}
+UNPOPULATED = {"agent"}
 
 
 def _scenarios(family: str) -> list[Path]:

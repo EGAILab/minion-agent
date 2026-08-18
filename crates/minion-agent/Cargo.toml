@@ -6,6 +6,7 @@ rust-version.workspace = true
 version.workspace = true
 
 [dependencies]
+futures.workspace = true
+parking_lot.workspace = true
 serde.workspace = true
 thiserror.workspace = true
-

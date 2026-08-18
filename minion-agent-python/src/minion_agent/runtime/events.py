@@ -7,11 +7,13 @@ error rather than a silent behavior change.
 
 from __future__ import annotations
 
+import asyncio
+import inspect
 from collections.abc import Callable
 from enum import StrEnum
 from typing import Any
 
-from .errors import EventModeError
+from .errors import EventModeError, WaterfallError
 
 
 class DispatchMode(StrEnum):
@@ -104,3 +106,72 @@ class EventBus:
         self._require_mode(name, DispatchMode.EMIT)
         for callback in self._chain(name):
             callback(*args)
+
+    @staticmethod
+    async def _call(callback: Callable[..., Any], *args: Any) -> Any:
+        result = callback(*args)
+        if inspect.isawaitable(result):
+            return await result
+        return result
+
+    async def parallel(self, name: str, *args: Any) -> None:
+        """Invoke every listener concurrently, aggregating any failures."""
+        self._require_mode(name, DispatchMode.PARALLEL)
+        callbacks = self._chain(name)
+        if not callbacks:
+            return
+        outcomes = await asyncio.gather(
+            *(self._call(callback, *args) for callback in callbacks),
+            return_exceptions=True,
+        )
+        failures = [outcome for outcome in outcomes if isinstance(outcome, Exception)]
+        if failures:
+            raise ExceptionGroup(f"errors in {name!r} listeners", failures)
+
+    async def serial(self, name: str, *args: Any) -> Any:
+        """Invoke listeners in registration order; the last value wins."""
+        self._require_mode(name, DispatchMode.SERIAL)
+        result: Any = None
+        for callback in self._chain(name):
+            result = await self._call(callback, *args)
+        return result
+
+    async def waterfall(self, name: str, *args: Any, terminal: Any = None) -> Any:
+        """Invoke listeners as around-middleware.
+
+        Each listener receives `next` as its final positional argument.
+        `next()` delegates with the current arguments; `next(*replacement)`
+        delegates with replacements. Returning without calling `next`
+        short-circuits, and that return value becomes the chain result.
+
+        Delegating past the last listener yields `terminal`, as does an empty
+        chain. Events declare their own terminal so that a chain whose
+        listeners all cooperatively delegate returns the transformed payload
+        rather than None — the transformation pattern depends on it.
+
+        `next` may be called at most once; a second call raises. Memoizing it
+        instead would be incoherent, since a second call may carry different
+        replacement arguments.
+        """
+        self._require_mode(name, DispatchMode.WATERFALL)
+        callbacks = self._chain(name)
+
+        async def step(index: int, current: tuple[Any, ...]) -> Any:
+            if index >= len(callbacks):
+                return terminal
+
+            used = False
+
+            async def next_(*replacement: Any) -> Any:
+                nonlocal used
+                if used:
+                    raise WaterfallError(
+                        f"`next` may be called at most once per listener "
+                        f"(event {name!r}, listener index {index})"
+                    )
+                used = True
+                return await step(index + 1, replacement or current)
+
+            return await self._call(callbacks[index], *current, next_)
+
+        return await step(0, args)

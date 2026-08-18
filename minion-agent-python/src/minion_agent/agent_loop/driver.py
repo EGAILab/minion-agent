@@ -32,7 +32,7 @@ from ..session import (
     encode_message,
     record_header,
 )
-from ..telemetry import TelemetryService
+from ..telemetry import Span, SpanKind, TelemetryService
 
 
 class AgentLoop:
@@ -73,6 +73,18 @@ class AgentLoop:
             inbox.take_wake()
             self.instance.set_status(AgentStatus.IDLE)
 
+    def _span(self, kind: SpanKind, name: str, **attributes: object) -> None:
+        """Emit a span if telemetry is mounted. Never affects control flow."""
+        if self.telemetry is None:
+            return
+        self.telemetry.emit(
+            Span(
+                kind=kind,
+                name=name,
+                attributes={"instance": self.instance.id, **attributes},
+            )
+        )
+
     def cancel(self) -> None:
         """Request that the current turn end at its next boundary.
 
@@ -96,6 +108,7 @@ class AgentLoop:
         decision = await self._pre_step(entering, PreStepReason.INITIAL)
         if isinstance(decision, Reject):
             self._cancelled = False
+            self._span(SpanKind.TURN, "turn", reason="rejected")
             log.append(
                 EventKind.TURN_END,
                 {"reason": "rejected", "causes": causes, "detail": decision.reason},
@@ -136,6 +149,7 @@ class AgentLoop:
 
         # Cleared with the turn: a cancelled turn must not poison the next.
         self._cancelled = False
+        self._span(SpanKind.TURN, "turn", reason=end_reason)
         # Causes repeat at the end so a consumer reading only completions can
         # route a result without replaying the whole turn.
         log.append(EventKind.TURN_END, {"reason": end_reason, "causes": causes})
@@ -228,4 +242,5 @@ class AgentLoop:
             log.append(EventKind.TOOL_RESULT, {"message": encode_message(result)})
 
         log.append(EventKind.STEP_END, {})
+        self._span(SpanKind.STEP, "step", reason=reason.value)
         return bool(calls)

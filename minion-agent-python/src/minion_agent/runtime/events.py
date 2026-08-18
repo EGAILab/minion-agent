@@ -175,6 +175,11 @@ class EventBus:
         listeners all cooperatively delegate returns the transformed payload
         rather than None — the transformation pattern depends on it.
 
+        `terminal` is either the value produced when the innermost listener
+        delegates, or a callable invoked with the current arguments to compute
+        it. A terminal that is itself meant to *be* a callable must be wrapped
+        (`terminal=lambda *_: fn`); a bare function is read as a continuation.
+
         `next` may be called at most once; a second call raises. Memoizing it
         instead would be incoherent, since a second call may carry different
         replacement arguments.
@@ -184,7 +189,12 @@ class EventBus:
 
         async def step(index: int, current: tuple[Any, ...]) -> Any:
             if index >= len(callbacks):
-                return terminal
+                # A terminal may be a value or a continuation over the current
+                # arguments. `tools/post-execute` needs the latter: its
+                # terminal is "the result as currently transformed" (design
+                # spec section 3), so a chain of one transforming listener
+                # would otherwise discard exactly the value it produced.
+                return terminal(*current) if callable(terminal) else terminal
 
             used = False
 

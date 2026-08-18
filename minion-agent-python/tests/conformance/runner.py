@@ -235,11 +235,13 @@ async def run_runtime_scenario(document: dict[str, Any]) -> RunOutcome:
             elif mode is DispatchMode.SERIAL:
                 result = await root.events.serial(name, *args, scope=scope_key)
             else:
+                terminal = (
+                    (lambda *current: current[0] if current else None)
+                    if dispatch.get("terminal_from_args")
+                    else dispatch.get("terminal")
+                )
                 result = await root.events.waterfall(
-                    name,
-                    *args,
-                    scope=scope_key,
-                    terminal=dispatch.get("terminal"),
+                    name, *args, scope=scope_key, terminal=terminal
                 )
 
     specs = {

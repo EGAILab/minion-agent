@@ -201,7 +201,12 @@
             "scope": {
               "type": "string"
             },
-            "terminal": {}
+            "terminal": {},
+            "terminal_from_args": {
+              "type": "boolean",
+              "default": false,
+              "description": "Compute the terminal from the current arguments rather than using a fixed value. Required to express a transformation chain whose last listener delegates, where a fixed terminal would discard the transformed value."
+            }
           }
         }
       }

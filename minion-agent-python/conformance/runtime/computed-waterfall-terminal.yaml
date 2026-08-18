@@ -1,0 +1,33 @@
+name: a transformation chain that fully delegates yields its transformed value
+description: >
+  Every waterfall event declares a terminal continuation, and for a
+  transformation chain that continuation is the payload *as currently
+  transformed* -- not the value the dispatcher started with.
+
+  This is the case a fixed terminal cannot express. One listener transforms and
+  delegates; nothing follows it. With a fixed terminal the chain returns what
+  the dispatcher supplied and the transformation is silently discarded, which
+  is precisely the failure the terminal rule exists to prevent.
+
+  The sibling scenario waterfall-terminal-continuation pins the constant form,
+  which is what `agent/pre-step` and `tools/pre-execute` declare. Both forms
+  are normative; an implementation needs both.
+plugins:
+  - id: only-transform
+    listeners:
+      - event: test/transform
+        action: transform
+        tag: only
+        replacement: transformed
+steps:
+  - mount: only-transform
+  - dispatch:
+      event: test/transform
+      mode: waterfall
+      args: [original]
+      terminal_from_args: true
+expect_trace:
+  - { event: fiber_state, plugin: only-transform, state: loading }
+  - { event: fiber_state, plugin: only-transform, state: active }
+  - { event: listener_entered, plugin: only-transform, tag: only }
+expect_result: transformed

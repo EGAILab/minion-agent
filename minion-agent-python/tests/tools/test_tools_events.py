@@ -7,6 +7,7 @@ from minion_agent.tools.events import (
     TOOLS_EVENT_MODES,
     TOOLS_POST_EXECUTE,
     TOOLS_PRE_EXECUTE,
+    TOOLS_REGISTERED,
     TOOLS_UPDATE,
     declare_tools_events,
 )
@@ -31,6 +32,12 @@ def test_both_pipeline_events_are_waterfalls() -> None:
 def test_update_is_emit() -> None:
     """A partial result must not be able to block the tool producing it."""
     assert TOOLS_EVENT_MODES[TOOLS_UPDATE] is DispatchMode.EMIT
+
+
+def test_registration_announcements_are_emit() -> None:
+    """A tool becoming available is an observation, not a negotiation: a
+    listener must not be able to block or rewrite it."""
+    assert TOOLS_EVENT_MODES[TOOLS_REGISTERED] is DispatchMode.EMIT
 
 
 def test_declaring_twice_is_harmless() -> None:

@@ -11,11 +11,14 @@ from collections.abc import Callable
 from contextlib import AbstractContextManager
 from typing import TYPE_CHECKING, Any, TypeVar
 
-from .disposable import Disposer
-from .errors import ServiceNotFoundError
+import inspect
+
+from .disposable import DisposableList, Disposer
+from .errors import InactiveFiberError, ServiceNotFoundError
 from .events import EventBus
 from .plugin import spec_of
 from .registry import PluginRegistry
+from .scope import Scope, ScopeKey
 from .service import ServiceRegistry
 
 if TYPE_CHECKING:
@@ -23,7 +26,7 @@ if TYPE_CHECKING:
 
 T = TypeVar("T")
 
-_RESERVED = frozenset({"registry", "events", "root", "fiber", "plugins"})
+_RESERVED = frozenset({"registry", "events", "root", "fiber", "plugins", "scope"})
 
 
 class Context:
@@ -36,6 +39,8 @@ class Context:
         self._fiber: Fiber | None = None
         self._meta: dict[str, Any] = {}
         self._plugins = PluginRegistry(self)
+        self._scope_key: ScopeKey | None = None
+        self._scope_disposables: DisposableList | None = None
 
     @property
     def registry(self) -> ServiceRegistry:
@@ -60,8 +65,12 @@ class Context:
         child._events = self._events
         child._root = self._root
         child._fiber = meta.pop("fiber", self._fiber)
-        child._meta = {**self._meta, **meta}
         child._plugins = self._plugins
+        child._scope_key = meta.pop("scope_key", self._scope_key)
+        child._scope_disposables = meta.pop(
+            "scope_disposables", self._scope_disposables
+        )
+        child._meta = {**self._meta, **meta}
         return child
 
     def __getattr__(self, name: str) -> Any:
@@ -99,12 +108,25 @@ class Context:
         await self._plugins.reconcile()
         return fiber
 
+    def scope(self, key: ScopeKey) -> Scope:
+        """Mint a scope under this context.
+
+        Registrations made through the returned context are visible to that
+        scope and its descendants, and are disposed with it — visibility and
+        ownership always follow the same context.
+        """
+        disposables = DisposableList()
+        tagged = self.extend(scope_key=key, scope_disposables=disposables)
+        return Scope(key, tagged, disposables)
+
     def effect(
         self,
         execute: Callable[[], Disposer | AbstractContextManager[Any] | None],
         label: str | None = None,
     ) -> Callable[[], Any]:
-        """Register a reversible effect on the owning fiber."""
+        """Register a reversible effect, owned by the nearest scope or the fiber."""
+        if self._scope_disposables is not None:
+            return _scoped_effect(self._scope_disposables, execute, label)
         if self._fiber is None:
             raise RuntimeError("ctx.effect() requires a fiber; call it inside a plugin")
         return self._fiber.effect(execute, label)
@@ -164,3 +186,49 @@ class Context:
         if value is None:
             raise ServiceNotFoundError(f"no active provider for service {name!r}")
         return value  # type: ignore[no-any-return]
+
+
+def _scoped_effect(
+    disposables: DisposableList,
+    execute: Callable[[], Disposer | AbstractContextManager[Any] | None],
+    label: str | None,
+) -> Callable[[], Any]:
+    """Collect an effect into a scope's disposable list rather than a fiber's.
+
+    Mirrors `Fiber.effect`, but ownership follows the scope so a registration
+    is never visible in one scope and disposed with another.
+    """
+    if disposables.disposed:
+        raise InactiveFiberError(f"cannot create effect {label!r} on a disposed scope")
+
+    outcome = execute()
+    disposer: Disposer | None
+    if outcome is None:
+        disposer = None
+    elif isinstance(outcome, AbstractContextManager):
+        outcome.__enter__()
+
+        def disposer() -> None:
+            outcome.__exit__(None, None, None)
+    else:
+        disposer = outcome
+
+    settled = False
+
+    async def run_disposer() -> None:
+        nonlocal settled
+        if settled:
+            return
+        settled = True
+        if disposer is not None:
+            result = disposer()
+            if inspect.isawaitable(result):
+                await result
+
+    remove = disposables.push(run_disposer)
+
+    async def dispose() -> None:
+        remove()
+        await run_disposer()
+
+    return dispose

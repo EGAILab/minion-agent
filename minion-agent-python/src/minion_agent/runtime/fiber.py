@@ -94,7 +94,7 @@ class Fiber:
         elif isinstance(outcome, AbstractContextManager):
             outcome.__enter__()
 
-            def disposer() -> None:  # type: ignore[misc]
+            def disposer() -> None:
                 outcome.__exit__(None, None, None)
         else:
             disposer = outcome

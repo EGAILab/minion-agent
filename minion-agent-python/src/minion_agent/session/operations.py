@@ -58,6 +58,11 @@ def fork(source: SessionLog, session_id: str, at: int | None = None) -> SessionL
     that side.
     """
     boundary = len(source) if at is None else at
-    child = SessionLog(session_id, ancestor=source, boundary=boundary)
+    child = SessionLog(
+        session_id,
+        ancestor=source,
+        boundary=boundary,
+        surface_kinds=source.surface_kinds,
+    )
     child.append(EventKind.SESSION_FORKED, {"source": source.session_id, "boundary": boundary})
     return child

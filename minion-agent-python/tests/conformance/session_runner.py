@@ -20,7 +20,7 @@ from minion_agent.llm.messages import (
     text_of,
 )
 from minion_agent.session.derive import derive_messages, encode_message
-from minion_agent.session.events import EventKind
+from minion_agent.session.events import CORE_SURFACE_KINDS, EventKind
 from minion_agent.session.log import SessionLog
 from minion_agent.session.operations import compact, fork, reset
 
@@ -32,8 +32,13 @@ _KIND = {
 
 
 def _message(role: str, text: str) -> Message:
+    """Build the message a role carries.
+
+    A plugin-declared kind encodes as a user message: the payload shape is the
+    core vocabulary, and only the event *name* is new.
+    """
     content = (TextBlock(text=text),)
-    if role == "user":
+    if role not in _KIND or role == "user":
         return UserMessage(content=content, timestamp=1)
     if role == "assistant":
         return AssistantMessage(
@@ -57,15 +62,19 @@ def _role_of(message: Message) -> str:
 
 def run_session_scenario(document: dict[str, Any]) -> list[dict[str, str]]:
     """Apply the scenario's steps and return the derived messages."""
-    log = SessionLog("scenario")
+    surface = CORE_SURFACE_KINDS | frozenset(document.get("surface_kinds", ()))
+    log = SessionLog("scenario", surface_kinds=surface)
     forks = 0
 
     for step in document["steps"]:
         if "append" in step:
             spec = step["append"]
+            role = spec["role"]
+            # A core role maps to its event kind; anything else is the plugin
+            # name itself, which is the whole point of an open namespace.
             log.append(
-                _KIND[spec["role"]],
-                {"message": encode_message(_message(spec["role"], spec["text"]))},
+                _KIND.get(role, role),
+                {"message": encode_message(_message(role, spec["text"]))},
             )
         elif "fork" in step:
             forks += 1

@@ -13,12 +13,12 @@ The boundary cuts at the moment a stream is returned (design spec section 4):
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Protocol
 
 from .errors import UnknownModelError
-from .messages import Message
-from .stream import AssistantStream
+from .messages import AssistantMessage, Message, StopReason, Usage
+from .stream import AssistantStream, StreamDone, StreamError
 
 
 @dataclass(frozen=True, slots=True)
@@ -84,11 +84,57 @@ class LlmService:
     def stream(self, request: Request) -> AssistantStream:
         """Dispatch `request` to its adapter.
 
-        Raises `UnknownModelError` eagerly when no adapter supplies the model.
+        Raises `UnknownModelError` eagerly when no adapter supplies the model —
+        a caller bug, discoverable immediately. Everything after this point
+        rides the returned stream.
         """
         adapter = self._adapters.get(request.model)
         if adapter is None:
             raise UnknownModelError(
                 f"no adapter supplies {request.model.provider}/{request.model.model}"
             )
-        return adapter.stream(request)
+        return _settled(adapter.stream(request), request)
+
+
+def _empty_partial(request: Request) -> AssistantMessage:
+    """A pending message for a stream that produced nothing at all."""
+    return AssistantMessage(
+        content=(),
+        stop_reason=StopReason.PENDING,
+        usage=Usage(),
+        model=request.model.model,
+        provider=request.model.provider,
+        timestamp=0,
+    )
+
+
+async def _settled(source: AssistantStream, request: Request) -> AssistantStream:
+    """Guarantee the contract §4 states for a returned stream.
+
+    Two guarantees, both observable:
+
+    * **Nothing escapes iteration.** A raw stream that ends before emitting a
+      terminal is a runtime streaming failure — a truncated response is the
+      ordinary case — so it settles as a terminal error chunk rather than
+      raising. The accumulated partial is preserved: discarding it would
+      replace a real partial response with an unrelated empty one.
+    * **The first terminal wins, and the stream then fuses.** Nothing is
+      yielded afterward, and the source is not drained further merely to
+      discover whether a provider would have violated the protocol again.
+    """
+    partial: AssistantMessage | None = None
+
+    async for chunk in source:
+        partial = chunk.partial
+        yield chunk
+        if isinstance(chunk, StreamDone | StreamError):
+            return
+
+    settled = replace(
+        partial if partial is not None else _empty_partial(request),
+        stop_reason=StopReason.ERROR,
+        error_message=(
+            "provider stream ended without a terminal chunk; the response is incomplete"
+        ),
+    )
+    yield StreamError(reason=StopReason.ERROR, message=settled, partial=settled)

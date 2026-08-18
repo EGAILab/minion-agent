@@ -3,36 +3,71 @@
   "$id": "https://minion-agent.dev/conformance/session-scenario.schema.json",
   "title": "Minion Agent session conformance scenario",
   "type": "object",
-  "required": ["name", "steps", "expect_messages"],
+  "required": [
+    "name",
+    "steps",
+    "expect_messages"
+  ],
   "additionalProperties": false,
   "properties": {
-    "name": { "type": "string", "minLength": 1 },
-    "description": { "type": "string" },
+    "name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "description": {
+      "type": "string"
+    },
     "steps": {
       "type": "array",
       "minItems": 1,
-      "items": { "$ref": "#/$defs/step" }
+      "items": {
+        "$ref": "#/$defs/step"
+      }
     },
     "expect_messages": {
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["role"],
+        "required": [
+          "role"
+        ],
         "additionalProperties": false,
         "properties": {
-          "role": { "enum": ["user", "assistant", "tool_result"] },
-          "text": { "type": "string" }
+          "role": {
+            "enum": [
+              "user",
+              "assistant",
+              "tool_result"
+            ]
+          },
+          "text": {
+            "type": "string"
+          }
         }
       }
     },
     "expect_error": {
       "type": "object",
-      "required": ["type"],
+      "required": [
+        "type"
+      ],
       "additionalProperties": false,
       "properties": {
-        "type": { "type": "string" },
-        "message_contains": { "type": "string" }
+        "type": {
+          "type": "string"
+        },
+        "message_contains": {
+          "type": "string"
+        }
       }
+    },
+    "surface_kinds": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^[a-z][a-z0-9_]*(?:/[a-z][a-z0-9_-]*)*$"
+      },
+      "description": "Event names this session treats as surface, beyond the core three. An open namespace is not an open surface: a plugin event derives only when the deployment declares it here."
     }
   },
   "$defs": {
@@ -44,29 +79,56 @@
       "properties": {
         "append": {
           "type": "object",
-          "required": ["role", "text"],
+          "required": [
+            "role",
+            "text"
+          ],
           "additionalProperties": false,
           "properties": {
-            "role": { "enum": ["user", "assistant", "tool_result"] },
-            "text": { "type": "string" }
+            "role": {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9_]*(?:/[a-z][a-z0-9_-]*)*$",
+              "description": "user, assistant, or tool_result for core kinds; any validated event name for a plugin-declared kind. The name string is the identity."
+            },
+            "text": {
+              "type": "string"
+            }
           }
         },
         "fork": {
           "type": "object",
           "additionalProperties": false,
-          "properties": { "at": { "type": "integer", "minimum": 0 } }
-        },
-        "reset": { "type": "object", "additionalProperties": false },
-        "compact": {
-          "type": "object",
-          "required": ["summary"],
-          "additionalProperties": false,
           "properties": {
-            "summary": { "type": "string" },
-            "keep": { "type": "integer", "minimum": 0 }
+            "at": {
+              "type": "integer",
+              "minimum": 0
+            }
           }
         },
-        "derive": { "type": "object", "additionalProperties": false }
+        "reset": {
+          "type": "object",
+          "additionalProperties": false
+        },
+        "compact": {
+          "type": "object",
+          "required": [
+            "summary"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "summary": {
+              "type": "string"
+            },
+            "keep": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        },
+        "derive": {
+          "type": "object",
+          "additionalProperties": false
+        }
       }
     }
   }

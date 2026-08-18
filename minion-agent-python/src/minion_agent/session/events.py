@@ -7,17 +7,32 @@ reads the surface.
 
 Model-visible means logged: anything reaching a model request must be
 reconstructable from these events.
+
+**The namespace is open.** §5 states that plugins may declare session events
+that join the surface, so the language-neutral identity of an event is its
+*name string*. `EventKind` supplies the core names as constants for ergonomics
+and autocompletion — it does not close the namespace, and `"plugin/foo"` is
+just as valid an identity as `"user/message"`.
 """
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any
 
+type EventName = str
+"""An event's identity. The string is authoritative across languages."""
+
 
 class EventKind(StrEnum):
-    """Every event a session log can carry."""
+    """Core event names.
+
+    Constants, not a closed set: `SessionEvent.kind` is typed `EventName`, and
+    any validated name is acceptable. These are the names whose semantics the
+    specification defines normatively.
+    """
 
     # --- surface: projects into model history ---
     USER_MESSAGE = "user/message"
@@ -41,14 +56,42 @@ class EventKind(StrEnum):
     COMPACTION = "compaction"
 
 
-SURFACE_KINDS: frozenset[EventKind] = frozenset(
+CORE_SURFACE_KINDS: frozenset[EventName] = frozenset(
     {EventKind.USER_MESSAGE, EventKind.ASSISTANT_MESSAGE, EventKind.TOOL_RESULT}
 )
-"""Exactly the kinds that project into model history.
+"""The core kinds that project into model history.
 
-Widening this set widens what the model sees, which is why it is stated once
-here rather than inferred at each call site.
+Normative and language-neutral: a second implementation must reproduce exactly
+these. A log may carry additional plugin-declared surface names, whose
+projections are plugin-scoped rather than cross-language (§5).
 """
+
+SURFACE_KINDS = CORE_SURFACE_KINDS
+"""Deprecated alias kept for call sites written before the namespace opened."""
+
+_NAME_PATTERN = re.compile(r"^[a-z][a-z0-9_]*(?:/[a-z][a-z0-9_-]*)*$")
+
+
+class InvalidEventNameError(ValueError):
+    """An event name that cannot serve as a cross-language identity."""
+
+
+def validate_event_name(name: str) -> EventName:
+    """Return `name` if it is usable as an event identity.
+
+    Validation is about portability, not membership: any well-formed name is
+    acceptable, including one no core constant declares. The shape is
+    lowercase segments separated by `/`, so a name survives a log, a JSON
+    document, and another language's identifier rules unchanged.
+    """
+    if not isinstance(name, str):
+        raise InvalidEventNameError(f"event name must be a string, got {type(name).__name__}")
+    if not _NAME_PATTERN.match(name):
+        raise InvalidEventNameError(
+            f"event name {name!r} is not a valid identity; expected lowercase "
+            "segments separated by '/', e.g. 'plugin/foo'"
+        )
+    return name
 
 
 @dataclass(frozen=True, slots=True)
@@ -56,10 +99,14 @@ class SessionEvent:
     """One appended event. `seq` is assigned by the log, never by a caller."""
 
     seq: int
-    kind: EventKind
+    kind: EventName
     data: dict[str, Any]
 
 
-def is_surface(event: SessionEvent) -> bool:
-    """Whether `event` projects into model history."""
-    return event.kind in SURFACE_KINDS
+def is_surface(event: SessionEvent, surface: frozenset[EventName] | None = None) -> bool:
+    """Whether `event` projects into model history.
+
+    `surface` defaults to the core set; a log carrying plugin-declared surface
+    events passes its own.
+    """
+    return event.kind in (CORE_SURFACE_KINDS if surface is None else surface)

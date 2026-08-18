@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from ..runtime import Context, plugin
 from .artifacts import ArtifactStore
+from .events import CORE_SURFACE_KINDS, EventName
 from .log import SessionLog
 from .operations import fork
 
@@ -19,9 +20,17 @@ class SessionService:
         stable block is stored once for the deployment, not once per session."""
         self._logs: dict[str, SessionLog] = {}
 
-    def create(self, session_id: str) -> SessionLog:
-        """Create and register a new session log."""
-        log = SessionLog(session_id)
+    def create(
+        self,
+        session_id: str,
+        surface_kinds: frozenset[EventName] = CORE_SURFACE_KINDS,
+    ) -> SessionLog:
+        """Create and register a new session log.
+
+        `surface_kinds` widens what projects into model history, for a
+        deployment whose plugins declare surface events (§5).
+        """
+        log = SessionLog(session_id, surface_kinds=surface_kinds)
         self._logs[session_id] = log
         return log
 

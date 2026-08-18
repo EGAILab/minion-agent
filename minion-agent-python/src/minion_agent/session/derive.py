@@ -23,7 +23,7 @@ from ..llm.messages import (
     Usage,
     UserMessage,
 )
-from .events import EventKind, SessionEvent, is_surface
+from .events import EventKind, EventName, SessionEvent, is_surface
 from .log import SessionLog
 
 
@@ -137,10 +137,16 @@ def messages_from(events: tuple[SessionEvent, ...]) -> tuple[Message, ...]:
     return tuple(decode_message(event.data["message"]) for event in events)
 
 
-def _latest_of(events: tuple[SessionEvent, ...], kind: EventKind) -> SessionEvent | None:
-    """The most recent event of `kind` among `events`, or None."""
+def _latest_of(events: tuple[SessionEvent, ...], kind: EventName) -> SessionEvent | None:
+    """The most recent event named `kind` among `events`, or None.
+
+    Compared by value, not identity. The event name is the language-neutral
+    identity, so `"session/reset"` and `EventKind.SESSION_RESET` are the same
+    event — an identity check would silently ignore the former, and a second
+    implementation comparing strings would disagree with this one.
+    """
     for event in reversed(events):
-        if event.kind is kind:
+        if event.kind == kind:
             return event
     return None
 
@@ -176,7 +182,11 @@ def _derive(log: SessionLog, limit: int) -> tuple[Message, ...]:
 
     reset_event = _latest_of(events, EventKind.SESSION_RESET)
     floor = reset_event.seq if reset_event is not None else 0
-    own_surface = tuple(event for event in events if is_surface(event) and event.seq > floor)
+    # `log.surface_kinds`, not the core set: a plugin-declared surface event
+    # must derive here exactly as a core one does (design spec section 5).
+    own_surface = tuple(
+        event for event in events if is_surface(event, log.surface_kinds) and event.seq > floor
+    )
 
     compaction = _latest_of(events, EventKind.COMPACTION)
     if compaction is not None and compaction.seq > floor:

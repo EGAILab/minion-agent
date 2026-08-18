@@ -8,16 +8,28 @@ from .derive import (
     encode_message,
     messages_from,
 )
-from .events import SURFACE_KINDS, EventKind, SessionEvent, is_surface
+from .events import (
+    CORE_SURFACE_KINDS,
+    SURFACE_KINDS,
+    EventKind,
+    EventName,
+    InvalidEventNameError,
+    SessionEvent,
+    is_surface,
+    validate_event_name,
+)
 from .log import NotJsonSafeError, SessionLog
 from .operations import compact, fork, reset
 from .request_header import assemble_system, reconstruct_header, record_header
 from .service import SessionService
 
 __all__ = [
+    "CORE_SURFACE_KINDS",
     "SURFACE_KINDS",
     "ArtifactStore",
     "EventKind",
+    "EventName",
+    "InvalidEventNameError",
     "MissingArtifactError",
     "NotJsonSafeError",
     "SessionEvent",
@@ -35,4 +47,5 @@ __all__ = [
     "reconstruct_header",
     "record_header",
     "reset",
+    "validate_event_name",
 ]

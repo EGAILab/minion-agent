@@ -9,7 +9,13 @@ from __future__ import annotations
 
 from typing import Any
 
-from .events import EventKind, SessionEvent, is_surface
+from .events import (
+    CORE_SURFACE_KINDS,
+    EventName,
+    SessionEvent,
+    is_surface,
+    validate_event_name,
+)
 
 _JSON_SCALARS = (str, int, float, bool, type(None))
 
@@ -43,8 +49,16 @@ class SessionLog:
         session_id: str,
         ancestor: SessionLog | None = None,
         boundary: int = 0,
+        surface_kinds: frozenset[EventName] = CORE_SURFACE_KINDS,
     ) -> None:
         self.session_id = session_id
+        self.surface_kinds = surface_kinds
+        """Which event names project into model history.
+
+        Defaults to the core set. A deployment whose plugins declare surface
+        events supplies a wider set; those projections are plugin-scoped
+        rather than cross-language (design spec section 5).
+        """
         self.ancestor = ancestor
         """The log this one forked from, or None for a root session."""
         self.boundary = boundary
@@ -59,16 +73,21 @@ class SessionLog:
         """Every event, in append order."""
         return tuple(self._events)
 
-    def append(self, kind: EventKind, data: dict[str, Any]) -> SessionEvent:
+    def append(self, kind: EventName, data: dict[str, Any]) -> SessionEvent:
         """Append one event, assigning the next sequence number.
 
-        Validates before appending, so a rejected event leaves no trace.
+        `kind` may be any validated event name, core or plugin-declared: the
+        name string is the identity, and the namespace is open (§5).
+
+        Both the name and the data are validated before anything is stored, so
+        a rejected event leaves no trace and sequence numbers stay gapless.
         """
+        name = validate_event_name(kind)
         _check_json_safe(data)
-        event = SessionEvent(seq=len(self._events) + 1, kind=kind, data=dict(data))
+        event = SessionEvent(seq=len(self._events) + 1, kind=name, data=dict(data))
         self._events.append(event)
         return event
 
     def surface(self) -> tuple[SessionEvent, ...]:
         """Only the events that project into model history."""
-        return tuple(event for event in self._events if is_surface(event))
+        return tuple(event for event in self._events if is_surface(event, self.surface_kinds))

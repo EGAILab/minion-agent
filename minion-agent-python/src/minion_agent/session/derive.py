@@ -23,7 +23,7 @@ from ..llm.messages import (
     Usage,
     UserMessage,
 )
-from .events import EventKind, SessionEvent
+from .events import EventKind, SessionEvent, is_surface
 from .log import SessionLog
 
 
@@ -137,8 +137,16 @@ def messages_from(events: tuple[SessionEvent, ...]) -> tuple[Message, ...]:
     return tuple(decode_message(event.data["message"]) for event in events)
 
 
+def _latest_of(events: tuple[SessionEvent, ...], kind: EventKind) -> SessionEvent | None:
+    """The most recent event of `kind` among `events`, or None."""
+    for event in reversed(events):
+        if event.kind is kind:
+            return event
+    return None
+
+
 def effective_surface(log: SessionLog) -> tuple[SessionEvent, ...]:
-    """The surface entries that still participate in derivation.
+    """The surface entries that still participate, ignoring compaction.
 
     A reset excludes everything at or before it; the latest one wins.
 
@@ -146,16 +154,47 @@ def effective_surface(log: SessionLog) -> tuple[SessionEvent, ...]:
     supersedes — a private cross-module import would be worse than a named
     seam.
     """
-    reset_seq = max(
-        (event.seq for event in log.events if event.kind is EventKind.SESSION_RESET),
-        default=0,
-    )
-    return tuple(event for event in log.surface() if event.seq > reset_seq)
+    reset_event = _latest_of(log.events, EventKind.SESSION_RESET)
+    floor = reset_event.seq if reset_event is not None else 0
+    return tuple(event for event in log.surface() if event.seq > floor)
+
+
+def _derive(log: SessionLog, limit: int) -> tuple[Message, ...]:
+    """Project `log` up to sequence `limit`, applying reset and compaction.
+
+    `limit` exists for forks: a child sees its ancestor only as far as the
+    boundary fixed at fork time, so the ancestor's later writes stay private
+    to it.
+
+    Sequence numbers restart in a fork, so a compaction's `superseded_through`
+    and `retained` refer to that log's *own* events. Inherited history is
+    therefore dropped wholesale when a compaction or reset is active, rather
+    than filtered by sequence — comparing across logs would match unrelated
+    entries that happen to share a number.
+    """
+    events = tuple(event for event in log.events if event.seq <= limit)
+
+    reset_event = _latest_of(events, EventKind.SESSION_RESET)
+    floor = reset_event.seq if reset_event is not None else 0
+    own_surface = tuple(event for event in events if is_surface(event) and event.seq > floor)
+
+    compaction = _latest_of(events, EventKind.COMPACTION)
+    if compaction is not None and compaction.seq > floor:
+        superseded = compaction.data["superseded_through"]
+        retained = set(compaction.data["retained"])
+        summary = UserMessage(content=(TextBlock(text=compaction.data["summary"]),), timestamp=0)
+        kept = tuple(
+            event for event in own_surface if event.seq > superseded or event.seq in retained
+        )
+        return (summary, *messages_from(kept))
+
+    inherited: tuple[Message, ...] = ()
+    if reset_event is None and log.ancestor is not None:
+        inherited = _derive(log.ancestor, log.boundary)
+
+    return (*inherited, *messages_from(own_surface))
 
 
 def derive_messages(log: SessionLog) -> tuple[Message, ...]:
-    """Project `log`'s effective surface into model history.
-
-    Session operations layer additional rules on top; see `operations.py`.
-    """
-    return messages_from(effective_surface(log))
+    """Project `log` into model history, walking any ancestry it has."""
+    return _derive(log, len(log))

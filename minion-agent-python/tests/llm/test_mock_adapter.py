@@ -56,9 +56,7 @@ async def test_a_tool_call_response_settles_with_tool_use() -> None:
 
 
 async def test_a_scripted_error_rides_the_stream() -> None:
-    adapter = MockAdapter(
-        [ScriptedResponse((), StopReason.ERROR, error_message="upstream 500")]
-    )
+    adapter = MockAdapter([ScriptedResponse((), StopReason.ERROR, error_message="upstream 500")])
 
     chunks = [chunk async for chunk in adapter.stream(_request())]
 
@@ -86,9 +84,7 @@ async def test_the_adapter_records_what_it_was_asked() -> None:
 
 
 async def test_usage_is_carried_through() -> None:
-    adapter = MockAdapter(
-        [ScriptedResponse((), StopReason.STOP, usage=Usage(input=7, output=3))]
-    )
+    adapter = MockAdapter([ScriptedResponse((), StopReason.STOP, usage=Usage(input=7, output=3))])
 
     message = await collect(adapter.stream(_request()))
 

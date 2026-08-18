@@ -5,11 +5,11 @@ from minion_agent.session.events import SURFACE_KINDS, EventKind, SessionEvent, 
 
 def test_the_surface_is_exactly_three_kinds() -> None:
     """Widening this set widens what the model sees, so it is pinned."""
-    assert SURFACE_KINDS == {
+    assert {
         EventKind.USER_MESSAGE,
         EventKind.ASSISTANT_MESSAGE,
         EventKind.TOOL_RESULT,
-    }
+    } == SURFACE_KINDS
 
 
 def test_lifecycle_events_are_not_surface() -> None:

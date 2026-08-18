@@ -79,9 +79,7 @@ class MockAdapter:
 
             settled = build(response.stop_reason)
             if response.stop_reason in _ERROR_REASONS:
-                yield StreamError(
-                    reason=response.stop_reason, message=settled, partial=settled
-                )
+                yield StreamError(reason=response.stop_reason, message=settled, partial=settled)
             else:
                 yield StreamDone(message=settled, partial=settled)
 

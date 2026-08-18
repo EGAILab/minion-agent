@@ -63,9 +63,7 @@ def test_assistant_message_may_carry_an_error() -> None:
 
 
 def test_tool_result_message_links_to_its_call() -> None:
-    message = ToolResultMessage(
-        tool_call_id="t1", content=(TextBlock(text="ok"),), timestamp=2
-    )
+    message = ToolResultMessage(tool_call_id="t1", content=(TextBlock(text="ok"),), timestamp=2)
 
     assert message.tool_call_id == "t1"
     assert not message.is_error

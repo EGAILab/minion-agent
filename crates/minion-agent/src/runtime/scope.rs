@@ -19,7 +19,7 @@ pub struct ScopeTree {
 }
 
 struct ScopeTreeState {
-    next_id: u64,
+    next_id: Option<u64>,
     scopes: HashMap<ScopeId, ScopeNode>,
 }
 
@@ -42,7 +42,7 @@ impl ScopeTree {
     pub fn new() -> Self {
         Self {
             state: Arc::new(Mutex::new(ScopeTreeState {
-                next_id: 0,
+                next_id: Some(0),
                 scopes: HashMap::new(),
             })),
         }
@@ -76,8 +76,12 @@ impl ScopeTree {
                 })?,
             None => 0,
         };
-        let id = ScopeId(state.next_id);
-        state.next_id = state.next_id.wrapping_add(1);
+        let id = ScopeId(
+            state
+                .next_id
+                .expect("scope ID space exhausted; IDs must never be reused"),
+        );
+        state.next_id = id.0.checked_add(1);
         state.scopes.insert(
             id,
             ScopeNode {

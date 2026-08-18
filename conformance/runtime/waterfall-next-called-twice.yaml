@@ -1,0 +1,31 @@
+name: delegating twice from one listener is an error
+description: >
+  `next` may be called at most once. Memoizing it instead would be incoherent,
+  because a second call may carry different replacement arguments and there is
+  no defensible answer for which set the downstream chain saw.
+plugins:
+  - id: greedy
+    listeners:
+      - event: test/greedy
+        action: delegate_twice
+        tag: greedy
+  - id: downstream
+    listeners:
+      - event: test/greedy
+        action: short_circuit
+        tag: downstream
+        returns: value
+steps:
+  - mount: greedy
+  - mount: downstream
+  - dispatch: { event: test/greedy, mode: waterfall }
+expect_trace:
+  - { event: fiber_state, plugin: greedy, state: loading }
+  - { event: fiber_state, plugin: greedy, state: active }
+  - { event: fiber_state, plugin: downstream, state: loading }
+  - { event: fiber_state, plugin: downstream, state: active }
+  - { event: listener_entered, plugin: greedy, tag: greedy }
+  - { event: listener_entered, plugin: downstream, tag: downstream }
+expect_error:
+  type: WaterfallError
+  message_contains: at most once

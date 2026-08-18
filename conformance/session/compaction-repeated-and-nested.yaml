@@ -1,0 +1,15 @@
+name: repeated compaction supersedes the earlier summary
+description: >
+  The second compaction supersedes the first, so derivation never accumulates
+  a chain of summaries. This is where independent implementations diverge
+  unnoticed if replacement semantics are left implicit.
+steps:
+  - append: { role: user, text: one }
+  - append: { role: user, text: two }
+  - compact: { summary: first summary, keep: 0 }
+  - append: { role: user, text: three }
+  - compact: { summary: second summary, keep: 1 }
+  - derive: {}
+expect_messages:
+  - { role: user, text: second summary }
+  - { role: user, text: three }

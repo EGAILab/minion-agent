@@ -52,10 +52,11 @@ fn unknown_command_fails() {
 #[test]
 fn conformance_verify_is_dispatched_instead_of_rejected_as_unsupported() {
     let output = run(&["conformance", "verify"]);
-    assert!(!output.status.success());
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains("read snapshot manifest"));
-    assert!(!stderr.contains("usage: xtask conformance"));
+    assert!(
+        output.status.success(),
+        "vendored snapshot should verify: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
 }
 
 #[test]
@@ -72,7 +73,8 @@ fn conformance_sync_is_dispatched_instead_of_rejected_as_unsupported() {
         .parent()
         .expect("workspace root")
         .join("conformance");
-    assert!(!destination.exists(), "test must not use a real snapshot");
+    let source_before =
+        fs::read(destination.join("SOURCE.json")).expect("existing vendored snapshot manifest");
 
     let output = run(&["conformance", "sync", "--source", &source.to_string_lossy()]);
 
@@ -80,6 +82,10 @@ fn conformance_sync_is_dispatched_instead_of_rejected_as_unsupported() {
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(stderr.contains("git command failed"));
     assert!(!stderr.contains("usage: xtask conformance"));
-    assert!(!destination.exists());
+    assert_eq!(
+        fs::read(destination.join("SOURCE.json")).expect("snapshot manifest after rejected sync"),
+        source_before,
+        "a rejected sync must not change the vendored snapshot"
+    );
     fs::remove_dir_all(source).expect("source cleanup");
 }

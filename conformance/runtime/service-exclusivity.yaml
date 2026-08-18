@@ -1,0 +1,22 @@
+name: a second provider of the same service is rejected
+description: >
+  Registration is exclusive. The second provider raises rather than winning;
+  there is no last-wins rule and no priority, because there is never more than
+  one provider to choose between.
+plugins:
+  - id: holder
+    provides: tools
+  - id: latecomer
+    provides: tools
+steps:
+  - mount: holder
+  - mount: latecomer
+expect_trace:
+  - { event: fiber_state, plugin: holder, state: loading }
+  - { event: service_provided, plugin: holder, service: tools }
+  - { event: fiber_state, plugin: holder, state: active }
+  - { event: fiber_state, plugin: latecomer, state: loading }
+  - { event: fiber_state, plugin: latecomer, state: failed }
+expect_error:
+  type: ServiceConflictError
+  message_contains: holder

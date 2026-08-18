@@ -1,0 +1,24 @@
+name: effects dispose in reverse creation order when a fiber unloads
+description: >
+  A fiber creating three labelled effects must dispose them last-created-first
+  on unload. Reverse order is normative, not incidental.
+plugins:
+  - id: subject
+    effects:
+      - label: first
+      - label: second
+      - label: third
+steps:
+  - mount: subject
+  - unmount: subject
+expect_trace:
+  - { event: fiber_state, plugin: subject, state: loading }
+  - { event: effect_created, plugin: subject, label: first }
+  - { event: effect_created, plugin: subject, label: second }
+  - { event: effect_created, plugin: subject, label: third }
+  - { event: fiber_state, plugin: subject, state: active }
+  - { event: fiber_state, plugin: subject, state: unloading }
+  - { event: effect_disposed, plugin: subject, label: third }
+  - { event: effect_disposed, plugin: subject, label: second }
+  - { event: effect_disposed, plugin: subject, label: first }
+  - { event: fiber_state, plugin: subject, state: disposed }

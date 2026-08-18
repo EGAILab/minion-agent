@@ -1,0 +1,94 @@
+{
+  "source_repository": "minion-agent-python/conformance",
+  "source_commit": "88aa2201a8da646bbbde1fc3a3850cd1f512d3cc",
+  "files": [
+    {
+      "path": "runtime/dependency-loss-during-loading-never-activates.yaml",
+      "sha256": "8cf5ab9550d5e92fd91b647788b5d23c8992adfe5e3084b83b94e00225859aa6"
+    },
+    {
+      "path": "runtime/effect-reversal.yaml",
+      "sha256": "eeb16f6fd186960b8c7f7e875c8c25e915ef1a2ce6a08ee3f497c1653706d000"
+    },
+    {
+      "path": "runtime/failed-remains-failed.yaml",
+      "sha256": "96a6161424d4a9640b54965f685d6711645ed82372a8eeeb3d55e5bc5889a0a8"
+    },
+    {
+      "path": "runtime/nested-scope-disposal.yaml",
+      "sha256": "09abae6f4967803578eb400afcb85c0cbb8303870975c24281cf612f59b67a71"
+    },
+    {
+      "path": "runtime/reactive-dependency.yaml",
+      "sha256": "3a69be7cbb4516b77ddb4c18c662db900e87149bf2225394831b618f2a069a55"
+    },
+    {
+      "path": "runtime/scoped-event-admission.yaml",
+      "sha256": "4791e50cbbc70496b40bd91a0aceb6a087e49a1a858b4098e4e0141f6913902c"
+    },
+    {
+      "path": "runtime/scoped-registration-visibility.yaml",
+      "sha256": "4e6595e98be1dbfa44ec02b35f5437f9df9b7f4b3d81ae4787004804421c3bb5"
+    },
+    {
+      "path": "runtime/service-exclusivity.yaml",
+      "sha256": "bcd10625821c8dd0229d0f306700064ac72c9f9d56b43ee5904935521928db0e"
+    },
+    {
+      "path": "runtime/waterfall-next-called-twice.yaml",
+      "sha256": "72c3bc9a039f5b55e3e0bd64edff3b642bd89f1f2edfcdc68764f40a9f8a863e"
+    },
+    {
+      "path": "runtime/waterfall-terminal-continuation.yaml",
+      "sha256": "9fc01886b9b74f2b387302f4021dbd7dd5f0c8d8f41528bbed5e807ba4e8036e"
+    },
+    {
+      "path": "schema/agent-scenario.schema.json",
+      "sha256": "1429cd36998958e5d118100c683fd549953dbc77a7b195adffb25f0f9c4fc68f"
+    },
+    {
+      "path": "schema/runtime-scenario.schema.json",
+      "sha256": "64177abe4f82e65f09e84195234594369ce7b456ad883b945501f29b082ab497"
+    },
+    {
+      "path": "schema/session-scenario.schema.json",
+      "sha256": "fd4f6d2f6a51652b1021b35c8c063ff503ae71c7d50d2cad057dbdb9cb49e9bc"
+    },
+    {
+      "path": "session/compact-now-then-derive.yaml",
+      "sha256": "cbd94c390122b8434330672611242538aa55722b39553289aedef7c687a0c515"
+    },
+    {
+      "path": "session/compaction-repeated-and-nested.yaml",
+      "sha256": "8bd16e928639288f99f7ba3e84dca6ebb3c2981f1260a739038d69326a603bdc"
+    },
+    {
+      "path": "session/event-name-identity-is-by-value.yaml",
+      "sha256": "191a5eb19834987bfd116d085baa06f5692e65423ea2937f534a97a59aabfcb1"
+    },
+    {
+      "path": "session/fork-ancestry-derivation.yaml",
+      "sha256": "6bc658d04b4660a5ceca78392eada5574039c5c01b26f9dae6edbafbf6c5e7e8"
+    },
+    {
+      "path": "session/fork-local-compaction.yaml",
+      "sha256": "93b011b1734f31e18d91783689d5ef08bfdf6c13e0e91e303f4bcee3e1b52954"
+    },
+    {
+      "path": "session/overlapping-compaction.yaml",
+      "sha256": "4665b92aca1cc7702df43ba784a023e23bfaafc22d3491e3374226a41965810e"
+    },
+    {
+      "path": "session/plugin-defined-event-kind.yaml",
+      "sha256": "86fdcacfa2c0c54204611be0ecc2ca7ca6883221bba310222f68ebe06d98f3ad"
+    },
+    {
+      "path": "session/plugin-event-stays-log-only-by-default.yaml",
+      "sha256": "6e7699d630ba0035fe385ba4f74e3bda195145606ba08ebe3a7b87eaeed34489"
+    },
+    {
+      "path": "session/reset-excludes-prior-surface.yaml",
+      "sha256": "19077d7926b3030b06e5d8b95bb6adda33c9c0fcdee0cef5f3e99ef36f6b06f8"
+    }
+  ]
+}

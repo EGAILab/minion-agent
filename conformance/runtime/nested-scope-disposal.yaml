@@ -1,0 +1,34 @@
+name: disposing a scope removes its descendants and leaves ancestors intact
+description: >
+  Ownership follows the registration context. Disposing a middle scope unwinds
+  it and everything beneath it, in reverse creation order, while its parent is
+  untouched until disposed in its own right.
+plugins:
+  - id: outer-plugin
+    scope: outer
+    effects:
+      - label: outer-effect
+  - id: middle-plugin
+    scope: middle
+    scope_parent: outer
+    effects:
+      - label: middle-first
+      - label: middle-second
+steps:
+  - mount: outer-plugin
+  - mount: middle-plugin
+  - dispose_scope: middle
+  - dispose_scope: outer
+expect_trace:
+  - { event: fiber_state, plugin: outer-plugin, state: loading }
+  - { event: effect_created, plugin: outer-plugin, label: outer-effect }
+  - { event: fiber_state, plugin: outer-plugin, state: active }
+  - { event: fiber_state, plugin: middle-plugin, state: loading }
+  - { event: effect_created, plugin: middle-plugin, label: middle-first }
+  - { event: effect_created, plugin: middle-plugin, label: middle-second }
+  - { event: fiber_state, plugin: middle-plugin, state: active }
+  - { event: effect_disposed, plugin: middle-plugin, label: middle-second }
+  - { event: effect_disposed, plugin: middle-plugin, label: middle-first }
+  - { event: scope_disposed, scope: middle }
+  - { event: effect_disposed, plugin: outer-plugin, label: outer-effect }
+  - { event: scope_disposed, scope: outer }

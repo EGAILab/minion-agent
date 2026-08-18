@@ -62,5 +62,5 @@ class TelemetryService:
         for sink in list(self._sinks):
             try:
                 sink.emit(scrubbed)
-            except Exception:  # noqa: BLE001 - telemetry must never affect behavior
+            except Exception:
                 continue

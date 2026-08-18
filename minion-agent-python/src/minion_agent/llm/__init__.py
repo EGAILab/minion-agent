@@ -1,1 +1,68 @@
 """The provider-neutral LLM vocabulary and adapter seam."""
+
+from .content import ContentBlock, ImageBlock, TextBlock, ThinkingBlock, ToolCallBlock
+from .errors import AdapterProtocolError, LlmError, UnknownModelError
+from .messages import (
+    AssistantMessage,
+    Message,
+    StopReason,
+    ToolResultMessage,
+    Usage,
+    UserMessage,
+    text_of,
+)
+from .service import Adapter, LlmService, ModelId, Request
+from .stream import (
+    AssistantStream,
+    StreamChunk,
+    StreamDone,
+    StreamError,
+    StreamStart,
+    TextDelta,
+    TextEnd,
+    TextStart,
+    ThinkingDelta,
+    ThinkingEnd,
+    ThinkingStart,
+    ToolCallDelta,
+    ToolCallEnd,
+    ToolCallStart,
+    collect,
+)
+
+__all__ = [
+    "Adapter",
+    "AdapterProtocolError",
+    "AssistantMessage",
+    "AssistantStream",
+    "ContentBlock",
+    "ImageBlock",
+    "LlmError",
+    "LlmService",
+    "Message",
+    "ModelId",
+    "Request",
+    "StopReason",
+    "StreamChunk",
+    "StreamDone",
+    "StreamError",
+    "StreamStart",
+    "TextBlock",
+    "TextDelta",
+    "TextEnd",
+    "TextStart",
+    "ThinkingBlock",
+    "ThinkingDelta",
+    "ThinkingEnd",
+    "ThinkingStart",
+    "ToolCallBlock",
+    "ToolCallDelta",
+    "ToolCallEnd",
+    "ToolCallStart",
+    "ToolResultMessage",
+    "UnknownModelError",
+    "Usage",
+    "UserMessage",
+    "collect",
+    "text_of",
+]

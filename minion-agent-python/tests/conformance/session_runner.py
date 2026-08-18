@@ -78,6 +78,5 @@ def run_session_scenario(document: dict[str, Any]) -> list[dict[str, str]]:
         # "derive" is a no-op marker: derivation happens once, at the end.
 
     return [
-        {"role": _role_of(message), "text": text_of(message)}
-        for message in derive_messages(log)
+        {"role": _role_of(message), "text": text_of(message)} for message in derive_messages(log)
     ]

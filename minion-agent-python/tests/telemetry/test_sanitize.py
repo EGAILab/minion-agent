@@ -5,9 +5,7 @@ from minion_agent.telemetry.spans import Span, SpanKind
 
 
 def _span(**attributes: object) -> Span:
-    return Span(
-        kind=SpanKind.PROVIDER_REQUEST, name="request", attributes=dict(attributes)
-    )
+    return Span(kind=SpanKind.PROVIDER_REQUEST, name="request", attributes=dict(attributes))
 
 
 def test_a_configured_secret_is_masked() -> None:

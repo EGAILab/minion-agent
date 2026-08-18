@@ -7,9 +7,7 @@ import yaml
 
 from .session_runner import run_session_scenario
 
-SCENARIOS = sorted(
-    (Path(__file__).resolve().parents[2] / "conformance" / "session").glob("*.yaml")
-)
+SCENARIOS = sorted((Path(__file__).resolve().parents[2] / "conformance" / "session").glob("*.yaml"))
 
 
 @pytest.mark.parametrize("scenario", SCENARIOS, ids=lambda path: path.stem)

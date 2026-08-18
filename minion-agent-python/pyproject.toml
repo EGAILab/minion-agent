@@ -44,7 +44,12 @@ strict = true
 files = ["src/minion_agent"]
 
 [tool.coverage.run]
-source = ["src/minion_agent/runtime"]
+source = [
+    "src/minion_agent/runtime",
+    "src/minion_agent/llm",
+    "src/minion_agent/session",
+    "src/minion_agent/telemetry",
+]
 
 [tool.coverage.report]
 fail_under = 100

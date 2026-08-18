@@ -18,6 +18,10 @@ from ..stream import StreamChunk, StreamDone, StreamError, StreamStart, TextDelt
 
 _ERROR_REASONS = frozenset({StopReason.ERROR, StopReason.ABORTED})
 
+_NO_USAGE = Usage()
+"""Shared zero usage. Safe as a default because `Usage` is frozen, so no
+scripted response can mutate what another one sees."""
+
 
 @dataclass(frozen=True, slots=True)
 class ScriptedResponse:
@@ -25,7 +29,7 @@ class ScriptedResponse:
 
     content: tuple[ContentBlock, ...]
     stop_reason: StopReason
-    usage: Usage = Usage()
+    usage: Usage = _NO_USAGE
     error_message: str | None = None
 
 

@@ -141,3 +141,25 @@ async def test_dispose_is_idempotent_and_load_after_dispose_is_a_noop() -> None:
     await fiber.load()
 
     assert fiber.state is FiberState.DISPOSED
+
+
+async def test_disposing_a_failed_fiber_goes_straight_to_disposed() -> None:
+    """`Failed -> dispose -> Disposed` is normative (design spec section 3).
+
+    A failed fiber's effects were unwound when it failed, and no effect can be
+    created on a fiber that is not loading or active, so it provably owns
+    nothing. Announcing UNLOADING would make a second implementation reproduce
+    a phase with nothing to do.
+    """
+
+    async def body(ctx, config):
+        raise ValueError("boom")
+
+    fiber = Fiber(name="subject", parent=Context(), plugin=_spec(body), config=None)
+    seen: list[FiberState] = []
+
+    await fiber.load()
+    fiber.on_state_change = lambda _fiber, state: seen.append(state)
+    await fiber.dispose()
+
+    assert seen == [FiberState.DISPOSED]

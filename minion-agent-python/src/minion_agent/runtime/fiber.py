@@ -125,8 +125,16 @@ class Fiber:
 
         return dispose
 
-    async def load(self) -> None:
-        """Run the plugin body, transitioning PENDING -> LOADING -> ACTIVE."""
+    async def load(self, validate: Callable[[], bool] | None = None) -> None:
+        """Run the plugin body, transitioning PENDING -> LOADING -> ACTIVE.
+
+        Loading is a transaction over owned effects. `validate` is re-checked
+        after the body returns: a dependency can disappear while the body runs,
+        and an attempt invalidated that way must not commit. The effects it
+        created unwind in reverse and the fiber settles back at PENDING —
+        without passing through ACTIVE or UNLOADING, because a stale attempt
+        was never active and has nothing to unload.
+        """
         if self._state is not FiberState.PENDING:
             return
         self._transition(FiberState.LOADING)
@@ -135,15 +143,31 @@ class Fiber:
             if inspect.isawaitable(result):
                 await result
         except Exception:
-            await self._disposables.dispose_all()
-            self._disposables = DisposableList()
+            await self._unwind()
             self._transition(FiberState.FAILED)
             return
+
+        if validate is not None and not validate():
+            await self._unwind()
+            self._transition(FiberState.PENDING)
+            return
+
         self._transition(FiberState.ACTIVE)
 
+    async def _unwind(self) -> None:
+        """Dispose this fiber's effects and start a fresh disposable list."""
+        await self._disposables.dispose_all()
+        self._disposables = DisposableList()
+
     async def unload(self) -> None:
-        """Unwind effects and return to PENDING, ready to load again."""
-        if self._state not in _LIVE_STATES and self._state is not FiberState.FAILED:
+        """Unwind effects and return to PENDING, ready to load again.
+
+        A no-op on FAILED. That phase is stable: it has no restart operation,
+        so recovery is disposal followed by a fresh mount. Returning a failed
+        fiber to PENDING would let the next reconcile silently re-run an
+        initialization that already reported failure.
+        """
+        if self._state not in _LIVE_STATES:
             return
         self._transition(FiberState.UNLOADING)
         await self._disposables.dispose_all()
@@ -151,11 +175,22 @@ class Fiber:
         self._transition(FiberState.PENDING)
 
     async def dispose(self) -> None:
-        """Unwind effects and enter the terminal DISPOSED state."""
+        """Unwind effects and enter the terminal DISPOSED state.
+
+        Only an active fiber announces UNLOADING. The lifecycle names that
+        phase for teardown of a fiber that was serving, and the normative
+        transitions read `Failed -> dispose -> Disposed` and
+        `Loading -> dispose -> unwind -> Disposed` (design spec section 3): a
+        failed fiber's effects were already unwound when it failed, and an
+        interrupted loading attempt was never active. Announcing a phase with
+        nothing to do would make a second implementation reproduce a
+        transition the specification does not describe.
+        """
         if self._state is FiberState.DISPOSED:
             return
-        if self._state in _LIVE_STATES or self._state is FiberState.FAILED:
+        unwind = self._state in _LIVE_STATES
+        if self._state is FiberState.ACTIVE:
             self._transition(FiberState.UNLOADING)
-            await self._disposables.dispose_all()
-            self._disposables = DisposableList()
+        if unwind:
+            await self._unwind()
         self._transition(FiberState.DISPOSED)

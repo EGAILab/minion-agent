@@ -8,6 +8,7 @@ service's arrival cascade through a chain of dependents.
 
 from __future__ import annotations
 
+from functools import partial
 from typing import TYPE_CHECKING, Any
 
 from .fiber import Fiber, FiberState
@@ -61,7 +62,9 @@ class PluginRegistry:
 
             for fiber in list(self._fibers):
                 if fiber.state is FiberState.PENDING and self._is_satisfied(fiber):
-                    await fiber.load()
+                    # Re-checked at commit: the body may itself withdraw a
+                    # service this fiber depends on.
+                    await fiber.load(validate=partial(self._is_satisfied, fiber))
                     changed = True
 
             if not changed:

@@ -128,6 +128,7 @@ def build_plugin(
     entry: dict[str, Any],
     recorder: TraceRecorder,
     scopes: ScopeTable,
+    run_step: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
 ) -> PluginSpec:
     """Turn one declarative plugin entry into a mountable PluginSpec."""
     plugin_id = entry["id"]
@@ -137,6 +138,7 @@ def build_plugin(
     fails = entry.get("fails", False)
     scope_name = entry.get("scope")
     scope_parent = entry.get("scope_parent")
+    during_load = entry.get("during_load", [])
 
     async def apply(ctx: Context, config: Any) -> None:
         # A plugin declaring a scope registers through it, so visibility and
@@ -155,6 +157,11 @@ def build_plugin(
 
         for listener in listeners:
             target.on(listener["event"], _make_listener(listener, plugin_id, recorder))
+
+        # Run before the failure check: a scenario may need both.
+        if during_load and run_step is not None:
+            for step in during_load:
+                await run_step(step)
 
         if fails:
             raise ValueError(f"{plugin_id} failed on purpose")
@@ -188,10 +195,57 @@ async def run_runtime_scenario(document: dict[str, Any]) -> RunOutcome:
     recorder = TraceRecorder()
     root = Context()
     scopes = ScopeTable(recorder)
-    specs = {entry["id"]: build_plugin(entry, recorder, scopes) for entry in document["plugins"]}
     configs = {entry["id"]: entry.get("config") for entry in document["plugins"]}
     fibers: dict[str, Any] = {}
     result: Any = None
+
+    async def execute_step(step: dict[str, Any]) -> None:
+        """Apply one scenario step.
+
+        Shared by the top-level loop and by a plugin's `during_load`, so a step
+        means the same thing wherever it appears. `specs` is late-bound: it is
+        assigned below, before this ever runs.
+        """
+        nonlocal result
+
+        if "mount" in step:
+            plugin_id = step["mount"]
+            fiber = root.plugins.mount(specs[plugin_id], configs[plugin_id], root)
+            _attach_recording(fiber, plugin_id, recorder)
+            fibers[plugin_id] = fiber
+            await root.plugins.reconcile()
+
+        elif "unmount" in step:
+            await root.plugins.unmount(fibers[step["unmount"]])
+
+        elif "dispose_scope" in step:
+            await scopes.dispose(step["dispose_scope"])
+
+        elif "dispatch" in step:
+            dispatch = step["dispatch"]
+            name = dispatch["event"]
+            mode = DispatchMode(dispatch["mode"])
+            args = dispatch.get("args", [])
+            scope_key = scopes.keys.get(dispatch["scope"]) if "scope" in dispatch else None
+            root.events.declare(name, mode)
+            if mode is DispatchMode.EMIT:
+                root.events.emit(name, *args, scope=scope_key)
+            elif mode is DispatchMode.PARALLEL:
+                await root.events.parallel(name, *args, scope=scope_key)
+            elif mode is DispatchMode.SERIAL:
+                result = await root.events.serial(name, *args, scope=scope_key)
+            else:
+                result = await root.events.waterfall(
+                    name,
+                    *args,
+                    scope=scope_key,
+                    terminal=dispatch.get("terminal"),
+                )
+
+    specs = {
+        entry["id"]: build_plugin(entry, recorder, scopes, execute_step)
+        for entry in document["plugins"]
+    }
 
     # Declare every dispatched event up front. A listener cannot register for
     # an undeclared event -- mode is part of the contract -- so declaration has
@@ -203,39 +257,7 @@ async def run_runtime_scenario(document: dict[str, Any]) -> RunOutcome:
 
     for step in document["steps"]:
         try:
-            if "mount" in step:
-                plugin_id = step["mount"]
-                fiber = root.plugins.mount(specs[plugin_id], configs[plugin_id], root)
-                _attach_recording(fiber, plugin_id, recorder)
-                fibers[plugin_id] = fiber
-                await root.plugins.reconcile()
-
-            elif "unmount" in step:
-                await root.plugins.unmount(fibers[step["unmount"]])
-
-            elif "dispose_scope" in step:
-                await scopes.dispose(step["dispose_scope"])
-
-            elif "dispatch" in step:
-                dispatch = step["dispatch"]
-                name = dispatch["event"]
-                mode = DispatchMode(dispatch["mode"])
-                args = dispatch.get("args", [])
-                scope_key = scopes.keys.get(dispatch["scope"]) if "scope" in dispatch else None
-                root.events.declare(name, mode)
-                if mode is DispatchMode.EMIT:
-                    root.events.emit(name, *args, scope=scope_key)
-                elif mode is DispatchMode.PARALLEL:
-                    await root.events.parallel(name, *args, scope=scope_key)
-                elif mode is DispatchMode.SERIAL:
-                    result = await root.events.serial(name, *args, scope=scope_key)
-                else:
-                    result = await root.events.waterfall(
-                        name,
-                        *args,
-                        scope=scope_key,
-                        terminal=dispatch.get("terminal"),
-                    )
+            await execute_step(step)
 
         except RuntimeError_ as error:
             return RunOutcome(trace=recorder.entries, result=result, error=error)

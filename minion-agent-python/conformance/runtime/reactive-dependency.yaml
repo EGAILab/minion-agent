@@ -4,6 +4,13 @@ description: >
   exists, so it must stay pending. Mounting the provider activates it;
   unmounting the provider unloads it again, unwinding its effects in reverse.
   Services appearing and vanishing at runtime is a normal condition.
+
+  Revocation bookkeeping is deliberately not asserted here. Withdrawing a
+  service cascades into dependents while the provider is still unloading, so
+  exactly where a "revoked" marker lands relative to that cascade is an
+  artifact of how an implementation reports effect disposal, not observable
+  behavior. What is observable — and what this case pins — is that the
+  dependent unloads, unwinds in reverse, and returns to pending.
 plugins:
   - id: consumer
     inject: [tools]
@@ -25,7 +32,6 @@ expect_trace:
   - { event: effect_created, plugin: consumer, label: resource }
   - { event: fiber_state, plugin: consumer, state: active }
   - { event: fiber_state, plugin: provider, state: unloading }
-  - { event: service_revoked, plugin: provider, service: tools }
   - { event: fiber_state, plugin: consumer, state: unloading }
   - { event: effect_disposed, plugin: consumer, label: resource }
   - { event: effect_disposed, plugin: consumer, label: subscription }

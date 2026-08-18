@@ -291,7 +291,13 @@ fn concurrent_bulk_unwind_waits_for_the_owner_and_does_not_split_errors() {
         ]
     );
     assert_eq!(started_receiver.recv().unwrap(), "older");
-    assert!(block_on(follower).is_ok());
+    assert_eq!(
+        block_on(follower).unwrap_err().as_slice(),
+        &[
+            DisposeError::new("newest", "new failure"),
+            DisposeError::new("older", "old failure"),
+        ]
+    );
 }
 
 #[test]
@@ -343,5 +349,62 @@ fn dropped_bulk_owner_transfers_the_full_aggregate_to_a_survivor() {
     );
     assert_eq!(started_receiver.recv().unwrap(), "older");
     assert!(started_receiver.try_recv().is_err());
+    assert!(block_on(effects.close_and_dispose()).is_ok());
+}
+
+#[test]
+fn pending_followers_keep_the_aggregate_after_the_owner_is_dropped() {
+    let effects = Arc::new(EffectStore::new());
+    let (started_sender, started_receiver) = mpsc::channel();
+    let (release_sender, release_receiver) = oneshot::channel::<()>();
+    let older_started_sender = started_sender.clone();
+
+    effects
+        .push("older", move || {
+            Box::pin(async move {
+                older_started_sender.send("older").unwrap();
+                Err(DisposeError::new("older", "old failure"))
+            })
+        })
+        .unwrap();
+    effects
+        .push("newest", move || {
+            Box::pin(async move {
+                started_sender.send("newest").unwrap();
+                release_receiver.await.unwrap();
+                Err(DisposeError::new("newest", "new failure"))
+            })
+        })
+        .unwrap();
+
+    let mut owner = Box::pin(effects.close_and_dispose());
+    let mut follower = Box::pin(effects.close_and_dispose());
+    let mut context = Context::from_waker(noop_waker_ref());
+    assert!(matches!(owner.as_mut().poll(&mut context), Poll::Pending));
+    assert_eq!(started_receiver.recv().unwrap(), "newest");
+    assert!(matches!(
+        follower.as_mut().poll(&mut context),
+        Poll::Pending
+    ));
+
+    release_sender.send(()).unwrap();
+    let driver_errors = block_on(effects.close_and_dispose()).unwrap_err();
+    assert_eq!(
+        driver_errors.as_slice(),
+        &[
+            DisposeError::new("newest", "new failure"),
+            DisposeError::new("older", "old failure"),
+        ]
+    );
+    assert_eq!(started_receiver.recv().unwrap(), "older");
+    drop(owner);
+
+    assert_eq!(
+        block_on(follower).unwrap_err().as_slice(),
+        &[
+            DisposeError::new("newest", "new failure"),
+            DisposeError::new("older", "old failure"),
+        ]
+    );
     assert!(block_on(effects.close_and_dispose()).is_ok());
 }

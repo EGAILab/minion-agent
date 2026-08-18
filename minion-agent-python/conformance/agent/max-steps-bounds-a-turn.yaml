@@ -1,0 +1,26 @@
+name: max_steps bounds a turn that only ever calls tools
+description: >
+  A hard loop invariant. The model requests a tool every time; the turn ends
+  at the bound rather than running forever, and no listener can override it.
+
+  Two assistant messages and two results, not three: the bound stops the turn
+  after the second step.
+config: { max_steps: 2 }
+provider_script:
+  - content: [{ type: tool_call, id: t1, name: echo, arguments: {} }]
+    stop_reason: tool_use
+  - content: [{ type: tool_call, id: t2, name: echo, arguments: {} }]
+    stop_reason: tool_use
+  - content: [{ type: tool_call, id: t3, name: echo, arguments: {} }]
+    stop_reason: tool_use
+tools:
+  echo: { result: { text: again } }
+steps:
+  - followup: go
+  - await_idle: true
+expect_messages:
+  - { role: user, text: go }
+  - { role: assistant, text: "" }
+  - { role: tool_result, text: again }
+  - { role: assistant, text: "" }
+  - { role: tool_result, text: again }

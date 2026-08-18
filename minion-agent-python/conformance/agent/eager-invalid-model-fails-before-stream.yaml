@@ -1,0 +1,23 @@
+name: an unresolvable model raises before any stream exists
+description: >
+  The other side of section 4's boundary, and the only agent scenario that
+  asserts a raised error. Resolving a model happens *before* a stream is
+  returned, so an unresolvable one is a caller bug and is reported eagerly --
+  never smuggled into history as an error message the model appears to have
+  produced.
+
+  The prompt is already on the surface when the request is built, so it
+  survives; nothing the model would have said does.
+config: { model: no-such-model }
+provider_script:
+  - content: [{ type: text, text: never reached }]
+    stop_reason: stop
+steps:
+  - followup: hello
+  - await_idle: true
+expect_error:
+  type: UnknownModelError
+  message_contains: no-such-model
+expect_messages:
+  - { role: user, text: hello }
+expect_assistant_stop_reasons: []

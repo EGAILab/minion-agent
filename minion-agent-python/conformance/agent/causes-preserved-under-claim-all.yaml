@@ -1,0 +1,28 @@
+name: one turn under claim-all carries every cause
+description: >
+  The case a singular turn origin could not express: three inputs with
+  distinct origins enter one turn, and all three survive to its completion.
+config: { next_turn_policy: all }
+provider_script:
+  - content: [{ type: text, text: answered }]
+    stop_reason: stop
+steps:
+  - followup: { text: one, origin: a }
+  - followup: { text: two, origin: b }
+  - followup: { text: three, origin: c }
+  - await_idle: true
+expect_events:
+  - agent_start
+  - turn_start
+  - message_start
+  - message_end
+  - message_start
+  - message_end
+  - message_start
+  - message_end
+  - message_start
+  - message_end
+  - turn_end
+  - agent_end
+expect_causes:
+  - [a, b, c]

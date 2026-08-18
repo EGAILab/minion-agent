@@ -1,0 +1,25 @@
+name: the public stream fuses after the first terminal
+description: >
+  A provider that keeps emitting after its terminal is misbehaving. The first
+  terminal wins and the stream fuses, so exactly one assistant message reaches
+  the log -- not one per terminal the provider sent.
+provider_script:
+  - content: [{ type: text, text: complete }]
+    stop_reason: stop
+    chunks_after_terminal: 2
+steps:
+  - followup: hello
+  - await_idle: true
+expect_events:
+  - agent_start
+  - turn_start
+  - message_start
+  - message_end
+  - message_start
+  - message_end
+  - turn_end
+  - agent_end
+expect_messages:
+  - { role: user, text: hello }
+  - { role: assistant, text: complete }
+expect_assistant_stop_reasons: [stop]

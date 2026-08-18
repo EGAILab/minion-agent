@@ -16,8 +16,9 @@ FAMILIES = {
 }
 
 # Families whose scenarios arrive in a later plan. Their schema must still exist
-# and must still be a valid JSON Schema.
-UNPOPULATED = {"agent"}
+# and must still be a valid JSON Schema. Empty now that every family is
+# populated; kept as the seam a new family is added through.
+UNPOPULATED: set[str] = set()
 
 
 def _scenarios(family: str) -> list[Path]:

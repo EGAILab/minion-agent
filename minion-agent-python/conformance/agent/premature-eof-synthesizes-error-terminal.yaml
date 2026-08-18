@@ -1,0 +1,26 @@
+name: a truncated provider stream settles instead of raising
+description: >
+  Section 4 is absolute after the stream is returned: nothing escapes
+  iteration. A provider stream that ends before emitting a terminal is a
+  runtime streaming failure -- a truncated response is the ordinary case -- so
+  it settles as an error rather than propagating an exception through the loop.
+
+  The turn completes its normal bracket. An implementation that let the
+  truncation raise would produce no turn_end at all.
+provider_script:
+  - content: [{ type: text, text: half a sen }]
+    stop_reason: stop
+    truncated: true
+steps:
+  - followup: hello
+  - await_idle: true
+expect_events:
+  - agent_start
+  - turn_start
+  - message_start
+  - message_end
+  - message_start
+  - message_end
+  - turn_end
+  - agent_end
+expect_assistant_stop_reasons: [error]

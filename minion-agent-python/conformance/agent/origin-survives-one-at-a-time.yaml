@@ -1,0 +1,24 @@
+name: each turn under one-at-a-time carries exactly its own cause
+description: >
+  The default policy. Two queued prompts produce two turns, each reporting the
+  single input it claimed.
+
+  No expect_events here: the causes and the messages are what this case pins,
+  and listing the full bracket twice would obscure that.
+provider_script:
+  - content: [{ type: text, text: first reply }]
+    stop_reason: stop
+  - content: [{ type: text, text: second reply }]
+    stop_reason: stop
+steps:
+  - followup: { text: one, origin: a }
+  - followup: { text: two, origin: b }
+  - await_idle: true
+expect_causes:
+  - [a]
+  - [b]
+expect_messages:
+  - { role: user, text: one }
+  - { role: assistant, text: first reply }
+  - { role: user, text: two }
+  - { role: assistant, text: second reply }

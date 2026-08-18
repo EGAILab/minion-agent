@@ -1,0 +1,23 @@
+name: a represented provider error rides the stream to a completed turn
+description: >
+  An error the provider itself reports is data, not an exception: it arrives
+  as a terminal error chunk, becomes an error-stopped assistant message, and
+  the turn closes normally. The model's failure is visible in history rather
+  than thrown past the loop.
+provider_script:
+  - content: []
+    stop_reason: error
+    error_message: upstream rate limit
+steps:
+  - followup: hello
+  - await_idle: true
+expect_events:
+  - agent_start
+  - turn_start
+  - message_start
+  - message_end
+  - message_start
+  - message_end
+  - turn_end
+  - agent_end
+expect_assistant_stop_reasons: [error]

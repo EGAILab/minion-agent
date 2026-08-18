@@ -1,0 +1,13 @@
+name: a turn nobody prompted still carries provenance
+description: >
+  A scheduler starts work with no user in the loop. The runtime never
+  interprets the origin -- it only carries it -- so a delivery layer can route
+  the result.
+provider_script:
+  - content: [{ type: text, text: nothing to report }]
+    stop_reason: stop
+steps:
+  - followup: { text: heartbeat, origin: { scheduler: heartbeat } }
+  - await_idle: true
+expect_causes:
+  - [{ scheduler: heartbeat }]

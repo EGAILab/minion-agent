@@ -1,0 +1,22 @@
+name: one prompt produces one bracketed turn
+description: >
+  The observable shape of a turn: agent start, turn start, the user message,
+  the assistant reply, turn end, agent end.
+provider_script:
+  - content: [{ type: text, text: hello there }]
+    stop_reason: stop
+steps:
+  - followup: hi
+  - await_idle: true
+expect_events:
+  - agent_start
+  - turn_start
+  - message_start
+  - message_end
+  - message_start
+  - message_end
+  - turn_end
+  - agent_end
+expect_messages:
+  - { role: user, text: hi }
+  - { role: assistant, text: hello there }

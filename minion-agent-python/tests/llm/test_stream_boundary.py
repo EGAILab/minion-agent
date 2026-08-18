@@ -154,3 +154,33 @@ async def test_an_unknown_model_still_fails_eagerly() -> None:
 
     with pytest.raises(UnknownModelError):
         service.stream(Request(model=ModelId("mock", "nope"), system="", messages=()))
+
+
+async def test_the_source_is_not_drained_past_its_terminal() -> None:
+    """Section 4: the first terminal wins and the stream fuses. The source is
+    not read further merely to discover whether the provider would violate the
+    protocol again -- so the chunks it queued after its terminal stay unpulled.
+    """
+    from minion_agent.llm.adapters.mock import MockAdapter, ScriptedResponse
+
+    adapter = MockAdapter(
+        [
+            ScriptedResponse(
+                content=(TextBlock(text="complete"),),
+                stop_reason=StopReason.STOP,
+                chunks_after_terminal=2,
+            )
+        ]
+    )
+    service = LlmService()
+    service.register(adapter)
+    request = Request(
+        model=ModelId("mock", "mock-1"), system="", messages=(), max_output_tokens=None
+    )
+
+    chunks = [chunk async for chunk in service.stream(request)]
+
+    # start, delta, done -- and nothing after.
+    assert adapter.pulled == 3
+    assert sum(isinstance(chunk, StreamDone) for chunk in chunks) == 1
+    assert text_of(chunks[-1].message) == "complete"

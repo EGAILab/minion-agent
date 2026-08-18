@@ -3,66 +3,216 @@
   "$id": "https://minion-agent.dev/conformance/agent-scenario.schema.json",
   "title": "Minion Agent agent conformance scenario",
   "type": "object",
-  "required": ["name", "provider_script", "steps", "expect_events"],
+  "required": [
+    "name",
+    "provider_script",
+    "steps"
+  ],
   "additionalProperties": false,
   "properties": {
-    "name": { "type": "string", "minLength": 1 },
-    "description": { "type": "string" },
-    "config": { "type": "object" },
+    "name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "description": {
+      "type": "string"
+    },
+    "config": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "system": {
+          "type": "string"
+        },
+        "model": {
+          "type": "string",
+          "description": "Model name the agent requests. A name no adapter supplies exercises the eager side of the stream boundary."
+        },
+        "max_steps": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "next_turn_policy": {
+          "enum": [
+            "all",
+            "one-at-a-time"
+          ]
+        },
+        "next_step_policy": {
+          "enum": [
+            "all",
+            "one-at-a-time"
+          ]
+        }
+      }
+    },
     "provider_script": {
       "type": "array",
       "minItems": 1,
-      "items": { "$ref": "#/$defs/scriptedResponse" }
+      "items": {
+        "$ref": "#/$defs/scriptedResponse"
+      }
     },
     "tools": {
       "type": "object",
-      "additionalProperties": { "$ref": "#/$defs/toolStub" }
+      "additionalProperties": {
+        "$ref": "#/$defs/toolStub"
+      }
     },
     "steps": {
       "type": "array",
       "minItems": 1,
-      "items": { "$ref": "#/$defs/step" }
+      "items": {
+        "$ref": "#/$defs/step"
+      }
     },
-    "expect_events": { "type": "array" },
-    "expect_messages": { "type": "array" }
+    "expect_events": {
+      "type": "array"
+    },
+    "expect_messages": {
+      "type": "array"
+    },
+    "expect_causes": {
+      "type": "array",
+      "items": {
+        "type": "array"
+      },
+      "description": "Per completed turn, the origins of the inputs that caused it. Under claim-all one turn carries several, which a singular turn origin could not express."
+    },
+    "expect_assistant_stop_reasons": {
+      "type": "array",
+      "items": {
+        "enum": [
+          "stop",
+          "length",
+          "tool_use",
+          "error",
+          "aborted"
+        ]
+      },
+      "description": "Stop reason of each assistant message reaching model history, in order."
+    },
+    "expect_error": {
+      "type": "object",
+      "required": [
+        "type"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "enum": [
+            "UnknownModelError"
+          ]
+        },
+        "message_contains": {
+          "type": "string"
+        }
+      },
+      "description": "The scenario is expected to raise. Only the eager side of the stream boundary does: once a stream is returned, nothing escapes iteration."
+    }
   },
   "$defs": {
     "scriptedResponse": {
       "type": "object",
-      "required": ["stop_reason"],
+      "required": [
+        "stop_reason"
+      ],
       "additionalProperties": false,
       "properties": {
-        "content": { "type": "array", "items": { "$ref": "#/$defs/contentBlock" } },
-        "stop_reason": {
-          "enum": ["stop", "length", "tool_use", "error", "aborted"]
+        "content": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/contentBlock"
+          }
         },
-        "error_message": { "type": "string" },
-        "usage": { "type": "object" }
+        "stop_reason": {
+          "enum": [
+            "stop",
+            "length",
+            "tool_use",
+            "error",
+            "aborted"
+          ]
+        },
+        "error_message": {
+          "type": "string"
+        },
+        "usage": {
+          "type": "object"
+        },
+        "truncated": {
+          "type": "boolean",
+          "default": false,
+          "description": "End the raw provider stream without a terminal chunk. The service must settle it as an error rather than raising."
+        },
+        "chunks_after_terminal": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 0,
+          "description": "Extra chunks a misbehaving provider emits after its terminal. The public stream must fuse and deliver none of them."
+        }
       }
     },
     "contentBlock": {
       "type": "object",
-      "required": ["type"],
+      "required": [
+        "type"
+      ],
       "properties": {
-        "type": { "enum": ["text", "thinking", "image", "tool_call"] },
-        "text": { "type": "string" },
-        "thinking": { "type": "string" },
-        "mime_type": { "type": "string" },
-        "data": { "type": "string" },
-        "reference": { "type": "string" },
-        "id": { "type": "string" },
-        "name": { "type": "string" },
-        "arguments": { "type": "object" }
+        "type": {
+          "enum": [
+            "text",
+            "thinking",
+            "image",
+            "tool_call"
+          ]
+        },
+        "text": {
+          "type": "string"
+        },
+        "thinking": {
+          "type": "string"
+        },
+        "mime_type": {
+          "type": "string"
+        },
+        "data": {
+          "type": "string"
+        },
+        "reference": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "arguments": {
+          "type": "object"
+        }
       }
     },
     "toolStub": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "result": { "type": "object" },
-        "raises": { "type": "string" },
-        "execution_mode": { "enum": ["parallel", "sequential"] },
-        "delay_ticks": { "type": "integer", "minimum": 0 }
+        "result": {
+          "type": "object"
+        },
+        "raises": {
+          "type": "string"
+        },
+        "execution_mode": {
+          "enum": [
+            "parallel",
+            "sequential"
+          ]
+        },
+        "delay_ticks": {
+          "type": "integer",
+          "minimum": 0
+        }
       }
     },
     "step": {
@@ -71,22 +221,38 @@
       "minProperties": 1,
       "maxProperties": 1,
       "properties": {
-        "followup": { "$ref": "#/$defs/input" },
-        "steer": { "$ref": "#/$defs/input" },
-        "inject": { "$ref": "#/$defs/input" },
-        "abort": { "type": "boolean" },
-        "await_idle": { "type": "boolean" }
+        "followup": {
+          "$ref": "#/$defs/input"
+        },
+        "steer": {
+          "$ref": "#/$defs/input"
+        },
+        "inject": {
+          "$ref": "#/$defs/input"
+        },
+        "abort": {
+          "type": "boolean"
+        },
+        "await_idle": {
+          "type": "boolean"
+        }
       }
     },
     "input": {
       "oneOf": [
-        { "type": "string" },
+        {
+          "type": "string"
+        },
         {
           "type": "object",
-          "required": ["text"],
+          "required": [
+            "text"
+          ],
           "additionalProperties": false,
           "properties": {
-            "text": { "type": "string" },
+            "text": {
+              "type": "string"
+            },
             "origin": {}
           }
         }

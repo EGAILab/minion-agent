@@ -1,0 +1,16 @@
+name: a settled truncation keeps what the model actually produced
+description: >
+  Settling a truncated stream must preserve the accumulated partial.
+  Substituting an unrelated empty message would discard a real partial
+  response, and the log would then disagree with what the model produced.
+provider_script:
+  - content: [{ type: text, text: half a sen }]
+    stop_reason: stop
+    truncated: true
+steps:
+  - followup: hello
+  - await_idle: true
+expect_messages:
+  - { role: user, text: hello }
+  - { role: assistant, text: half a sen }
+expect_assistant_stop_reasons: [error]

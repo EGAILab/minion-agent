@@ -6,8 +6,14 @@ description: >
   never smuggled into history as an error message the model appears to have
   produced.
 
-  The prompt is already on the surface when the request is built, so it
-  survives; nothing the model would have said does.
+  "Before any event" is deliberately *not* what this asserts, and cannot be:
+  a turn opens, claims its prompt, and records its request header before the
+  model is ever resolved, so those entries exist by the time the error is
+  raised. What the eager contract actually guarantees is the shape pinned
+  here -- the call raises, the prompt survives on the surface, and no
+  assistant message exists. An implementation that logged an error-stopped
+  assistant message instead would satisfy a naive "it failed" check and still
+  be wrong.
 config: { model: no-such-model }
 provider_script:
   - content: [{ type: text, text: never reached }]

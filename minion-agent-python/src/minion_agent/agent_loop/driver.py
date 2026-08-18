@@ -73,6 +73,15 @@ class AgentLoop:
             inbox.take_wake()
             self.instance.set_status(AgentStatus.IDLE)
 
+    def cancel(self) -> None:
+        """Request that the current turn end at its next boundary.
+
+        Work already in flight -- a running tool, an open request -- is allowed
+        to finish, so the transcript stays coherent. Cancellation stops the
+        *next* request, not the current one.
+        """
+        self._cancelled = True
+
     async def _run_turn(self) -> None:
         log = self.instance.log
         claimed = self.instance.inbox.claim(InboxTarget.NEXT_TURN, self.next_turn_policy)
@@ -86,6 +95,7 @@ class AgentLoop:
         )
         decision = await self._pre_step(entering, PreStepReason.INITIAL)
         if isinstance(decision, Reject):
+            self._cancelled = False
             log.append(
                 EventKind.TURN_END,
                 {"reason": "rejected", "causes": causes, "detail": decision.reason},
@@ -105,6 +115,10 @@ class AgentLoop:
                 end_reason = "max_steps"
                 break
 
+            if self._cancelled:
+                end_reason = "cancelled"
+                break
+
             # Only now is there a decision to make. Hard termination has
             # already been resolved above, so no listener can override it.
             if await self._should_stop():
@@ -120,8 +134,10 @@ class AgentLoop:
                 end_reason = "rejected"
                 break
 
-        # Repeated at the end so a consumer reading only completions can route
-        # a result without replaying the whole turn.
+        # Cleared with the turn: a cancelled turn must not poison the next.
+        self._cancelled = False
+        # Causes repeat at the end so a consumer reading only completions can
+        # route a result without replaying the whole turn.
         log.append(EventKind.TURN_END, {"reason": end_reason, "causes": causes})
 
     async def _should_stop(self) -> bool:

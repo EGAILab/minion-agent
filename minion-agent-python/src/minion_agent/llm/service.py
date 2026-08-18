@@ -19,6 +19,7 @@ from typing import Protocol
 from .errors import UnknownModelError
 from .messages import AssistantMessage, Message, StopReason, Usage
 from .stream import AssistantStream, StreamDone, StreamError
+from .tools import ToolSchema
 
 
 @dataclass(frozen=True, slots=True)
@@ -37,6 +38,11 @@ class Request:
     system: str
     messages: tuple[Message, ...]
     max_output_tokens: int | None = None
+    tools: tuple[ToolSchema, ...] = ()
+    """Tools visible to the model for this request.
+
+    Empty is meaningful, not a placeholder: a step whose scope exposes no
+    tools genuinely offers none."""
 
 
 class Adapter(Protocol):

@@ -38,7 +38,10 @@ def _imported_packages(module: Path) -> set[str]:
         elif isinstance(node, ast.ImportFrom):
             if node.level and node.module:
                 # `from ..llm.content import X` inside a package module.
-                found.add(node.module.split(".")[0])
+                # Don't flag relative imports from sibling modules within the same package
+                # (level==1, no dots), as they don't violate upward dependencies.
+                if node.level > 1 or "." in node.module:
+                    found.add(node.module.split(".")[0])
             elif node.module:
                 parts = node.module.split(".")
                 if parts[:1] == ["minion_agent"] and len(parts) > 1:

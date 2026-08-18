@@ -29,6 +29,7 @@ from .stream import (
     ToolCallStart,
     collect,
 )
+from .tools import ToolSchema
 
 __all__ = [
     "Adapter",
@@ -60,6 +61,7 @@ __all__ = [
     "ToolCallEnd",
     "ToolCallStart",
     "ToolResultMessage",
+    "ToolSchema",
     "UnknownModelError",
     "Usage",
     "UserMessage",

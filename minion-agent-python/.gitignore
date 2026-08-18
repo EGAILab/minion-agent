@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+*.so
+.venv/
+venv/
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.hypothesis/
+.coverage
+coverage.xml
+htmlcov/
+
+# Eval artifacts (may contain prompts, responses, source, tool output)
+.eval/
+
+# Local credentials
+.env
+.env.*
+
+# OS / editor cruft
+.DS_Store
+Thumbs.db

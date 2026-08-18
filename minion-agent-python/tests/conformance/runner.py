@@ -193,6 +193,14 @@ async def run_runtime_scenario(document: dict[str, Any]) -> RunOutcome:
     fibers: dict[str, Any] = {}
     result: Any = None
 
+    # Declare every dispatched event up front. A listener cannot register for
+    # an undeclared event -- mode is part of the contract -- so declaration has
+    # to precede the first mount, not the first dispatch.
+    for step in document["steps"]:
+        dispatch = step.get("dispatch")
+        if dispatch is not None:
+            root.events.declare(dispatch["event"], DispatchMode(dispatch["mode"]))
+
     for step in document["steps"]:
         try:
             if "mount" in step:

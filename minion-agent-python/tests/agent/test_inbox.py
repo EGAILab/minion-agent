@@ -120,3 +120,25 @@ def test_a_non_json_safe_origin_is_rejected_eagerly() -> None:
         inbox.followup(_message("hello"), origin=object())  # type: ignore[arg-type]
 
     assert inbox.pending(InboxTarget.NEXT_TURN) == ()
+
+
+def test_nested_json_structures_are_walked() -> None:
+    """Validation is structural, not shallow: a bad value hiding inside a
+    list or a nested object still fails before anything is stored."""
+    inbox = Inbox()
+
+    inbox.followup(_message("ok"), origin={"path": ["a", {"b": [1, 2.5, True, None]}]})
+
+    with pytest.raises(NotJsonSafeOriginError, match=r"origin\.outer\[1\]"):
+        inbox.followup(_message("bad"), origin={"outer": ["fine", object()]})
+
+    assert len(inbox.pending(InboxTarget.NEXT_TURN)) == 1
+
+
+def test_a_non_string_mapping_key_is_rejected() -> None:
+    """JSON object keys are strings; an integer key would not survive a
+    round trip through the log."""
+    inbox = Inbox()
+
+    with pytest.raises(NotJsonSafeOriginError, match="keys must be strings"):
+        inbox.followup(_message("bad"), origin={1: "one"})  # type: ignore[dict-item]

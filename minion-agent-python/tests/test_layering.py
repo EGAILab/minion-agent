@@ -11,10 +11,14 @@ from pathlib import Path
 import minion_agent
 
 FORBIDDEN = {
-    "runtime": ("llm", "session", "telemetry", "agent", "tools"),
-    "llm": ("session", "agent", "tools"),
-    "session": ("agent", "tools"),
-    "telemetry": ("session", "agent", "tools"),
+    "runtime": ("llm", "session", "telemetry", "agent", "agent_loop", "tools"),
+    "llm": ("session", "agent", "agent_loop", "tools"),
+    "session": ("agent", "agent_loop", "tools"),
+    "telemetry": ("session", "agent", "agent_loop", "tools"),
+    # The driver is package-internal: the `agent` package holds the interface,
+    # so the dependency runs one way only.
+    "agent": ("agent_loop",),
+    "agent_loop": (),
 }
 
 ROOT = Path(minion_agent.__file__).parent
@@ -80,12 +84,28 @@ def test_the_check_would_catch_a_real_violation() -> None:
         assert _imported_packages(offender) == {"session", "tools"}
 
 
+def test_nothing_outside_agent_loop_imports_the_driver() -> None:
+    """The driver is reachable only through the factory the loop plugin
+    provides. A caller that constructs one directly has bypassed the seam."""
+    offenders = [
+        module.relative_to(ROOT).as_posix()
+        for package in sorted(p.name for p in ROOT.iterdir() if p.is_dir())
+        if package != "agent_loop"
+        for module in sorted((ROOT / package).rglob("*.py"))
+        if "agent_loop" in _imported_packages(module)
+    ]
+
+    assert not offenders, "; ".join(offenders)
+
+
 def test_every_package_surface_resolves() -> None:
+    import minion_agent.agent as agent
+    import minion_agent.agent_loop as agent_loop
     import minion_agent.llm as llm
     import minion_agent.runtime as runtime
     import minion_agent.session as session
     import minion_agent.telemetry as telemetry
 
-    for package in (runtime, llm, session, telemetry):
+    for package in (runtime, llm, session, telemetry, agent, agent_loop):
         for name in package.__all__:
             assert getattr(package, name) is not None

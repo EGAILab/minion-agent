@@ -13,7 +13,7 @@ from typing import Any
 from minion_agent.agent.decisions import Enter, PreStepReason, Reject
 from minion_agent.agent.events import AGENT_PRE_STEP
 from minion_agent.agent.instance import AgentInstance
-from minion_agent.llm import TextBlock, UserMessage, text_of
+from minion_agent.llm import TextBlock, ToolCallBlock, UserMessage, text_of
 from minion_agent.llm.adapters.mock import ScriptedResponse
 from minion_agent.llm.messages import StopReason
 from minion_agent.session import EventKind, derive_messages
@@ -192,3 +192,63 @@ async def test_a_system_override_applies_to_one_step_only() -> None:
 
     assert adapter.requests[0].system == "one-off"
     assert adapter.requests[1].system != "one-off"
+
+
+async def test_a_rejection_at_a_later_boundary_ends_the_turn() -> None:
+    """The decision is asked at every step boundary, not only the first: a
+    turn already in flight can still be stopped before its next request."""
+    loop = _loop(
+        ScriptedResponse((ToolCallBlock(id="t1", name="echo", arguments={}),), StopReason.TOOL_USE),
+        ScriptedResponse((TextBlock(text="never reached"),), StopReason.STOP),
+    )
+    loop.tools.register("echo", lambda args: "ran")
+
+    async def veto_after_the_first(
+        instance: AgentInstance,
+        reason: PreStepReason,
+        messages: tuple[UserMessage, ...],
+        next_: Any,
+    ) -> Any:
+        if reason is PreStepReason.INITIAL:
+            return await next_()
+        return Reject(reason="enough")
+
+    loop.instance.ctx.events.on(AGENT_PRE_STEP, veto_after_the_first)
+    loop.instance.inbox.followup(_say("go"))
+
+    await loop.run_until_idle()
+
+    steps = [e for e in loop.instance.log.events if e.kind == EventKind.STEP_START]
+    assert len(steps) == 1
+
+    end = next(e for e in loop.instance.log.events if e.kind == EventKind.TURN_END)
+    assert end.data["reason"] == "rejected"
+
+
+async def test_a_history_window_limits_what_the_step_sends() -> None:
+    """Pi's per-call max_history_turns: the window applies to one step, and
+    the log keeps everything regardless."""
+    loop, adapter = _loop_with_adapter(
+        ScriptedResponse((TextBlock(text="one"),), StopReason.STOP),
+        ScriptedResponse((TextBlock(text="two"),), StopReason.STOP),
+    )
+
+    async def narrow(
+        instance: AgentInstance,
+        reason: PreStepReason,
+        messages: tuple[UserMessage, ...],
+        next_: Any,
+    ) -> Enter:
+        return Enter(messages=messages, history_window=1)
+
+    loop.instance.inbox.followup(_say("first"))
+    await loop.run_until_idle()
+
+    loop.instance.ctx.events.on(AGENT_PRE_STEP, narrow)
+    loop.instance.inbox.followup(_say("second"))
+    await loop.run_until_idle()
+
+    assert len(adapter.requests[0].messages) == 1
+    assert len(adapter.requests[1].messages) == 1
+    assert text_of(adapter.requests[1].messages[0]) == "second"
+    assert len(derive_messages(loop.instance.log)) == 4

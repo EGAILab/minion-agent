@@ -12,7 +12,7 @@ class SampleConfig(BaseModel):
 
 def test_decorator_attaches_a_spec() -> None:
     @plugin(name="sample", inject=["tools"], config=SampleConfig, provides="sample")
-    async def sample(ctx, config):  # noqa: ANN001, ARG001
+    async def sample(ctx, config):
         return None
 
     spec = spec_of(sample)
@@ -24,7 +24,7 @@ def test_decorator_attaches_a_spec() -> None:
 
 
 def test_bare_async_function_resolves_to_a_spec() -> None:
-    async def bare(ctx, config):  # noqa: ANN001, ARG001
+    async def bare(ctx, config):
         return None
 
     spec = spec_of(bare)
@@ -38,7 +38,7 @@ def test_object_with_apply_resolves_to_a_spec() -> None:
     class Mounted:
         name = "mounted"
 
-        async def apply(self, ctx, config):  # noqa: ANN001, ARG001
+        async def apply(self, ctx, config):
             return None
 
     spec = spec_of(Mounted())
@@ -53,7 +53,7 @@ def test_non_plugin_raises() -> None:
 
 def test_config_model_validates_and_applies_defaults() -> None:
     @plugin(name="sample", config=SampleConfig)
-    async def sample(ctx, config):  # noqa: ANN001, ARG001
+    async def sample(ctx, config):
         return None
 
     spec = spec_of(sample)
@@ -82,7 +82,7 @@ def test_decorated_function_stays_directly_callable() -> None:
     calls: list[str] = []
 
     @plugin(name="sample")
-    async def sample(ctx, config):  # noqa: ANN001, ARG001
+    async def sample(ctx, config):
         calls.append("ran")
 
     import asyncio

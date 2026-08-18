@@ -16,7 +16,7 @@ class DisposableList:
     so tearing down in creation order could observe a half-disposed world.
     """
 
-    __slots__ = ("_disposers", "_disposed")
+    __slots__ = ("_disposed", "_disposers")
 
     def __init__(self) -> None:
         self._disposers: list[Disposer | None] = []
@@ -59,7 +59,7 @@ class DisposableList:
                 result: Any = disposer()
                 if inspect.isawaitable(result):
                     await result
-            except Exception as error:  # noqa: BLE001 - collected and re-raised below
+            except Exception as error:
                 failures.append(error)
 
         self._disposers.clear()

@@ -79,9 +79,7 @@ def test_check_predicate_narrows_visibility() -> None:
 
 def test_check_predicate_applies_even_when_not_strict() -> None:
     registry = ServiceRegistry()
-    registry.provide(
-        "tools", "value", FakeOwner(state=FiberState.LOADING), check=lambda: False
-    )
+    registry.provide("tools", "value", FakeOwner(state=FiberState.LOADING), check=lambda: False)
 
     assert registry.resolve("tools", strict=False) is None
 

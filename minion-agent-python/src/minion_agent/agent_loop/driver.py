@@ -68,15 +68,15 @@ class AgentLoop:
     async def _run_turn(self) -> None:
         log = self.instance.log
         claimed = self.instance.inbox.claim(InboxTarget.NEXT_TURN, self.next_turn_policy)
-        log.append(
-            EventKind.TURN_START,
-            {"causes": [{"id": e.id, "origin": e.origin} for e in claimed]},
-        )
+        causes = [{"id": envelope.id, "origin": envelope.origin} for envelope in claimed]
+        log.append(EventKind.TURN_START, {"causes": causes})
 
         decision = Enter(messages=tuple(envelope.message for envelope in claimed))
         await self._run_step(decision, PreStepReason.INITIAL)
 
-        log.append(EventKind.TURN_END, {"reason": "completed"})
+        # Repeated at the end so a consumer reading only completions can route
+        # a result without replaying the whole turn.
+        log.append(EventKind.TURN_END, {"reason": "completed", "causes": causes})
 
     async def _run_step(self, decision: Enter, reason: PreStepReason) -> None:
         log = self.instance.log

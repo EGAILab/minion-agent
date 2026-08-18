@@ -25,3 +25,6 @@ htmlcov/
 # OS / editor cruft
 .DS_Store
 Thumbs.db
+
+# SDD workspace: scratch artifacts, never committed
+.superpowers/

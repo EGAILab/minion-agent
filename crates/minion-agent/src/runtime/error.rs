@@ -16,4 +16,6 @@ pub enum RuntimeError {
         expected: &'static str,
         actual: &'static str,
     },
+    #[error("no active provider for service {name}")]
+    ServiceUnavailable { name: ServiceName },
 }

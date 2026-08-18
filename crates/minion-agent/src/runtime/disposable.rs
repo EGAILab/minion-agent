@@ -129,6 +129,42 @@ impl EffectStore {
         Ok((EffectHandle { slot }, committed))
     }
 
+    pub(crate) fn try_push_with_commit<F, C, T>(
+        &self,
+        label: impl Into<String>,
+        disposer: F,
+        commit: C,
+    ) -> Result<(EffectHandle, T), RuntimeError>
+    where
+        F: FnOnce() -> BoxFuture<'static, Result<(), DisposeError>> + Send + 'static,
+        C: FnOnce() -> Result<T, RuntimeError>,
+    {
+        let mut state = self.state.lock();
+        if !state.accepting {
+            return Err(RuntimeError::InactiveOwner {
+                owner: "effect store".to_owned(),
+            });
+        }
+
+        let slot = Arc::new(EffectSlot {
+            label: label.into(),
+            disposer: Mutex::new(Some(Box::new(disposer))),
+        });
+        state.entries.push(Arc::clone(&slot));
+        match commit() {
+            Ok(committed) => Ok((EffectHandle { slot }, committed)),
+            Err(error) => {
+                let removed = state
+                    .entries
+                    .pop()
+                    .expect("the uncommitted effect was just appended");
+                drop(state);
+                drop(removed);
+                Err(error)
+            }
+        }
+    }
+
     pub fn close(&self) {
         self.state.lock().accepting = false;
     }

@@ -1,6 +1,9 @@
 """What a tool returns, and what survives into model history."""
 
+import dataclasses
 from dataclasses import replace
+
+import pytest
 
 from minion_agent.llm import TextBlock, text_of
 from minion_agent.tools.result import text_result
@@ -47,13 +50,19 @@ def test_an_error_result_is_still_a_result() -> None:
 
 def test_results_are_frozen_so_transformation_is_explicit() -> None:
     """post-execute replaces fields; it never mutates in place, or a listener
-    could change a result another listener already returned."""
+    could change a result another listener already returned. Frozen-ness
+    enforces this: replace() constructs a new instance, and direct mutation
+    is refused."""
     original = text_result("t1", "one")
 
     transformed = replace(original, content=(TextBlock(text="two"),))
 
     assert text_of(original.to_message()) == "one"
     assert text_of(transformed.to_message()) == "two"
+
+    # Verify frozen-ness: direct mutation must fail.
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        original.tool_call_id = "changed"  # type: ignore[misc]
 
 
 def test_added_tool_names_are_carried() -> None:

@@ -3,12 +3,15 @@ use std::{
     collections::HashMap,
     future::Future,
     sync::{
-        Arc, Mutex as StdMutex,
+        Arc,
         atomic::{AtomicBool, Ordering},
     },
 };
 
-use futures::future::{BoxFuture, FutureExt, join_all, ready};
+use futures::{
+    channel::oneshot,
+    future::{BoxFuture, Either, FutureExt, join_all, ready, select},
+};
 use parking_lot::Mutex;
 use thiserror::Error;
 
@@ -140,6 +143,7 @@ pub struct EventBus {
 
 struct EventState {
     declarations: HashMap<EventName, EventDeclaration>,
+    next_listener_id: Option<u64>,
 }
 
 struct EventDeclaration {
@@ -149,14 +153,22 @@ struct EventDeclaration {
     payload_name: &'static str,
     result_name: &'static str,
     terminal: ErasedValue,
-    listeners: Vec<Option<ListenerEntry>>,
+    listeners: Vec<ListenerEntry>,
 }
 
 type ErasedValue = Arc<dyn Any + Send + Sync>;
 
 struct ListenerEntry {
+    id: u64,
+    status: ListenerStatus,
     scope: Option<ScopeId>,
     callback: ErasedValue,
+}
+
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum ListenerStatus {
+    Pending,
+    Published,
 }
 
 struct Terminal<P, R>(Arc<dyn Fn(&P) -> R + Send + Sync>);
@@ -175,13 +187,26 @@ pub struct EventListenerHandle {
 }
 
 struct ListenerRemoval {
-    remove: StdMutex<Option<Box<dyn FnOnce() + Send>>>,
+    state: Arc<Mutex<EventState>>,
+    name: EventName,
+    listener_id: u64,
+    removed: AtomicBool,
 }
 
 pub struct Next<P, R> {
     used: AtomicBool,
     current: P,
-    continuation: Arc<dyn Fn(P) -> BoxFuture<'static, Result<R, WaterfallError>> + Send + Sync>,
+    request: Mutex<Option<oneshot::Sender<NextRequest<P, R>>>>,
+}
+
+struct NextRequest<P, R> {
+    payload: P,
+    response: oneshot::Sender<Result<R, WaterfallError>>,
+}
+
+struct SuspendedWaterfall<R> {
+    listener: BoxFuture<'static, Result<R, WaterfallError>>,
+    response: oneshot::Sender<Result<R, WaterfallError>>,
 }
 
 impl EventBus {
@@ -190,6 +215,7 @@ impl EventBus {
             tree: tree.into(),
             state: Arc::new(Mutex::new(EventState {
                 declarations: HashMap::new(),
+                next_listener_id: Some(0),
             })),
         }
     }
@@ -399,47 +425,64 @@ impl EventBus {
         C: Send + Sync + 'static,
     {
         let scope_id = self.registration_scope(scope)?;
-        let entry_index =
-            {
-                let mut state = self.state.lock();
-                let declaration = state.declarations.get_mut(spec.name()).ok_or_else(|| {
-                    EventError::Undeclared {
+        let owner_effects = scope.map_or(effects, ScopeHandle::effects);
+        let listener_id = {
+            let mut state = self.state.lock();
+            let declaration =
+                state
+                    .declarations
+                    .get(spec.name())
+                    .ok_or_else(|| EventError::Undeclared {
                         name: spec.name.clone(),
-                    }
-                })?;
-                validate_dispatch::<P, R>(declaration, spec, mode)?;
-                let index = declaration.listeners.len();
-                declaration.listeners.push(Some(ListenerEntry {
+                    })?;
+            validate_dispatch::<P, R>(declaration, spec, mode)?;
+            let listener_id = issue_listener_id(&mut state.next_listener_id);
+            state
+                .declarations
+                .get_mut(spec.name())
+                .expect("event declaration was validated under the same lock")
+                .listeners
+                .push(ListenerEntry {
+                    id: listener_id,
+                    status: ListenerStatus::Pending,
                     scope: scope_id,
                     callback: Arc::new(callback),
-                }));
-                index
-            };
+                });
+            listener_id
+        };
 
-        let state = Arc::clone(&self.state);
-        let name = spec.name.clone();
-        let removal = Arc::new(ListenerRemoval {
-            remove: StdMutex::new(Some(Box::new(move || {
-                let mut state = state.lock();
-                if let Some(declaration) = state.declarations.get_mut(&name) {
-                    declaration.listeners[entry_index] = None;
-                }
-            }))),
-        });
+        let removal = Arc::new(ListenerRemoval::new(
+            Arc::clone(&self.state),
+            spec.name.clone(),
+            listener_id,
+        ));
         let handle = EventListenerHandle {
             removal: Arc::clone(&removal),
         };
         let owned_removal = Arc::clone(&removal);
-        if let Err(error) = effects.push(format!("event listener {}", spec.name), move || {
-            Box::pin(async move {
-                owned_removal.remove();
-                Ok(())
-            })
-        }) {
-            handle.remove();
-            return Err(error.into());
+        let publishing_removal = Arc::clone(&removal);
+        match owner_effects.push_with_commit(
+            format!("event listener {}", spec.name),
+            move || {
+                Box::pin(async move {
+                    owned_removal.remove();
+                    Ok(())
+                })
+            },
+            move || publishing_removal.publish(),
+        ) {
+            Ok((_, true)) => Ok(handle),
+            Ok((_, false)) => {
+                handle.remove();
+                Err(EventError::Lifecycle(RuntimeError::InactiveOwner {
+                    owner: registration_owner_name(scope),
+                }))
+            }
+            Err(error) => {
+                handle.remove();
+                Err(error.into())
+            }
         }
-        Ok(handle)
     }
 
     fn snapshot<P, R, C>(
@@ -472,7 +515,7 @@ impl EventBus {
         let callbacks = declaration
             .listeners
             .iter()
-            .filter_map(Option::as_ref)
+            .filter(|entry| entry.status == ListenerStatus::Published)
             .filter(|entry| {
                 entry.scope.is_none()
                     || admitted_scopes.as_ref().is_some_and(|scopes| {
@@ -530,28 +573,96 @@ impl EventListenerHandle {
 }
 
 impl ListenerRemoval {
-    fn remove(&self) {
-        if let Some(remove) = self
-            .remove
-            .lock()
-            .expect("listener removal lock poisoned")
-            .take()
-        {
-            remove();
+    fn new(state: Arc<Mutex<EventState>>, name: EventName, listener_id: u64) -> Self {
+        Self {
+            state,
+            name,
+            listener_id,
+            removed: AtomicBool::new(false),
         }
     }
+
+    fn publish(&self) -> bool {
+        let mut state = self.state.lock();
+        if self.removed.load(Ordering::Acquire) {
+            return false;
+        }
+        let Some(listener) = state
+            .declarations
+            .get_mut(&self.name)
+            .and_then(|declaration| {
+                declaration
+                    .listeners
+                    .iter_mut()
+                    .find(|listener| listener.id == self.listener_id)
+            })
+        else {
+            return false;
+        };
+        listener.status = ListenerStatus::Published;
+        true
+    }
+
+    fn remove(&self) {
+        if self.removed.swap(true, Ordering::AcqRel) {
+            return;
+        }
+        let removed = {
+            let mut state = self.state.lock();
+            state
+                .declarations
+                .get_mut(&self.name)
+                .and_then(|declaration| {
+                    declaration
+                        .listeners
+                        .iter()
+                        .position(|listener| listener.id == self.listener_id)
+                        .map(|position| declaration.listeners.remove(position))
+                })
+        };
+        drop(removed);
+    }
+}
+
+fn registration_owner_name(scope: Option<&ScopeHandle>) -> String {
+    scope.map_or_else(
+        || "effect store".to_owned(),
+        |scope| format!("scope {}", scope.id().as_u64()),
+    )
+}
+
+fn issue_listener_id(next_listener_id: &mut Option<u64>) -> u64 {
+    let listener_id = next_listener_id.expect("listener ID space exhausted");
+    *next_listener_id = listener_id.checked_add(1);
+    listener_id
 }
 
 impl<P, R> Next<P, R>
 where
-    P: Clone,
+    P: Clone + Send + 'static,
     R: Send + 'static,
 {
     pub fn call(&self, replacement: Option<P>) -> BoxFuture<'static, Result<R, WaterfallError>> {
         if self.used.swap(true, Ordering::AcqRel) {
             return ready(Err(WaterfallError::NextAlreadyCalled)).boxed();
         }
-        (self.continuation)(replacement.unwrap_or_else(|| self.current.clone()))
+        let request = self
+            .request
+            .lock()
+            .take()
+            .expect("unused waterfall continuation retains its request sender");
+        let payload = replacement.unwrap_or_else(|| self.current.clone());
+        async move {
+            let (response, result) = oneshot::channel();
+            assert!(
+                request.send(NextRequest { payload, response }).is_ok(),
+                "waterfall dispatcher remains alive while its listener runs"
+            );
+            result
+                .await
+                .expect("waterfall dispatcher settles every delegated listener")
+        }
+        .boxed()
     }
 }
 
@@ -623,33 +734,123 @@ where
 fn run_waterfall<P, R>(
     callbacks: Arc<[Arc<WaterfallCallback<P, R>>]>,
     terminal: Arc<Terminal<P, R>>,
-    index: usize,
-    payload: P,
+    mut index: usize,
+    mut payload: P,
 ) -> BoxFuture<'static, Result<R, WaterfallError>>
 where
     P: Clone + Send + 'static,
     R: Send + 'static,
 {
     async move {
-        let Some(callback) = callbacks.get(index).cloned() else {
-            return Ok((terminal.0)(&payload));
+        let mut suspended = Vec::new();
+        let mut outcome = loop {
+            let Some(callback) = callbacks.get(index).cloned() else {
+                break Ok((terminal.0)(&payload));
+            };
+            let (request, requested) = oneshot::channel();
+            let next = Next {
+                used: AtomicBool::new(false),
+                current: payload.clone(),
+                request: Mutex::new(Some(request)),
+            };
+            let listener = (callback.0)(payload, next);
+            match select(listener, requested).await {
+                Either::Left((listener_outcome, _)) => break listener_outcome,
+                Either::Right((Ok(request), listener)) => {
+                    suspended.push(SuspendedWaterfall {
+                        listener,
+                        response: request.response,
+                    });
+                    payload = request.payload;
+                    index += 1;
+                }
+                Either::Right((Err(_), listener)) => break listener.await,
+            }
         };
-        let continuation_callbacks = Arc::clone(&callbacks);
-        let continuation_terminal = Arc::clone(&terminal);
-        let continuation = Arc::new(move |replacement| {
-            run_waterfall(
-                Arc::clone(&continuation_callbacks),
-                Arc::clone(&continuation_terminal),
-                index + 1,
-                replacement,
-            )
-        });
-        let next = Next {
-            used: AtomicBool::new(false),
-            current: payload.clone(),
-            continuation,
-        };
-        (callback.0)(payload, next).await
+
+        while let Some(frame) = suspended.pop() {
+            if let Err(unclaimed) = frame.response.send(outcome) {
+                drop(unclaimed);
+            }
+            outcome = frame.listener.await;
+        }
+        outcome
     }
     .boxed()
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{
+        sync::{
+            Arc, Barrier,
+            atomic::{AtomicUsize, Ordering},
+        },
+        thread,
+    };
+
+    use super::*;
+
+    #[test]
+    fn pending_registration_is_never_admitted_while_owner_removal_races_dispatch() {
+        let tree = ScopeTree::new();
+        let bus = EventBus::new(tree);
+        let spec = EventSpec::new(
+            EventName::new("test/pending-race").unwrap(),
+            DispatchMode::Emit,
+            |_: &()| (),
+        );
+        let runs = Arc::new(AtomicUsize::new(0));
+        let listener_id = 17;
+        bus.declare(&spec).unwrap();
+
+        {
+            let mut state = bus.state.lock();
+            state
+                .declarations
+                .get_mut(spec.name())
+                .unwrap()
+                .listeners
+                .push(ListenerEntry {
+                    id: listener_id,
+                    status: ListenerStatus::Pending,
+                    scope: None,
+                    callback: Arc::new(EmitCallback(Arc::new({
+                        let runs = Arc::clone(&runs);
+                        move |_: &()| {
+                            runs.fetch_add(1, Ordering::SeqCst);
+                        }
+                    }))),
+                });
+        }
+        let removal = Arc::new(ListenerRemoval::new(
+            Arc::clone(&bus.state),
+            spec.name().clone(),
+            listener_id,
+        ));
+        let barrier = Arc::new(Barrier::new(3));
+        let dispatch = thread::spawn({
+            let bus = bus.clone();
+            let spec = spec.clone();
+            let barrier = Arc::clone(&barrier);
+            move || {
+                barrier.wait();
+                bus.emit(&spec, &(), None).unwrap();
+            }
+        });
+        let remove = thread::spawn({
+            let removal = Arc::clone(&removal);
+            let barrier = Arc::clone(&barrier);
+            move || {
+                barrier.wait();
+                removal.remove();
+            }
+        });
+
+        barrier.wait();
+        dispatch.join().unwrap();
+        remove.join().unwrap();
+        assert_eq!(runs.load(Ordering::SeqCst), 0);
+        assert!(!removal.publish());
+    }
 }

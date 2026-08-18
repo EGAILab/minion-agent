@@ -1,5 +1,7 @@
 use std::{
+    cell::Cell,
     future::Future,
+    pin::Pin,
     sync::{
         Arc, Barrier,
         atomic::{AtomicUsize, Ordering},
@@ -7,6 +9,7 @@ use std::{
     },
     task::{Context, Poll},
     thread,
+    time::Duration,
 };
 
 use futures::{channel::oneshot, executor::block_on, future::poll_fn, task::noop_waker_ref};
@@ -285,6 +288,78 @@ fn listener_registration_is_owned_by_its_effect_store() {
     bus.emit(&spec, &(), None).unwrap();
 
     assert_eq!(runs.load(Ordering::SeqCst), 0);
+}
+
+#[test]
+fn tagged_listener_cleanup_is_owned_by_its_scope_not_the_supplied_store() {
+    let tree = ScopeTree::new();
+    let root = tree.create_root();
+    let scope = tree.create_child(&root).unwrap();
+    let bus = EventBus::new(tree);
+    let spec = EventSpec::new(event("test/scoped-owner"), DispatchMode::Emit, |_: &()| ());
+    let supplied_owner = EffectStore::new();
+    let drops = Arc::new(AtomicUsize::new(0));
+    bus.declare(&spec).unwrap();
+
+    bus.on_emit(&spec, &supplied_owner, Some(&scope), {
+        let registration = RegistrationDrop(Arc::clone(&drops));
+        move |_| {
+            let _ = &registration;
+        }
+    })
+    .unwrap();
+
+    block_on(scope.dispose()).unwrap();
+    assert_eq!(drops.load(Ordering::SeqCst), 1);
+    block_on(supplied_owner.close_and_dispose()).unwrap();
+    assert_eq!(drops.load(Ordering::SeqCst), 1);
+
+    let rejected_drops = Arc::new(AtomicUsize::new(0));
+    let error = match bus.on_emit(&spec, &supplied_owner, Some(&scope), {
+        let registration = RegistrationDrop(Arc::clone(&rejected_drops));
+        move |_| {
+            let _ = &registration;
+        }
+    }) {
+        Ok(_) => panic!("inactive scope registration unexpectedly succeeded"),
+        Err(error) => error,
+    };
+    assert!(matches!(error, EventError::InactiveScope { .. }));
+    assert_eq!(rejected_drops.load(Ordering::SeqCst), 1);
+}
+
+#[test]
+fn listener_callback_is_dropped_after_releasing_the_event_mutex() {
+    let tree = ScopeTree::new();
+    let bus = EventBus::new(tree);
+    let spec = EventSpec::new(
+        event("test/reentrant-drop"),
+        DispatchMode::Emit,
+        |_: &()| (),
+    );
+    let effects = EffectStore::new();
+    let (completed_sender, completed_receiver) = mpsc::channel();
+    bus.declare(&spec).unwrap();
+
+    let handle = bus
+        .on_emit(&spec, &effects, None, {
+            let reentrant = ReentrantRegistrationDrop {
+                bus: bus.clone(),
+                spec: spec.clone(),
+                completed: Some(completed_sender),
+            };
+            move |_| {
+                let _ = &reentrant;
+            }
+        })
+        .unwrap();
+    let disposal = thread::spawn(move || block_on(handle.dispose()));
+
+    let reentrant_result = completed_receiver
+        .recv_timeout(Duration::from_secs(2))
+        .expect("listener callback drop deadlocked while re-entering the event bus");
+    reentrant_result.unwrap();
+    disposal.join().unwrap().unwrap();
 }
 
 #[test]
@@ -623,7 +698,6 @@ fn next_rejects_a_second_call_while_the_first_call_is_pending() {
         |payload: &u32| *payload,
     );
     let effects = EffectStore::new();
-    let (downstream_started, started_receiver) = mpsc::channel();
     let (_never_release, gate) = oneshot::channel::<()>();
     let gate = Arc::new(Mutex::new(Some(gate)));
     bus.declare(&spec).unwrap();
@@ -642,9 +716,7 @@ fn next_rejects_a_second_call_while_the_first_call_is_pending() {
         let gate = Arc::clone(&gate);
         move |payload, _| {
             let gate = gate.lock().take().unwrap();
-            let downstream_started = downstream_started.clone();
             async move {
-                downstream_started.send(()).unwrap();
                 let _ = gate.await;
                 Ok(payload)
             }
@@ -657,7 +729,38 @@ fn next_rejects_a_second_call_while_the_first_call_is_pending() {
         error,
         EventError::Waterfall(WaterfallError::NextAlreadyCalled)
     ));
-    started_receiver.recv().unwrap();
+}
+
+#[test]
+fn waterfall_delegation_is_stack_safe_for_a_deep_listener_chain() {
+    const LISTENERS: usize = 5_000;
+    const MAX_ALLOWED_POLL_DEPTH: usize = 64;
+
+    let tree = ScopeTree::new();
+    let bus = EventBus::new(tree);
+    let spec = EventSpec::new(
+        event("test/waterfall-deep"),
+        DispatchMode::Waterfall,
+        |payload: &usize| *payload,
+    );
+    let effects = EffectStore::new();
+    let max_depth = Arc::new(AtomicUsize::new(0));
+    bus.declare(&spec).unwrap();
+
+    for _ in 0..LISTENERS {
+        let max_depth = Arc::clone(&max_depth);
+        bus.on_waterfall(&spec, &effects, None, move |payload, next| {
+            PollDepthGuard::new(
+                async move { next.call(Some(payload + 1)).await },
+                Arc::clone(&max_depth),
+                MAX_ALLOWED_POLL_DEPTH,
+            )
+        })
+        .unwrap();
+    }
+
+    assert_eq!(block_on(bus.waterfall(&spec, 0, None)).unwrap(), LISTENERS);
+    assert!(max_depth.load(Ordering::SeqCst) <= MAX_ALLOWED_POLL_DEPTH);
 }
 
 struct RegistrationDrop(Arc<AtomicUsize>);
@@ -665,5 +768,64 @@ struct RegistrationDrop(Arc<AtomicUsize>);
 impl Drop for RegistrationDrop {
     fn drop(&mut self) {
         self.0.fetch_add(1, Ordering::SeqCst);
+    }
+}
+
+struct ReentrantRegistrationDrop {
+    bus: EventBus,
+    spec: EventSpec<(), ()>,
+    completed: Option<mpsc::Sender<Result<(), String>>>,
+}
+
+impl Drop for ReentrantRegistrationDrop {
+    fn drop(&mut self) {
+        let result = self
+            .bus
+            .emit(&self.spec, &(), None)
+            .map_err(|error| error.to_string());
+        self.completed.take().unwrap().send(result).unwrap();
+    }
+}
+
+thread_local! {
+    static WATERFALL_POLL_DEPTH: Cell<usize> = const { Cell::new(0) };
+}
+
+struct PollDepthGuard<F> {
+    inner: Pin<Box<F>>,
+    max_depth: Arc<AtomicUsize>,
+    allowed_depth: usize,
+}
+
+impl<F> PollDepthGuard<F> {
+    fn new(inner: F, max_depth: Arc<AtomicUsize>, allowed_depth: usize) -> Self {
+        Self {
+            inner: Box::pin(inner),
+            max_depth,
+            allowed_depth,
+        }
+    }
+}
+
+impl<F> Future for PollDepthGuard<F>
+where
+    F: Future,
+{
+    type Output = F::Output;
+
+    fn poll(mut self: Pin<&mut Self>, context: &mut Context<'_>) -> Poll<Self::Output> {
+        let depth = WATERFALL_POLL_DEPTH.with(|current| {
+            let depth = current.get() + 1;
+            current.set(depth);
+            depth
+        });
+        self.max_depth.fetch_max(depth, Ordering::SeqCst);
+        assert!(
+            depth <= self.allowed_depth,
+            "waterfall recursively polled {depth} listener frames"
+        );
+        let outcome = self.inner.as_mut().poll(context);
+        WATERFALL_POLL_DEPTH.with(|current| current.set(depth - 1));
+        outcome
     }
 }

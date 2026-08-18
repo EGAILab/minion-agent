@@ -99,6 +99,20 @@ impl EffectStore {
     where
         F: FnOnce() -> BoxFuture<'static, Result<(), DisposeError>> + Send + 'static,
     {
+        self.push_with_commit(label, disposer, || ())
+            .map(|(handle, ())| handle)
+    }
+
+    pub(crate) fn push_with_commit<F, C, T>(
+        &self,
+        label: impl Into<String>,
+        disposer: F,
+        commit: C,
+    ) -> Result<(EffectHandle, T), RuntimeError>
+    where
+        F: FnOnce() -> BoxFuture<'static, Result<(), DisposeError>> + Send + 'static,
+        C: FnOnce() -> T,
+    {
         let mut state = self.state.lock();
         if !state.accepting {
             return Err(RuntimeError::InactiveOwner {
@@ -111,7 +125,8 @@ impl EffectStore {
             disposer: Mutex::new(Some(Box::new(disposer))),
         });
         state.entries.push(Arc::clone(&slot));
-        Ok(EffectHandle { slot })
+        let committed = commit();
+        Ok((EffectHandle { slot }, committed))
     }
 
     pub fn close(&self) {

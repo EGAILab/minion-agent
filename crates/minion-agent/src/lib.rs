@@ -5,6 +5,8 @@ pub mod runtime;
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 pub use runtime::{
-    DisposeError, DisposeErrors, EffectHandle, EffectStore, EventName, RegistrationHandle,
-    RuntimeError, ScopeHandle, ScopeId, ScopeTree, ScopedRegistry, ServiceName,
+    DispatchMode, DisposeError, DisposeErrors, EffectHandle, EffectStore, EventBus, EventError,
+    EventListenerError, EventListenerHandle, EventName, EventSpec, Next, ParallelErrors,
+    RegistrationHandle, RuntimeError, ScopeHandle, ScopeId, ScopeTree, ScopedRegistry, ServiceName,
+    WaterfallError,
 };

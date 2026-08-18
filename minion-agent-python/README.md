@@ -12,6 +12,20 @@ would expose the same name against the same specification.
 **Status:** plugin runtime, LLM vocabulary, session log, and telemetry are
 implemented and passing conformance. The agent loop and tool subsystem follow.
 
+## Getting started
+
+Requires Python 3.12+ and [uv](https://docs.astral.sh/uv/).
+
+```bash
+uv sync                       # creates .venv from the committed uv.lock
+uv run pytest                 # 286 tests, 100% coverage gate
+uv run ruff check . && uv run mypy
+```
+
+`uv.lock` is committed, so `uv sync` reproduces the exact environment. Prefer
+`uv run <tool>` over activating the venv — it resolves the interpreter without
+depending on `PATH`.
+
 ## Design and specification
 
 The design specification lives in the companion documentation repository under

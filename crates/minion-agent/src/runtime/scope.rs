@@ -1,5 +1,10 @@
-use std::{cmp::Reverse, collections::HashMap, sync::Arc};
+use std::{
+    cmp::Reverse,
+    collections::HashMap,
+    sync::{Arc, Weak},
+};
 
+use futures::future::{BoxFuture, FutureExt, Shared};
 use parking_lot::Mutex;
 
 use super::{DisposeErrors, EffectStore, RuntimeError};
@@ -21,6 +26,15 @@ pub struct ScopeTree {
 struct ScopeTreeState {
     next_id: Option<u64>,
     scopes: HashMap<ScopeId, ScopeNode>,
+    in_flight_disposals: HashMap<ScopeId, InFlightScopeDisposal>,
+    next_disposal_generation: u64,
+}
+
+type ScopeUnwind = Shared<BoxFuture<'static, Result<(), DisposeErrors>>>;
+
+struct InFlightScopeDisposal {
+    generation: u64,
+    unwind: ScopeUnwind,
 }
 
 struct ScopeNode {
@@ -44,6 +58,8 @@ impl ScopeTree {
             state: Arc::new(Mutex::new(ScopeTreeState {
                 next_id: Some(0),
                 scopes: HashMap::new(),
+                in_flight_disposals: HashMap::new(),
+                next_disposal_generation: 0,
             })),
         }
     }
@@ -159,45 +175,101 @@ impl ScopeHandle {
     }
 
     pub async fn dispose(&self) -> Result<(), DisposeErrors> {
-        let mut scopes = {
+        let Some(unwind) = ({
             let mut state = self.state.lock();
-            let mut pending = vec![self.id];
-            let mut scopes = Vec::new();
-            while let Some(id) = pending.pop() {
-                let Some(scope) = state.scopes.get(&id) else {
-                    continue;
-                };
-                pending.extend(scope.children.iter().copied());
-                scopes.push((id, scope.depth, Arc::clone(&scope.effects)));
+            if let Some(disposal) = state.in_flight_disposals.get(&self.id) {
+                Some(disposal.unwind.clone())
+            } else if !state.scopes.get(&self.id).is_some_and(|scope| scope.active) {
+                None
+            } else {
+                let scopes = collect_subtree(&state, self.id);
+                for (_, _, effects) in &scopes {
+                    effects.close();
+                }
+                for (id, _, _) in &scopes {
+                    state
+                        .scopes
+                        .get_mut(id)
+                        .expect("the scope was collected from this tree")
+                        .active = false;
+                }
+                let generation = state.next_disposal_generation;
+                state.next_disposal_generation = state
+                    .next_disposal_generation
+                    .checked_add(1)
+                    .expect("scope disposal generation exhausted");
+                let unwind = dispose_scope_generation(
+                    scopes,
+                    Arc::downgrade(&self.state),
+                    self.id,
+                    generation,
+                )
+                .boxed()
+                .shared();
+                state.in_flight_disposals.insert(
+                    self.id,
+                    InFlightScopeDisposal {
+                        generation,
+                        unwind: unwind.clone(),
+                    },
+                );
+                Some(unwind)
             }
-            for (_, _, effects) in &scopes {
-                effects.close();
-            }
-            for (id, _, _) in &scopes {
-                state
-                    .scopes
-                    .get_mut(id)
-                    .expect("the scope was collected from this tree")
-                    .active = false;
-            }
-            scopes
+        }) else {
+            return Ok(());
         };
 
-        scopes.sort_by_key(|(_, depth, _)| Reverse(*depth));
-        let mut errors = Vec::new();
-        for (_, _, effects) in scopes {
-            if let Err(scope_errors) = effects.close_and_dispose().await {
-                errors.extend(scope_errors.into_inner());
-            }
-        }
-        if errors.is_empty() {
-            Ok(())
-        } else {
-            Err(DisposeErrors::from_inner(errors))
-        }
+        unwind.await
     }
 
     pub(crate) fn belongs_to(&self, tree: &ScopeTree) -> bool {
         Arc::ptr_eq(&self.state, &tree.state)
     }
+}
+
+fn collect_subtree(
+    state: &ScopeTreeState,
+    root: ScopeId,
+) -> Vec<(ScopeId, usize, Arc<EffectStore>)> {
+    let mut pending = vec![root];
+    let mut scopes = Vec::new();
+    while let Some(id) = pending.pop() {
+        let Some(scope) = state.scopes.get(&id) else {
+            continue;
+        };
+        pending.extend(scope.children.iter().copied());
+        scopes.push((id, scope.depth, Arc::clone(&scope.effects)));
+    }
+    scopes
+}
+
+async fn dispose_scope_generation(
+    mut scopes: Vec<(ScopeId, usize, Arc<EffectStore>)>,
+    state: Weak<Mutex<ScopeTreeState>>,
+    root: ScopeId,
+    generation: u64,
+) -> Result<(), DisposeErrors> {
+    scopes.sort_by_key(|(_, depth, _)| Reverse(*depth));
+    let mut errors = Vec::new();
+    for (_, _, effects) in scopes {
+        if let Err(scope_errors) = effects.close_and_dispose().await {
+            errors.extend(scope_errors.into_inner());
+        }
+    }
+    let result = if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(DisposeErrors::from_inner(errors))
+    };
+    if let Some(state) = state.upgrade() {
+        let mut state = state.lock();
+        if state
+            .in_flight_disposals
+            .get(&root)
+            .is_some_and(|disposal| disposal.generation == generation)
+        {
+            state.in_flight_disposals.remove(&root);
+        }
+    }
+    result
 }

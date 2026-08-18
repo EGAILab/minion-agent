@@ -1,14 +1,16 @@
 use std::{
+    future::Future,
     sync::{
-        Arc, Barrier,
+        Arc,
         atomic::{AtomicUsize, Ordering},
         mpsc,
     },
+    task::{Context, Poll},
     thread,
 };
 
-use futures::{channel::oneshot, executor::block_on};
-use minion_agent::{ScopeTree, ScopedRegistry};
+use futures::{channel::oneshot, executor::block_on, task::noop_waker_ref};
+use minion_agent::{DisposeError, ScopeTree, ScopedRegistry};
 use parking_lot::Mutex;
 
 fn visible(
@@ -173,54 +175,159 @@ fn disposing_a_scope_makes_its_subtree_ineligible_before_descendant_effects_sett
 }
 
 #[test]
-fn concurrent_scope_disposals_share_effect_unwind_without_double_running() {
+fn concurrent_scope_disposals_join_one_full_subtree_unwind() {
     let tree = ScopeTree::new();
     let root = tree.create_root();
     let scope = tree.create_child(&root).unwrap();
+    let descendant = tree.create_child(&scope).unwrap();
     let runs = Arc::new(AtomicUsize::new(0));
     let (started_sender, started_receiver) = mpsc::channel();
     let (release_sender, release_receiver) = oneshot::channel();
-    let effect_runs = Arc::clone(&runs);
+    let descendant_runs = Arc::clone(&runs);
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let descendant_seen = Arc::clone(&seen);
+    descendant
+        .effects()
+        .push("descendant", move || {
+            Box::pin(async move {
+                descendant_runs.fetch_add(1, Ordering::SeqCst);
+                started_sender.send("descendant").unwrap();
+                release_receiver.await.unwrap();
+                descendant_seen.lock().push("descendant");
+                Ok(())
+            })
+        })
+        .unwrap();
+    let scope_runs = Arc::clone(&runs);
+    let scope_seen = Arc::clone(&seen);
     scope
         .effects()
-        .push("blocked", move || {
+        .push("scope", move || {
             Box::pin(async move {
-                effect_runs.fetch_add(1, Ordering::SeqCst);
-                started_sender.send(()).unwrap();
-                release_receiver.await.unwrap();
+                scope_runs.fetch_add(1, Ordering::SeqCst);
+                scope_seen.lock().push("scope");
                 Ok(())
             })
         })
         .unwrap();
 
-    let scope = Arc::new(scope);
-    let start = Arc::new(Barrier::new(3));
-    let first = thread::spawn({
-        let scope = Arc::clone(&scope);
-        let start = Arc::clone(&start);
-        move || {
-            start.wait();
-            block_on(scope.dispose())
-        }
-    });
-    let second = thread::spawn({
-        let scope = Arc::clone(&scope);
-        let start = Arc::clone(&start);
-        move || {
-            start.wait();
-            block_on(scope.dispose())
-        }
-    });
-    start.wait();
+    let mut first = Box::pin(scope.dispose());
+    let mut context = Context::from_waker(noop_waker_ref());
+    assert!(matches!(first.as_mut().poll(&mut context), Poll::Pending));
+    assert_eq!(started_receiver.recv().unwrap(), "descendant");
 
-    started_receiver.recv().unwrap();
+    let mut second = Box::pin(scope.dispose());
+    assert!(matches!(second.as_mut().poll(&mut context), Poll::Pending));
     assert_eq!(runs.load(Ordering::SeqCst), 1);
+
     release_sender.send(()).unwrap();
+    block_on(first).unwrap();
+    block_on(second).unwrap();
+    assert_eq!(runs.load(Ordering::SeqCst), 2);
+    assert_eq!(&*seen.lock(), &["descendant", "scope"]);
+    block_on(scope.dispose()).unwrap();
+    assert_eq!(runs.load(Ordering::SeqCst), 2);
+}
 
-    first.join().unwrap().unwrap();
-    second.join().unwrap().unwrap();
-    assert_eq!(runs.load(Ordering::SeqCst), 1);
-    assert!(!scope.is_active());
+#[test]
+fn a_dropped_scope_disposal_caller_does_not_strand_the_shared_failure_aggregate() {
+    let tree = ScopeTree::new();
+    let root = tree.create_root();
+    let scope = tree.create_child(&root).unwrap();
+    let descendant = tree.create_child(&scope).unwrap();
+    let (started_sender, started_receiver) = mpsc::channel();
+    let (release_sender, release_receiver) = oneshot::channel();
+
+    descendant
+        .effects()
+        .push("descendant", move || {
+            Box::pin(async move {
+                started_sender.send(()).unwrap();
+                release_receiver.await.unwrap();
+                Err(DisposeError::new("descendant", "descendant failure"))
+            })
+        })
+        .unwrap();
+    scope
+        .effects()
+        .push("scope", || {
+            Box::pin(async { Err(DisposeError::new("scope", "scope failure")) })
+        })
+        .unwrap();
+
+    let mut owner = Box::pin(scope.dispose());
+    let mut context = Context::from_waker(noop_waker_ref());
+    assert!(matches!(owner.as_mut().poll(&mut context), Poll::Pending));
+    started_receiver.recv().unwrap();
+    drop(owner);
+
+    let mut survivor = Box::pin(scope.dispose());
+    assert!(matches!(
+        survivor.as_mut().poll(&mut context),
+        Poll::Pending
+    ));
+    release_sender.send(()).unwrap();
+    let errors = block_on(survivor).unwrap_err();
+    assert_eq!(
+        errors.as_slice(),
+        &[
+            DisposeError::new("descendant", "descendant failure"),
+            DisposeError::new("scope", "scope failure"),
+        ]
+    );
+    assert!(block_on(scope.dispose()).is_ok());
+}
+
+#[test]
+fn scope_disposal_joiners_receive_the_full_descendant_and_parent_failure_aggregate() {
+    let tree = ScopeTree::new();
+    let root = tree.create_root();
+    let scope = tree.create_child(&root).unwrap();
+    let descendant = tree.create_child(&scope).unwrap();
+    let (descendant_started_sender, descendant_started_receiver) = mpsc::channel();
+    let (release_descendant, descendant_gate) = oneshot::channel();
+    let (scope_started_sender, scope_started_receiver) = mpsc::channel();
+    let (release_scope, scope_gate) = oneshot::channel();
+
+    descendant
+        .effects()
+        .push("descendant", move || {
+            Box::pin(async move {
+                descendant_started_sender.send(()).unwrap();
+                descendant_gate.await.unwrap();
+                Err(DisposeError::new("descendant", "descendant failure"))
+            })
+        })
+        .unwrap();
+    scope
+        .effects()
+        .push("scope", move || {
+            Box::pin(async move {
+                scope_started_sender.send(()).unwrap();
+                scope_gate.await.unwrap();
+                Err(DisposeError::new("scope", "scope failure"))
+            })
+        })
+        .unwrap();
+
+    let mut first = Box::pin(scope.dispose());
+    let mut context = Context::from_waker(noop_waker_ref());
+    assert!(matches!(first.as_mut().poll(&mut context), Poll::Pending));
+    descendant_started_receiver.recv().unwrap();
+    release_descendant.send(()).unwrap();
+    assert!(matches!(first.as_mut().poll(&mut context), Poll::Pending));
+    scope_started_receiver.recv().unwrap();
+
+    let mut second = Box::pin(scope.dispose());
+    assert!(matches!(second.as_mut().poll(&mut context), Poll::Pending));
+    release_scope.send(()).unwrap();
+    let expected = [
+        DisposeError::new("descendant", "descendant failure"),
+        DisposeError::new("scope", "scope failure"),
+    ];
+    assert_eq!(block_on(first).unwrap_err().as_slice(), expected);
+    assert_eq!(block_on(second).unwrap_err().as_slice(), expected);
+    assert!(block_on(scope.dispose()).is_ok());
 }
 
 #[test]

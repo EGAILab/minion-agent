@@ -60,6 +60,6 @@ class ToolService:
         try:
             outcome = fn(call.arguments)
             text = await outcome if inspect.isawaitable(outcome) else outcome
-        except Exception as error:  # noqa: BLE001 - surfaced to the model, not raised
+        except Exception as error:
             return self._result(call, f"{type(error).__name__}: {error}", is_error=True)
         return self._result(call, str(text), is_error=False)

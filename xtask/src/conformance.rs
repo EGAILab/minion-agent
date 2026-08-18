@@ -10,7 +10,6 @@ use sha2::{Digest, Sha256};
 
 const MANIFEST_FILE: &str = "SOURCE.json";
 const SOURCE_REPOSITORY: &str = "minion-agent-python/conformance";
-const RUST_REPOSITORY: &str = "E:/AI/Projects/OpenMinds/Minions/Minion-Agent/minion-agent-rust";
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct SnapshotFile {
@@ -258,12 +257,7 @@ fn source_commit(source: &Path) -> anyhow::Result<String> {
 }
 
 fn git<const N: usize>(source: &Path, arguments: [&str; N]) -> anyhow::Result<String> {
-    let output = Command::new("git")
-        .arg("-c")
-        .arg(format!("safe.directory={RUST_REPOSITORY}"))
-        .arg("-C")
-        .arg(source)
-        .args(arguments)
+    let output = git_command(source, arguments)?
         .output()
         .with_context(|| format!("run git in {}", source.display()))?;
     if !output.status.success() {
@@ -274,4 +268,75 @@ fn git<const N: usize>(source: &Path, arguments: [&str; N]) -> anyhow::Result<St
         );
     }
     String::from_utf8(output.stdout).context("git returned non-UTF-8 output")
+}
+
+fn git_command<const N: usize>(source: &Path, arguments: [&str; N]) -> anyhow::Result<Command> {
+    let source = fs::canonicalize(source)
+        .with_context(|| format!("canonicalize source checkout {}", source.display()))?;
+    let mut command = Command::new("git");
+    command
+        .arg("-c")
+        .arg(format!("safe.directory={}", source.display()))
+        .arg("-C")
+        .arg(&source)
+        .args(arguments);
+    Ok(command)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::fs;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    use super::*;
+
+    #[test]
+    fn git_command_trusts_the_canonical_source_checkout() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock should be after Unix epoch")
+            .as_nanos();
+        let source = std::env::temp_dir().join(format!("xtask-git-source-{nonce}"));
+        fs::create_dir_all(&source).expect("source directory");
+        let canonical_source = fs::canonicalize(&source).expect("canonical source directory");
+
+        let status = Command::new("git")
+            .arg("-c")
+            .arg(format!("safe.directory={}", canonical_source.display()))
+            .arg("-C")
+            .arg(&canonical_source)
+            .arg("init")
+            .status()
+            .expect("initialize source checkout");
+        assert!(status.success(), "source checkout should initialize");
+
+        let mut command =
+            git_command(&source, ["status", "--porcelain"]).expect("construct source git command");
+        let arguments: Vec<_> = command
+            .get_args()
+            .map(|argument| argument.to_string_lossy().into_owned())
+            .collect();
+
+        assert_eq!(
+            arguments,
+            vec![
+                "-c".to_owned(),
+                format!("safe.directory={}", canonical_source.display()),
+                "-C".to_owned(),
+                canonical_source.to_string_lossy().into_owned(),
+                "status".to_owned(),
+                "--porcelain".to_owned(),
+            ]
+        );
+        assert!(
+            command
+                .output()
+                .expect("run source git command")
+                .status
+                .success(),
+            "source-specific trust should permit the real source checkout"
+        );
+
+        fs::remove_dir_all(source).expect("source cleanup");
+    }
 }

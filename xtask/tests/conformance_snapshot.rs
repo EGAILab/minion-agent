@@ -30,6 +30,8 @@ impl Fixture {
             b"name: example\n",
         )
         .expect("fixture runtime file");
+        fs::write(root.join("conformance/SOURCE.json"), b"fixture metadata\n")
+            .expect("fixture metadata file");
         Self { root, snapshot }
     }
 
@@ -56,16 +58,52 @@ impl Fixture {
                 "fixture",
             ],
         ] {
-            let status = Command::new("git")
-                .arg("-c")
-                .arg("safe.directory=E:/AI/Projects/OpenMinds/Minions/Minion-Agent/minion-agent-rust")
-                .arg("-C")
-                .arg(&self.root)
-                .args(arguments)
-                .status()
-                .expect("fixture git command should run");
-            assert!(status.success(), "fixture git command should succeed");
+            assert!(
+                self.git(&arguments).status.success(),
+                "fixture git command should succeed"
+            );
         }
+    }
+
+    fn commit_all(&self, message: &str) {
+        for arguments in [
+            vec!["add", "-A"],
+            vec![
+                "-c",
+                "user.name=Fixture",
+                "-c",
+                "user.email=fixture@example.invalid",
+                "commit",
+                "-m",
+                message,
+            ],
+        ] {
+            assert!(
+                self.git(&arguments).status.success(),
+                "fixture git command should succeed"
+            );
+        }
+    }
+
+    fn commit(&self) -> String {
+        let output = self.git(&["rev-parse", "HEAD"]);
+        assert!(output.status.success(), "fixture revision should resolve");
+        String::from_utf8(output.stdout)
+            .expect("fixture revision is UTF-8")
+            .trim()
+            .to_owned()
+    }
+
+    fn git(&self, arguments: &[&str]) -> std::process::Output {
+        let source = fs::canonicalize(&self.root).expect("canonical fixture source");
+        Command::new("git")
+            .arg("-c")
+            .arg(format!("safe.directory={}", source.display()))
+            .arg("-C")
+            .arg(source)
+            .args(arguments)
+            .output()
+            .expect("fixture git command should run")
     }
 }
 
@@ -162,4 +200,61 @@ fn sync_snapshot_copies_the_canonical_files_without_deleting_unrelated_files() {
     assert!(snapshot.join("runtime/example.yaml").is_file());
     assert!(snapshot.join("SOURCE.json").is_file());
     assert!(snapshot.join("unrelated.json").is_file());
+}
+
+#[test]
+fn sync_snapshot_rejects_a_dirty_source_checkout() {
+    let fixture = Fixture::new();
+    fixture.initialize_git();
+    fs::write(
+        fixture.source().join("conformance/runtime/example.yaml"),
+        b"name: changed\n",
+    )
+    .expect("dirty fixture source");
+
+    let error = sync_snapshot(fixture.source(), &fixture.snapshot())
+        .expect_err("dirty source checkout should not sync");
+
+    assert!(format!("{error:#}").contains("source checkout is dirty"));
+    assert!(!fixture.snapshot().exists());
+}
+
+#[test]
+fn sync_snapshot_removes_stale_managed_files_but_keeps_unrelated_files() {
+    let fixture = Fixture::new();
+    fixture.initialize_git();
+    let snapshot = fixture.snapshot();
+    sync_snapshot(fixture.source(), &snapshot).expect("initial fixture sync");
+    fs::write(snapshot.join("unrelated.json"), b"{}\n").expect("unrelated snapshot file");
+    fs::remove_file(fixture.source().join("conformance/runtime/example.yaml"))
+        .expect("remove managed source file");
+    fixture.commit_all("remove runtime fixture");
+
+    sync_snapshot(fixture.source(), &snapshot).expect("second fixture sync");
+
+    assert!(!snapshot.join("runtime/example.yaml").exists());
+    assert!(snapshot.join("unrelated.json").is_file());
+}
+
+#[test]
+fn sync_snapshot_writes_a_reproducible_manifest_and_excludes_source_metadata() {
+    let fixture = Fixture::new();
+    fixture.initialize_git();
+    let snapshot = fixture.snapshot();
+
+    sync_snapshot(fixture.source(), &snapshot).expect("sync fixture snapshot");
+
+    let contents =
+        fs::read_to_string(snapshot.join("SOURCE.json")).expect("read generated manifest");
+    assert!(contents.ends_with('\n'));
+    assert!(!contents.ends_with("\n\n"));
+    assert!(contents.contains("\"source_repository\": \"minion-agent-python/conformance\""));
+    assert!(contents.contains(&format!("\"source_commit\": \"{}\"", fixture.commit())));
+    assert!(contents.contains(
+        "\"sha256\": \"9091a8164f97eaca182b3d06d0e5a59e923c880ebc0148056c453c651f5b46cb\""
+    ));
+    assert!(contents.contains(
+        "\"sha256\": \"15fcc3870625980bf58f15ba904736b4ffa1a84495a8f4f51d781e211016e743\""
+    ));
+    assert!(!contents.contains("\"path\": \"SOURCE.json\""));
 }

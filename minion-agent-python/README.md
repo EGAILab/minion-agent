@@ -1,15 +1,23 @@
-# Minion Agent
+# Minion Agent — Python
 
-A Python agent runtime that preserves the functional scope and semantics of Pi
-`agent-core`, rebuilt on a Cordis-inspired plugin architecture: plugin
-lifecycle, service dependency, typed events, and reversible effects.
+The **Python implementation** of Minion Agent: an agent runtime that preserves
+the functional scope and semantics of Pi `agent-core`, rebuilt on a
+Cordis-inspired plugin architecture — plugin lifecycle, service dependency,
+typed events, and reversible effects.
 
-**Status:** design complete, implementation not yet started.
+The repository name says which language; the package says which project. The
+importable package is `minion_agent`, and a second-language implementation
+would expose the same name against the same specification.
 
-## Design
+**Status:** plugin runtime, LLM vocabulary, session log, and telemetry are
+implemented and passing conformance. The agent loop and tool subsystem follow.
+
+## Design and specification
 
 The design specification lives in the companion documentation repository under
-`minion-agent-docs/design/`.
+`minion-agent-docs/`. It is deliberately language-neutral: `conformance/` in
+this repository is pure data, so another implementation can vendor or
+submodule it without depending on Python.
 
 ## Architecture in brief
 

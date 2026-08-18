@@ -23,9 +23,7 @@ class ScopedRegistry[V]:
         self._entries: dict[ScopeKey | None, list[tuple[str, V] | None]] = {}
 
     def __len__(self) -> int:
-        return sum(
-            1 for bucket in self._entries.values() for entry in bucket if entry is not None
-        )
+        return sum(1 for bucket in self._entries.values() for entry in bucket if entry is not None)
 
     def add(self, key: ScopeKey | None, name: str, value: V) -> Callable[[], None]:
         """File `value` under `key`; returns a handle that withdraws it."""

@@ -7,11 +7,10 @@ service name — the protocol is a typed view, never a second key space.
 
 from __future__ import annotations
 
+import inspect
 from collections.abc import Callable
 from contextlib import AbstractContextManager
 from typing import TYPE_CHECKING, Any, TypeVar
-
-import inspect
 
 from .disposable import DisposableList, Disposer
 from .errors import InactiveFiberError, ServiceNotFoundError
@@ -67,9 +66,7 @@ class Context:
         child._fiber = meta.pop("fiber", self._fiber)
         child._plugins = self._plugins
         child._scope_key = meta.pop("scope_key", self._scope_key)
-        child._scope_disposables = meta.pop(
-            "scope_disposables", self._scope_disposables
-        )
+        child._scope_disposables = meta.pop("scope_disposables", self._scope_disposables)
         child._meta = {**self._meta, **meta}
         return child
 
@@ -137,12 +134,19 @@ class Context:
         listener: Callable[..., Any],
         *,
         prepend: bool = False,
+        scope: ScopeKey | None = None,
     ) -> Callable[[], Any]:
-        """Register an event listener, auto-disposed with the owning fiber."""
-        if self._fiber is None:
-            return self._events.on(name, listener, prepend=prepend)
+        """Register an event listener, auto-disposed with its owner.
+
+        The listener is tagged with `scope` when given, otherwise with this
+        context's own scope — so a listener registered through a scoped context
+        is admitted for that scope and its descendants.
+        """
+        tag = scope if scope is not None else self._scope_key
+        if self._fiber is None and self._scope_disposables is None:
+            return self._events.on(name, listener, prepend=prepend, scope=tag)
         return self.effect(
-            lambda: self._events.on(name, listener, prepend=prepend),
+            lambda: self._events.on(name, listener, prepend=prepend, scope=tag),
             f"on({name})",
         )
 

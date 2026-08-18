@@ -14,6 +14,7 @@ from enum import StrEnum
 from typing import Any
 
 from .errors import EventModeError, WaterfallError
+from .scope import ScopeKey
 
 
 class DispatchMode(StrEnum):
@@ -33,10 +34,11 @@ class DispatchMode(StrEnum):
 
 
 class _Listener:
-    __slots__ = ("callback",)
+    __slots__ = ("callback", "scope")
 
-    def __init__(self, callback: Callable[..., Any]) -> None:
+    def __init__(self, callback: Callable[..., Any], scope: ScopeKey | None) -> None:
         self.callback = callback
+        self.scope = scope
 
 
 class EventBus:
@@ -81,10 +83,15 @@ class EventBus:
         listener: Callable[..., Any],
         *,
         prepend: bool = False,
+        scope: ScopeKey | None = None,
     ) -> Callable[[], None]:
-        """Register `listener` for `name`; returns a disposer that removes it."""
+        """Register `listener` for `name`; returns a disposer that removes it.
+
+        A tagged listener is admitted only for its own scope key or a
+        descendant of it; an untagged listener is admitted for every dispatch.
+        """
         self.mode_of(name)
-        entry = _Listener(listener)
+        entry = _Listener(listener, scope)
         listeners = self._listeners.setdefault(name, [])
         if prepend:
             listeners.insert(0, entry)
@@ -98,13 +105,26 @@ class EventBus:
 
         return dispose
 
-    def _chain(self, name: str) -> list[Callable[..., Any]]:
-        return [entry.callback for entry in self._listeners.get(name, ())]
+    @staticmethod
+    def _admits(listener_scope: ScopeKey | None, dispatch_scope: ScopeKey | None) -> bool:
+        """Admission extends up the chain: an ancestor hears a descendant."""
+        if listener_scope is None:
+            return True
+        if dispatch_scope is None:
+            return False
+        return listener_scope in dispatch_scope.chain()
 
-    def emit(self, name: str, *args: Any) -> None:
-        """Invoke every listener synchronously in registration order."""
+    def _chain(self, name: str, scope: ScopeKey | None = None) -> list[Callable[..., Any]]:
+        return [
+            entry.callback
+            for entry in self._listeners.get(name, ())
+            if self._admits(entry.scope, scope)
+        ]
+
+    def emit(self, name: str, *args: Any, scope: ScopeKey | None = None) -> None:
+        """Invoke every admitted listener synchronously in registration order."""
         self._require_mode(name, DispatchMode.EMIT)
-        for callback in self._chain(name):
+        for callback in self._chain(name, scope):
             callback(*args)
 
     @staticmethod
@@ -114,10 +134,10 @@ class EventBus:
             return await result
         return result
 
-    async def parallel(self, name: str, *args: Any) -> None:
-        """Invoke every listener concurrently, aggregating any failures."""
+    async def parallel(self, name: str, *args: Any, scope: ScopeKey | None = None) -> None:
+        """Invoke every admitted listener concurrently, aggregating any failures."""
         self._require_mode(name, DispatchMode.PARALLEL)
-        callbacks = self._chain(name)
+        callbacks = self._chain(name, scope)
         if not callbacks:
             return
         outcomes = await asyncio.gather(
@@ -128,15 +148,21 @@ class EventBus:
         if failures:
             raise ExceptionGroup(f"errors in {name!r} listeners", failures)
 
-    async def serial(self, name: str, *args: Any) -> Any:
-        """Invoke listeners in registration order; the last value wins."""
+    async def serial(self, name: str, *args: Any, scope: ScopeKey | None = None) -> Any:
+        """Invoke admitted listeners in registration order; the last value wins."""
         self._require_mode(name, DispatchMode.SERIAL)
         result: Any = None
-        for callback in self._chain(name):
+        for callback in self._chain(name, scope):
             result = await self._call(callback, *args)
         return result
 
-    async def waterfall(self, name: str, *args: Any, terminal: Any = None) -> Any:
+    async def waterfall(
+        self,
+        name: str,
+        *args: Any,
+        terminal: Any = None,
+        scope: ScopeKey | None = None,
+    ) -> Any:
         """Invoke listeners as around-middleware.
 
         Each listener receives `next` as its final positional argument.
@@ -154,7 +180,7 @@ class EventBus:
         replacement arguments.
         """
         self._require_mode(name, DispatchMode.WATERFALL)
-        callbacks = self._chain(name)
+        callbacks = self._chain(name, scope)
 
         async def step(index: int, current: tuple[Any, ...]) -> Any:
             if index >= len(callbacks):

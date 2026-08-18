@@ -1,0 +1,104 @@
+"""The inbox: two queues, three aliases, and a wake signal.
+
+DSH's `send(message, target, wakeup)` generalizes pi's two queues, and the
+three aliases are its fixed presets:
+
+    followup  next-turn  wakes
+    steer     next-step  wakes
+    inject    next-step  silent
+"""
+
+from __future__ import annotations
+
+import uuid
+
+from ..llm import UserMessage
+from .envelope import ClaimPolicy, InboxTarget, InputEnvelope, JsonValue
+
+_JSON_SCALARS = (str, int, float, bool, type(None))
+
+
+class NotJsonSafeOriginError(TypeError):
+    """An origin was supplied that JSON cannot represent."""
+
+
+def _check_json_safe(value: object, path: str = "origin") -> None:
+    if isinstance(value, _JSON_SCALARS):
+        return
+    if isinstance(value, dict):
+        for key, item in value.items():
+            if not isinstance(key, str):
+                raise NotJsonSafeOriginError(f"{path}: keys must be strings, got {key!r}")
+            _check_json_safe(item, f"{path}.{key}")
+        return
+    if isinstance(value, list | tuple):
+        for index, item in enumerate(value):
+            _check_json_safe(item, f"{path}[{index}]")
+        return
+    raise NotJsonSafeOriginError(f"{path}: {type(value).__name__} is not JSON-safe")
+
+
+class Inbox:
+    """Queued input for one agent instance."""
+
+    def __init__(self) -> None:
+        self._queues: dict[InboxTarget, list[InputEnvelope]] = {
+            InboxTarget.NEXT_TURN: [],
+            InboxTarget.NEXT_STEP: [],
+        }
+        self._wake = False
+
+    @property
+    def wake_requested(self) -> bool:
+        """Whether input has arrived that should start or continue work."""
+        return self._wake
+
+    def take_wake(self) -> bool:
+        """Consume the wake signal, returning whether one was pending."""
+        pending, self._wake = self._wake, False
+        return pending
+
+    def send(
+        self,
+        message: UserMessage,
+        target: InboxTarget,
+        wakeup: bool,
+        origin: JsonValue = None,
+    ) -> InputEnvelope:
+        """Queue `message`, validating its origin before anything is stored."""
+        _check_json_safe(origin)
+        envelope = InputEnvelope(id=str(uuid.uuid4()), message=message, origin=origin)
+        self._queues[target].append(envelope)
+        if wakeup:
+            self._wake = True
+        return envelope
+
+    def followup(self, message: UserMessage, origin: JsonValue = None) -> InputEnvelope:
+        """Queue a prompt for the next turn and wake the driver."""
+        return self.send(message, InboxTarget.NEXT_TURN, wakeup=True, origin=origin)
+
+    def steer(self, message: UserMessage, origin: JsonValue = None) -> InputEnvelope:
+        """Queue input for the next step boundary and wake the driver."""
+        return self.send(message, InboxTarget.NEXT_STEP, wakeup=True, origin=origin)
+
+    def inject(self, message: UserMessage, origin: JsonValue = None) -> InputEnvelope:
+        """Queue context for the next step boundary without waking.
+
+        It rides along with whatever wakes the driver next, which is what makes
+        it usable for ambient context that should not itself start work.
+        """
+        return self.send(message, InboxTarget.NEXT_STEP, wakeup=False, origin=origin)
+
+    def pending(self, target: InboxTarget) -> tuple[InputEnvelope, ...]:
+        """What is queued at `target`, unclaimed."""
+        return tuple(self._queues[target])
+
+    def claim(self, target: InboxTarget, policy: ClaimPolicy) -> tuple[InputEnvelope, ...]:
+        """Remove and return queued input according to `policy`."""
+        queue = self._queues[target]
+        if not queue:
+            return ()
+        if policy is ClaimPolicy.ALL:
+            claimed, queue[:] = tuple(queue), []
+            return claimed
+        return (queue.pop(0),)

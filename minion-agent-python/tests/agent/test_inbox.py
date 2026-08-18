@@ -1,0 +1,122 @@
+"""The inbox carries provenance and claims by policy."""
+
+import pytest
+
+from minion_agent.agent.envelope import ClaimPolicy, InboxTarget
+from minion_agent.agent.inbox import Inbox, NotJsonSafeOriginError
+from minion_agent.llm import TextBlock, UserMessage
+
+
+def _message(text: str) -> UserMessage:
+    return UserMessage(content=(TextBlock(text=text),), timestamp=1)
+
+
+def test_followup_queues_for_the_next_turn_and_wakes() -> None:
+    inbox = Inbox()
+
+    inbox.followup(_message("hello"))
+
+    assert len(inbox.pending(InboxTarget.NEXT_TURN)) == 1
+    assert inbox.wake_requested
+
+
+def test_steer_queues_for_the_next_step_and_wakes() -> None:
+    inbox = Inbox()
+
+    inbox.steer(_message("actually, stop"))
+
+    assert len(inbox.pending(InboxTarget.NEXT_STEP)) == 1
+    assert inbox.wake_requested
+
+
+def test_inject_queues_for_the_next_step_without_waking() -> None:
+    """Silent context: it rides along with the next thing that does wake."""
+    inbox = Inbox()
+
+    inbox.inject(_message("file changed on disk"))
+
+    assert len(inbox.pending(InboxTarget.NEXT_STEP)) == 1
+    assert not inbox.wake_requested
+
+
+def test_taking_the_wake_signal_clears_it() -> None:
+    inbox = Inbox()
+    inbox.followup(_message("hello"))
+
+    assert inbox.take_wake()
+    assert not inbox.wake_requested
+    assert not inbox.take_wake()
+
+
+def test_one_at_a_time_claims_only_the_oldest() -> None:
+    inbox = Inbox()
+    inbox.followup(_message("first"))
+    inbox.followup(_message("second"))
+
+    claimed = inbox.claim(InboxTarget.NEXT_TURN, ClaimPolicy.ONE_AT_A_TIME)
+
+    assert len(claimed) == 1
+    assert len(inbox.pending(InboxTarget.NEXT_TURN)) == 1
+
+
+def test_all_claims_everything_queued() -> None:
+    inbox = Inbox()
+    inbox.followup(_message("first"))
+    inbox.followup(_message("second"))
+
+    claimed = inbox.claim(InboxTarget.NEXT_TURN, ClaimPolicy.ALL)
+
+    assert len(claimed) == 2
+    assert inbox.pending(InboxTarget.NEXT_TURN) == ()
+
+
+def test_claiming_removes_what_it_claimed() -> None:
+    inbox = Inbox()
+    inbox.followup(_message("only"))
+
+    inbox.claim(InboxTarget.NEXT_TURN, ClaimPolicy.ALL)
+
+    assert inbox.claim(InboxTarget.NEXT_TURN, ClaimPolicy.ALL) == ()
+
+
+def test_the_two_queues_are_independent() -> None:
+    inbox = Inbox()
+    inbox.followup(_message("turn"))
+    inbox.steer(_message("step"))
+
+    claimed = inbox.claim(InboxTarget.NEXT_STEP, ClaimPolicy.ALL)
+
+    assert len(claimed) == 1
+    assert len(inbox.pending(InboxTarget.NEXT_TURN)) == 1
+
+
+def test_every_envelope_gets_a_unique_id() -> None:
+    inbox = Inbox()
+
+    first = inbox.followup(_message("a"))
+    second = inbox.followup(_message("b"))
+
+    assert first.id != second.id
+
+
+def test_origin_is_carried_verbatim() -> None:
+    inbox = Inbox()
+    origin = {"channel": "matrix", "room": "!abc:example.org"}
+
+    envelope = inbox.followup(_message("hello"), origin=origin)
+
+    assert envelope.origin == origin
+
+
+def test_origin_defaults_to_none() -> None:
+    assert Inbox().followup(_message("hello")).origin is None
+
+
+def test_a_non_json_safe_origin_is_rejected_eagerly() -> None:
+    """Origin travels in the log and must survive another language."""
+    inbox = Inbox()
+
+    with pytest.raises(NotJsonSafeOriginError, match="JSON-safe"):
+        inbox.followup(_message("hello"), origin=object())  # type: ignore[arg-type]
+
+    assert inbox.pending(InboxTarget.NEXT_TURN) == ()

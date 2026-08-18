@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use futures::future::BoxFuture;
+use futures::future::{BoxFuture, FutureExt, Shared};
 use parking_lot::Mutex;
 use thiserror::Error;
 
@@ -24,7 +24,7 @@ impl DisposeError {
     }
 }
 
-#[derive(Debug, Error)]
+#[derive(Clone, Debug, Error)]
 #[error("errors while disposing")]
 pub struct DisposeErrors(Vec<DisposeError>);
 
@@ -60,6 +60,14 @@ impl EffectSlot {
 struct EffectState {
     accepting: bool,
     entries: Vec<Arc<EffectSlot>>,
+    in_flight_unwind: Option<BulkUnwind>,
+}
+
+type BulkUnwind = Shared<BoxFuture<'static, Result<(), DisposeErrors>>>;
+
+enum BulkUnwindRole {
+    Owner(BulkUnwind),
+    Follower(BulkUnwind),
 }
 
 pub struct EffectStore {
@@ -72,6 +80,7 @@ impl EffectStore {
             state: Mutex::new(EffectState {
                 accepting: true,
                 entries: Vec::new(),
+                in_flight_unwind: None,
             }),
         }
     }
@@ -100,29 +109,34 @@ impl EffectStore {
     }
 
     pub fn close(&self) {
-        self.close_entries();
+        self.state.lock().accepting = false;
     }
 
     pub async fn close_and_dispose(&self) -> Result<(), DisposeErrors> {
-        let entries = self.close_entries();
-        let mut errors = Vec::new();
-        for entry in entries {
-            if let Err(error) = entry.dispose().await {
-                errors.push(error);
+        let role = {
+            let mut state = self.state.lock();
+            state.accepting = false;
+            if let Some(unwind) = &state.in_flight_unwind {
+                BulkUnwindRole::Follower(unwind.clone())
+            } else {
+                let entries = state.entries.iter().rev().cloned().collect();
+                let unwind = dispose_entries(entries).boxed().shared();
+                state.in_flight_unwind = Some(unwind.clone());
+                BulkUnwindRole::Owner(unwind)
+            }
+        };
+
+        match role {
+            BulkUnwindRole::Owner(unwind) => {
+                let result = unwind.await;
+                self.state.lock().in_flight_unwind = None;
+                result
+            }
+            BulkUnwindRole::Follower(unwind) => {
+                let _ = unwind.await;
+                Ok(())
             }
         }
-
-        if errors.is_empty() {
-            Ok(())
-        } else {
-            Err(DisposeErrors(errors))
-        }
-    }
-
-    fn close_entries(&self) -> Vec<Arc<EffectSlot>> {
-        let mut state = self.state.lock();
-        state.accepting = false;
-        state.entries.iter().rev().cloned().collect()
     }
 }
 
@@ -139,5 +153,20 @@ pub struct EffectHandle {
 impl EffectHandle {
     pub async fn dispose(&self) -> Result<(), DisposeError> {
         self.slot.dispose().await
+    }
+}
+
+async fn dispose_entries(entries: Vec<Arc<EffectSlot>>) -> Result<(), DisposeErrors> {
+    let mut errors = Vec::new();
+    for entry in entries {
+        if let Err(error) = entry.dispose().await {
+            errors.push(error);
+        }
+    }
+
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(DisposeErrors(errors))
     }
 }

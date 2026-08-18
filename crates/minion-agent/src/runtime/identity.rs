@@ -70,5 +70,13 @@ fn is_simple_name(value: &str) -> bool {
 }
 
 fn is_event_name(value: &str) -> bool {
-    !value.is_empty() && value.split('/').all(is_simple_name)
+    let mut segments = value.split('/');
+    matches!(segments.next(), Some(first) if is_simple_name(first))
+        && segments.all(is_qualified_event_segment)
+}
+
+fn is_qualified_event_segment(value: &str) -> bool {
+    let mut characters = value.bytes();
+    matches!(characters.next(), Some(b'a'..=b'z'))
+        && characters.all(|character| matches!(character, b'a'..=b'z' | b'0'..=b'9' | b'_' | b'-'))
 }

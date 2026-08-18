@@ -1,10 +1,12 @@
 use std::{
     collections::{BTreeSet, HashSet},
+    future::Future,
     sync::{Arc, mpsc},
+    task::{Context, Poll},
     thread,
 };
 
-use futures::{channel::oneshot, executor::block_on, future::BoxFuture};
+use futures::{channel::oneshot, executor::block_on, future::BoxFuture, task::noop_waker_ref};
 use minion_agent::{DisposeError, EffectStore, EventName, RuntimeError, ServiceName};
 use parking_lot::Mutex;
 
@@ -30,6 +32,10 @@ fn normative_names_have_value_identity_and_accept_qualified_events() {
     assert_eq!(
         EventName::new("test/transform").unwrap().as_str(),
         "test/transform"
+    );
+    assert_eq!(
+        EventName::new("test/transform-name").unwrap().as_str(),
+        "test/transform-name"
     );
 
     let mut hashed = HashSet::new();
@@ -58,7 +64,7 @@ fn normative_names_reject_empty_uppercase_and_malformed_values() {
         "/test",
         "test/",
         "test//transform",
-        "test/transform-name",
+        "test/-transform",
     ] {
         assert!(matches!(
             EventName::new(invalid),
@@ -171,7 +177,7 @@ fn close_prevents_later_effect_registration() {
 }
 
 #[test]
-fn a_handle_and_bulk_unwind_take_a_disposer_exactly_once() {
+fn a_handle_winning_the_slot_leaves_bulk_unwind_as_a_no_op() {
     let effects = Arc::new(EffectStore::new());
     let seen = Arc::new(Mutex::new(Vec::new()));
     let (started_sender, started_receiver) = oneshot::channel::<()>();
@@ -201,4 +207,89 @@ fn a_handle_and_bulk_unwind_take_a_disposer_exactly_once() {
     handle_disposal.join().unwrap().unwrap();
     bulk_disposal.join().unwrap().unwrap();
     assert_eq!(&*seen.lock(), &["shared"]);
+}
+
+#[test]
+fn bulk_unwind_winning_the_slot_leaves_the_handle_as_a_no_op() {
+    let effects = Arc::new(EffectStore::new());
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let (started_sender, started_receiver) = oneshot::channel::<()>();
+    let (release_sender, release_receiver) = oneshot::channel::<()>();
+    let disposer_seen = Arc::clone(&seen);
+
+    let handle = effects
+        .push("shared", move || {
+            Box::pin(async move {
+                started_sender.send(()).unwrap();
+                release_receiver.await.unwrap();
+                disposer_seen.lock().push("shared");
+                Ok(())
+            })
+        })
+        .unwrap();
+
+    let bulk_disposal = thread::spawn({
+        let effects = Arc::clone(&effects);
+        move || block_on(effects.close_and_dispose())
+    });
+    block_on(started_receiver).unwrap();
+
+    let handle_disposal = thread::spawn(move || block_on(handle.dispose()));
+    release_sender.send(()).unwrap();
+
+    bulk_disposal.join().unwrap().unwrap();
+    handle_disposal.join().unwrap().unwrap();
+    assert_eq!(&*seen.lock(), &["shared"]);
+}
+
+#[test]
+fn concurrent_bulk_unwind_waits_for_the_owner_and_does_not_split_errors() {
+    let effects = Arc::new(EffectStore::new());
+    let (started_sender, started_receiver) = mpsc::channel();
+    let (release_sender, release_receiver) = oneshot::channel::<()>();
+    let older_started_sender = started_sender.clone();
+
+    effects
+        .push("older", move || {
+            Box::pin(async move {
+                older_started_sender.send("older").unwrap();
+                Err(DisposeError::new("older", "old failure"))
+            })
+        })
+        .unwrap();
+    effects
+        .push("newest", move || {
+            Box::pin(async move {
+                started_sender.send("newest").unwrap();
+                release_receiver.await.unwrap();
+                Err(DisposeError::new("newest", "new failure"))
+            })
+        })
+        .unwrap();
+
+    let owner = thread::spawn({
+        let effects = Arc::clone(&effects);
+        move || block_on(effects.close_and_dispose())
+    });
+    assert_eq!(started_receiver.recv().unwrap(), "newest");
+
+    let mut follower = Box::pin(effects.close_and_dispose());
+    let mut context = Context::from_waker(noop_waker_ref());
+    assert!(matches!(
+        follower.as_mut().poll(&mut context),
+        Poll::Pending
+    ));
+    assert!(started_receiver.try_recv().is_err());
+
+    release_sender.send(()).unwrap();
+    let owner_errors = owner.join().unwrap().unwrap_err();
+    assert_eq!(
+        owner_errors.as_slice(),
+        &[
+            DisposeError::new("newest", "new failure"),
+            DisposeError::new("older", "old failure"),
+        ]
+    );
+    assert_eq!(started_receiver.recv().unwrap(), "older");
+    assert!(block_on(follower).is_ok());
 }

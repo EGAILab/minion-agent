@@ -95,8 +95,13 @@ impl ServiceRegistry {
         let removal_name = name.clone();
         let commit_state = Arc::clone(&self.state);
         let commit_name = name.clone();
-        let commit_owner = Arc::clone(&owner);
-        let commit_holder = holder.clone();
+        let pending_entry = Box::new(ServiceEntry {
+            id: registration_id,
+            holder,
+            owner,
+            value: erased_value,
+            check,
+        });
 
         let (effect, ()) = effects.try_push_with_commit(
             format!("provide({name})"),
@@ -106,9 +111,12 @@ impl ServiceRegistry {
                     Ok(())
                 })
             },
-            move || {
+            pending_entry,
+            move |entry| {
                 let mut state = commit_state.lock();
-                validate_registration::<S>(&state, &commit_name)?;
+                if let Err(error) = validate_registration::<S>(&state, &commit_name) {
+                    return Err((error, entry));
+                }
 
                 state
                     .contracts
@@ -117,16 +125,7 @@ impl ServiceRegistry {
                         type_id: TypeId::of::<S>(),
                         type_name: type_name::<S>(),
                     });
-                state.registrations.insert(
-                    commit_name,
-                    ServiceEntry {
-                        id: registration_id,
-                        holder: commit_holder,
-                        owner: commit_owner,
-                        value: erased_value,
-                        check,
-                    },
-                );
+                state.registrations.insert(commit_name.clone(), *entry);
                 Ok(())
             },
         )?;

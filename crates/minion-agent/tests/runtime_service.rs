@@ -27,6 +27,26 @@ impl Service for ToolsB {
     const NAME: &'static str = "tools";
 }
 
+struct ReentrantLosingTools {
+    effects: Arc<EffectStore>,
+    dropped_sender: mpsc::Sender<()>,
+}
+
+impl Service for ReentrantLosingTools {
+    const NAME: &'static str = "tools";
+}
+
+impl Drop for ReentrantLosingTools {
+    fn drop(&mut self) {
+        self.effects
+            .push("registered while rejected value drops", || {
+                Box::pin(async { Ok(()) })
+            })
+            .unwrap();
+        self.dropped_sender.send(()).unwrap();
+    }
+}
+
 #[derive(Debug, Eq, PartialEq)]
 struct Models;
 
@@ -294,6 +314,63 @@ fn concurrent_providers_that_both_pass_preflight_still_commit_one_exclusive_slot
     block_on(second_owner.effects.close_and_dispose()).unwrap();
     assert_eq!(*registry.require::<ToolsA>().unwrap(), ToolsA("first"));
     block_on(first_registration.dispose()).unwrap();
+}
+
+#[test]
+fn rejected_concurrent_provider_drops_user_value_after_releasing_its_effect_lock() {
+    let registry = ServiceRegistry::new();
+    let (winner_reached_sender, winner_reached_receiver) = mpsc::channel();
+    let (release_winner, winner_release_receiver) = mpsc::channel();
+    let winner_owner = Arc::new(BlockingOwner {
+        effects: Arc::new(EffectStore::new()),
+        reached_sender: winner_reached_sender,
+        release_receiver: std::sync::Mutex::new(winner_release_receiver),
+    });
+    let (loser_reached_sender, loser_reached_receiver) = mpsc::channel();
+    let (release_loser, loser_release_receiver) = mpsc::channel();
+    let loser_owner = Arc::new(BlockingOwner {
+        effects: Arc::new(EffectStore::new()),
+        reached_sender: loser_reached_sender,
+        release_receiver: std::sync::Mutex::new(loser_release_receiver),
+    });
+    let (dropped_sender, dropped_receiver) = mpsc::channel();
+
+    let winner = thread::spawn({
+        let registry = registry.clone();
+        let owner = winner_owner.clone();
+        move || registry.provide::<ToolsA>(owner, Arc::new(ToolsA("winner")), None)
+    });
+    let loser = thread::spawn({
+        let registry = registry.clone();
+        let owner = loser_owner.clone();
+        let effects = Arc::clone(&loser_owner.effects);
+        move || {
+            registry.provide::<ReentrantLosingTools>(
+                owner,
+                Arc::new(ReentrantLosingTools {
+                    effects,
+                    dropped_sender,
+                }),
+                None,
+            )
+        }
+    });
+    winner_reached_receiver.recv().unwrap();
+    loser_reached_receiver.recv().unwrap();
+
+    release_winner.send(()).unwrap();
+    let winner_registration = winner.join().unwrap().unwrap();
+    release_loser.send(()).unwrap();
+    dropped_receiver
+        .recv_timeout(Duration::from_secs(2))
+        .expect("rejected service Drop must not run under its owner's effect lock");
+    assert!(matches!(
+        loser.join().unwrap(),
+        Err(RuntimeError::ServiceTypeMismatch { .. })
+    ));
+
+    block_on(winner_registration.dispose()).unwrap();
+    block_on(loser_owner.effects.close_and_dispose()).unwrap();
 }
 
 struct BlockingOwner {

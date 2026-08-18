@@ -111,55 +111,79 @@ impl EffectStore {
     ) -> Result<(EffectHandle, T), RuntimeError>
     where
         F: FnOnce() -> BoxFuture<'static, Result<(), DisposeError>> + Send + 'static,
-        C: FnOnce() -> T,
+        C: FnMut() -> T,
     {
+        let label = label.into();
+        let mut commit = commit;
         let mut state = self.state.lock();
         if !state.accepting {
-            return Err(RuntimeError::InactiveOwner {
+            let error = RuntimeError::InactiveOwner {
                 owner: "effect store".to_owned(),
-            });
+            };
+            drop(state);
+            drop(commit);
+            drop(disposer);
+            return Err(error);
         }
 
         let slot = Arc::new(EffectSlot {
-            label: label.into(),
+            label,
             disposer: Mutex::new(Some(Box::new(disposer))),
         });
         state.entries.push(Arc::clone(&slot));
         let committed = commit();
+        drop(state);
+        drop(commit);
         Ok((EffectHandle { slot }, committed))
     }
 
-    pub(crate) fn try_push_with_commit<F, C, T>(
+    pub(crate) fn try_push_with_commit<F, C, T, V>(
         &self,
         label: impl Into<String>,
         disposer: F,
+        pending: V,
         commit: C,
     ) -> Result<(EffectHandle, T), RuntimeError>
     where
         F: FnOnce() -> BoxFuture<'static, Result<(), DisposeError>> + Send + 'static,
-        C: FnOnce() -> Result<T, RuntimeError>,
+        C: FnMut(V) -> Result<T, (RuntimeError, V)>,
     {
+        let label = label.into();
+        let mut commit = commit;
         let mut state = self.state.lock();
         if !state.accepting {
-            return Err(RuntimeError::InactiveOwner {
+            let error = RuntimeError::InactiveOwner {
                 owner: "effect store".to_owned(),
-            });
+            };
+            drop(state);
+            drop(commit);
+            drop(pending);
+            drop(disposer);
+            return Err(error);
         }
 
         let slot = Arc::new(EffectSlot {
-            label: label.into(),
+            label,
             disposer: Mutex::new(Some(Box::new(disposer))),
         });
         state.entries.push(Arc::clone(&slot));
-        match commit() {
-            Ok(committed) => Ok((EffectHandle { slot }, committed)),
-            Err(error) => {
+        let outcome = commit(pending);
+        match outcome {
+            Ok(committed) => {
+                drop(state);
+                drop(commit);
+                Ok((EffectHandle { slot }, committed))
+            }
+            Err((error, rejected)) => {
                 let removed = state
                     .entries
                     .pop()
                     .expect("the uncommitted effect was just appended");
                 drop(state);
+                drop(commit);
                 drop(removed);
+                drop(slot);
+                drop(rejected);
                 Err(error)
             }
         }

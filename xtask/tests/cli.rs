@@ -16,13 +16,20 @@ fn help_prints_usage() {
 }
 
 #[test]
-fn accepts_all_supported_commands() {
-    for command in ["help", "conformance", "coverage", "layering"] {
+fn accepts_non_conformance_top_level_commands() {
+    for command in ["help", "coverage", "layering"] {
         assert!(
             run(&[command]).status.success(),
             "command failed: {command}"
         );
     }
+}
+
+#[test]
+fn conformance_requires_a_supported_subcommand() {
+    assert!(!run(&["conformance"]).status.success());
+    assert!(!run(&["conformance", "sync"]).status.success());
+    assert!(!run(&["conformance", "unexpected"]).status.success());
 }
 
 #[test]

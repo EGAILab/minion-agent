@@ -29,6 +29,14 @@ def _imported_packages(module: Path) -> set[str]:
     tree = ast.parse(module.read_text(encoding="utf-8"))
     found: set[str] = set()
 
+    # Get the module's package path relative to ROOT.
+    try:
+        relative_path = module.parent.relative_to(ROOT)
+        package_parts = list(relative_path.parts)
+    except ValueError:
+        # Module is not under ROOT (e.g., in a temporary directory during tests).
+        package_parts = []
+
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             for alias in node.names:
@@ -37,10 +45,19 @@ def _imported_packages(module: Path) -> set[str]:
                     found.add(parts[1])
         elif isinstance(node, ast.ImportFrom):
             if node.level and node.module:
-                # `from ..llm.content import X` inside a package module.
-                # Don't flag relative imports from sibling modules within the same package
-                # (level==1, no dots), as they don't violate upward dependencies.
-                if node.level > 1 or "." in node.module:
+                # Relative import: resolve to absolute path before deciding.
+                if package_parts:
+                    # Walk up (level - 1) packages from current package.
+                    walk_up = node.level - 1
+                    target_parts = package_parts[: max(0, len(package_parts) - walk_up)]
+                    # Extend with the relative module path.
+                    target_parts.extend(node.module.split("."))
+                    # Only flag if resolved import leaves the current top-level package.
+                    if target_parts and target_parts[0] != package_parts[0]:
+                        found.add(target_parts[0])
+                else:
+                    # For files outside minion_agent (e.g., test fixtures), fall back
+                    # to reporting the first component of the relative import.
                     found.add(node.module.split(".")[0])
             elif node.module:
                 parts = node.module.split(".")

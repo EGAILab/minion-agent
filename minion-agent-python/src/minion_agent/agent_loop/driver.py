@@ -10,12 +10,13 @@ more steps.
 
 from __future__ import annotations
 
-from ..agent.decisions import Enter, PreStepReason
-from ..agent.envelope import ClaimPolicy, InboxTarget
+from ..agent.decisions import Enter, PreStepDecision, PreStepReason, Reject
+from ..agent.envelope import ClaimPolicy, InboxTarget, InputEnvelope
+from ..agent.events import AGENT_PRE_STEP
 from ..agent.identity import AgentStatus
 from ..agent.instance import AgentInstance
 from ..agent.tools import ToolService
-from ..llm import LlmService, Request, ToolCallBlock, collect
+from ..llm import LlmService, Request, ToolCallBlock, UserMessage, collect
 from ..session import (
     ArtifactStore,
     EventKind,
@@ -71,7 +72,19 @@ class AgentLoop:
         causes = [{"id": envelope.id, "origin": envelope.origin} for envelope in claimed]
         log.append(EventKind.TURN_START, {"causes": causes})
 
-        decision = Enter(messages=tuple(envelope.message for envelope in claimed))
+        # The first step claims step input too, so steering queued before the
+        # turn opened enters it rather than waiting for a second step.
+        entering = tuple(envelope.message for envelope in claimed) + tuple(
+            envelope.message for envelope in self._claim_step_input()
+        )
+        decision = await self._pre_step(entering, PreStepReason.INITIAL)
+        if isinstance(decision, Reject):
+            log.append(
+                EventKind.TURN_END,
+                {"reason": "rejected", "causes": causes, "detail": decision.reason},
+            )
+            return
+
         reason = PreStepReason.INITIAL
         steps = 0
         end_reason = "completed"
@@ -84,12 +97,43 @@ class AgentLoop:
             if steps >= self.instance.definition.max_steps:
                 end_reason = "max_steps"
                 break
-            decision = Enter(messages=())
-            reason = PreStepReason.TOOL_RESULTS
+            step_input = self._claim_step_input()
+            reason = PreStepReason.STEERING if step_input else PreStepReason.TOOL_RESULTS
+            decision = await self._pre_step(
+                tuple(envelope.message for envelope in step_input), reason
+            )
+            if isinstance(decision, Reject):
+                end_reason = "rejected"
+                break
 
         # Repeated at the end so a consumer reading only completions can route
         # a result without replaying the whole turn.
         log.append(EventKind.TURN_END, {"reason": end_reason, "causes": causes})
+
+    def _claim_step_input(self) -> tuple[InputEnvelope, ...]:
+        """Take whatever is waiting at the step boundary."""
+        return self.instance.inbox.claim(InboxTarget.NEXT_STEP, self.next_step_policy)
+
+    async def _pre_step(
+        self, messages: tuple[UserMessage, ...], reason: PreStepReason
+    ) -> PreStepDecision:
+        """Ask listeners what should enter this step.
+
+        The terminal continuation is `Enter(messages)`, so a chain whose
+        listeners all delegate runs the step with exactly what was claimed. A
+        listener that owns the decision returns without delegating; one that
+        transforms delegates with replacement arguments, which the listeners
+        after it receive.
+        """
+        decision: PreStepDecision = await self.instance.ctx.events.waterfall(
+            AGENT_PRE_STEP,
+            self.instance,
+            reason,
+            messages,
+            terminal=Enter(messages=messages),
+            scope=self.instance.scope.key,
+        )
+        return decision
 
     async def _run_step(self, decision: Enter, reason: PreStepReason) -> bool:
         """Run one model request and its tools. Returns whether tools ran.

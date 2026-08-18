@@ -11,22 +11,29 @@ from minion_agent.runtime import Context
 from minion_agent.session import ArtifactStore, EventKind, SessionService, derive_messages
 
 
-def _loop(*responses: ScriptedResponse) -> AgentLoop:
+def _loop_with_adapter(*responses: ScriptedResponse) -> tuple[AgentLoop, MockAdapter]:
+    """A loop plus the adapter behind it, for tests that inspect requests."""
     ctx = Context()
     sessions = SessionService()
     llm = LlmService()
-    llm.register(MockAdapter(list(responses)))
+    adapter = MockAdapter(list(responses))
+    llm.register(adapter)
     registry = AgentRegistry(ctx=ctx, sessions=sessions)
     handle = registry.create(
         "room-a",
         AgentDefinition(name="ada", model=ModelId("mock", "mock-1"), system="be helpful"),
     )
-    return AgentLoop(
+    loop = AgentLoop(
         instance=handle.instance,
         llm=llm,
         tools=ToolService(),
         artifacts=sessions.artifacts,
     )
+    return loop, adapter
+
+
+def _loop(*responses: ScriptedResponse) -> AgentLoop:
+    return _loop_with_adapter(*responses)[0]
 
 
 def _say(text: str) -> UserMessage:

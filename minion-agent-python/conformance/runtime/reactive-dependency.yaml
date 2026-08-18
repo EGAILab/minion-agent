@@ -1,0 +1,33 @@
+name: a dependent fiber loads when its service appears and unloads when it disappears
+description: >
+  The consumer declares inject:[tools] and is mounted before any provider
+  exists, so it must stay pending. Mounting the provider activates it;
+  unmounting the provider unloads it again, unwinding its effects in reverse.
+  Services appearing and vanishing at runtime is a normal condition.
+plugins:
+  - id: consumer
+    inject: [tools]
+    effects:
+      - label: subscription
+      - label: resource
+  - id: provider
+    provides: tools
+steps:
+  - mount: consumer
+  - mount: provider
+  - unmount: provider
+expect_trace:
+  - { event: fiber_state, plugin: provider, state: loading }
+  - { event: service_provided, plugin: provider, service: tools }
+  - { event: fiber_state, plugin: provider, state: active }
+  - { event: fiber_state, plugin: consumer, state: loading }
+  - { event: effect_created, plugin: consumer, label: subscription }
+  - { event: effect_created, plugin: consumer, label: resource }
+  - { event: fiber_state, plugin: consumer, state: active }
+  - { event: fiber_state, plugin: provider, state: unloading }
+  - { event: service_revoked, plugin: provider, service: tools }
+  - { event: fiber_state, plugin: consumer, state: unloading }
+  - { event: effect_disposed, plugin: consumer, label: resource }
+  - { event: effect_disposed, plugin: consumer, label: subscription }
+  - { event: fiber_state, plugin: consumer, state: pending }
+  - { event: fiber_state, plugin: provider, state: disposed }

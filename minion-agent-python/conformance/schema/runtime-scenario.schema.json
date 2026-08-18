@@ -1,0 +1,143 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://minion-agent.dev/conformance/runtime-scenario.schema.json",
+  "title": "Minion Agent runtime conformance scenario",
+  "type": "object",
+  "required": ["name", "plugins", "steps", "expect_trace"],
+  "additionalProperties": false,
+  "properties": {
+    "name": { "type": "string", "minLength": 1 },
+    "description": { "type": "string" },
+    "plugins": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/plugin" }
+    },
+    "steps": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/step" }
+    },
+    "expect_trace": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/traceEntry" }
+    },
+    "expect_result": {},
+    "expect_error": {
+      "type": "object",
+      "required": ["type"],
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "enum": [
+            "ServiceConflictError",
+            "InactiveFiberError",
+            "ServiceNotFoundError",
+            "EventModeError",
+            "WaterfallError"
+          ]
+        },
+        "message_contains": { "type": "string" }
+      }
+    }
+  },
+  "$defs": {
+    "serviceName": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$" },
+    "plugin": {
+      "type": "object",
+      "required": ["id"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "inject": { "type": "array", "items": { "$ref": "#/$defs/serviceName" } },
+        "provides": { "$ref": "#/$defs/serviceName" },
+        "scope": { "type": "string", "minLength": 1 },
+        "scope_parent": { "type": "string", "minLength": 1 },
+        "config": { "type": "object" },
+        "fails": { "type": "boolean", "default": false },
+        "effects": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["label"],
+            "additionalProperties": false,
+            "properties": { "label": { "type": "string", "minLength": 1 } }
+          }
+        },
+        "listeners": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["event", "action", "tag"],
+            "additionalProperties": false,
+            "properties": {
+              "event": { "type": "string", "minLength": 1 },
+              "action": {
+                "enum": [
+                  "delegate",
+                  "short_circuit",
+                  "observe",
+                  "raise",
+                  "transform",
+                  "delegate_twice"
+                ]
+              },
+              "replacement": {},
+              "tag": { "type": "string", "minLength": 1 },
+              "returns": {}
+            }
+          }
+        }
+      }
+    },
+    "step": {
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "maxProperties": 1,
+      "properties": {
+        "mount": { "type": "string" },
+        "unmount": { "type": "string" },
+        "dispose_scope": { "type": "string" },
+        "dispatch": {
+          "type": "object",
+          "required": ["event", "mode"],
+          "additionalProperties": false,
+          "properties": {
+            "event": { "type": "string", "minLength": 1 },
+            "mode": { "enum": ["emit", "parallel", "serial", "waterfall"] },
+            "args": { "type": "array" },
+            "scope": { "type": "string" },
+            "terminal": {}
+          }
+        }
+      }
+    },
+    "traceEntry": {
+      "type": "object",
+      "required": ["event"],
+      "additionalProperties": false,
+      "properties": {
+        "event": {
+          "enum": [
+            "fiber_state",
+            "effect_created",
+            "effect_disposed",
+            "listener_entered",
+            "service_provided",
+            "service_revoked",
+            "scope_disposed"
+          ]
+        },
+        "scope": { "type": "string" },
+        "plugin": { "type": "string" },
+        "state": {
+          "enum": ["pending", "loading", "active", "failed", "unloading", "disposed"]
+        },
+        "label": { "type": "string" },
+        "tag": { "type": "string" },
+        "service": { "$ref": "#/$defs/serviceName" }
+      }
+    }
+  }
+}

@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from ..llm import Message
-from ..session import EventKind, SessionLog, decode_message
+from ..session import EventKind, SessionEvent, SessionLog, decode_message
 
 
 @dataclass(frozen=True, slots=True)
@@ -90,10 +90,37 @@ _MESSAGE_KINDS = frozenset(
 
 
 def project(log: SessionLog) -> tuple[AgentEvent, ...]:
-    """Rebuild the Pi event stream from `log`."""
+    """Rebuild the Pi event stream from `log`.
+
+    Two emission orders coexist (design spec section 6): `tool_execution_end`
+    in completion order, message events in source order. `tool/result` log
+    entries are always appended in source order, so a contiguous run of them
+    is buffered here and re-sorted by `completion_index` before its
+    `ToolExecutionEnd` events are emitted; the `MessageStart`/`MessageEnd`
+    pairs that follow still emit in the original, source, order.
+    """
     events: list[AgentEvent] = [AgentStart()]
+    # Buffered `tool/result` entries of the run currently being accumulated.
+    pending_results: list[SessionEvent] = []
+
+    def flush_results() -> None:
+        for entry in sorted(pending_results, key=lambda e: e.data.get("completion_index", 0)):
+            events.append(
+                ToolExecutionEnd(
+                    tool_call_id=entry.data["message"]["tool_call_id"],
+                    is_error=entry.data["message"]["is_error"],
+                )
+            )
+        for entry in pending_results:
+            message = decode_message(entry.data["message"])
+            events.append(MessageStart(message=message))
+            events.append(MessageEnd(message=message))
+        pending_results.clear()
 
     for entry in log.events:
+        if entry.kind != EventKind.TOOL_RESULT:
+            flush_results()
+
         if entry.kind == EventKind.TURN_START:
             events.append(TurnStart(causes=tuple(entry.data.get("causes", ()))))
 
@@ -123,21 +150,18 @@ def project(log: SessionLog) -> tuple[AgentEvent, ...]:
                 )
             )
 
+        elif entry.kind == EventKind.TOOL_RESULT:
+            # Buffered rather than emitted inline: this run's
+            # ToolExecutionEnd events must sort by completion_index, which
+            # is only knowable once the whole run has been collected.
+            pending_results.append(entry)
+
         elif entry.kind in _MESSAGE_KINDS:
             message = decode_message(entry.data["message"])
-            # A tool result closes its execution before it appears as a message,
-            # matching pi's ordering: the execution ends, then its artifact is
-            # emitted.
-            if entry.kind == EventKind.TOOL_RESULT:
-                events.append(
-                    ToolExecutionEnd(
-                        tool_call_id=entry.data["message"]["tool_call_id"],
-                        is_error=entry.data["message"]["is_error"],
-                    )
-                )
             events.append(MessageStart(message=message))
             events.append(MessageEnd(message=message))
 
+    flush_results()
     events.append(AgentEnd())
     return tuple(events)
 

@@ -1,0 +1,58 @@
+name: the projected event stream emits tool_execution_end in completion order
+description: >
+  Section 6 names two distinct observable surfaces for a parallel batch:
+  the log records completion order as data (each `tool/result` entry's
+  `completion_index`), while the derived event stream must *emit*
+  `tool_execution_end` in that same order -- not the source order the
+  `tool/result` entries were appended in. A projection that rebuilds the
+  event stream by walking the log and emitting `tool_execution_end` inline,
+  in log order, satisfies the log's `completion_index` field (it is still
+  present and correct as data) while violating the event stream's ordering
+  requirement, because log order and completion order are only guaranteed
+  to coincide when a batch has one call. This scenario uses the same
+  provider script and tool stubs as
+  parallel-batch-completes-out-of-source-order.yaml -- a `slow` tool
+  (t1, delay_ticks: 1) requested before a `quick` tool (t2) -- so that
+  completion order [t2, t1] differs from source order [t1, t2], and
+  `expect_events` pins the projected `tool_execution_end` sequence directly
+  rather than only the log's `tool_completion_order` side channel.
+provider_script:
+  - content:
+      - { type: tool_call, id: t1, name: slow, arguments: {} }
+      - { type: tool_call, id: t2, name: quick, arguments: {} }
+    stop_reason: tool_use
+  - content: [{ type: text, text: done }]
+    stop_reason: stop
+tools:
+  slow: { result: { text: slow }, delay_ticks: 1 }
+  quick: { result: { text: quick } }
+steps:
+  - followup: go
+  - await_idle: true
+expect_tool_completion_order: [t2, t1]
+expect_events:
+  - agent_start
+  - turn_start
+  - message_start
+  - message_end
+  - message_start
+  - message_end
+  - tool_execution_start
+  - tool_execution_start
+  - tool_execution_end
+  - tool_execution_end
+  - message_start
+  - message_end
+  - message_start
+  - message_end
+  - message_update
+  - message_start
+  - message_end
+  - turn_end
+  - agent_end
+expect_messages:
+  - { role: user, text: go }
+  - { role: assistant, text: "" }
+  - { role: tool_result, text: slow }
+  - { role: tool_result, text: quick }
+  - { role: assistant, text: done }

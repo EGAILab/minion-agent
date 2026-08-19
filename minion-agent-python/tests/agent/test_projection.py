@@ -5,6 +5,7 @@ from minion_agent.agent.projection import (
     AgentStart,
     MessageEnd,
     MessageStart,
+    MessageUpdate,
     ToolExecutionEnd,
     ToolExecutionStart,
     TurnEnd,
@@ -92,6 +93,46 @@ def test_turn_end_carries_its_causes() -> None:
     end = next(e for e in project(log) if isinstance(e, TurnEnd))
 
     assert end.causes[0]["origin"] == "matrix"
+
+
+def test_a_chunk_projects_to_a_message_update() -> None:
+    """Pi's tenth event, and the reason chunks are logged at all."""
+    log = SessionLog("s1")
+    log.append(EventKind.ASSISTANT_CHUNK, {"kind": "text", "content_index": 0, "delta": "hi"})
+
+    update = next(e for e in project(log) if isinstance(e, MessageUpdate))
+
+    assert (update.kind, update.delta) == ("text", "hi")
+
+
+def test_updates_precede_the_message_they_assemble() -> None:
+    log = SessionLog("s1")
+    log.append(EventKind.ASSISTANT_CHUNK, {"kind": "text", "content_index": 0, "delta": "hi"})
+    log.append(
+        EventKind.ASSISTANT_MESSAGE,
+        {
+            "message": {
+                "role": "assistant",
+                "content": [{"type": "text", "text": "hi"}],
+                "timestamp": 0,
+                "stop_reason": "stop",
+                "model": "m",
+                "provider": "p",
+                "error_message": None,
+                "usage": {
+                    "input": 0,
+                    "output": 0,
+                    "cache_read": 0,
+                    "cache_write": 0,
+                    "reasoning": 0,
+                },
+            }
+        },
+    )
+
+    kinds = [type(e) for e in project(log)]
+
+    assert kinds.index(MessageUpdate) < kinds.index(MessageStart)
 
 
 def test_raw_string_kinds_project_identically_to_the_constants() -> None:

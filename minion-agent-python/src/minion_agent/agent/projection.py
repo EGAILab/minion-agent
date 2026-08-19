@@ -4,10 +4,6 @@ The log is the source of truth (design spec section 5); Pi's `AgentEvent`
 union is a *derived view* of it. Conformance asserts this projection, which is
 what keeps Pi's observable semantics pinned while the internals follow DSH.
 
-`message_update` is deliberately absent. It carries streaming deltas, which
-requires `assistant/chunk` events the loop does not yet write; Plan 4 adds
-them. Recorded here so the gap reads as a decision rather than an oversight.
-
 Event kinds are compared by value throughout. The name string is the
 language-neutral identity (section 5), so a log written with raw strings must
 project exactly as one written with the core constants.
@@ -45,6 +41,15 @@ class TurnEnd:
 
 
 @dataclass(frozen=True, slots=True)
+class MessageUpdate:
+    """One streaming delta. Pi's tenth event."""
+
+    kind: str
+    content_index: int
+    delta: str
+
+
+@dataclass(frozen=True, slots=True)
 class MessageStart:
     message: Message
 
@@ -72,6 +77,7 @@ type AgentEvent = (
     | AgentEnd
     | TurnStart
     | TurnEnd
+    | MessageUpdate
     | MessageStart
     | MessageEnd
     | ToolExecutionStart
@@ -96,6 +102,15 @@ def project(log: SessionLog) -> tuple[AgentEvent, ...]:
                 TurnEnd(
                     reason=entry.data.get("reason", "completed"),
                     causes=tuple(entry.data.get("causes", ())),
+                )
+            )
+
+        elif entry.kind == EventKind.ASSISTANT_CHUNK:
+            events.append(
+                MessageUpdate(
+                    kind=entry.data["kind"],
+                    content_index=entry.data["content_index"],
+                    delta=entry.data["delta"],
                 )
             )
 

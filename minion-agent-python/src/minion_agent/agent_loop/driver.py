@@ -22,7 +22,17 @@ from ..agent.envelope import ClaimPolicy, InboxTarget, InputEnvelope
 from ..agent.events import AGENT_PRE_STEP, AGENT_TURN_STOPPING
 from ..agent.identity import AgentStatus
 from ..agent.instance import AgentInstance
-from ..llm import LlmService, Request, ToolCallBlock, UserMessage, collect
+from ..llm import (
+    LlmService,
+    Request,
+    StreamChunk,
+    TextDelta,
+    ThinkingDelta,
+    ToolCallBlock,
+    ToolCallDelta,
+    UserMessage,
+    collect,
+)
 from ..session import (
     ArtifactStore,
     EventKind,
@@ -228,16 +238,31 @@ class AgentLoop:
         if decision.history_window is not None:
             history = history[-decision.history_window :]
 
-        reply = await collect(
-            self.llm.stream(
-                Request(
-                    model=self.instance.definition.model,
-                    system=assemble_system(components),
-                    messages=history,
-                    tools=schemas,
-                )
-            )
+        request = Request(
+            model=self.instance.definition.model,
+            system=assemble_system(components),
+            messages=history,
+            tools=schemas,
         )
+
+        def log_chunk(chunk: StreamChunk) -> None:
+            """Record streaming fidelity. Log-only: a delta that derived would
+            duplicate the message it is part of."""
+            match chunk:
+                case TextDelta():
+                    kind, delta = "text", chunk.delta
+                case ThinkingDelta():
+                    kind, delta = "thinking", chunk.delta
+                case ToolCallDelta():
+                    kind, delta = "tool_call", chunk.delta
+                case _:
+                    return
+            log.append(
+                EventKind.ASSISTANT_CHUNK,
+                {"kind": kind, "content_index": chunk.content_index, "delta": delta},
+            )
+
+        reply = await collect(self.llm.stream(request), log_chunk)
         log.append(EventKind.ASSISTANT_MESSAGE, {"message": encode_message(reply)})
 
         calls = [block for block in reply.content if isinstance(block, ToolCallBlock)]

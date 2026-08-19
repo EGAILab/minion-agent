@@ -3,6 +3,10 @@ description: >
   A provider that keeps emitting after its terminal is misbehaving. The first
   terminal wins and the stream fuses, so exactly one assistant message reaches
   the log -- not one per terminal the provider sent.
+
+  Exactly one `message_update` appears, for the delta pulled before the first
+  terminal. The fuse is visible in the log itself: a stream that kept being
+  drained past its terminal would log the post-terminal deltas too.
 provider_script:
   - content: [{ type: text, text: complete }]
     stop_reason: stop
@@ -15,6 +19,7 @@ expect_events:
   - turn_start
   - message_start
   - message_end
+  - message_update
   - message_start
   - message_end
   - turn_end

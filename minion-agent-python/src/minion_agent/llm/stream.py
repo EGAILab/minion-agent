@@ -9,7 +9,7 @@ present in a message or it is not.
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass
 
 from .content import ToolCallBlock
@@ -113,14 +113,23 @@ type StreamChunk = (
 type AssistantStream = AsyncIterator[StreamChunk]
 
 
-async def collect(stream: AssistantStream) -> AssistantMessage:
+async def collect(
+    stream: AssistantStream,
+    on_chunk: Callable[[StreamChunk], None] | None = None,
+) -> AssistantMessage:
     """Drain `stream` and return its settled message.
+
+    `on_chunk` observes every chunk as it arrives, which is how the loop logs
+    streaming fidelity without a second traversal — and without the session
+    layer being visible from here.
 
     Never raises for model, network, or cancellation failures — those arrive
     as a `StreamError` whose message carries the reason. Raises only when an
     adapter breaks its contract by ending without a terminal chunk.
     """
     async for chunk in stream:
+        if on_chunk is not None:
+            on_chunk(chunk)
         if isinstance(chunk, StreamDone | StreamError):
             return chunk.message
     raise AdapterProtocolError("stream ended without a terminal chunk")

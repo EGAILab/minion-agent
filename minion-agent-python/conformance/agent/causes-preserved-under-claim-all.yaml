@@ -20,6 +20,7 @@ expect_events:
   - message_end
   - message_start
   - message_end
+  - message_update
   - message_start
   - message_end
   - turn_end

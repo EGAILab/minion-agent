@@ -1,0 +1,238 @@
+"""Batch semantics: pi's contagion rule and pi's two emission orders."""
+
+import asyncio
+from typing import Any
+
+from minion_agent.llm import ToolCallBlock, text_of
+from minion_agent.runtime import Context
+from minion_agent.tools.batch import execute_batch
+from minion_agent.tools.definition import ExecutionMode, ToolDefinition
+from minion_agent.tools.events import declare_tools_events
+from minion_agent.tools.registry import ToolRegistry
+from minion_agent.tools.result import ToolResult
+
+
+def _ctx() -> Context:
+    ctx = Context()
+    declare_tools_events(ctx.events)
+    return ctx
+
+
+def _call(call_id: str, name: str, **arguments: Any) -> ToolCallBlock:
+    return ToolCallBlock(id=call_id, name=name, arguments=dict(arguments))
+
+
+def _tool(name: str, execute: Any, mode: ExecutionMode = ExecutionMode.PARALLEL) -> ToolDefinition:
+    return ToolDefinition(name=name, description=name, parameters=None, execute=execute, mode=mode)
+
+
+def _registry(*definitions: ToolDefinition) -> ToolRegistry:
+    registry = ToolRegistry()
+    for definition in definitions:
+        registry.register(definition)
+    return registry
+
+
+async def test_an_empty_batch_does_not_terminate() -> None:
+    """The fold is over every result; with no results there is nothing that
+    every result agrees on, and an empty batch must not end a turn."""
+    outcome = await execute_batch((), registry=_registry(), ctx=_ctx())
+
+    assert outcome.results == ()
+    assert not outcome.terminate
+
+
+async def test_results_come_back_in_assistant_source_order() -> None:
+    """Pi's rule: messages follow the order the model asked, whatever the
+    order the tools happened to finish in."""
+    gate = asyncio.Event()
+
+    async def slow(args: dict[str, Any]) -> str:
+        await gate.wait()
+        return "slow"
+
+    async def fast(args: dict[str, Any]) -> str:
+        gate.set()
+        return "fast"
+
+    outcome = await execute_batch(
+        (_call("t1", "slow"), _call("t2", "fast")),
+        registry=_registry(_tool("slow", slow), _tool("fast", fast)),
+        ctx=_ctx(),
+    )
+
+    assert [text_of(r.to_message()) for r in outcome.results] == ["slow", "fast"]
+    # Completion order is the opposite of source order here (t2 finishes
+    # first), which is what makes this test distinguish the two orders
+    # instead of passing under an implementation that used one order twice.
+    assert outcome.completion_order == ("t2", "t1")
+
+
+async def test_completion_order_is_recorded_separately() -> None:
+    """The other of pi's two orders: `tool_execution_end` follows completion.
+    One log carries both, so the batch has to report both."""
+    gate = asyncio.Event()
+
+    async def slow(args: dict[str, Any]) -> str:
+        await gate.wait()
+        return "slow"
+
+    async def fast(args: dict[str, Any]) -> str:
+        gate.set()
+        return "fast"
+
+    outcome = await execute_batch(
+        (_call("t1", "slow"), _call("t2", "fast")),
+        registry=_registry(_tool("slow", slow), _tool("fast", fast)),
+        ctx=_ctx(),
+    )
+
+    assert outcome.completion_order == ("t2", "t1")
+    assert outcome.completion_index("t1") == 1
+    # Distinguished from source order: results (source order) must still be
+    # t1 first even though t2 completed first.
+    assert [text_of(r.to_message()) for r in outcome.results] == ["slow", "fast"]
+
+
+async def test_parallel_tools_actually_overlap() -> None:
+    """Otherwise 'parallel' is a label rather than a behavior."""
+    started = asyncio.Event()
+
+    async def first(args: dict[str, Any]) -> str:
+        started.set()
+        return "first"
+
+    async def second(args: dict[str, Any]) -> str:
+        await asyncio.wait_for(started.wait(), timeout=1)
+        return "second"
+
+    outcome = await execute_batch(
+        (_call("t1", "second"), _call("t2", "first")),
+        registry=_registry(_tool("second", second), _tool("first", first)),
+        ctx=_ctx(),
+    )
+
+    assert [text_of(r.to_message()) for r in outcome.results] == ["second", "first"]
+
+
+async def test_one_sequential_tool_serializes_the_whole_batch() -> None:
+    """Pi's contagion rule, deliberately not DSH's grouping (design spec
+    section 6). The parallel-safe call does not overlap the exclusive one."""
+    live: list[str] = []
+    peak = 0
+
+    async def record(name: str) -> str:
+        nonlocal peak
+        live.append(name)
+        peak = max(peak, len(live))
+        await asyncio.sleep(0)
+        live.remove(name)
+        return name
+
+    outcome = await execute_batch(
+        (_call("t1", "exclusive"), _call("t2", "shared")),
+        registry=_registry(
+            _tool("exclusive", lambda args: record("exclusive"), ExecutionMode.SEQUENTIAL),
+            _tool("shared", lambda args: record("shared")),
+        ),
+        ctx=_ctx(),
+    )
+
+    assert peak == 1
+    assert [text_of(r.to_message()) for r in outcome.results] == ["exclusive", "shared"]
+
+
+async def test_a_sequential_batch_completes_in_source_order() -> None:
+    outcome = await execute_batch(
+        (_call("t1", "a"), _call("t2", "b")),
+        registry=_registry(
+            _tool("a", lambda args: "a", ExecutionMode.SEQUENTIAL),
+            _tool("b", lambda args: "b"),
+        ),
+        ctx=_ctx(),
+    )
+
+    assert outcome.completion_order == ("t1", "t2")
+
+
+async def test_an_unknown_tool_does_not_serialize_the_batch() -> None:
+    """It never runs, so it has no exclusivity to spread. Treating an unknown
+    name as exclusive would let a model typo serialize everything.
+
+    Strengthened per task-10 ruling: asserting only `results[1].is_error`
+    cannot fail under a serializing implementation, since a serialized first
+    call ("second") would time out waiting on `started` and *also* produce
+    an error -- just at a different index, for a different reason. The
+    assertions below on completion order and the first result's success are
+    the ones that actually distinguish parallel from serialized execution.
+    """
+    started = asyncio.Event()
+
+    async def first(args: dict[str, Any]) -> str:
+        started.set()
+        return "first"
+
+    async def second(args: dict[str, Any]) -> str:
+        await asyncio.wait_for(started.wait(), timeout=1)
+        return "second"
+
+    outcome = await execute_batch(
+        (_call("t1", "second"), _call("t2", "missing"), _call("t3", "first")),
+        registry=_registry(_tool("second", second), _tool("first", first)),
+        ctx=_ctx(),
+    )
+
+    assert outcome.results[1].is_error
+    # Strengthened per task-10 ruling: under a serializing implementation,
+    # "second" (t1) runs first and blocks on `started` until "first" (t3)
+    # sets it -- but "first" cannot run until "second" finishes, so "second"
+    # times out and becomes an error, and (being serial) still completes
+    # first. Under a genuinely parallel batch, "missing" (t2) and "first"
+    # (t3) both resolve without ever suspending, so they complete before
+    # "second" (t1) ever wakes up; "missing" is scheduled first and hits no
+    # real suspension point either, so it completes before "first" does.
+    # These two assertions therefore fail under serialization and pass only
+    # under a genuinely parallel batch.
+    assert outcome.completion_order[0] == "t2"
+    assert not outcome.results[0].is_error
+
+
+async def test_the_fold_needs_every_result_to_terminate() -> None:
+    def terminating(args: dict[str, Any]) -> ToolResult:
+        return ToolResult(tool_call_id="", content=(), terminate=True)
+
+    outcome = await execute_batch(
+        (_call("t1", "stop"), _call("t2", "go")),
+        registry=_registry(_tool("stop", terminating), _tool("go", lambda args: "go")),
+        ctx=_ctx(),
+    )
+
+    assert not outcome.terminate
+
+
+async def test_a_unanimous_batch_terminates() -> None:
+    def terminating(args: dict[str, Any]) -> ToolResult:
+        return ToolResult(tool_call_id="", content=(), terminate=True)
+
+    outcome = await execute_batch(
+        (_call("t1", "stop"), _call("t2", "stop")),
+        registry=_registry(_tool("stop", terminating)),
+        ctx=_ctx(),
+    )
+
+    assert outcome.terminate
+
+
+async def test_every_call_gets_a_result_even_when_one_raises() -> None:
+    def broken(args: dict[str, Any]) -> str:
+        raise RuntimeError("boom")
+
+    outcome = await execute_batch(
+        (_call("t1", "ok"), _call("t2", "broken"), _call("t3", "ok")),
+        registry=_registry(_tool("ok", lambda args: "ok"), _tool("broken", broken)),
+        ctx=_ctx(),
+    )
+
+    assert len(outcome.results) == 3
+    assert [r.tool_call_id for r in outcome.results] == ["t1", "t2", "t3"]
+    assert outcome.results[1].is_error

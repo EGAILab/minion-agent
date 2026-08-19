@@ -17,6 +17,26 @@ def _schema(name: str = "echo") -> ToolSchema:
     )
 
 
+def _nested_schema(name: str) -> ToolSchema:
+    """A schema with genuinely nested `parameters`, to prove the store round
+    trip preserves structure and not just the top-level fields."""
+    return ToolSchema(
+        name=name,
+        description=f"{name} description",
+        parameters={
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "enum": ["a", "b"]},
+                "opts": {
+                    "type": "object",
+                    "properties": {"depth": {"type": "integer"}},
+                },
+            },
+            "required": ["path"],
+        },
+    )
+
+
 def test_a_header_without_tools_records_none() -> None:
     log, store = SessionLog("s1"), ArtifactStore()
 
@@ -27,13 +47,18 @@ def test_a_header_without_tools_records_none() -> None:
 
 
 def test_tool_schemas_round_trip_through_the_store() -> None:
+    """Full structural equality, not just names: `ToolSchema` is a frozen
+    dataclass, so `==` compares name, description, and parameters. Nested
+    `parameters` (an object property, an array of allowed values, a mix of
+    types) are the shape `as_json`'s recursive `_canonical` exists to
+    normalize, and a round trip through the store is where a bug in that
+    normalization -- or in `reconstruct_tools` -- would surface."""
     log, store = SessionLog("s1"), ArtifactStore()
+    first, second = _nested_schema("echo"), _nested_schema("read")
 
-    event = record_header(
-        log, store, {"system_base": "s"}, model="m", tools=(_schema(), _schema("read"))
-    )
+    event = record_header(log, store, {"system_base": "s"}, model="m", tools=(first, second))
 
-    assert [tool.name for tool in reconstruct_tools(event, store)] == ["echo", "read"]
+    assert reconstruct_tools(event, store) == (first, second)
 
 
 def test_the_header_stores_a_reference_not_the_schemas() -> None:

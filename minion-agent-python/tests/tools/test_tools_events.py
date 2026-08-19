@@ -13,6 +13,21 @@ from minion_agent.tools.events import (
 )
 
 
+def test_event_name_literals_are_the_cross_language_identity() -> None:
+    """The event name string, not the Python constant, is the contract.
+
+    Per design spec section 5, a listener declared in another language
+    identifies this event by the exact string -- so a typo like
+    "tool/pre-execute" (wrong separator) would still satisfy every
+    DispatchMode assertion in this file while silently breaking
+    cross-language conformance. Pin the literals directly.
+    """
+    assert TOOLS_PRE_EXECUTE == "tools/pre-execute"
+    assert TOOLS_POST_EXECUTE == "tools/post-execute"
+    assert TOOLS_UPDATE == "tools/update"
+    assert TOOLS_REGISTERED == "tools/registered"
+
+
 def test_declaring_registers_every_tools_event() -> None:
     bus = EventBus()
 

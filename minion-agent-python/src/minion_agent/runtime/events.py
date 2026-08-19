@@ -194,7 +194,13 @@ class EventBus:
                 # terminal is "the result as currently transformed" (design
                 # spec section 3), so a chain of one transforming listener
                 # would otherwise discard exactly the value it produced.
-                return terminal(*current) if callable(terminal) else terminal
+                result = terminal(*current) if callable(terminal) else terminal
+                # Consistent with `_call`: an async computed terminal returns
+                # a coroutine, not its value, so it must be awaited too --
+                # otherwise the caller receives an un-awaited coroutine.
+                if inspect.isawaitable(result):
+                    return await result
+                return result
 
             used = False
 

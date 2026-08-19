@@ -67,3 +67,40 @@ async def test_a_short_circuit_still_wins_over_the_terminal() -> None:
     bus.on("test/chain", decide)
 
     assert await bus.waterfall("test/chain", "x", terminal=lambda v: v) == "owned"
+
+
+async def test_an_async_computed_terminal_is_awaited() -> None:
+    """An async computed terminal must yield its result, not a coroutine.
+
+    `_call` already awaits an awaitable listener return; the computed
+    terminal follows the same rule. Can fail: `terminal(*current)` without
+    the `isawaitable` check returns the coroutine object itself, and this
+    equality against the string fails.
+    """
+    bus = _bus()
+
+    async def compute(value: str) -> str:
+        return f"{value}!"
+
+    result = await bus.waterfall("test/chain", "original", terminal=compute)
+
+    assert result == "original!"
+
+
+async def test_the_callable_escape_hatch_returns_the_callable_itself() -> None:
+    """A terminal meant to *be* a callable value must be wrapped, per the
+    docstring's `terminal=lambda *_: fn` escape hatch -- otherwise a bare
+    callable terminal is read as a continuation over the current arguments.
+
+    Can fail: dropping the wrapper (`terminal=fn` directly) would invoke
+    `fn` as a continuation instead of returning it, so the result would not
+    be `fn` itself.
+    """
+    bus = _bus()
+
+    def payload(x: int) -> int:
+        return x + 1
+
+    result = await bus.waterfall("test/chain", "original", terminal=lambda *_: payload)
+
+    assert result is payload

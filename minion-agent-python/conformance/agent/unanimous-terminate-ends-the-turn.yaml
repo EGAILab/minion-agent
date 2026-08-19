@@ -1,0 +1,22 @@
+name: a unanimous terminate ends the turn immediately
+description: >
+  Every result in the batch asks to stop, so the turn ends without a further
+  request. The scripted second response exists precisely so that reaching it
+  would be observable; it must not appear.
+provider_script:
+  - content:
+      - { type: tool_call, id: t1, name: stop, arguments: {} }
+      - { type: tool_call, id: t2, name: stop, arguments: {} }
+    stop_reason: tool_use
+  - content: [{ type: text, text: never reached }]
+    stop_reason: stop
+tools:
+  stop: { result: { text: stopping }, terminate: true }
+steps:
+  - followup: start
+  - await_idle: true
+expect_messages:
+  - { role: user, text: start }
+  - { role: assistant, text: "" }
+  - { role: tool_result, text: stopping }
+  - { role: tool_result, text: stopping }

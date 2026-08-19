@@ -1,0 +1,27 @@
+name: one dissenting result keeps the turn going
+description: >
+  The batch rule is unanimity: the loop stops only when *every* finalized
+  result sets terminate. Any-wins would let a single tool end a turn the other
+  tools in its own batch were still contributing to.
+
+  The second step is the assertion -- a "done" reply can only exist if the
+  turn continued past the terminating result.
+provider_script:
+  - content:
+      - { type: tool_call, id: t1, name: stop, arguments: {} }
+      - { type: tool_call, id: t2, name: go, arguments: {} }
+    stop_reason: tool_use
+  - content: [{ type: text, text: done }]
+    stop_reason: stop
+tools:
+  stop: { result: { text: stopping }, terminate: true }
+  go: { result: { text: continuing } }
+steps:
+  - followup: start
+  - await_idle: true
+expect_messages:
+  - { role: user, text: start }
+  - { role: assistant, text: "" }
+  - { role: tool_result, text: stopping }
+  - { role: tool_result, text: continuing }
+  - { role: assistant, text: done }

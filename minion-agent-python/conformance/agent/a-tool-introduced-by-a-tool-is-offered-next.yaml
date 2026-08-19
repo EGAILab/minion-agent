@@ -1,0 +1,27 @@
+name: a tool introduced by a result is offered from the next request
+description: >
+  Tools introduced by a result are available from that transcript point
+  onward (design spec section 7). The first request offers only the loader;
+  the second offers the loader and what it registered.
+
+  Asserting the offered tool names per request is what makes this observable
+  at all -- the registry is internal, but what the model was told is not.
+
+  The second request's order is registration order: `load` was registered
+  when the scenario's tools were set up, before the turn started, and
+  `deploy` only when `load` executed. `ScopedRegistry.visible_from` walks
+  each scope's bucket in insertion order, so the registry publishes `load`
+  before `deploy`.
+provider_script:
+  - content: [{ type: tool_call, id: t1, name: load, arguments: {} }]
+    stop_reason: tool_use
+  - content: [{ type: text, text: ready }]
+    stop_reason: stop
+tools:
+  load: { result: { text: loaded }, adds_tools: [deploy] }
+steps:
+  - followup: go
+  - await_idle: true
+expect_request_tools:
+  - [load]
+  - [load, deploy]

@@ -1,0 +1,31 @@
+name: post-execute listeners apply in registration order
+description: >
+  The transformation pattern: each listener transforms *before* delegating, so
+  registration order equals application order and the chain result is the
+  fully transformed value.
+
+  This also exercises the computed terminal. The last listener delegates with
+  its replacement and nothing follows it, so a terminal fixed at dispatch
+  would discard both transformations and the result would read "ran".
+listeners:
+  - event: tools/post-execute
+    action: annotate_result
+    label: first
+  - event: tools/post-execute
+    action: annotate_result
+    label: second
+provider_script:
+  - content: [{ type: tool_call, id: t1, name: echo, arguments: {} }]
+    stop_reason: tool_use
+  - content: [{ type: text, text: done }]
+    stop_reason: stop
+tools:
+  echo: { result: { text: ran } }
+steps:
+  - followup: go
+  - await_idle: true
+expect_messages:
+  - { role: user, text: go }
+  - { role: assistant, text: "" }
+  - { role: tool_result, text: ran-first-second }
+  - { role: assistant, text: done }

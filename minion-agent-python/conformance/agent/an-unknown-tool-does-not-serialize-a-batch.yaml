@@ -1,0 +1,22 @@
+name: an unknown tool name does not serialize the batch
+description: >
+  An unresolvable name never runs, so it has no exclusivity to spread.
+  Treating it as sequential would let one model typo serialize an otherwise
+  parallel batch -- a performance cliff with no semantic justification.
+
+  The unknown call still receives a result, as every call must.
+provider_script:
+  - content:
+      - { type: tool_call, id: t1, name: slow, arguments: {} }
+      - { type: tool_call, id: t2, name: nonexistent, arguments: {} }
+      - { type: tool_call, id: t3, name: quick, arguments: {} }
+    stop_reason: tool_use
+  - content: [{ type: text, text: done }]
+    stop_reason: stop
+tools:
+  slow: { result: { text: slow }, delay_ticks: 1 }
+  quick: { result: { text: quick } }
+steps:
+  - followup: go
+  - await_idle: true
+expect_tool_completion_order: [t2, t3, t1]

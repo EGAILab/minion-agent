@@ -1,0 +1,24 @@
+name: one sequential tool serializes the whole batch
+description: >
+  Pi's contagion rule (design spec section 6). The batch is identical to
+  parallel-batch-completes-out-of-source-order except that one tool declares
+  itself sequential -- and that alone changes the completion order back to
+  source order, because nothing overlaps any more.
+
+  DSH would instead let the parallel-safe call overlap around the exclusive
+  one, producing a different trace. Preserving pi's semantics is the stated
+  goal, so this scenario pins pi's.
+provider_script:
+  - content:
+      - { type: tool_call, id: t1, name: slow, arguments: {} }
+      - { type: tool_call, id: t2, name: quick, arguments: {} }
+    stop_reason: tool_use
+  - content: [{ type: text, text: done }]
+    stop_reason: stop
+tools:
+  slow: { result: { text: slow }, delay_ticks: 1, execution_mode: sequential }
+  quick: { result: { text: quick } }
+steps:
+  - followup: go
+  - await_idle: true
+expect_tool_completion_order: [t1, t2]

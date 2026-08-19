@@ -1,0 +1,29 @@
+name: a parallel batch completes out of order and answers in order
+description: >
+  Pi's two emission orders, both observable in one scenario. The first call
+  yields to the scheduler once; the second does not, so it finishes first --
+  and the completion order is reversed while the result *messages* still
+  follow the order the model asked in.
+
+  An implementation that used one order for both would pass half of this and
+  fail the other half, which is the point of asserting them together.
+provider_script:
+  - content:
+      - { type: tool_call, id: t1, name: slow, arguments: {} }
+      - { type: tool_call, id: t2, name: quick, arguments: {} }
+    stop_reason: tool_use
+  - content: [{ type: text, text: done }]
+    stop_reason: stop
+tools:
+  slow: { result: { text: slow }, delay_ticks: 1 }
+  quick: { result: { text: quick } }
+steps:
+  - followup: go
+  - await_idle: true
+expect_tool_completion_order: [t2, t1]
+expect_messages:
+  - { role: user, text: go }
+  - { role: assistant, text: "" }
+  - { role: tool_result, text: slow }
+  - { role: tool_result, text: quick }
+  - { role: assistant, text: done }

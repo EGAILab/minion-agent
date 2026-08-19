@@ -1,0 +1,25 @@
+name: a blocked call still answers the model
+description: >
+  Approval and sandboxing are plugins on tools/pre-execute, not built-ins
+  (design spec section 7). A refusal is a decision, and the model still needs
+  a result for every call it made -- so the block becomes an error result
+  carrying the reason, and the turn continues.
+listeners:
+  - event: tools/pre-execute
+    action: block
+    reason: not permitted here
+provider_script:
+  - content: [{ type: tool_call, id: t1, name: danger, arguments: {} }]
+    stop_reason: tool_use
+  - content: [{ type: text, text: understood }]
+    stop_reason: stop
+tools:
+  danger: { result: { text: should never run } }
+steps:
+  - followup: go
+  - await_idle: true
+expect_messages:
+  - { role: user, text: go }
+  - { role: assistant, text: "" }
+  - { role: tool_result, text: not permitted here }
+  - { role: assistant, text: understood }

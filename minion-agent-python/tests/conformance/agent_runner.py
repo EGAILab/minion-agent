@@ -12,6 +12,8 @@ them answers a request dependent on registration order.
 
 from __future__ import annotations
 
+import asyncio
+from dataclasses import replace
 from typing import Any
 
 from minion_agent.agent.envelope import ClaimPolicy
@@ -33,10 +35,14 @@ from minion_agent.llm.adapters.mock import MockAdapter, ScriptedResponse
 from minion_agent.llm.messages import StopReason
 from minion_agent.llm.plugin import llm_plugin
 from minion_agent.runtime import Context
-from minion_agent.session import derive_messages
+from minion_agent.session import EventKind, derive_messages
 from minion_agent.session.service import session_plugin
+from minion_agent.tools.decisions import Block, Proceed
 from minion_agent.tools.definition import ExecutionMode, ToolDefinition
+from minion_agent.tools.events import TOOLS_PRE_EXECUTE
 from minion_agent.tools.plugin import tools_plugin
+from minion_agent.tools.registry import ToolRegistry
+from minion_agent.tools.result import ToolResult
 
 _ROLE = {
     UserMessage: "user",
@@ -65,11 +71,72 @@ def _script(document: dict[str, Any]) -> list[ScriptedResponse]:
     ]
 
 
-def _stub(text: str) -> Any:
-    def run(args: dict[str, Any]) -> str:
-        return text
+def _stub(spec: dict[str, Any], registry: ToolRegistry) -> Any:
+    """Build a tool body from a declarative stub."""
+    text = spec.get("result", {}).get("text", "")
+    ticks = spec.get("delay_ticks", 0)
+    raises = spec.get("raises")
+    terminate = spec.get("terminate", False)
+    adds = tuple(spec.get("adds_tools", ()))
+
+    async def run(args: dict[str, Any]) -> ToolResult:
+        for _ in range(ticks):
+            # A scheduler yield, not wall-clock time: deterministic, and
+            # reproducible in any language with a cooperative scheduler.
+            await asyncio.sleep(0)
+        if raises:
+            raise RuntimeError(raises)
+        for name in adds:
+            registry.register(
+                ToolDefinition(
+                    name=name,
+                    description=name,
+                    parameters=None,
+                    execute=lambda inner: "added",
+                )
+            )
+        return ToolResult(
+            tool_call_id="",
+            content=(TextBlock(text=text),),
+            terminate=terminate,
+            added_tool_names=adds,
+        )
 
     return run
+
+
+def _listener(spec: dict[str, Any]) -> Any:
+    """Build a declarative listener for the tools pipeline."""
+    action = spec["action"]
+    only = spec.get("only_tool")
+
+    if spec["event"] == TOOLS_PRE_EXECUTE:
+
+        async def pre(call: Any, definition: Any, arguments: Any, next_: Any) -> Any:
+            if only is not None and call.name != only:
+                return await next_()
+            if action == "block":
+                return Block(
+                    reason=spec.get("reason", "blocked"),
+                    terminate=spec.get("terminate", False),
+                )
+            if action == "narrow_arguments":
+                return Proceed(arguments=spec.get("arguments", {}))
+            return await next_()
+
+        return pre
+
+    async def post(result: ToolResult, next_: Any) -> Any:
+        if action == "annotate_result":
+            label = spec.get("label", "seen")
+            marked = replace(
+                result,
+                content=(TextBlock(text=f"{text_of(result.to_message())}-{label}"),),
+            )
+            return await next_(marked)
+        return await next_()
+
+    return post
 
 
 async def run_agent_scenario(document: dict[str, Any]) -> dict[str, Any]:
@@ -80,7 +147,8 @@ async def run_agent_scenario(document: dict[str, Any]) -> dict[str, Any]:
     await ctx.plugin(tools_plugin)
     await ctx.plugin(agents_plugin)
     await ctx.plugin(agent_loop_plugin)
-    ctx.llm.register(MockAdapter(_script(document)))
+    adapter = MockAdapter(_script(document))
+    ctx.llm.register(adapter)
 
     for name, stub in document.get("tools", {}).items():
         ctx.tools.register(
@@ -88,10 +156,13 @@ async def run_agent_scenario(document: dict[str, Any]) -> dict[str, Any]:
                 name=name,
                 description=name,
                 parameters=None,
-                execute=_stub(stub.get("result", {}).get("text", "")),
+                execute=_stub(stub, ctx.tools),
                 mode=ExecutionMode(stub.get("execution_mode", "parallel")),
             )
         )
+
+    for spec in document.get("listeners", []):
+        ctx.events.on(spec["event"], _listener(spec))
 
     config = document.get("config", {})
     handle = ctx.agents.create(
@@ -132,5 +203,13 @@ async def run_agent_scenario(document: dict[str, Any]) -> dict[str, Any]:
         "assistant_stop_reasons": [
             m.stop_reason.value for m in messages if isinstance(m, AssistantMessage)
         ],
+        "tool_completion_order": [
+            entry.data["message"]["tool_call_id"]
+            for entry in sorted(
+                (e for e in handle.instance.log.events if e.kind == EventKind.TOOL_RESULT),
+                key=lambda e: e.data["completion_index"],
+            )
+        ],
+        "request_tools": [[tool.name for tool in request.tools] for request in adapter.requests],
         "error": None if error is None else {"type": type(error).__name__, "message": str(error)},
     }

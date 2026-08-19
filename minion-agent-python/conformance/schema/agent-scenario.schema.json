@@ -92,6 +92,21 @@
       },
       "description": "Stop reason of each assistant message reaching model history, in order."
     },
+    "listeners": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/listener" },
+      "description": "Declarative listeners on the tools pipeline. Block and result transformation are listener behaviors; without this a scenario cannot express them."
+    },
+    "expect_tool_completion_order": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Tool call ids in the order their tools finished. Distinct from message order by design (design spec section 6)."
+    },
+    "expect_request_tools": {
+      "type": "array",
+      "items": { "type": "array", "items": { "type": "string" } },
+      "description": "Tool names offered to the model, per request in order. Pins what registration and withdrawal actually change."
+    },
     "expect_error": {
       "type": "object",
       "required": [
@@ -112,6 +127,25 @@
     }
   },
   "$defs": {
+    "listener": {
+      "type": "object",
+      "required": ["event", "action"],
+      "additionalProperties": false,
+      "properties": {
+        "event": { "enum": ["tools/pre-execute", "tools/post-execute"] },
+        "action": {
+          "enum": ["block", "narrow_arguments", "annotate_result", "abstain"]
+        },
+        "reason": { "type": "string" },
+        "terminate": { "type": "boolean", "default": false },
+        "arguments": { "type": "object" },
+        "label": { "type": "string" },
+        "only_tool": {
+          "type": "string",
+          "description": "Apply to calls naming this tool only. Without it a policy listener would have to be written per scenario."
+        }
+      }
+    },
     "scriptedResponse": {
       "type": "object",
       "required": [
@@ -212,7 +246,9 @@
         "delay_ticks": {
           "type": "integer",
           "minimum": 0
-        }
+        },
+        "terminate": { "type": "boolean", "default": false },
+        "adds_tools": { "type": "array", "items": { "type": "string" } }
       }
     },
     "step": {

@@ -14,6 +14,9 @@ recorded matches what we recorded".
 
 from __future__ import annotations
 
+import json
+
+from ..llm import ToolSchema
 from .artifacts import ArtifactStore
 from .events import EventKind, SessionEvent
 from .log import SessionLog
@@ -33,13 +36,37 @@ def record_header(
     store: ArtifactStore,
     components: dict[str, str],
     model: str,
+    *,
+    tools: tuple[ToolSchema, ...] = (),
 ) -> SessionEvent:
-    """Store each component by hash and log the composition."""
+    """Store each component by hash and log the composition.
+
+    Tool schemas are stored the same way but kept out of `components`, because
+    `assemble_system` joins components into the prompt the model reads. They
+    are request state, not prompt text.
+    """
     references = {name: store.put(text) for name, text in components.items()}
-    return log.append(EventKind.REQUEST_HEADER, {"model": model, "components": references})
+    payload = json.dumps([tool.as_json() for tool in tools], sort_keys=True)
+    return log.append(
+        EventKind.REQUEST_HEADER,
+        {"model": model, "components": references, "tools": store.put(payload)},
+    )
 
 
 def reconstruct_header(event: SessionEvent, store: ArtifactStore) -> dict[str, str]:
     """Resolve a logged header's references back to their content."""
     references: dict[str, str] = event.data["components"]
     return {name: store.get(ref).decode("utf-8") for name, ref in references.items()}
+
+
+def reconstruct_tools(event: SessionEvent, store: ArtifactStore) -> tuple[ToolSchema, ...]:
+    """Resolve a logged header's tool reference back to its schemas."""
+    raw = json.loads(store.get(event.data["tools"]).decode("utf-8"))
+    return tuple(
+        ToolSchema(
+            name=entry["name"],
+            description=entry["description"],
+            parameters=entry["parameters"],
+        )
+        for entry in raw
+    )

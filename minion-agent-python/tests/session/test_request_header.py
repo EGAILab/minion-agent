@@ -34,8 +34,10 @@ def test_a_stable_component_is_stored_once_across_many_steps() -> None:
             model="mock-1",
         )
 
-    # One bootstrap plus ten distinct memory blocks.
-    assert len(store) == 11
+    # One bootstrap plus ten distinct memory blocks, plus one shared
+    # no-tools marker (every header records a tools reference, even when
+    # `tools` is the default empty tuple -- see Task 14).
+    assert len(store) == 12
     assert len(log) == 10
 
 

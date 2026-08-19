@@ -20,7 +20,12 @@ from .events import (
 )
 from .log import NotJsonSafeError, SessionLog
 from .operations import compact, fork, reset
-from .request_header import assemble_system, reconstruct_header, record_header
+from .request_header import (
+    assemble_system,
+    reconstruct_header,
+    reconstruct_tools,
+    record_header,
+)
 from .service import SessionService
 
 __all__ = [
@@ -45,6 +50,7 @@ __all__ = [
     "is_surface",
     "messages_from",
     "reconstruct_header",
+    "reconstruct_tools",
     "record_header",
     "reset",
     "validate_event_name",

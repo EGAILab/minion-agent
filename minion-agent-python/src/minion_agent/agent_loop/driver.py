@@ -215,7 +215,14 @@ class AgentLoop:
             if decision.system_override is not None
             else self.instance.definition.system
         }
-        record_header(log, self.artifacts, components, model=self.instance.definition.model.model)
+        schemas = self.tools.schemas(self.instance.scope.key)
+        record_header(
+            log,
+            self.artifacts,
+            components,
+            model=self.instance.definition.model.model,
+            tools=schemas,
+        )
 
         history = derive_messages(log)
         if decision.history_window is not None:
@@ -227,6 +234,7 @@ class AgentLoop:
                     model=self.instance.definition.model,
                     system=assemble_system(components),
                     messages=history,
+                    tools=schemas,
                 )
             )
         )

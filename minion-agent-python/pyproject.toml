@@ -51,6 +51,7 @@ source = [
     "src/minion_agent/telemetry",
     "src/minion_agent/agent",
     "src/minion_agent/agent_loop",
+    "src/minion_agent/tools",
 ]
 
 [tool.coverage.report]

@@ -128,7 +128,8 @@ def test_every_package_surface_resolves() -> None:
     import minion_agent.runtime as runtime
     import minion_agent.session as session
     import minion_agent.telemetry as telemetry
+    import minion_agent.tools as tools
 
-    for package in (runtime, llm, session, telemetry, agent, agent_loop):
+    for package in (runtime, llm, session, telemetry, agent, agent_loop, tools):
         for name in package.__all__:
             assert getattr(package, name) is not None

@@ -5,15 +5,17 @@ from typing import Any
 
 from minion_agent.agent.identity import AgentDefinition
 from minion_agent.agent.registry import AgentRegistry
-from minion_agent.agent.tools import ToolService
 from minion_agent.agent_loop.driver import AgentLoop
 from minion_agent.llm import LlmService, ModelId, TextBlock, ToolCallBlock, UserMessage
 from minion_agent.llm.adapters.mock import MockAdapter, ScriptedResponse
 from minion_agent.llm.messages import StopReason
 from minion_agent.runtime import Context
 from minion_agent.session import EventKind, SessionService
+from minion_agent.tools.definition import ToolDefinition
+from minion_agent.tools.events import declare_tools_events
+from minion_agent.tools.registry import ToolRegistry
 
-from .test_single_turn import _loop
+from .test_single_turn import _loop, _register
 
 
 def _say(text: str) -> UserMessage:
@@ -36,7 +38,7 @@ def _cancelling_tool(loop: AgentLoop, output: str = "done") -> Any:
 
 async def test_cancelling_ends_the_turn_at_the_next_boundary() -> None:
     loop = _loop(*[_tool_call() for _ in range(5)])
-    loop.tools.register("echo", _cancelling_tool(loop))
+    _register(loop, "echo", _cancelling_tool(loop))
     loop.instance.inbox.followup(_say("go"))
 
     await loop.run_until_idle()
@@ -51,7 +53,7 @@ async def test_cancelling_ends_the_turn_at_the_next_boundary() -> None:
 async def test_a_cancelled_turn_still_records_its_tool_result() -> None:
     """Cancellation stops the next request, not the work already in flight."""
     loop = _loop(_tool_call())
-    loop.tools.register("echo", _cancelling_tool(loop, "finished"))
+    _register(loop, "echo", _cancelling_tool(loop, "finished"))
     loop.instance.inbox.followup(_say("go"))
 
     await loop.run_until_idle()
@@ -65,7 +67,7 @@ async def test_cancelling_clears_so_the_next_turn_runs() -> None:
         _tool_call(),
         ScriptedResponse((TextBlock(text="second turn"),), StopReason.STOP),
     )
-    loop.tools.register("echo", _cancelling_tool(loop))
+    _register(loop, "echo", _cancelling_tool(loop))
     loop.instance.inbox.followup(_say("first"))
     await loop.run_until_idle()
 
@@ -88,18 +90,23 @@ async def test_a_blocked_agent_does_not_stall_another() -> None:
     """The normative progress guarantee (section 6). An await inside one
     instance must never occupy a runtime-global critical section."""
     ctx = Context()
+    # The driver dispatches `tools/*` events through the real pipeline; a bare
+    # Context never mounts `tools_plugin`, so declaration has to happen here.
+    declare_tools_events(ctx.events)
     sessions = SessionService()
     registry = AgentRegistry(ctx=ctx, sessions=sessions)
     definition = AgentDefinition(name="ada", model=ModelId("mock", "mock-1"))
 
     released = asyncio.Event()
-    blocked_tools = ToolService()
+    blocked_tools = ToolRegistry()
 
     async def wait_for_release(args: dict[str, Any]) -> str:
         await released.wait()
         return "released"
 
-    blocked_tools.register("echo", wait_for_release)
+    blocked_tools.register(
+        ToolDefinition(name="echo", description="echo", parameters=None, execute=wait_for_release)
+    )
 
     blocked = AgentLoop(
         instance=registry.create("blocked", definition).instance,
@@ -110,7 +117,7 @@ async def test_a_blocked_agent_does_not_stall_another() -> None:
     free = AgentLoop(
         instance=registry.create("free", definition).instance,
         llm=_service(ScriptedResponse((TextBlock(text="free"),), StopReason.STOP)),
-        tools=ToolService(),
+        tools=ToolRegistry(),
         artifacts=sessions.artifacts,
     )
 

@@ -3,7 +3,7 @@
 from typing import Any
 
 from minion_agent.agent.identity import AgentDefinition
-from minion_agent.agent.plugin import agents_plugin, tools_plugin
+from minion_agent.agent.plugin import agents_plugin
 from minion_agent.agent_loop import agent_loop_plugin
 from minion_agent.llm import ModelId, TextBlock, UserMessage, text_of
 from minion_agent.llm.plugin import llm_plugin, mock_adapter_plugin
@@ -11,6 +11,7 @@ from minion_agent.runtime import Context, FiberState
 from minion_agent.session import derive_messages
 from minion_agent.session.service import session_plugin
 from minion_agent.telemetry.plugin import telemetry_plugin
+from minion_agent.tools.plugin import tools_plugin
 
 
 async def _stack(script: list[dict[str, Any]] | None = None) -> Context:

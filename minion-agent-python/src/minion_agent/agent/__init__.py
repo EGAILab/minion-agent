@@ -26,7 +26,7 @@ from .events import (
 from .identity import AgentDefinition, AgentInstanceId, AgentStatus
 from .inbox import Inbox, NotJsonSafeOriginError
 from .instance import AgentInstance, instance_scope_key
-from .plugin import agents_plugin, tools_plugin
+from .plugin import agents_plugin
 from .projection import (
     AgentEnd,
     AgentEvent,
@@ -41,7 +41,6 @@ from .projection import (
     project,
 )
 from .registry import AgentHandle, AgentRegistry, DuplicateInstanceError
-from .tools import ToolFn, ToolService
 
 __all__ = [
     "AGENT_EVENT_MODES",
@@ -74,8 +73,6 @@ __all__ = [
     "Reject",
     "ToolExecutionEnd",
     "ToolExecutionStart",
-    "ToolFn",
-    "ToolService",
     "TurnEnd",
     "TurnStart",
     "TurnStopping",
@@ -85,5 +82,4 @@ __all__ = [
     "instance_scope_key",
     "project",
     "resolve_stopping",
-    "tools_plugin",
 ]

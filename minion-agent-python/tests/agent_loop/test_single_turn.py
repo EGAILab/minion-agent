@@ -1,19 +1,38 @@
 """One prompt in, one model request, one logged turn."""
 
+from typing import Any
+
 from minion_agent.agent.identity import AgentDefinition, AgentStatus
 from minion_agent.agent.registry import AgentRegistry
-from minion_agent.agent.tools import ToolService
 from minion_agent.agent_loop.driver import AgentLoop
 from minion_agent.llm import LlmService, ModelId, TextBlock, UserMessage, text_of
 from minion_agent.llm.adapters.mock import MockAdapter, ScriptedResponse
 from minion_agent.llm.messages import StopReason
 from minion_agent.runtime import Context
 from minion_agent.session import ArtifactStore, EventKind, SessionService, derive_messages
+from minion_agent.tools.definition import ExecutionMode, ToolDefinition
+from minion_agent.tools.events import declare_tools_events
+from minion_agent.tools.registry import ToolRegistry
+
+
+def _register(
+    loop: AgentLoop, name: str, fn: Any, mode: ExecutionMode = ExecutionMode.PARALLEL
+) -> None:
+    """Register a bare callable as a tool, for tests that only care that one
+    ran. Production registration goes through `register_tool`, which makes it
+    a reversible effect."""
+    loop.tools.register(
+        ToolDefinition(name=name, description=name, parameters=None, execute=fn, mode=mode)
+    )
 
 
 def _loop_with_adapter(*responses: ScriptedResponse) -> tuple[AgentLoop, MockAdapter]:
     """A loop plus the adapter behind it, for tests that inspect requests."""
     ctx = Context()
+    # The driver executes tool calls through the real pipeline, which
+    # dispatches `tools/*` events; a bare Context never mounts `tools_plugin`,
+    # so the declaration has to happen here for that dispatch to be legal.
+    declare_tools_events(ctx.events)
     sessions = SessionService()
     llm = LlmService()
     adapter = MockAdapter(list(responses))
@@ -26,7 +45,7 @@ def _loop_with_adapter(*responses: ScriptedResponse) -> tuple[AgentLoop, MockAda
     loop = AgentLoop(
         instance=handle.instance,
         llm=llm,
-        tools=ToolService(),
+        tools=ToolRegistry(),
         artifacts=sessions.artifacts,
     )
     return loop, adapter
@@ -124,7 +143,7 @@ async def test_the_logged_header_reconstructs_what_was_dispatched() -> None:
         "room-a",
         AgentDefinition(name="ada", model=ModelId("mock", "mock-1"), system="be helpful"),
     )
-    loop = AgentLoop(instance=handle.instance, llm=llm, tools=ToolService(), artifacts=store)
+    loop = AgentLoop(instance=handle.instance, llm=llm, tools=ToolRegistry(), artifacts=store)
     handle.instance.inbox.followup(_say("hello"))
 
     await loop.run_until_idle()

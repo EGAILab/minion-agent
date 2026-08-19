@@ -16,7 +16,7 @@ from typing import Any
 
 from minion_agent.agent.envelope import ClaimPolicy
 from minion_agent.agent.identity import AgentDefinition
-from minion_agent.agent.plugin import agents_plugin, tools_plugin
+from minion_agent.agent.plugin import agents_plugin
 from minion_agent.agent.projection import TurnEnd, event_names, project
 from minion_agent.agent_loop import agent_loop_plugin
 from minion_agent.llm import (
@@ -35,6 +35,8 @@ from minion_agent.llm.plugin import llm_plugin
 from minion_agent.runtime import Context
 from minion_agent.session import derive_messages
 from minion_agent.session.service import session_plugin
+from minion_agent.tools.definition import ExecutionMode, ToolDefinition
+from minion_agent.tools.plugin import tools_plugin
 
 _ROLE = {
     UserMessage: "user",
@@ -81,7 +83,15 @@ async def run_agent_scenario(document: dict[str, Any]) -> dict[str, Any]:
     ctx.llm.register(MockAdapter(_script(document)))
 
     for name, stub in document.get("tools", {}).items():
-        ctx.tools.register(name, _stub(stub.get("result", {}).get("text", "")))
+        ctx.tools.register(
+            ToolDefinition(
+                name=name,
+                description=name,
+                parameters=None,
+                execute=_stub(stub.get("result", {}).get("text", "")),
+                mode=ExecutionMode(stub.get("execution_mode", "parallel")),
+            )
+        )
 
     config = document.get("config", {})
     handle = ctx.agents.create(

@@ -22,7 +22,6 @@ from ..agent.envelope import ClaimPolicy, InboxTarget, InputEnvelope
 from ..agent.events import AGENT_PRE_STEP, AGENT_TURN_STOPPING
 from ..agent.identity import AgentStatus
 from ..agent.instance import AgentInstance
-from ..agent.tools import ToolService
 from ..llm import LlmService, Request, ToolCallBlock, UserMessage, collect
 from ..session import (
     ArtifactStore,
@@ -33,6 +32,8 @@ from ..session import (
     record_header,
 )
 from ..telemetry import Span, SpanKind, TelemetryService
+from ..tools.batch import execute_batch
+from ..tools.registry import ToolRegistry
 
 
 class AgentLoop:
@@ -43,13 +44,12 @@ class AgentLoop:
         *,
         instance: AgentInstance,
         llm: LlmService,
-        tools: ToolService,
+        tools: ToolRegistry,
         artifacts: ArtifactStore,
         telemetry: TelemetryService | None = None,
     ) -> None:
         self.instance = instance
-        # Collaborators are public: tests configure them directly, and Plan 4
-        # replaces the tool service outright.
+        # Collaborators are public: tests configure them directly.
         self.llm = llm
         self.tools = tools
         self.artifacts = artifacts
@@ -196,9 +196,9 @@ class AgentLoop:
     async def _run_step(self, decision: Enter, reason: PreStepReason) -> bool:
         """Run one model request and its tools. Returns whether tools ran.
 
-        Tools execute sequentially: parallel batching, execution modes, and the
-        `terminate` fold are Plan 4's, and the single-call path is what closes
-        the round trip.
+        Tools execute as a batch -- parallel by default, with pi's contagion
+        rule serializing around an exclusive call. The `terminate` fold is
+        Task 16's; this still returns whether any tool ran.
         """
         log = self.instance.log
 
@@ -238,8 +238,26 @@ class AgentLoop:
                 EventKind.TOOL_CALL,
                 {"id": call.id, "name": call.name, "arguments": call.arguments},
             )
-            result = await self.tools.execute(call)
-            log.append(EventKind.TOOL_RESULT, {"message": encode_message(result)})
+
+        outcome = await execute_batch(
+            calls,
+            registry=self.tools,
+            ctx=self.instance.ctx,
+            scope=self.instance.scope.key,
+        )
+        for result in outcome.results:
+            log.append(
+                EventKind.TOOL_RESULT,
+                {
+                    "message": encode_message(result.to_message()),
+                    # Pi emits `tool_execution_end` in completion order while
+                    # messages follow source order. Results are appended in
+                    # source order -- that is what the model reads -- so the
+                    # completion order rides along as data for the projection.
+                    "completion_index": outcome.completion_index(result.tool_call_id),
+                    "added_tool_names": list(result.added_tool_names),
+                },
+            )
 
         log.append(EventKind.STEP_END, {})
         self._span(SpanKind.STEP, "step", reason=reason.value)

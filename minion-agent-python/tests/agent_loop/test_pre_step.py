@@ -18,7 +18,7 @@ from minion_agent.llm.adapters.mock import ScriptedResponse
 from minion_agent.llm.messages import StopReason
 from minion_agent.session import EventKind, derive_messages
 
-from .test_single_turn import _loop, _loop_with_adapter
+from .test_single_turn import _loop, _loop_with_adapter, _register
 
 
 def _say(text: str) -> UserMessage:
@@ -201,7 +201,7 @@ async def test_a_rejection_at_a_later_boundary_ends_the_turn() -> None:
         ScriptedResponse((ToolCallBlock(id="t1", name="echo", arguments={}),), StopReason.TOOL_USE),
         ScriptedResponse((TextBlock(text="never reached"),), StopReason.STOP),
     )
-    loop.tools.register("echo", lambda args: "ran")
+    _register(loop, "echo", lambda args: "ran")
 
     async def veto_after_the_first(
         instance: AgentInstance,

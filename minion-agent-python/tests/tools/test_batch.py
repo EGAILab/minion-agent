@@ -142,7 +142,41 @@ async def test_one_sequential_tool_serializes_the_whole_batch() -> None:
     assert [text_of(r.to_message()) for r in outcome.results] == ["exclusive", "shared"]
 
 
+async def test_a_sequential_tool_serializes_the_batch_from_any_position() -> None:
+    """Sibling of `test_one_sequential_tool_serializes_the_whole_batch`, with
+    the `SEQUENTIAL` tool last instead of first. Contagion is a property of
+    the batch, not of its first element: a scan that only inspected
+    `calls[0]` would pass every other test in this suite while missing
+    contagion for exactly the common case of a read requested before a
+    write."""
+    live: list[str] = []
+    peak = 0
+
+    async def record(name: str) -> str:
+        nonlocal peak
+        live.append(name)
+        peak = max(peak, len(live))
+        await asyncio.sleep(0)
+        live.remove(name)
+        return name
+
+    outcome = await execute_batch(
+        (_call("t1", "shared"), _call("t2", "exclusive")),
+        registry=_registry(
+            _tool("shared", lambda args: record("shared")),
+            _tool("exclusive", lambda args: record("exclusive"), ExecutionMode.SEQUENTIAL),
+        ),
+        ctx=_ctx(),
+    )
+
+    assert peak == 1
+    assert [text_of(r.to_message()) for r in outcome.results] == ["shared", "exclusive"]
+
+
 async def test_a_sequential_batch_completes_in_source_order() -> None:
+    """Proves ordering fidelity within the sequential branch -- that the loop
+    awaits calls in the order given -- not that contagion fired in the first
+    place. The `peak` tests above are what prove that."""
     outcome = await execute_batch(
         (_call("t1", "a"), _call("t2", "b")),
         registry=_registry(

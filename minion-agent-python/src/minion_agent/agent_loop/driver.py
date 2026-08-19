@@ -42,7 +42,7 @@ from ..session import (
     record_header,
 )
 from ..telemetry import Span, SpanKind, TelemetryService
-from ..tools.batch import execute_batch
+from ..tools.batch import BatchOutcome, execute_batch
 from ..tools.registry import ToolRegistry
 
 
@@ -130,10 +130,18 @@ class AgentLoop:
         end_reason = "completed"
 
         while True:
-            owed = await self._run_step(decision, reason)
+            outcome = await self._run_step(decision, reason)
             steps += 1
-            if not owed:
+            if outcome is None:
                 break
+
+            # The batch's own verdict, and a loop invariant inherited from pi:
+            # evaluated before `agent/turn-stopping` is dispatched, so no
+            # listener can override it (design spec section 6).
+            if outcome.terminate:
+                end_reason = "terminated"
+                break
+
             if steps >= self.instance.definition.max_steps:
                 end_reason = "max_steps"
                 break
@@ -203,12 +211,13 @@ class AgentLoop:
         )
         return decision
 
-    async def _run_step(self, decision: Enter, reason: PreStepReason) -> bool:
-        """Run one model request and its tools. Returns whether tools ran.
+    async def _run_step(self, decision: Enter, reason: PreStepReason) -> BatchOutcome | None:
+        """Run one model request and its tools.
 
         Tools execute as a batch -- parallel by default, with pi's contagion
-        rule serializing around an exclusive call. The `terminate` fold is
-        Task 16's; this still returns whether any tool ran.
+        rule serializing around an exclusive call. Returns the batch outcome,
+        or `None` when the model called no tools -- which the caller reads as
+        "nothing is owed".
         """
         log = self.instance.log
 
@@ -294,4 +303,4 @@ class AgentLoop:
 
         log.append(EventKind.STEP_END, {})
         self._span(SpanKind.STEP, "step", reason=reason.value)
-        return bool(calls)
+        return outcome if calls else None

@@ -143,14 +143,17 @@ async def test_a_listener_may_block_the_call() -> None:
 
 async def test_a_blocked_call_may_also_terminate_the_turn() -> None:
     ctx = _ctx()
+    ran: list[str] = []
 
     async def veto(call: Any, definition: Any, arguments: Any, next_: Any) -> Block:
         return Block(reason="stop now", terminate=True)
 
     ctx.events.on(TOOLS_PRE_EXECUTE, veto)
+    definition = _echo(execute=lambda args: ran.append("ran") or "ok")
 
-    result = await execute_call(_call(value="x"), registry=_registry(_echo()), ctx=ctx)
+    result = await execute_call(_call(value="x"), registry=_registry(definition), ctx=ctx)
 
+    assert ran == []
     assert result.terminate
 
 
@@ -172,12 +175,15 @@ async def test_a_listener_may_narrow_the_arguments() -> None:
 
 async def test_an_abstaining_listener_leaves_the_call_alone() -> None:
     ctx = _ctx()
+    calls: list[str] = []
 
     async def abstain(call: Any, definition: Any, arguments: Any, next_: Any) -> Any:
+        calls.append("abstained")
         return await next_()
 
     ctx.events.on(TOOLS_PRE_EXECUTE, abstain)
 
     result = await execute_call(_call(value="through"), registry=_registry(_echo()), ctx=ctx)
 
+    assert calls == ["abstained"]
     assert text_of(result.to_message()) == "through"

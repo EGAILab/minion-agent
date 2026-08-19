@@ -15,6 +15,9 @@ FORBIDDEN = {
     "llm": ("session", "agent", "agent_loop", "tools"),
     "session": ("agent", "agent_loop", "tools"),
     "telemetry": ("session", "agent", "agent_loop", "tools"),
+    # Tools sit above the LLM vocabulary and below the agent. They own no
+    # session state: the loop writes the log.
+    "tools": ("session", "telemetry", "agent", "agent_loop"),
     # The driver is package-internal: the `agent` package holds the interface,
     # so the dependency runs one way only.
     "agent": ("agent_loop",),

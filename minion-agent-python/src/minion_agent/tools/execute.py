@@ -1,8 +1,7 @@
 """One tool call, start to finish.
 
 The pipeline is `tools/pre-execute` -> execute -> `tools/post-execute` (design
-spec section 7). `post-execute` joins in the next task; everything up to and
-including execution is here.
+spec section 7), all of it here.
 
 One rule governs every branch: **the call produces exactly one result.** An
 unknown tool, arguments the model got wrong, a listener's refusal, and a tool
@@ -22,7 +21,7 @@ from ..llm import ToolCallBlock
 from ..runtime import Context, ScopeKey
 from .decisions import Block, PreExecuteDecision, Proceed
 from .definition import ToolDefinition
-from .events import TOOLS_PRE_EXECUTE, TOOLS_UPDATE
+from .events import TOOLS_POST_EXECUTE, TOOLS_PRE_EXECUTE, TOOLS_UPDATE
 from .registry import ToolRegistry
 from .result import ToolResult, text_result
 
@@ -47,6 +46,27 @@ def _wants_update(execute: Any) -> bool:
     return len(signature.parameters) >= 2
 
 
+async def _finalize(result: ToolResult, ctx: Context, scope: ScopeKey | None) -> ToolResult:
+    """Run the result through `tools/post-execute`.
+
+    The terminal is computed from the current arguments, because this event's
+    terminal is "the result as currently transformed" (design spec section 3).
+    A constant terminal would discard a lone listener's work -- the exact
+    failure the terminal rule exists to prevent.
+
+    Every path reaches here, error paths included: a blocked or failed call is
+    the result most worth annotating, and a listener that only sometimes runs
+    is a listener nobody can reason about.
+    """
+    transformed: ToolResult = await ctx.events.waterfall(
+        TOOLS_POST_EXECUTE,
+        result,
+        terminal=lambda current, *_: current,
+        scope=scope,
+    )
+    return transformed
+
+
 async def execute_call(
     call: ToolCallBlock,
     *,
@@ -57,14 +77,18 @@ async def execute_call(
     """Run `call` and return its result, whatever happens."""
     definition = registry.resolve(call.name, scope)
     if definition is None:
-        return text_result(call.id, f"unknown tool {call.name!r}", is_error=True)
+        return await _finalize(
+            text_result(call.id, f"unknown tool {call.name!r}", is_error=True), ctx, scope
+        )
 
     try:
         arguments = _validate(definition, call.arguments)
     except ValidationError as error:
         # Surfaced to the model, which chose these arguments and is the only
         # party that can choose better ones.
-        return text_result(call.id, f"invalid arguments: {error}", is_error=True)
+        return await _finalize(
+            text_result(call.id, f"invalid arguments: {error}", is_error=True), ctx, scope
+        )
 
     decision: PreExecuteDecision = await ctx.events.waterfall(
         TOOLS_PRE_EXECUTE,
@@ -75,7 +99,11 @@ async def execute_call(
         scope=scope,
     )
     if isinstance(decision, Block):
-        return text_result(call.id, decision.reason, is_error=True, terminate=decision.terminate)
+        return await _finalize(
+            text_result(call.id, decision.reason, is_error=True, terminate=decision.terminate),
+            ctx,
+            scope,
+        )
 
     def update(partial: str) -> None:
         ctx.events.emit(TOOLS_UPDATE, call.id, partial, scope=scope)
@@ -88,16 +116,22 @@ async def execute_call(
         )
         value = await outcome if inspect.isawaitable(outcome) else outcome
     except Exception as error:  # surfaced to the model, not raised
-        return text_result(call.id, f"{type(error).__name__}: {error}", is_error=True)
+        return await _finalize(
+            text_result(call.id, f"{type(error).__name__}: {error}", is_error=True), ctx, scope
+        )
 
     if isinstance(value, ToolResult):
         # Tools identify their own call only by accident; the pipeline knows.
-        return ToolResult(
-            tool_call_id=call.id,
-            content=value.content,
-            is_error=value.is_error,
-            details=value.details,
-            terminate=value.terminate,
-            added_tool_names=value.added_tool_names,
+        return await _finalize(
+            ToolResult(
+                tool_call_id=call.id,
+                content=value.content,
+                is_error=value.is_error,
+                details=value.details,
+                terminate=value.terminate,
+                added_tool_names=value.added_tool_names,
+            ),
+            ctx,
+            scope,
         )
-    return text_result(call.id, str(value))
+    return await _finalize(text_result(call.id, str(value)), ctx, scope)

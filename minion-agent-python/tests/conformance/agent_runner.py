@@ -39,7 +39,7 @@ from minion_agent.session import EventKind, derive_messages
 from minion_agent.session.service import session_plugin
 from minion_agent.tools.decisions import Block, Proceed
 from minion_agent.tools.definition import ExecutionMode, ToolDefinition
-from minion_agent.tools.events import TOOLS_PRE_EXECUTE
+from minion_agent.tools.events import TOOLS_POST_EXECUTE, TOOLS_PRE_EXECUTE
 from minion_agent.tools.plugin import tools_plugin
 from minion_agent.tools.registry import ToolRegistry
 from minion_agent.tools.result import ToolResult
@@ -106,11 +106,19 @@ def _stub(spec: dict[str, Any], registry: ToolRegistry) -> Any:
 
 
 def _listener(spec: dict[str, Any]) -> Any:
-    """Build a declarative listener for the tools pipeline."""
+    """Build a declarative listener for the tools pipeline.
+
+    Both branches are total: an action not recognised for the dispatched
+    event raises rather than silently delegating. A listener that falls
+    through to `next_()` for an unhandled action is a listener that would
+    exercise nothing while the scenario still reports green -- exactly the
+    "test that cannot fail" failure mode, raised to the vocabulary level.
+    """
     action = spec["action"]
+    event = spec["event"]
     only = spec.get("only_tool")
 
-    if spec["event"] == TOOLS_PRE_EXECUTE:
+    if event == TOOLS_PRE_EXECUTE:
 
         async def pre(call: Any, definition: Any, arguments: Any, next_: Any) -> Any:
             if only is not None and call.name != only:
@@ -122,21 +130,29 @@ def _listener(spec: dict[str, Any]) -> Any:
                 )
             if action == "narrow_arguments":
                 return Proceed(arguments=spec.get("arguments", {}))
-            return await next_()
+            if action == "abstain":
+                return await next_()
+            raise ValueError(f"unhandled listener action {action!r} for event {event!r}")
 
         return pre
 
-    async def post(result: ToolResult, next_: Any) -> Any:
-        if action == "annotate_result":
-            label = spec.get("label", "seen")
-            marked = replace(
-                result,
-                content=(TextBlock(text=f"{text_of(result.to_message())}-{label}"),),
-            )
-            return await next_(marked)
-        return await next_()
+    if event == TOOLS_POST_EXECUTE:
 
-    return post
+        async def post(result: ToolResult, next_: Any) -> Any:
+            if action == "annotate_result":
+                label = spec.get("label", "seen")
+                marked = replace(
+                    result,
+                    content=(TextBlock(text=f"{text_of(result.to_message())}-{label}"),),
+                )
+                return await next_(marked)
+            if action == "abstain":
+                return await next_()
+            raise ValueError(f"unhandled listener action {action!r} for event {event!r}")
+
+        return post
+
+    raise ValueError(f"unhandled listener event {event!r}")
 
 
 async def run_agent_scenario(document: dict[str, Any]) -> dict[str, Any]:

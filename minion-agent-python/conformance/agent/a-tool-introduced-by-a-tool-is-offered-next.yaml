@@ -7,11 +7,11 @@ description: >
   Asserting the offered tool names per request is what makes this observable
   at all -- the registry is internal, but what the model was told is not.
 
-  The second request's order is registration order: `load` was registered
-  when the scenario's tools were set up, before the turn started, and
-  `deploy` only when `load` executed. `ScopedRegistry.visible_from` walks
-  each scope's bucket in insertion order, so the registry publishes `load`
-  before `deploy`.
+  The second request's order is registration order: the registry publishes
+  the tools visible from a scope in the order they were registered, so a
+  tool registered by another appears after it. `load` was registered when
+  the scenario's tools were set up, before the turn started; `deploy` only
+  when `load` executed. So the registry publishes `load` before `deploy`.
 provider_script:
   - content: [{ type: tool_call, id: t1, name: load, arguments: {} }]
     stop_reason: tool_use

@@ -7,7 +7,7 @@ import pytest
 import yaml
 from jsonschema import Draft202012Validator
 
-CONFORMANCE = Path(__file__).resolve().parents[2] / "conformance"
+CONFORMANCE = Path(__file__).resolve().parents[3] / "conformance"
 
 FAMILIES = {
     "runtime": CONFORMANCE / "schema" / "runtime-scenario.schema.json",

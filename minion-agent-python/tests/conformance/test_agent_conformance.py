@@ -8,7 +8,7 @@ import yaml
 
 from .agent_runner import run_agent_scenario
 
-SCENARIOS = sorted((Path(__file__).resolve().parents[2] / "conformance" / "agent").glob("*.yaml"))
+SCENARIOS = sorted((Path(__file__).resolve().parents[3] / "conformance" / "agent").glob("*.yaml"))
 
 
 @pytest.mark.parametrize("scenario", SCENARIOS, ids=lambda path: path.stem)

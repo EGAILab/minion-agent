@@ -7,7 +7,7 @@ import yaml
 
 from .runner import run_runtime_scenario
 
-SCENARIOS = sorted((Path(__file__).resolve().parents[2] / "conformance" / "runtime").glob("*.yaml"))
+SCENARIOS = sorted((Path(__file__).resolve().parents[3] / "conformance" / "runtime").glob("*.yaml"))
 
 
 @pytest.mark.parametrize("scenario", SCENARIOS, ids=lambda path: path.stem)

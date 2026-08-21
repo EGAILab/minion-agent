@@ -1,0 +1,96 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://minion-agent.dev/conformance/agent-scenario.schema.json",
+  "title": "Minion Agent agent conformance scenario",
+  "type": "object",
+  "required": ["name", "provider_script", "steps", "expect_events"],
+  "additionalProperties": false,
+  "properties": {
+    "name": { "type": "string", "minLength": 1 },
+    "description": { "type": "string" },
+    "config": { "type": "object" },
+    "provider_script": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/scriptedResponse" }
+    },
+    "tools": {
+      "type": "object",
+      "additionalProperties": { "$ref": "#/$defs/toolStub" }
+    },
+    "steps": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/step" }
+    },
+    "expect_events": { "type": "array" },
+    "expect_messages": { "type": "array" }
+  },
+  "$defs": {
+    "scriptedResponse": {
+      "type": "object",
+      "required": ["stop_reason"],
+      "additionalProperties": false,
+      "properties": {
+        "content": { "type": "array", "items": { "$ref": "#/$defs/contentBlock" } },
+        "stop_reason": {
+          "enum": ["stop", "length", "tool_use", "error", "aborted"]
+        },
+        "error_message": { "type": "string" },
+        "usage": { "type": "object" }
+      }
+    },
+    "contentBlock": {
+      "type": "object",
+      "required": ["type"],
+      "properties": {
+        "type": { "enum": ["text", "thinking", "image", "tool_call"] },
+        "text": { "type": "string" },
+        "thinking": { "type": "string" },
+        "mime_type": { "type": "string" },
+        "data": { "type": "string" },
+        "reference": { "type": "string" },
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "arguments": { "type": "object" }
+      }
+    },
+    "toolStub": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "result": { "type": "object" },
+        "raises": { "type": "string" },
+        "execution_mode": { "enum": ["parallel", "sequential"] },
+        "delay_ticks": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "step": {
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "maxProperties": 1,
+      "properties": {
+        "followup": { "$ref": "#/$defs/input" },
+        "steer": { "$ref": "#/$defs/input" },
+        "inject": { "$ref": "#/$defs/input" },
+        "abort": { "type": "boolean" },
+        "await_idle": { "type": "boolean" }
+      }
+    },
+    "input": {
+      "oneOf": [
+        { "type": "string" },
+        {
+          "type": "object",
+          "required": ["text"],
+          "additionalProperties": false,
+          "properties": {
+            "text": { "type": "string" },
+            "origin": {}
+          }
+        }
+      ]
+    }
+  }
+}

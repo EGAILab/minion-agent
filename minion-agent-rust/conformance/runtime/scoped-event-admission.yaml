@@ -1,0 +1,47 @@
+name: event admission extends up the scope chain
+description: >
+  A listener tagged with an ancestor hears a descendant's dispatch; a listener
+  tagged with a descendant does not hear an ancestor's. An untagged listener
+  hears everything. Registration visibility and event admission run in
+  opposite directions, and this pins that.
+
+  Dispatched with `serial` rather than `emit`: emit is synchronous
+  fire-and-forget, so it cannot await a listener, and admission order is only
+  observable in a mode that runs listeners to completion in order.
+plugins:
+  - id: ancestor-listener
+    scope: definition
+    listeners:
+      - event: test/policy
+        action: observe
+        tag: ancestor
+  - id: descendant-listener
+    scope: instance
+    scope_parent: definition
+    listeners:
+      - event: test/policy
+        action: observe
+        tag: descendant
+  - id: untagged-listener
+    listeners:
+      - event: test/policy
+        action: observe
+        tag: untagged
+steps:
+  - mount: ancestor-listener
+  - mount: descendant-listener
+  - mount: untagged-listener
+  - dispatch: { event: test/policy, mode: serial, scope: instance }
+  - dispatch: { event: test/policy, mode: serial, scope: definition }
+expect_trace:
+  - { event: fiber_state, plugin: ancestor-listener, state: loading }
+  - { event: fiber_state, plugin: ancestor-listener, state: active }
+  - { event: fiber_state, plugin: descendant-listener, state: loading }
+  - { event: fiber_state, plugin: descendant-listener, state: active }
+  - { event: fiber_state, plugin: untagged-listener, state: loading }
+  - { event: fiber_state, plugin: untagged-listener, state: active }
+  - { event: listener_entered, plugin: ancestor-listener, tag: ancestor }
+  - { event: listener_entered, plugin: descendant-listener, tag: descendant }
+  - { event: listener_entered, plugin: untagged-listener, tag: untagged }
+  - { event: listener_entered, plugin: ancestor-listener, tag: ancestor }
+  - { event: listener_entered, plugin: untagged-listener, tag: untagged }

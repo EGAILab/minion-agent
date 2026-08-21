@@ -1,0 +1,45 @@
+name: a loading attempt invalidated by dependency loss never activates
+description: >
+  Loading is a transaction over owned effects (design spec section 3). A fiber
+  becomes `Active` only after initialization succeeds *and* every dependency is
+  still visible, so visibility is re-checked at commit rather than only at the
+  decision to load -- a dependency can disappear while the body runs.
+
+  `during_load` withdraws the service from inside the subject's own body, which
+  is the only way to express the race deterministically: no scheduler ordering
+  is involved, so every implementation observes the same interleaving.
+
+  Two negatives carry the contract. The trace contains no `active` for the
+  subject: an invalidated attempt must not commit, not even transiently, or a
+  dependent would briefly observe a service backed by a fiber whose own
+  dependency is gone. And it contains no `unloading`: that phase belongs to a
+  fiber that was serving, and this one never was. The attempt settles at
+  `Pending`, ready to load again if `tools` returns -- with its effects unwound
+  exactly once, in strict reverse creation order.
+plugins:
+  - id: provider
+    provides: tools
+  - id: subject
+    inject: [tools]
+    effects:
+      - label: first
+      - label: second
+    during_load:
+      - unmount: provider
+steps:
+  - mount: provider
+  - mount: subject
+expect_trace:
+  - { event: fiber_state, plugin: provider, state: loading }
+  - { event: service_provided, plugin: provider, service: tools }
+  - { event: fiber_state, plugin: provider, state: active }
+  - { event: fiber_state, plugin: subject, state: loading }
+  - { event: effect_created, plugin: subject, label: first }
+  - { event: effect_created, plugin: subject, label: second }
+  # The subject's own body withdraws the service it depends on.
+  - { event: fiber_state, plugin: provider, state: unloading }
+  - { event: fiber_state, plugin: provider, state: disposed }
+  # Commit-time validation fails: unwind in reverse, settle at pending.
+  - { event: effect_disposed, plugin: subject, label: second }
+  - { event: effect_disposed, plugin: subject, label: first }
+  - { event: fiber_state, plugin: subject, state: pending }

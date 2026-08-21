@@ -1,0 +1,29 @@
+name: registrations are owned by the scope they were made through
+description: >
+  A plugin registering through a scope has its effects owned by that scope,
+  not by its fiber. Disposing the scope unwinds only its own registrations and
+  leaves an ancestor scope's intact — visibility and ownership always follow
+  the same registration context.
+plugins:
+  - id: definition-plugin
+    scope: definition
+    effects:
+      - label: definition-tool
+  - id: instance-plugin
+    scope: instance
+    scope_parent: definition
+    effects:
+      - label: instance-tool
+steps:
+  - mount: definition-plugin
+  - mount: instance-plugin
+  - dispose_scope: instance
+expect_trace:
+  - { event: fiber_state, plugin: definition-plugin, state: loading }
+  - { event: effect_created, plugin: definition-plugin, label: definition-tool }
+  - { event: fiber_state, plugin: definition-plugin, state: active }
+  - { event: fiber_state, plugin: instance-plugin, state: loading }
+  - { event: effect_created, plugin: instance-plugin, label: instance-tool }
+  - { event: fiber_state, plugin: instance-plugin, state: active }
+  - { event: effect_disposed, plugin: instance-plugin, label: instance-tool }
+  - { event: scope_disposed, scope: instance }

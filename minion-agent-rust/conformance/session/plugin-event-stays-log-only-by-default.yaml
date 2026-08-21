@@ -1,0 +1,11 @@
+name: declaring an event kind does not widen the surface on its own
+description: >
+  An open namespace is not an open surface. A plugin event only reaches the
+  model when the deployment declares it as surface; otherwise it is log-only,
+  like every other non-surface kind.
+steps:
+  - append: { role: user, text: visible }
+  - append: { role: plugin/telemetry, text: not for the model }
+  - derive: {}
+expect_messages:
+  - { role: user, text: visible }

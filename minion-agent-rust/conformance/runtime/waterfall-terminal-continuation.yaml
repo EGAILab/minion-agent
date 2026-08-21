@@ -1,0 +1,35 @@
+name: a fully delegating transformation chain yields the terminal, not null
+description: >
+  Every waterfall event declares a terminal continuation. Without it, a chain
+  whose listeners all cooperatively delegate would discard the value it just
+  finished transforming — the failure mode the transformation pattern exists
+  to avoid.
+plugins:
+  - id: first-transform
+    listeners:
+      - event: test/transform
+        action: transform
+        tag: first
+        replacement: after-first
+  - id: second-transform
+    listeners:
+      - event: test/transform
+        action: transform
+        tag: second
+        replacement: after-second
+steps:
+  - mount: first-transform
+  - mount: second-transform
+  - dispatch:
+      event: test/transform
+      mode: waterfall
+      args: [original]
+      terminal: terminal-value
+expect_trace:
+  - { event: fiber_state, plugin: first-transform, state: loading }
+  - { event: fiber_state, plugin: first-transform, state: active }
+  - { event: fiber_state, plugin: second-transform, state: loading }
+  - { event: fiber_state, plugin: second-transform, state: active }
+  - { event: listener_entered, plugin: first-transform, tag: first }
+  - { event: listener_entered, plugin: second-transform, tag: second }
+expect_result: terminal-value

@@ -1,0 +1,555 @@
+schema_version: 1
+project: Minion Agent
+frozen_design: 2026-08-20-minion-agent-design.md
+pi_repository: earendil-works/pi
+pi_revision: b7bb00b936dbe21b8e160b3e89efdec361846699
+pi_revision_date: '2026-08-19'
+rule: Every Pi-visible semantic surface must be adopted, explicitly deferred, or explicitly diverged. Later Pi updates are
+  separate drift audits.
+rows:
+- id: AI-001
+  phase: 2
+  pi: packages/ai/src/types.ts::TextContent
+  surface: text content + textSignature
+  rule: 'LLM vocabulary: TextBlock{text,text_signature?}; opaque string replay metadata'
+  tests:
+  - public-llm-vocabulary-schema
+  - content-signatures-round-trip
+  python: src/minion_agent/llm/content.py (rewrite)
+  rust: Phase 2 llm vocabulary (new)
+  disposition: adopted
+- id: AI-002
+  phase: 2
+  pi: packages/ai/src/types.ts::ThinkingContent
+  surface: thinking content + thinkingSignature + redacted
+  rule: ThinkingBlock{thinking,thinking_signature?,redacted}
+  tests:
+  - public-llm-vocabulary-schema
+  - content-signatures-round-trip
+  python: src/minion_agent/llm/content.py (rewrite)
+  rust: Phase 2 llm vocabulary (new)
+  disposition: adopted
+- id: AI-003
+  phase: 2
+  pi: packages/ai/src/types.ts::ToolCall
+  surface: tool call + thoughtSignature + namespace
+  rule: ToolCall{id,name,arguments,thought_signature?,namespace?}
+  tests:
+  - public-llm-vocabulary-schema
+  python: src/minion_agent/llm/content.py (rewrite)
+  rust: Phase 2 llm vocabulary (new)
+  disposition: adopted
+- id: AI-004
+  phase: 2
+  pi: packages/ai/src/types.ts::UserMessage
+  surface: user string-or-block content
+  rule: UserMessage.content = string | [TextBlock|ImageBlock]
+  tests:
+  - public-llm-vocabulary-schema
+  - null-content-normalizes-empty
+  python: src/minion_agent/llm/messages.py (rewrite)
+  rust: Phase 2 llm messages (new)
+  disposition: adopted
+- id: AI-005
+  phase: 2
+  pi: packages/ai/src/types.ts::AssistantMessage
+  surface: assistant identity/state
+  rule: AssistantMessage includes api/provider/model/response ids/diagnostics/usage/deferred/raw stop/endTurn/timestamp
+  tests:
+  - public-llm-vocabulary-schema
+  python: src/minion_agent/llm/messages.py (rewrite)
+  rust: Phase 2 llm messages (new)
+  disposition: adopted
+- id: AI-006
+  phase: 2
+  pi: packages/ai/src/types.ts::ToolResultMessage
+  surface: tool result shape
+  rule: ToolResultMessage content/details/usage/added_tool_names/is_error
+  tests:
+  - public-llm-vocabulary-schema
+  python: src/minion_agent/llm/messages.py (rewrite)
+  rust: Phase 2 llm messages (new)
+  disposition: adopted
+- id: AI-007
+  phase: 2
+  pi: packages/ai/src/types.ts::Usage
+  surface: usage accounting
+  rule: input/output/cacheRead/cacheWrite/cacheWrite1h/reasoning/totalTokens/cost breakdown
+  tests:
+  - public-llm-vocabulary-schema
+  python: src/minion_agent/llm/messages.py (rewrite)
+  rust: Phase 2 llm usage (new)
+  disposition: adopted
+- id: AI-008
+  phase: 2
+  pi: packages/ai/src/types.ts::StopReason
+  surface: stop reasons
+  rule: pending|stop|length|tool_use|error|aborted|deferred
+  tests:
+  - public-llm-vocabulary-schema
+  python: src/minion_agent/llm/messages.py (rewrite)
+  rust: Phase 2 llm stop reason (new)
+  disposition: adopted
+- id: AI-009
+  phase: 2
+  pi: packages/ai/src/types.ts::DeferredHandle
+  surface: deferred handle
+  rule: provider/model_id/api/id/expires_at/poll_after_ms/data
+  tests:
+  - public-llm-vocabulary-schema
+  python: 'target: src/minion_agent/llm/messages.py'
+  rust: Phase 2 llm deferred (new)
+  disposition: adopted
+- id: AI-010
+  phase: 2
+  pi: packages/ai/src/utils/diagnostics.ts::AssistantMessageDiagnostic
+  surface: diagnostic shape
+  rule: type/timestamp/error/details; structured error name/message/stack/code
+  tests:
+  - public-llm-vocabulary-schema
+  python: 'target: src/minion_agent/llm/messages.py'
+  rust: Phase 2 diagnostics (new)
+  disposition: adopted
+- id: AI-011
+  phase: 2
+  pi: packages/ai/src/types.ts::Context
+  surface: provider request context
+  rule: system_prompt/messages/tools
+  tests:
+  - public-llm-vocabulary-schema
+  python: 'target: src/minion_agent/llm/'
+  rust: Phase 2 llm context (new)
+  disposition: adopted
+- id: AI-012
+  phase: 2
+  pi: packages/ai/src/types.ts::StreamFunction
+  surface: never-raises provider stream contract
+  rule: once provider stream invoked, expected request/provider/runtime failures settle in stream
+  tests:
+  - represented-provider-error-rides-stream
+  - premature-eof-synthesizes-error-terminal
+  - public-stream-fuses-after-first-terminal
+  python: src/minion_agent/llm/ (realign wrapper)
+  rust: Phase 2 AssistantStream
+  disposition: adopted
+- id: AI-020
+  phase: 2
+  pi: packages/ai/src/api/transform-messages.ts::transformMessages
+  surface: unsupported image downgrade
+  rule: exact user/tool placeholder strings; adjacent placeholder dedupe
+  tests:
+  - nonvision-user-image-placeholder
+  - nonvision-tool-image-placeholder
+  python: 'target: src/minion_agent/llm/transform_messages.py'
+  rust: Phase 2 target-model transform
+  disposition: adopted
+- id: AI-021
+  phase: 2
+  pi: packages/ai/src/api/transform-messages.ts::transformMessages
+  surface: thinking compatibility
+  rule: same-model signature retention; unsigned empty removal; cross-model non-redacted -> text; redacted cross-model ->
+    omit
+  tests:
+  - same-model-thinking-signature-replayed
+  - same-model-unsigned-thinking-not-replayed
+  - cross-model-thinking-converts-to-text
+  - cross-model-redacted-thinking-omitted
+  python: 'target: src/minion_agent/llm/transform_messages.py'
+  rust: Phase 2 target-model transform
+  disposition: adopted
+- id: AI-022
+  phase: 2
+  pi: packages/ai/src/api/transform-messages.ts::transformMessages
+  surface: cross-model replay metadata stripping
+  rule: strip text_signature and thought_signature cross-model
+  tests:
+  - cross-model-signatures-stripped
+  python: 'target: src/minion_agent/llm/transform_messages.py'
+  rust: Phase 2 target-model transform
+  disposition: adopted
+- id: AI-023
+  phase: 2
+  pi: packages/ai/src/api/transform-messages.ts::transformMessages
+  surface: tool-call ID normalization
+  rule: normalize target API tool-call ids and matching tool-result ids consistently
+  tests:
+  - tool-call-id-normalization
+  python: 'target: src/minion_agent/llm/transform_messages.py'
+  rust: Phase 2 target-model transform
+  disposition: adopted
+- id: AI-024
+  phase: 2
+  pi: packages/ai/src/api/transform-messages.ts::transformMessages
+  surface: orphan tool result synthesis
+  rule: synthesize is_error=true result "No result provided" before later user/assistant and at end
+  tests:
+  - orphan-tool-result-synthesized
+  python: 'target: src/minion_agent/llm/transform_messages.py'
+  rust: Phase 2 target-model transform
+  disposition: adopted
+- id: AI-025
+  phase: 2
+  pi: packages/ai/src/api/transform-messages.ts::transformMessages
+  surface: errored/aborted history exclusion
+  rule: exclude historical assistant error/aborted from provider replay
+  tests:
+  - errored-assistant-excluded-from-replay
+  - aborted-assistant-excluded-from-replay
+  python: 'target: src/minion_agent/llm/transform_messages.py'
+  rust: Phase 2 target-model transform
+  disposition: adopted
+- id: AI-026
+  phase: 2
+  pi: packages/ai/src/api/transform-messages.ts::transformMessages
+  surface: legacy null content normalization
+  rule: null/undefined legacy content -> empty list before transformation
+  tests:
+  - null-content-normalizes-empty
+  python: 'target: src/minion_agent/llm/transform_messages.py'
+  rust: Phase 2 target-model transform
+  disposition: adopted
+- id: AG-001
+  phase: 3
+  pi: packages/agent/src/agent-loop.ts::runAgentLoop
+  surface: initial prompt event order
+  rule: agent_start -> turn_start -> initial prompt message lifecycle
+  tests:
+  - initial-prompt-order-after-turn-start
+  python: src/minion_agent/agent_loop/driver.py (rewrite)
+  rust: Phase 3 agent loop
+  disposition: adopted
+- id: AG-002
+  phase: 3
+  pi: packages/agent/src/agent-loop.ts::runLoop
+  surface: initial steering poll
+  rule: poll steering before first provider request inside first open turn
+  tests:
+  - initial-steering-before-first-request
+  - continue-steering-no-double-drain
+  python: src/minion_agent/agent_loop/driver.py (rewrite)
+  rust: Phase 3 agent loop
+  disposition: adopted
+- id: AG-003
+  phase: 3
+  pi: packages/agent/src/agent-loop.ts::runAgentLoopContinue
+  surface: continuation invocation output
+  rule: continuation returns/emits only invocation-new messages
+  tests:
+  - agent-end-messages-prompt-vs-continuation
+  python: src/minion_agent/agent_loop/driver.py (rewrite)
+  rust: Phase 3 agent loop
+  disposition: adopted
+- id: AG-004
+  phase: 3
+  pi: packages/agent/src/agent-loop.ts::runLoop
+  surface: turn definition/order
+  rule: one assistant response + resulting tool results; turn_end then prepareNextTurn then shouldStopAfterTurn then steering
+  tests:
+  - turn-lifecycle-order
+  - terminate-still-runs-prepare-and-stop-policy
+  python: src/minion_agent/agent_loop/driver.py (rewrite)
+  rust: Phase 3 agent loop
+  disposition: adopted
+- id: AG-005
+  phase: 3
+  pi: packages/agent/src/agent-loop.ts::runLoop
+  surface: follow-up timing
+  rule: poll follow-up only when run would otherwise stop
+  tests:
+  - followup-only-when-otherwise-idle
+  - terminate-allows-follow-up-when-otherwise-idle
+  python: src/minion_agent/agent_loop/driver.py (rewrite)
+  rust: Phase 3 agent loop
+  disposition: adopted
+- id: AG-006
+  phase: 3
+  pi: packages/agent/src/agent.ts::Agent.prompt / Agent.continue
+  surface: prompt/continue caller rules
+  rule: prompt while active rejected; continue validates transcript and queue ordering
+  tests:
+  - prompt-while-running-rejected
+  - continue-ordering
+  - continue-steering-no-double-drain
+  python: src/minion_agent/agent/ + agent_loop (rewrite)
+  rust: Phase 3 Agent API
+  disposition: adopted
+- id: AG-007
+  phase: 3
+  pi: packages/agent/src/agent.ts::Agent.abort
+  surface: active cancellation
+  rule: active run abort signal propagates into provider/tools/hooks
+  tests:
+  - active-abort-provider
+  - active-abort-tool
+  - abort-settles-before-idle
+  python: src/minion_agent/agent/ + llm transport (rewrite)
+  rust: Phase 3 + Phase 5 transport
+  disposition: adopted
+- id: AG-008
+  phase: 3
+  pi: packages/agent/src/agent.ts::AgentState
+  surface: observable agent state
+  rule: is_streaming/streaming_message/pending_tool_calls/error_message plus config-facing state
+  tests:
+  - agent-state-streaming-projection
+  - pending-tool-calls-state
+  - idle-after-agent-end-listeners
+  python: src/minion_agent/agent/ (rewrite)
+  rust: Phase 3 Agent state
+  disposition: adopted
+- id: AG-009
+  phase: 3
+  pi: packages/agent/src/agent.ts::handleRunFailure
+  surface: high-level callback failure settlement
+  rule: unexpected loop callback failure -> terminal assistant failure trace, turn_end, agent_end, then idle
+  tests:
+  - high-level-callback-failure-settlement
+  python: src/minion_agent/agent/ (rewrite)
+  rust: Phase 3 Agent wrapper
+  disposition: adopted
+- id: AG-010
+  phase: 3
+  pi: packages/agent/src/types.ts::AgentEvent
+  surface: agent_end message set
+  rule: invocation-local messages; prompt includes prompt; continuation excludes prior context
+  tests:
+  - agent-end-messages-prompt-vs-continuation
+  python: src/minion_agent/agent/ + agent_loop
+  rust: Phase 3 event vocabulary
+  disposition: adopted
+- id: TOOL-001
+  phase: 4
+  pi: packages/agent/src/agent-loop.ts::executeToolCalls
+  surface: batch execution mode contagion
+  rule: any sequential tool forces whole batch sequential; otherwise parallel
+  tests:
+  - tool-batch-sequential-contagion
+  - tool-batch-parallel
+  python: src/minion_agent/tools/ + agent_loop (rewrite)
+  rust: Phase 4 tools
+  disposition: adopted
+- id: TOOL-002
+  phase: 4
+  pi: packages/agent/src/agent-loop.ts::failToolCallsFromTruncatedMessage
+  surface: length-stop tool safety
+  rule: length stop executes zero tool calls; every call becomes error result
+  tests:
+  - length-stop-executes-no-tools
+  python: src/minion_agent/agent_loop/driver.py (rewrite)
+  rust: Phase 4 tools
+  disposition: adopted
+- id: TOOL-003
+  phase: 4
+  pi: packages/agent/src/agent-loop.ts::prepareToolCall
+  surface: prepare/validate failure conversion
+  rule: prepareArguments and schema validation failures -> error tool result
+  tests:
+  - prepare-arguments-failure-becomes-tool-error
+  - schema-validation-failure-becomes-tool-error
+  python: src/minion_agent/tools/ (rewrite)
+  rust: Phase 4 tools
+  disposition: adopted
+- id: TOOL-004
+  phase: 4
+  pi: packages/agent/src/agent-loop.ts::executePreparedToolCall
+  surface: before hook + execution failure conversion
+  rule: beforeToolCall and execute failures -> error tool result
+  tests:
+  - before-hook-failure-becomes-tool-error
+  - execute-failure-becomes-tool-error
+  python: src/minion_agent/tools/ (rewrite)
+  rust: Phase 4 tools
+  disposition: adopted
+- id: TOOL-005
+  phase: 4
+  pi: packages/agent/src/agent-loop.ts::finalizeExecutedToolCall
+  surface: after hook failure conversion
+  rule: afterToolCall failure replaces prior result with error result
+  tests:
+  - after-hook-failure-replaces-result-with-tool-error
+  python: src/minion_agent/tools/ (rewrite)
+  rust: Phase 4 tools
+  disposition: adopted
+- id: TOOL-006
+  phase: 4
+  pi: packages/agent/src/agent-loop.ts::executeToolCalls*
+  surface: result/event ordering
+  rule: execution-end follows completion order; tool-result messages preserve assistant source order
+  tests:
+  - parallel-tool-completion-vs-message-order
+  python: src/minion_agent/tools/ + agent_loop
+  rust: Phase 4 tools
+  disposition: adopted
+- id: TOOL-007
+  phase: 4
+  pi: packages/agent/src/agent-loop.ts::runLoop
+  surface: terminate fold semantics
+  rule: all finalized results terminate => suppress tool-driven automatic continuation only; normal prepare/stop/steer/followup
+    remains
+  tests:
+  - terminate-suppresses-tool-driven-continuation
+  - terminate-still-runs-prepare-and-stop-policy
+  - terminate-does-not-discard-steering
+  - terminate-allows-follow-up-when-otherwise-idle
+  python: src/minion_agent/agent_loop/driver.py (rewrite)
+  rust: Phase 4 tools + Phase 3 loop
+  disposition: adopted
+- id: TOOL-008
+  phase: 4
+  pi: packages/ai/src/types.ts::Tool
+  surface: constrained sampling metadata
+  rule: json_schema strict prefer/require; grammar variants seam
+  tests:
+  - tool-constrained-sampling-schema
+  python: src/minion_agent/tools/ (realign)
+  rust: Phase 4 tools
+  disposition: adopted
+- id: PROV-001
+  phase: 5
+  pi: packages/ai/src/api/openai-responses-shared.ts::convertResponsesMessages
+  surface: Responses thinking replay
+  rule: replay retained same-model thinking_signature; unsigned same-model has no reasoning replay item
+  tests:
+  - same-model-thinking-signature-replayed
+  - same-model-unsigned-thinking-not-replayed
+  python: 'target: src/minion_agent/llm/adapters/codex_responses/'
+  rust: Phase 5 codex-responses
+  disposition: adopted
+- id: PROV-002
+  phase: 5
+  pi: packages/ai/src/api/openai-responses-shared.ts::encodeTextSignatureV1 / parseTextSignature
+  surface: Responses text signature V1/legacy
+  rule: V1 JSON id+phase; malformed/non-JSON fallback to legacy id
+  tests:
+  - responses-text-signature-replayed
+  - responses-text-signature-fallback-id
+  python: 'target: src/minion_agent/llm/adapters/codex_responses/'
+  rust: Phase 5 codex-responses
+  disposition: adopted
+- id: PROV-003
+  phase: 5
+  pi: packages/ai/src/api/openai-responses-shared.ts::processResponsesStream
+  surface: reasoning summary/text projection
+  rule: reasoning summary/text -> visible thinking; complete provider reasoning item -> thinking_signature
+  tests:
+  - responses-reasoning-summary-projects-thinking
+  - responses-reasoning-signature-finalized
+  python: 'target: src/minion_agent/llm/adapters/codex_responses/'
+  rust: Phase 5 codex-responses
+  disposition: adopted
+- id: PROV-004
+  phase: 5
+  pi: packages/ai/src/api/openai-codex-responses.ts::stream
+  surface: active transport abort
+  rule: run AbortSignal reaches fetch/transport
+  tests:
+  - active-abort-provider
+  python: 'target: codex_responses transport'
+  rust: Phase 5 transport
+  disposition: adopted
+- id: PROV-005
+  phase: 5
+  pi: packages/ai/src/api/openai-completions.ts::stream/convertMessages
+  surface: OpenAI-compatible reasoning replay
+  rule: reasoning replay details/signatures follow pinned Pi adapter, not generalized continuation state
+  tests:
+  - openai-completions-reasoning-replay
+  python: 'target: openai_completions adapter'
+  rust: Phase 5 openai-completions
+  disposition: adopted
+- id: MINION-001
+  phase: 1
+  pi: N/A — Minion plugin architecture
+  surface: plugin runtime/context/fiber/services/events/effects
+  rule: primary intentional architectural divergence; must preserve Pi-visible behavior at higher layers
+  tests:
+  - existing runtime/* canonical suite
+  python: src/minion_agent/runtime/ (retain if green)
+  rust: Phase 1 runtime (retain if green)
+  disposition: intentional divergence
+- id: MINION-002
+  phase: 2
+  pi: N/A — Minion persistence architecture
+  surface: append-only session log
+  rule: model-visible means logged; request reconstructable; same Pi model-visible history
+  tests:
+  - session derivation/reconstruction suite
+  python: src/minion_agent/session/ (retain/realign)
+  rust: Phase 2 session
+  disposition: intentional divergence
+- id: MINION-003
+  phase: 2
+  pi: N/A — Minion artifact architecture
+  surface: content-addressed immutable request artifacts
+  rule: stronger storage representation; identical model-visible bytes
+  tests:
+  - request-reconstruction-with-artifacts
+  python: src/minion_agent/session/artifacts (retain)
+  rust: Phase 2 artifact store
+  disposition: intentional divergence
+- id: HAR-001
+  phase: 7
+  pi: packages/agent/src/harness/skills.ts::skill discovery
+  surface: skill discovery + diagnostics
+  rule: Pi-compatible SKILL.md/direct markdown discovery, ignore files, deterministic traversal, validation
+  tests:
+  - skills-discovery-parity
+  - skills-diagnostics-parity
+  python: 'target: src/minion_agent/skills/'
+  rust: Phase 7 skills
+  disposition: adopted
+- id: HAR-002
+  phase: 7
+  pi: packages/agent/src/harness/skills.ts::available skills formatting
+  surface: available-skills prompt XML
+  rule: Pi-compatible XML shape/escaping; disable-model-invocation excluded
+  tests:
+  - skills-prompt-xml-parity
+  python: 'target: src/minion_agent/system_prompt/ + skills/'
+  rust: Phase 7 prompt/skills
+  disposition: adopted
+- id: HAR-003
+  phase: 7
+  pi: packages/agent/src/harness/compaction/compaction.ts::context token estimation
+  surface: compaction trigger estimator
+  rule: last valid assistant usage; ignore error/aborted/zero; prefer totalTokens; estimate trailing or whole history
+  tests:
+  - compaction-last-valid-usage
+  - compaction-zero-usage-fallback
+  - compaction-trailing-estimate
+  python: 'target: src/minion_agent/compaction/'
+  rust: Phase 7 compaction
+  disposition: adopted
+- id: HAR-004
+  phase: 7
+  pi: packages/agent/src/harness/compaction/compaction.ts::summary request
+  surface: compaction summary request settings
+  rule: cacheRetention none + fresh sessionId; Pi cut/summary behavior
+  tests:
+  - compaction-summary-request-settings
+  python: 'target: src/minion_agent/compaction/'
+  rust: Phase 7 compaction
+  disposition: adopted
+- id: HAR-005
+  phase: 7
+  pi: packages/coding-agent/src/core/messages.ts::message projections
+  surface: branch/compaction/bash/custom model-visible wrappers
+  rule: Pi-equivalent built-in harness message projection strings and excludeFromContext behavior
+  tests:
+  - branch-summary-projection
+  - compaction-summary-projection
+  - bash-execution-projection
+  - custom-message-projection
+  python: 'target: src/minion_agent/session/projections or harness/'
+  rust: Phase 7 harness projections
+  disposition: adopted
+- id: HAR-009
+  phase: 9
+  pi: packages/agent/src/harness/*::AgentHarness durable operation state
+  surface: lanes, durable ops, suspend/resume, replay, navigation, pending writes
+  rule: known Pi parity commitment; initial phases must not claim complete harness parity
+  tests:
+  - future Phase 9 harness conformance
+  python: deferred Phase 9
+  rust: deferred Phase 9
+  disposition: deferred parity

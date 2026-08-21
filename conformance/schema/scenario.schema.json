@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": [
+    "name",
+    "family",
+    "status",
+    "authority",
+    "pi_revision",
+    "given",
+    "when",
+    "expect"
+  ],
+  "properties": {
+    "name": {
+      "type": "string"
+    },
+    "family": {
+      "enum": [
+        "runtime",
+        "session",
+        "agent"
+      ]
+    },
+    "status": {
+      "type": "string"
+    },
+    "authority": {
+      "type": "string"
+    },
+    "pi_revision": {
+      "type": "string"
+    },
+    "given": {},
+    "when": {},
+    "expect": {},
+    "notes": {
+      "type": "string"
+    }
+  },
+  "additionalProperties": false
+}

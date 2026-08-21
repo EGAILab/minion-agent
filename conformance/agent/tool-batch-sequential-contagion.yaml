@@ -1,0 +1,11 @@
+name: tool-batch-sequential-contagion
+family: agent
+status: canonical-baseline
+authority: 2026-08-20-minion-agent-design.md
+pi_revision: b7bb00b936dbe21b8e160b3e89efdec361846699
+given:
+  fixture: TO_BE_FILLED_FROM_PINNED_PI_BEHAVIOR
+when:
+  op: TO_BE_BOUND_TO_REAL_PUBLIC_API
+expect:
+  observable: TO_BE_PINNED_EXACTLY

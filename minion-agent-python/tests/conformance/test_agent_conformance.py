@@ -7,6 +7,7 @@ import pytest
 import yaml
 
 from .agent_runner import run_agent_scenario
+from .placeholder import is_placeholder
 
 SCENARIOS = sorted((Path(__file__).resolve().parents[3] / "conformance" / "agent").glob("*.yaml"))
 
@@ -14,6 +15,9 @@ SCENARIOS = sorted((Path(__file__).resolve().parents[3] / "conformance" / "agent
 @pytest.mark.parametrize("scenario", SCENARIOS, ids=lambda path: path.stem)
 async def test_agent_scenario(scenario: Path) -> None:
     document: dict[str, Any] = yaml.safe_load(scenario.read_text(encoding="utf-8"))
+    if is_placeholder(document):
+        pytest.xfail(f"{scenario.stem}: TO_BE_FILLED placeholder, see pi-parity-manifest.yaml")
+
     outcome = await run_agent_scenario(document)
 
     expected_error = document.get("expect_error")

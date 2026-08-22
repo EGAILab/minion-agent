@@ -237,9 +237,7 @@ fn remove_registration(
     name: &ServiceName,
     expected_id: u64,
 ) -> Option<String> {
-    let Some(state) = state.upgrade() else {
-        return None;
-    };
+    let state = state.upgrade()?;
     let removed = {
         let mut state = state.lock();
         if state

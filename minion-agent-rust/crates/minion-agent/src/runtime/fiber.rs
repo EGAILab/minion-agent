@@ -164,7 +164,7 @@ impl FiberInitContext {
         let services = self
             .services
             .as_ref()
-            .ok_or_else(|| RuntimeError::UncoordinatedContext)?;
+            .ok_or(RuntimeError::UncoordinatedContext)?;
         let owner = self
             .owner
             .as_ref()

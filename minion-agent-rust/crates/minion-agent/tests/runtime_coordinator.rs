@@ -126,3 +126,57 @@ fn one_provider_reconciles_multiple_independent_dependents() {
         assert_eq!(second.state(), FiberState::Pending);
     });
 }
+
+#[test]
+fn a_failed_reconciliation_settles_the_fiber_and_does_not_poison_the_runtime() {
+    run(async {
+        let runtime = Runtime::new();
+        let failing_spec = PluginSpec::<EmptyConfig>::new(
+            "failing",
+            vec![],
+            || json!({ "type": "object" }),
+            |_context, _config| async { Err(PluginInitError::new("expected failure")) },
+        )
+        .erase();
+        let failing = runtime.mount(&failing_spec, json!({})).unwrap();
+
+        let error = runtime.reconcile().await.unwrap_err();
+        assert!(error.to_string().contains("expected failure"));
+        assert_eq!(failing.state(), FiberState::Failed);
+
+        let healthy_spec = PluginSpec::<EmptyConfig>::new(
+            "healthy",
+            vec![],
+            || json!({ "type": "object" }),
+            |_context, _config| async { Ok::<_, PluginInitError>(()) },
+        )
+        .erase();
+        let healthy = runtime.mount(&healthy_spec, json!({})).unwrap();
+        runtime.reconcile().await.unwrap();
+        assert_eq!(healthy.state(), FiberState::Active);
+        assert_eq!(failing.state(), FiberState::Failed);
+    });
+}
+
+#[test]
+fn provider_appearance_reaches_dependents_before_an_unrelated_failure_aborts_the_pass() {
+    run(async {
+        let runtime = Runtime::new();
+        let provider = runtime.mount(&provider_spec(), json!({})).unwrap();
+        let failing_spec = PluginSpec::<EmptyConfig>::new(
+            "unrelated-failure",
+            vec![],
+            || json!({ "type": "object" }),
+            |_context, _config| async { Err(PluginInitError::new("expected failure")) },
+        )
+        .erase();
+        let failing = runtime.mount(&failing_spec, json!({})).unwrap();
+        let dependent = runtime.mount(&dependent_spec(), json!({})).unwrap();
+
+        assert!(runtime.reconcile().await.is_err());
+
+        assert_eq!(provider.state(), FiberState::Active);
+        assert_eq!(failing.state(), FiberState::Failed);
+        assert_eq!(dependent.state(), FiberState::Active);
+    });
+}

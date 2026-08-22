@@ -200,6 +200,16 @@ impl ServiceRegistry {
     pub(crate) fn set_revocation_callback(&self, callback: ServiceRevoked) {
         *self.on_revoked.lock() = Some(callback);
     }
+
+    pub(crate) fn names_held_by(&self, holder: &str) -> Vec<ServiceName> {
+        self.state
+            .lock()
+            .registrations
+            .iter()
+            .filter(|(_, entry)| entry.holder == holder)
+            .map(|(name, _)| name.clone())
+            .collect()
+    }
 }
 
 impl Default for ServiceRegistry {

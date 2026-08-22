@@ -78,9 +78,16 @@ impl Runtime {
         loop {
             let fibers = self.core.fibers.lock().clone();
             let before: Vec<_> = fibers.iter().map(FiberHandle::state).collect();
-            for fiber in &fibers {
+            for (fiber, before_state) in fibers.iter().zip(&before) {
                 fiber.dependencies_changed();
                 fiber.reconcile().await?;
+                if *before_state != super::FiberState::Active
+                    && fiber.state() == super::FiberState::Active
+                {
+                    for name in self.core.services.names_held_by(fiber.name()) {
+                        self.core.reconcile_dependents(&name).await?;
+                    }
+                }
             }
             let changed = fibers
                 .iter()

@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use futures::FutureExt;
 use parking_lot::Mutex;
 use serde_json::Value;
 
@@ -23,14 +24,27 @@ struct RuntimeCore {
 impl Runtime {
     pub fn new() -> Self {
         let scopes = ScopeTree::new();
-        Self {
-            core: Arc::new(RuntimeCore {
-                services: ServiceRegistry::new(),
-                events: EventBus::new(scopes.clone()),
-                scopes,
-                fibers: Mutex::new(Vec::new()),
-            }),
-        }
+        let services = ServiceRegistry::new();
+        let core = Arc::new(RuntimeCore {
+            services: services.clone(),
+            events: EventBus::new(scopes.clone()),
+            scopes,
+            fibers: Mutex::new(Vec::new()),
+        });
+        let weak = Arc::downgrade(&core);
+        services.set_revocation_callback(Arc::new(move |name| {
+            let weak = weak.clone();
+            async move {
+                let Some(core) = weak.upgrade() else {
+                    return Ok(());
+                };
+                core.reconcile_dependents(&name).await.map_err(|error| {
+                    super::DisposeError::new(format!("reconcile({name})"), error.to_string())
+                })
+            }
+            .boxed()
+        }));
+        Self { core }
     }
 
     pub fn mount(
@@ -78,6 +92,10 @@ impl Runtime {
         }
     }
 
+    pub async fn unmount(&self, fiber: &FiberHandle) -> Result<(), FiberError> {
+        fiber.dispose().await
+    }
+
     pub fn services(&self) -> &ServiceRegistry {
         &self.core.services
     }
@@ -88,6 +106,23 @@ impl Runtime {
 
     pub fn scopes(&self) -> &ScopeTree {
         &self.core.scopes
+    }
+}
+
+impl RuntimeCore {
+    async fn reconcile_dependents(&self, name: &super::ServiceName) -> Result<(), FiberError> {
+        let fibers: Vec<_> = self
+            .fibers
+            .lock()
+            .iter()
+            .filter(|fiber| fiber.inject().contains(name))
+            .cloned()
+            .collect();
+        for fiber in fibers {
+            fiber.dependencies_changed();
+            fiber.reconcile().await?;
+        }
+        Ok(())
     }
 }
 

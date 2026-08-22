@@ -5,6 +5,7 @@ use std::{
     sync::{Arc, Weak},
 };
 
+use futures::future::BoxFuture;
 use parking_lot::Mutex;
 
 use super::{DisposeError, EffectHandle, EffectStore, RuntimeError, ServiceName};
@@ -26,7 +27,11 @@ pub type ServiceCheck = Arc<dyn Fn() -> bool + Send + Sync + 'static>;
 #[derive(Clone)]
 pub struct ServiceRegistry {
     state: Arc<Mutex<ServiceRegistryState>>,
+    on_revoked: Arc<Mutex<Option<ServiceRevoked>>>,
 }
+
+pub(crate) type ServiceRevoked =
+    Arc<dyn Fn(ServiceName) -> BoxFuture<'static, Result<(), DisposeError>> + Send + Sync>;
 
 struct ServiceRegistryState {
     contracts: HashMap<ServiceName, ServiceContract>,
@@ -65,6 +70,7 @@ impl ServiceRegistry {
                 registrations: HashMap::new(),
                 next_registration_id: 0,
             })),
+            on_revoked: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -93,6 +99,7 @@ impl ServiceRegistry {
         let erased_value: Arc<dyn Any + Send + Sync> = value;
         let removal_state = Arc::downgrade(&self.state);
         let removal_name = name.clone();
+        let on_revoked = Arc::clone(&self.on_revoked);
         let commit_state = Arc::clone(&self.state);
         let commit_name = name.clone();
         let pending_entry = Box::new(ServiceEntry {
@@ -107,7 +114,12 @@ impl ServiceRegistry {
             format!("provide({name})"),
             move || {
                 Box::pin(async move {
-                    remove_registration(removal_state, &removal_name, registration_id);
+                    if remove_registration(removal_state, &removal_name, registration_id) {
+                        let callback = on_revoked.lock().clone();
+                        if let Some(callback) = callback {
+                            callback(removal_name).await?;
+                        }
+                    }
                     Ok(())
                 })
             },
@@ -184,6 +196,10 @@ impl ServiceRegistry {
                 && snapshot.check.as_ref().is_none_or(|check| check())
         })
     }
+
+    pub(crate) fn set_revocation_callback(&self, callback: ServiceRevoked) {
+        *self.on_revoked.lock() = Some(callback);
+    }
 }
 
 impl Default for ServiceRegistry {
@@ -208,9 +224,9 @@ fn remove_registration(
     state: Weak<Mutex<ServiceRegistryState>>,
     name: &ServiceName,
     expected_id: u64,
-) {
+) -> bool {
     let Some(state) = state.upgrade() else {
-        return;
+        return false;
     };
     let removed = {
         let mut state = state.lock();
@@ -224,7 +240,9 @@ fn remove_registration(
             None
         }
     };
+    let was_removed = removed.is_some();
     drop(removed);
+    was_removed
 }
 
 fn validate_registration<S>(

@@ -1,0 +1,20 @@
+name: dispatching a waterfall event with zero mounted listeners yields the terminal directly
+description: >
+  Every waterfall event declares a terminal continuation, returned both when
+  the innermost listener delegates past the end of the chain and when the
+  chain is empty (design spec section 3) -- an empty chain is not a special
+  case, it is the same "nothing left to delegate to" condition with zero
+  steps taken first. No listener for this event is ever mounted.
+plugins:
+  - id: bystander
+steps:
+  - mount: bystander
+  - dispatch:
+      event: test/empty-chain
+      mode: waterfall
+      args: [original]
+      terminal: the-terminal-value
+expect_trace:
+  - { event: fiber_state, plugin: bystander, state: loading }
+  - { event: fiber_state, plugin: bystander, state: active }
+expect_result: the-terminal-value

@@ -163,3 +163,61 @@ async def test_disposing_a_failed_fiber_goes_straight_to_disposed() -> None:
     await fiber.dispose()
 
     assert seen == [FiberState.DISPOSED]
+
+
+def _spec_with_failing_disposer(name: str = "subject") -> PluginSpec:
+    async def body(ctx, config):
+        def bad_disposer():
+            raise ValueError("disposer boom")
+
+        ctx.effect(lambda: bad_disposer, "bad-effect")
+
+    return _spec(body, name=name)
+
+
+async def test_unload_still_reaches_pending_when_a_disposer_raises() -> None:
+    """A failing disposer must not strand the fiber mid-transition.
+
+    DisposableList already aggregates disposer failures into an
+    ExceptionGroup rather than swallowing them (design intent: a failure
+    surfaces, it does not vanish). The fiber's own state has to honor the
+    same principle: UNLOADING is not a terminal state, so a disposer that
+    raises here must not leave the fiber stuck there forever.
+    """
+    fiber = Fiber(
+        name="subject", parent=Context(), plugin=_spec_with_failing_disposer(), config=None
+    )
+    await fiber.load()
+
+    with pytest.raises(ExceptionGroup):
+        await fiber.unload()
+
+    assert fiber.state is FiberState.PENDING
+
+
+async def test_dispose_still_reaches_disposed_when_a_disposer_raises() -> None:
+    fiber = Fiber(
+        name="subject", parent=Context(), plugin=_spec_with_failing_disposer(), config=None
+    )
+    await fiber.load()
+
+    with pytest.raises(ExceptionGroup):
+        await fiber.dispose()
+
+    assert fiber.state is FiberState.DISPOSED
+
+
+async def test_load_failure_still_reaches_failed_when_the_unwind_also_raises() -> None:
+    async def body(ctx, config):
+        def bad_disposer():
+            raise ValueError("disposer boom")
+
+        ctx.effect(lambda: bad_disposer, "bad-effect")
+        raise ValueError("body boom")
+
+    fiber = Fiber(name="subject", parent=Context(), plugin=_spec(body), config=None)
+
+    with pytest.raises(ExceptionGroup):
+        await fiber.load()
+
+    assert fiber.state is FiberState.FAILED

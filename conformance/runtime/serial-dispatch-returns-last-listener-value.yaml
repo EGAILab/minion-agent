@@ -1,0 +1,35 @@
+name: serial invokes every listener in registration order and returns the last value
+description: >
+  serial is awaited, registration order, returns a value -- the last one
+  wins (design spec section 3, dispatch-mode matrix). The existing serial
+  scenarios (scoped-event-admission, unscoped-dispatch-admits-only-untagged)
+  exercise scope filtering through serial dispatch but never assert on the
+  returned value itself. Two listeners each return a distinct value here;
+  expect_result names the second one, proving both that serial captures a
+  return at all (unlike emit/parallel) and that the later registration
+  overwrites the earlier one rather than the first value winning.
+plugins:
+  - id: first-listener
+    listeners:
+      - event: test/poll
+        action: observe
+        tag: first
+        returns: first-value
+  - id: second-listener
+    listeners:
+      - event: test/poll
+        action: observe
+        tag: second
+        returns: second-value
+steps:
+  - mount: first-listener
+  - mount: second-listener
+  - dispatch: { event: test/poll, mode: serial }
+expect_trace:
+  - { event: fiber_state, plugin: first-listener, state: loading }
+  - { event: fiber_state, plugin: first-listener, state: active }
+  - { event: fiber_state, plugin: second-listener, state: loading }
+  - { event: fiber_state, plugin: second-listener, state: active }
+  - { event: listener_entered, plugin: first-listener, tag: first }
+  - { event: listener_entered, plugin: second-listener, tag: second }
+expect_result: second-value

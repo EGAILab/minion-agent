@@ -5,6 +5,7 @@ use std::{
     sync::{Arc, Weak},
 };
 
+use futures::future::BoxFuture;
 use parking_lot::Mutex;
 
 use super::{DisposeError, EffectHandle, EffectStore, RuntimeError, ServiceName};
@@ -26,7 +27,11 @@ pub type ServiceCheck = Arc<dyn Fn() -> bool + Send + Sync + 'static>;
 #[derive(Clone)]
 pub struct ServiceRegistry {
     state: Arc<Mutex<ServiceRegistryState>>,
+    on_revoked: Arc<Mutex<Option<ServiceRevoked>>>,
 }
+
+pub(crate) type ServiceRevoked =
+    Arc<dyn Fn(ServiceName, String) -> BoxFuture<'static, Result<(), DisposeError>> + Send + Sync>;
 
 struct ServiceRegistryState {
     contracts: HashMap<ServiceName, ServiceContract>,
@@ -65,6 +70,7 @@ impl ServiceRegistry {
                 registrations: HashMap::new(),
                 next_registration_id: 0,
             })),
+            on_revoked: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -93,6 +99,7 @@ impl ServiceRegistry {
         let erased_value: Arc<dyn Any + Send + Sync> = value;
         let removal_state = Arc::downgrade(&self.state);
         let removal_name = name.clone();
+        let on_revoked = Arc::clone(&self.on_revoked);
         let commit_state = Arc::clone(&self.state);
         let commit_name = name.clone();
         let pending_entry = Box::new(ServiceEntry {
@@ -107,7 +114,14 @@ impl ServiceRegistry {
             format!("provide({name})"),
             move || {
                 Box::pin(async move {
-                    remove_registration(removal_state, &removal_name, registration_id);
+                    if let Some(holder) =
+                        remove_registration(removal_state, &removal_name, registration_id)
+                    {
+                        let callback = on_revoked.lock().clone();
+                        if let Some(callback) = callback {
+                            callback(removal_name, holder).await?;
+                        }
+                    }
                     Ok(())
                 })
             },
@@ -169,6 +183,35 @@ impl ServiceRegistry {
             Err(_) => panic!("service contract metadata disagrees with erased storage for {name}"),
         }
     }
+
+    pub(crate) fn is_visible(&self, name: &ServiceName) -> bool {
+        let snapshot = {
+            let state = self.state.lock();
+            state.registrations.get(name).map(|entry| ServiceSnapshot {
+                owner: Arc::clone(&entry.owner),
+                value: Arc::clone(&entry.value),
+                check: entry.check.clone(),
+            })
+        };
+        snapshot.is_some_and(|snapshot| {
+            snapshot.owner.service_owner_is_active()
+                && snapshot.check.as_ref().is_none_or(|check| check())
+        })
+    }
+
+    pub(crate) fn set_revocation_callback(&self, callback: ServiceRevoked) {
+        *self.on_revoked.lock() = Some(callback);
+    }
+
+    pub(crate) fn names_held_by(&self, holder: &str) -> Vec<ServiceName> {
+        self.state
+            .lock()
+            .registrations
+            .iter()
+            .filter(|(_, entry)| entry.holder == holder)
+            .map(|(name, _)| name.clone())
+            .collect()
+    }
 }
 
 impl Default for ServiceRegistry {
@@ -193,10 +236,8 @@ fn remove_registration(
     state: Weak<Mutex<ServiceRegistryState>>,
     name: &ServiceName,
     expected_id: u64,
-) {
-    let Some(state) = state.upgrade() else {
-        return;
-    };
+) -> Option<String> {
+    let state = state.upgrade()?;
     let removed = {
         let mut state = state.lock();
         if state
@@ -209,7 +250,9 @@ fn remove_registration(
             None
         }
     };
+    let holder = removed.as_ref().map(|entry| entry.holder.clone());
     drop(removed);
+    holder
 }
 
 fn validate_registration<S>(

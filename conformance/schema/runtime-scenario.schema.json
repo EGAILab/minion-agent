@@ -84,7 +84,28 @@
           }
         },
         "provides": {
-          "$ref": "#/$defs/serviceName"
+          "oneOf": [
+            {
+              "$ref": "#/$defs/serviceName"
+            },
+            {
+              "type": "object",
+              "required": [
+                "name"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "name": {
+                  "$ref": "#/$defs/serviceName"
+                },
+                "visible": {
+                  "type": "boolean",
+                  "default": true,
+                  "description": "When false, registers a `check` predicate that always returns false, so the service is registered (service_provided still fires, the provider can still reach ACTIVE) but never resolves to an injector. Expresses the check-predicate half of RT-007 -- ACTIVE alone is necessary but not sufficient for visibility."
+                }
+              }
+            }
+          ]
         },
         "scope": {
           "type": "string",
@@ -139,7 +160,8 @@
                   "observe",
                   "raise",
                   "transform",
-                  "delegate_twice"
+                  "delegate_twice",
+                  "echo_args"
                 ]
               },
               "replacement": {},
@@ -174,6 +196,24 @@
         },
         "dispose_scope": {
           "type": "string"
+        },
+        "attempt_effect": {
+          "type": "object",
+          "required": [
+            "plugin"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "plugin": {
+              "type": "string",
+              "minLength": 1
+            },
+            "label": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "description": "Attempt ctx.effect() on an already-mounted plugin's context from outside its own apply() body, at whatever state the fiber is currently in. The only way to express RT-015: an effect attempted after the fiber has left Loading/Active must raise, and this step is how a scenario reaches for the context after mounting has already returned control to the top level."
         },
         "dispatch": {
           "type": "object",

@@ -13,11 +13,11 @@ from contextlib import AbstractContextManager
 from typing import TYPE_CHECKING, Any, TypeVar
 
 from .disposable import DisposableList, Disposer
-from .errors import InactiveFiberError, ServiceNotFoundError
+from .errors import InactiveFiberError, RuntimeError_, ServiceNotFoundError
 from .events import EventBus
 from .plugin import spec_of
 from .registry import PluginRegistry
-from .scope import Scope, ScopeKey
+from .scope import Scope, ScopeKey, ScopeTree
 from .service import ServiceRegistry
 
 if TYPE_CHECKING:
@@ -38,6 +38,7 @@ class Context:
         self._fiber: Fiber | None = None
         self._meta: dict[str, Any] = {}
         self._plugins = PluginRegistry(self)
+        self._scope_tree = ScopeTree()
         self._scope_key: ScopeKey | None = None
         self._scope_disposables: DisposableList | None = None
 
@@ -65,6 +66,7 @@ class Context:
         child._root = self._root
         child._fiber = meta.pop("fiber", self._fiber)
         child._plugins = self._plugins
+        child._scope_tree = self._scope_tree
         child._scope_key = meta.pop("scope_key", self._scope_key)
         child._scope_disposables = meta.pop("scope_disposables", self._scope_disposables)
         child._meta = {**self._meta, **meta}
@@ -114,7 +116,9 @@ class Context:
         """
         disposables = DisposableList()
         tagged = self.extend(scope_key=key, scope_disposables=disposables)
-        return Scope(key, tagged, disposables)
+        scope = Scope(key, tagged, disposables, self._scope_tree)
+        self._scope_tree.register(scope)
+        return scope
 
     def effect(
         self,
@@ -125,7 +129,7 @@ class Context:
         if self._scope_disposables is not None:
             return _scoped_effect(self._scope_disposables, execute, label)
         if self._fiber is None:
-            raise RuntimeError("ctx.effect() requires a fiber; call it inside a plugin")
+            raise RuntimeError_("ctx.effect() requires a fiber; call it inside a plugin")
         return self._fiber.effect(execute, label)
 
     def on(
@@ -162,7 +166,7 @@ class Context:
         it needs disappears.
         """
         if self._fiber is None:
-            raise RuntimeError("ctx.provide() requires a fiber; call it inside a plugin")
+            raise RuntimeError_("ctx.provide() requires a fiber; call it inside a plugin")
         fiber = self._fiber
         plugins = self._plugins
         registry = self._registry

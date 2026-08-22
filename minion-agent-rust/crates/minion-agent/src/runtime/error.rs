@@ -4,6 +4,8 @@ use super::ServiceName;
 
 #[derive(Debug, Error)]
 pub enum RuntimeError {
+    #[error("operation requires a coordinated runtime context")]
+    UncoordinatedContext,
     #[error("invalid normative name {0:?}")]
     InvalidName(String),
     #[error("cannot create effect on inactive owner {owner}")]

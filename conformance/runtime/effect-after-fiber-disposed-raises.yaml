@@ -1,0 +1,24 @@
+name: creating an effect on an already-disposed fiber raises
+description: >
+  A fiber's effect() rejects registration once the fiber has left
+  Loading/Active (design spec section 3) -- not only once it reaches the
+  terminal Disposed state, but for every non-live state. This pins the
+  terminal case: after a fiber has been fully unmounted and disposed, a late
+  attempt to register an effect against its context -- from outside its own
+  apply() body, which is the only way such an attempt can happen once
+  mounting has already returned -- must raise rather than silently
+  succeeding or silently doing nothing.
+plugins:
+  - id: disposed-owner
+steps:
+  - mount: disposed-owner
+  - unmount: disposed-owner
+  - attempt_effect: { plugin: disposed-owner, label: late-effect }
+expect_trace:
+  - { event: fiber_state, plugin: disposed-owner, state: loading }
+  - { event: fiber_state, plugin: disposed-owner, state: active }
+  - { event: fiber_state, plugin: disposed-owner, state: unloading }
+  - { event: fiber_state, plugin: disposed-owner, state: disposed }
+expect_error:
+  type: InactiveFiberError
+  message_contains: disposed-owner

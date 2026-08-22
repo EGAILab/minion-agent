@@ -1,0 +1,35 @@
+name: a fresh provider is required after an earlier one disposes; nothing is retained to fall back to
+description: >
+  There is no fallback stack (design spec section 3): disposal removes the
+  slot and notifies dependents; an earlier provider does not become visible
+  again, because it was never retained. The dependent must fall all the way
+  back to pending after the first provider unmounts -- it cannot resolve the
+  service from anywhere -- and only becomes active again once an entirely
+  new provider is mounted.
+plugins:
+  - id: first-provider
+    provides: shared_service
+  - id: dependent
+    inject: [shared_service]
+  - id: second-provider
+    provides: shared_service
+steps:
+  - mount: first-provider
+  - mount: dependent
+  - unmount: first-provider
+  - mount: second-provider
+expect_trace:
+  - { event: fiber_state, plugin: first-provider, state: loading }
+  - { event: service_provided, plugin: first-provider, service: shared_service }
+  - { event: fiber_state, plugin: first-provider, state: active }
+  - { event: fiber_state, plugin: dependent, state: loading }
+  - { event: fiber_state, plugin: dependent, state: active }
+  - { event: fiber_state, plugin: first-provider, state: unloading }
+  - { event: fiber_state, plugin: dependent, state: unloading }
+  - { event: fiber_state, plugin: dependent, state: pending }
+  - { event: fiber_state, plugin: first-provider, state: disposed }
+  - { event: fiber_state, plugin: second-provider, state: loading }
+  - { event: service_provided, plugin: second-provider, service: shared_service }
+  - { event: fiber_state, plugin: second-provider, state: active }
+  - { event: fiber_state, plugin: dependent, state: loading }
+  - { event: fiber_state, plugin: dependent, state: active }

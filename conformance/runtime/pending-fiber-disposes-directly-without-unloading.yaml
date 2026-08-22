@@ -1,0 +1,17 @@
+name: a fiber that never left pending disposes directly, without announcing unloading
+description: >
+  Only an active fiber announces UNLOADING (design spec section 3): the
+  lifecycle names that phase for teardown of a fiber that was serving. A
+  fiber whose injected service was never satisfied stays PENDING -- it has
+  no live effects and was never ACTIVE -- so disposing it must go straight
+  to DISPOSED. No fiber_state entry for this plugin appears before that
+  final one: PENDING itself is the unannounced initial state, and there is
+  no LOADING/ACTIVE/UNLOADING transition to record on the way to disposal.
+plugins:
+  - id: never-satisfied
+    inject: [missing_service]
+steps:
+  - mount: never-satisfied
+  - unmount: never-satisfied
+expect_trace:
+  - { event: fiber_state, plugin: never-satisfied, state: disposed }

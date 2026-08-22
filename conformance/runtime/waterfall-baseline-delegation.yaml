@@ -1,0 +1,35 @@
+name: calling next with no replacement runs downstream unchanged and returns its result
+description: >
+  The delegation pattern: `next()` with no replacement runs the downstream
+  chain with the current arguments, and the delegating listener's own return
+  value is exactly what downstream produced -- design spec section 3's
+  baseline case, distinct from the transformation pattern (`next(*replacement)`)
+  and from short-circuiting (not calling `next` at all).
+plugins:
+  - id: delegating-listener
+    listeners:
+      - event: test/pipeline
+        action: delegate
+        tag: delegator
+  - id: deciding-listener
+    listeners:
+      - event: test/pipeline
+        action: short_circuit
+        tag: decider
+        returns: downstream-value
+steps:
+  - mount: delegating-listener
+  - mount: deciding-listener
+  - dispatch:
+      event: test/pipeline
+      mode: waterfall
+      args: [original]
+      terminal: unreached-terminal
+expect_trace:
+  - { event: fiber_state, plugin: delegating-listener, state: loading }
+  - { event: fiber_state, plugin: delegating-listener, state: active }
+  - { event: fiber_state, plugin: deciding-listener, state: loading }
+  - { event: fiber_state, plugin: deciding-listener, state: active }
+  - { event: listener_entered, plugin: delegating-listener, tag: delegator }
+  - { event: listener_entered, plugin: deciding-listener, tag: decider }
+expect_result: downstream-value

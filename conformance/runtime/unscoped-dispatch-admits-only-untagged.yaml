@@ -1,0 +1,31 @@
+name: a dispatch with no scope key admits only untagged listeners
+description: >
+  Scope filtering is additive (design spec section 3): a tagged listener is
+  admitted only when its key is the dispatch's key or an ancestor of it. A
+  dispatch that carries no scope key at all has no key for any tagged
+  listener to match, so only untagged listeners -- always admitted -- may
+  run. This is the sibling case to `scoped-event-admission.yaml`, which
+  covers admission when the dispatch itself carries a scope key; every
+  dispatch there specifies one, so the no-key case was unverified until now.
+plugins:
+  - id: tagged-listener
+    scope: some-scope
+    listeners:
+      - event: test/broadcast
+        action: observe
+        tag: tagged
+  - id: untagged-listener
+    listeners:
+      - event: test/broadcast
+        action: observe
+        tag: untagged
+steps:
+  - mount: tagged-listener
+  - mount: untagged-listener
+  - dispatch: { event: test/broadcast, mode: serial }
+expect_trace:
+  - { event: fiber_state, plugin: tagged-listener, state: loading }
+  - { event: fiber_state, plugin: tagged-listener, state: active }
+  - { event: fiber_state, plugin: untagged-listener, state: loading }
+  - { event: fiber_state, plugin: untagged-listener, state: active }
+  - { event: listener_entered, plugin: untagged-listener, tag: untagged }

@@ -40,7 +40,12 @@ class ScopeTable:
 
     Scenarios name scopes with plain strings and declare parents by name; this
     resolves those into real `ScopeKey` chains and keeps one live `Scope` per
-    name so a `dispose_scope` step can find it.
+    name so a `dispose_scope` step can find it. Descendant disposal ordering
+    (RT-012) is `Scope.dispose()`'s own responsibility, through the real
+    `ScopeTree` every `Context` shares -- this table only looks up which real
+    `Scope` a scenario's name refers to and observes what it does via
+    `on_disposed`, the same way `_attach_recording` observes a fiber's own
+    `on_state_change` instead of the runner deciding fiber transitions itself.
     """
 
     def __init__(self, recorder: TraceRecorder) -> None:
@@ -55,50 +60,78 @@ class ScopeTable:
         return self.keys[name]
 
     def open(self, ctx: Context, name: str, parent_name: str | None) -> Scope:
-        if name not in self.live:
-            self.live[name] = ctx.scope(self.key_for(name, parent_name))
-        return self.live[name]
+        existing = self.live.get(name)
+        if existing is not None and not existing.disposed:
+            return existing
+        scope = ctx.scope(self.key_for(name, parent_name))
+        scope.on_disposed = lambda _scope: self._recorder.record(
+            {"event": "scope_disposed", "scope": name}
+        )
+        self.live[name] = scope
+        return scope
 
     async def dispose(self, name: str) -> None:
-        """Dispose `name` and every descendant, deepest first."""
-        target = self.keys[name]
-        descendants = [
-            other
-            for other, key in self.keys.items()
-            if other in self.live and target in key.chain()
-        ]
-        descendants.sort(key=lambda other: -len(self.keys[other].chain()))
-        for other in descendants:
-            await self.live.pop(other).dispose()
-            self._recorder.record({"event": "scope_disposed", "scope": other})
+        """Dispose the named scope through its own real `dispose()`; the
+        scope itself settles any still-live descendants (RT-012)."""
+        await self.live[name].dispose()
 
 
 def _make_listener(
     spec: dict[str, Any],
     plugin_id: str,
     recorder: TraceRecorder,
-) -> Callable[..., Awaitable[Any]]:
+) -> Callable[..., Any]:
+    """Build the callback a plugin registers for one declared listener.
+
+    `emit` invokes listeners with a plain `callback(*args)` call and never
+    awaits the result -- true fire-and-forget (design spec section 3). An
+    `async def` listener returns an unawaited, never-run coroutine under
+    that call, so any action that does not need to await `next` (every
+    action except `delegate`/`transform`/`delegate_twice`, which only ever
+    receive a real `next` under waterfall dispatch) is built as a plain
+    synchronous function instead. `_call()` in events.py already unwraps an
+    awaitable return value for parallel/serial/waterfall, so a sync listener
+    works correctly under every mode; only the three delegating actions need
+    to stay `async def`, since they must await `next` before deciding what to
+    return.
+    """
     action = spec["action"]
     tag = spec["tag"]
     returns = spec.get("returns")
     replacement = spec.get("replacement")
 
-    async def listener(*args: Any) -> Any:
+    def _enter(args: tuple[Any, ...]) -> tuple[Callable[..., Any] | None, tuple[Any, ...]]:
         recorder.record({"event": "listener_entered", "plugin": plugin_id, "tag": tag})
         next_ = args[-1] if args and callable(args[-1]) else None
+        received = args[:-1] if next_ is not None else args
+        return next_, received
 
+    if action in ("delegate", "transform", "delegate_twice"):
+
+        async def delegating_listener(*args: Any) -> Any:
+            next_, _received = _enter(args)
+            if next_ is None:
+                return returns
+            if action == "transform":
+                return await next_(replacement)
+            if action == "delegate_twice":
+                await next_()
+                return await next_()
+            return await next_()
+
+        return delegating_listener
+
+    def listener(*args: Any) -> Any:
+        _next, received = _enter(args)
         if action == "raise":
             raise ValueError(f"{tag} raised")
-        if action in ("short_circuit", "observe"):
-            return returns
-        if next_ is None:
-            return returns
-        if action == "transform":
-            return await next_(replacement)
-        if action == "delegate_twice":
-            await next_()
-            return await next_()
-        return await next_()
+        if action == "echo_args":
+            # Reveals what this listener actually received, so a scenario can
+            # assert that an upstream `next(*replacement)` call propagated
+            # replacement arguments this far down the chain, not just to the
+            # terminal (RT-019).
+            return list(received)
+        return returns  # short_circuit, observe
 
     return listener
 
@@ -132,7 +165,13 @@ def build_plugin(
 ) -> PluginSpec:
     """Turn one declarative plugin entry into a mountable PluginSpec."""
     plugin_id = entry["id"]
-    provides = entry.get("provides")
+    provides_entry = entry.get("provides")
+    if isinstance(provides_entry, dict):
+        provides = provides_entry["name"]
+        provides_visible = provides_entry.get("visible", True)
+    else:
+        provides = provides_entry
+        provides_visible = True
     effects = entry.get("effects", [])
     listeners = entry.get("listeners", [])
     fails = entry.get("fails", False)
@@ -148,7 +187,8 @@ def build_plugin(
             target = scopes.open(ctx, scope_name, scope_parent).ctx
 
         if provides is not None:
-            ctx.provide(provides, {"service": provides})
+            check = (lambda: False) if not provides_visible else None
+            ctx.provide(provides, {"service": provides}, check=check)
             recorder.record({"event": "service_provided", "plugin": plugin_id, "service": provides})
 
         for effect in effects:
@@ -221,6 +261,15 @@ async def run_runtime_scenario(document: dict[str, Any]) -> RunOutcome:
         elif "dispose_scope" in step:
             await scopes.dispose(step["dispose_scope"])
 
+        elif "attempt_effect" in step:
+            # Calls ctx.effect() from outside the plugin's own apply() body,
+            # against whatever state the fiber is in right now -- the only way
+            # to reach a fiber that is no longer Loading/Active (RT-015).
+            target = step["attempt_effect"]
+            fiber = fibers[target["plugin"]]
+            label = target.get("label", "late-effect")
+            fiber.ctx.effect(lambda: None, label)
+
         elif "dispatch" in step:
             dispatch = step["dispatch"]
             name = dispatch["event"]
@@ -251,11 +300,18 @@ async def run_runtime_scenario(document: dict[str, Any]) -> RunOutcome:
 
     # Declare every dispatched event up front. A listener cannot register for
     # an undeclared event -- mode is part of the contract -- so declaration has
-    # to precede the first mount, not the first dispatch.
+    # to precede the first mount, not the first dispatch. A mode conflict here
+    # is itself the design spec's "startup error" (section 3): two dispatch
+    # steps naming the same event with different modes must settle into
+    # `outcome.error` exactly like a conflict discovered during step
+    # execution, not escape as an uncaught exception from this setup loop.
     for step in document["steps"]:
         dispatch = step.get("dispatch")
         if dispatch is not None:
-            root.events.declare(dispatch["event"], DispatchMode(dispatch["mode"]))
+            try:
+                root.events.declare(dispatch["event"], DispatchMode(dispatch["mode"]))
+            except RuntimeError_ as error:
+                return RunOutcome(trace=recorder.entries, result=result, error=error)
 
     for step in document["steps"]:
         try:

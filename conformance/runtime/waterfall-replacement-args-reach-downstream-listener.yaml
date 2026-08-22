@@ -1,0 +1,39 @@
+name: next(*replacement) changes what the downstream listener actually receives
+description: >
+  Calling next(*replacement) delegates with replacement arguments instead of
+  the current ones (design spec section 3). computed-waterfall-terminal
+  already shows a replacement reaching the terminal continuation, but that
+  scenario has only one listener, so it cannot show a replacement reaching
+  another *listener*. Here the first listener transforms and delegates; the
+  second listener echoes back exactly the positional arguments it received
+  (excluding the trailing next callable). The result is the replacement
+  value, not the original dispatch argument -- proving propagation reached
+  the listener itself, not just whatever the chain eventually returns.
+plugins:
+  - id: transforming-listener
+    listeners:
+      - event: test/relay
+        action: transform
+        tag: transforming
+        replacement: replaced-value
+  - id: echoing-listener
+    listeners:
+      - event: test/relay
+        action: echo_args
+        tag: echoing
+steps:
+  - mount: transforming-listener
+  - mount: echoing-listener
+  - dispatch:
+      event: test/relay
+      mode: waterfall
+      args: [original-value]
+      terminal: unused-terminal
+expect_trace:
+  - { event: fiber_state, plugin: transforming-listener, state: loading }
+  - { event: fiber_state, plugin: transforming-listener, state: active }
+  - { event: fiber_state, plugin: echoing-listener, state: loading }
+  - { event: fiber_state, plugin: echoing-listener, state: active }
+  - { event: listener_entered, plugin: transforming-listener, tag: transforming }
+  - { event: listener_entered, plugin: echoing-listener, tag: echoing }
+expect_result: [replaced-value]

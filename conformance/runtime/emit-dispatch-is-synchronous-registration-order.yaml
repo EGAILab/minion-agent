@@ -1,0 +1,32 @@
+name: emit invokes every listener in registration order and captures no return value
+description: >
+  emit is fire-and-forget: synchronous, registration order, no return value
+  (design spec section 3, dispatch-mode matrix). Two listeners each return a
+  distinct non-null value; if emit captured a result the way serial does,
+  expect_result below would have to name one of them. It names null instead,
+  because emit discards every listener's return.
+plugins:
+  - id: first-listener
+    listeners:
+      - event: test/announcement
+        action: observe
+        tag: first
+        returns: first-value
+  - id: second-listener
+    listeners:
+      - event: test/announcement
+        action: observe
+        tag: second
+        returns: second-value
+steps:
+  - mount: first-listener
+  - mount: second-listener
+  - dispatch: { event: test/announcement, mode: emit }
+expect_trace:
+  - { event: fiber_state, plugin: first-listener, state: loading }
+  - { event: fiber_state, plugin: first-listener, state: active }
+  - { event: fiber_state, plugin: second-listener, state: loading }
+  - { event: fiber_state, plugin: second-listener, state: active }
+  - { event: listener_entered, plugin: first-listener, tag: first }
+  - { event: listener_entered, plugin: second-listener, tag: second }
+expect_result: null

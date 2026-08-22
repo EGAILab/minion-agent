@@ -11,6 +11,7 @@ from __future__ import annotations
 from functools import partial
 from typing import TYPE_CHECKING, Any
 
+from .errors import RuntimeError_
 from .fiber import Fiber, FiberState
 
 if TYPE_CHECKING:
@@ -70,6 +71,6 @@ class PluginRegistry:
             if not changed:
                 return
 
-        raise RuntimeError(  # pragma: no cover - a cycle in plugin dependencies
+        raise RuntimeError_(  # pragma: no cover - a cycle in plugin dependencies
             "plugin reconciliation did not stabilize; check for a dependency cycle"
         )

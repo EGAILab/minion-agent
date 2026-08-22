@@ -409,12 +409,7 @@ impl FiberHandle {
             (self.inner.initializer)(context, Arc::clone(&self.inner.config))
         })) {
             Ok(initializer) => initializer,
-            Err(payload) => {
-                let _ = self
-                    .finish_loading_cleanup(generation_id, FiberState::Disposed, None)
-                    .await;
-                resume_unwind(payload)
-            }
+            Err(payload) => self.finish_panicked_loading(generation_id, payload).await,
         };
         let guarded_initializer = AssertUnwindSafe(initializer).catch_unwind().boxed();
         let cancelled = cancellation.cancelled().boxed();
@@ -450,10 +445,20 @@ impl FiberHandle {
                     .await
             }
             InitializerOutcome::Panicked(payload) => {
-                let _ = self
-                    .finish_loading_cleanup(generation_id, FiberState::Disposed, None)
-                    .await;
-                resume_unwind(payload)
+                self.finish_panicked_loading(generation_id, payload).await
+            }
+        }
+    }
+
+    async fn finish_panicked_loading(&self, generation_id: u64, payload: Box<dyn Any + Send>) -> ! {
+        match self
+            .finish_loading_cleanup(generation_id, FiberState::Disposed, None)
+            .await
+        {
+            Ok(()) => resume_unwind(payload),
+            Err(cleanup) => {
+                let panic = PanicReport::from_payload(payload);
+                panic!("{}; cleanup also failed: {cleanup:?}", panic.message)
             }
         }
     }

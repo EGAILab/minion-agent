@@ -308,6 +308,85 @@ async_test!(
 );
 
 async_test!(
+    initialization_and_cleanup_failures_still_settle_failed_and_both_surface,
+    {
+        let fiber = spec("double-failure", |ctx, _config| {
+            ctx.effect("failing-cleanup", || {
+                Box::pin(async {
+                    Err(minion_agent::DisposeError::new("ignored", "cleanup failed"))
+                })
+            })
+            .unwrap();
+            async { Err(PluginInitError::new("initialization failed")) }
+        })
+        .mount(json!({ "value": 1 }), || true)
+        .unwrap();
+
+        let error = fiber.reconcile().await.unwrap_err();
+
+        let FiberError::InitializationAndCleanup {
+            initialization,
+            cleanup,
+        } = error
+        else {
+            panic!("expected initialization and cleanup aggregate");
+        };
+        assert_eq!(initialization.message(), "initialization failed");
+        assert_eq!(cleanup.as_slice().len(), 1);
+        assert_eq!(cleanup.as_slice()[0].label, "failing-cleanup");
+        assert_eq!(cleanup.as_slice()[0].message, "cleanup failed");
+        assert_eq!(fiber.state(), FiberState::Failed);
+        assert_eq!(
+            fiber.trace(),
+            vec![FiberState::Pending, FiberState::Loading, FiberState::Failed]
+        );
+    }
+);
+
+async_test!(
+    dependency_loss_cleanup_failure_still_settles_pending_and_surfaces,
+    {
+        let dependencies = Arc::new(AtomicBool::new(true));
+        let fiber = spec("failed-unload", |ctx, _config| {
+            ctx.effect("failing-cleanup", || {
+                Box::pin(async {
+                    Err(minion_agent::DisposeError::new("ignored", "cleanup failed"))
+                })
+            })
+            .unwrap();
+            async { Ok(()) }
+        })
+        .mount(json!({ "value": 1 }), {
+            let dependencies = Arc::clone(&dependencies);
+            move || dependencies.load(Ordering::SeqCst)
+        })
+        .unwrap();
+        fiber.reconcile().await.unwrap();
+
+        dependencies.store(false, Ordering::SeqCst);
+        let error = fiber.reconcile().await.unwrap_err();
+
+        let FiberError::Cleanup(cleanup) = error else {
+            panic!("expected cleanup aggregate");
+        };
+        assert_eq!(cleanup.as_slice().len(), 1);
+        assert_eq!(cleanup.as_slice()[0].label, "failing-cleanup");
+        assert_eq!(cleanup.as_slice()[0].message, "cleanup failed");
+        assert_eq!(fiber.state(), FiberState::Pending);
+        assert_eq!(
+            fiber.trace(),
+            vec![
+                FiberState::Pending,
+                FiberState::Loading,
+                FiberState::Active,
+                FiberState::Unloading,
+                FiberState::Pending,
+            ]
+        );
+    }
+);
+
+async_test!(
     dependency_invalidation_wins_over_a_simultaneous_init_error,
     {
         let dependencies = Arc::new(AtomicBool::new(true));
@@ -703,6 +782,41 @@ async_test!(
         assert_ne!(fiber.state(), FiberState::Failed);
     }
 );
+
+async_test!(initializer_panic_does_not_swallow_a_cleanup_failure, {
+    let fiber = spec("panic-and-cleanup-failure", |ctx, _config| {
+        ctx.effect("failing-cleanup", || {
+            Box::pin(async {
+                Err(minion_agent::DisposeError::new(
+                    "ignored",
+                    "cleanup also failed",
+                ))
+            })
+        })
+        .unwrap();
+        async { panic!("initializer invariant failed") }
+    })
+    .mount(json!({ "value": 1 }), || true)
+    .unwrap();
+
+    let join_error = tokio::spawn({
+        let fiber = fiber.clone();
+        async move { fiber.reconcile().await }
+    })
+    .await
+    .unwrap_err();
+    let payload = join_error.into_panic();
+    let message = payload
+        .downcast_ref::<String>()
+        .map(String::as_str)
+        .or_else(|| payload.downcast_ref::<&str>().copied())
+        .expect("fiber panic should retain a diagnostic string");
+
+    assert!(message.contains("initializer invariant failed"));
+    assert!(message.contains("cleanup also failed"));
+    assert!(message.contains("failing-cleanup"));
+    assert_eq!(fiber.state(), FiberState::Disposed);
+});
 
 async_test!(
     trace_subscription_carries_the_complete_transition_history,

@@ -128,6 +128,53 @@ fn one_provider_reconciles_multiple_independent_dependents() {
 }
 
 #[test]
+fn revocation_settles_all_affected_dependents_when_one_cleanup_fails() {
+    run(async {
+        let runtime = Runtime::new();
+        let failing_spec = PluginSpec::<EmptyConfig>::new(
+            "failing-dependent",
+            vec![ServiceName::new("tools").unwrap()],
+            || json!({ "type": "object" }),
+            |context, _config| async move {
+                context
+                    .effect("fails", || {
+                        Box::pin(async {
+                            Err(minion_agent::DisposeError::new(
+                                "failing-dependent",
+                                "cleanup failed",
+                            ))
+                        })
+                    })
+                    .map_err(|error| PluginInitError::new(error.to_string()))?;
+                Ok(())
+            },
+        )
+        .erase();
+        let failing = runtime.mount(&failing_spec, json!({})).unwrap();
+        let healthy_spec = PluginSpec::<EmptyConfig>::new(
+            "healthy-dependent",
+            vec![ServiceName::new("tools").unwrap()],
+            || json!({ "type": "object" }),
+            |_context, _config| async { Ok::<_, PluginInitError>(()) },
+        )
+        .erase();
+        let healthy = runtime.mount(&healthy_spec, json!({})).unwrap();
+        let provider = runtime.mount(&provider_spec(), json!({})).unwrap();
+        runtime.reconcile().await.unwrap();
+
+        let error = runtime.unmount(&provider).await.unwrap_err();
+
+        assert_eq!(failing.state(), FiberState::Pending);
+        assert_eq!(healthy.state(), FiberState::Pending);
+        assert_eq!(provider.state(), FiberState::Disposed);
+        assert!(
+            format!("{error:?}").contains("cleanup failed"),
+            "unexpected error: {error:?}"
+        );
+    });
+}
+
+#[test]
 fn a_failed_reconciliation_settles_the_fiber_and_does_not_poison_the_runtime() {
     run(async {
         let runtime = Runtime::new();

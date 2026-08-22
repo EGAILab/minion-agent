@@ -90,7 +90,7 @@ impl Runtime {
                     return Ok(());
                 };
                 core.invalidate_dependents(&name).await.map_err(|error| {
-                    super::DisposeError::new(format!("reconcile({name})"), error.to_string())
+                    super::DisposeError::new(format!("reconcile({name})"), format!("{error:?}"))
                 })
             }
             .boxed()
@@ -227,12 +227,21 @@ impl RuntimeCore {
             .filter(|fiber| fiber.inject().contains(name))
             .cloned()
             .collect();
-        let mut deferred = false;
-        for fiber in fibers {
-            let state = fiber.state();
+        let states: Vec<_> = fibers.iter().map(FiberHandle::state).collect();
+        for fiber in &fibers {
             fiber.dependencies_changed();
+        }
+        let mut deferred = false;
+        let mut first_error = None;
+        for (fiber, state) in fibers.into_iter().zip(states) {
             match state {
-                super::FiberState::Active => fiber.reconcile().await?,
+                super::FiberState::Active => {
+                    if let Err(error) = fiber.reconcile().await
+                        && first_error.is_none()
+                    {
+                        first_error = Some(error);
+                    }
+                }
                 super::FiberState::Loading => deferred = true,
                 _ => {}
             }
@@ -243,7 +252,10 @@ impl RuntimeCore {
                 pending.push(name.clone());
             }
         }
-        Ok(())
+        match first_error {
+            Some(error) => Err(error),
+            None => Ok(()),
+        }
     }
 
     async fn reconcile_pending_revocations(&self) -> Result<(), FiberError> {

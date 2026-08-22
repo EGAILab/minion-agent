@@ -98,6 +98,20 @@ impl FiberInitContext {
         }
     }
 
+    pub(crate) fn runtime_view(services: ServiceRegistry, events: EventBus) -> Self {
+        let effects = Arc::new(EffectStore::new());
+        effects.close();
+        Self {
+            effects,
+            services: Some(services),
+            owner: None,
+            plugin: None,
+            observer: None,
+            events: Some(events),
+            scope: None,
+        }
+    }
+
     pub fn effect<F>(
         &self,
         label: impl Into<String>,
@@ -168,7 +182,7 @@ impl FiberInitContext {
         let owner = self
             .owner
             .as_ref()
-            .expect("coordinated context has a service owner");
+            .ok_or(RuntimeError::UncoordinatedContext)?;
         let registration = services.provide(Arc::clone(owner), value, check)?;
         self.observer
             .as_ref()
@@ -493,9 +507,12 @@ impl FiberHandle {
     async fn dispose_serialized(&self) -> Result<(), FiberError> {
         match self.state() {
             FiberState::Pending | FiberState::Failed => {
-                let mut lifecycle = self.inner.lifecycle.lock();
-                lifecycle.current = None;
-                self.transition_to(&mut lifecycle, FiberState::Disposed);
+                let changed = {
+                    let mut lifecycle = self.inner.lifecycle.lock();
+                    lifecycle.current = None;
+                    self.transition_to(&mut lifecycle, FiberState::Disposed)
+                };
+                self.notify_state(changed, FiberState::Disposed);
                 Ok(())
             }
             FiberState::Active => self.unload(true).await,
@@ -513,7 +530,7 @@ impl FiberHandle {
     }
 
     async fn load(&self) -> Result<(), FiberError> {
-        let (generation_id, effects, cancellation) = {
+        let (generation_id, effects, cancellation, changed) = {
             let mut lifecycle = self.inner.lifecycle.lock();
             assert_eq!(lifecycle.state, FiberState::Pending);
             assert!(!lifecycle.dispose_requested);
@@ -531,9 +548,10 @@ impl FiberHandle {
                 effects: Arc::clone(&effects),
                 cancellation: cancellation.clone(),
             });
-            self.transition_to(&mut lifecycle, FiberState::Loading);
-            (generation_id, effects, cancellation)
+            let changed = self.transition_to(&mut lifecycle, FiberState::Loading);
+            (generation_id, effects, cancellation, changed)
         };
+        self.notify_state(changed, FiberState::Loading);
 
         let context = (self.inner.context_factory)(Arc::clone(&effects));
         let initializer = match catch_unwind(AssertUnwindSafe(|| {
@@ -607,9 +625,9 @@ impl FiberHandle {
             && lifecycle.generation == generation_id
             && !lifecycle.dispose_requested
             && !lifecycle.dependency_invalidated;
-        if valid {
-            self.transition_to(&mut lifecycle, FiberState::Active);
-        }
+        let changed = valid && self.transition_to(&mut lifecycle, FiberState::Active);
+        drop(lifecycle);
+        self.notify_state(changed, FiberState::Active);
         valid
     }
 
@@ -637,7 +655,7 @@ impl FiberHandle {
     ) -> Result<(), FiberError> {
         let effects = self.close_generation(generation_id);
         let cleanup = effects.close_and_dispose().await;
-        let target = {
+        let (target, changed) = {
             let mut lifecycle = self.inner.lifecycle.lock();
             if lifecycle
                 .current
@@ -656,9 +674,10 @@ impl FiberHandle {
             } else {
                 None
             };
-            self.transition_to(&mut lifecycle, target);
-            target
+            let changed = self.transition_to(&mut lifecycle, target);
+            (target, changed)
         };
+        self.notify_state(changed, target);
 
         if target != FiberState::Failed {
             return cleanup.map_err(FiberError::Cleanup);
@@ -674,7 +693,7 @@ impl FiberHandle {
     }
 
     async fn unload(&self, disposing: bool) -> Result<(), FiberError> {
-        let effects = {
+        let (effects, changed) = {
             let mut lifecycle = self.inner.lifecycle.lock();
             assert_eq!(lifecycle.state, FiberState::Active);
             lifecycle.dispose_requested |= disposing;
@@ -690,12 +709,13 @@ impl FiberHandle {
                 .expect("fiber generation space exhausted");
             effects.close();
             cancellation.cancel();
-            self.transition_to(&mut lifecycle, FiberState::Unloading);
-            effects
+            let changed = self.transition_to(&mut lifecycle, FiberState::Unloading);
+            (effects, changed)
         };
+        self.notify_state(changed, FiberState::Unloading);
 
         let cleanup = effects.close_and_dispose().await;
-        {
+        let (target, changed) = {
             let mut lifecycle = self.inner.lifecycle.lock();
             lifecycle.current = None;
             let target = if lifecycle.dispose_requested {
@@ -703,8 +723,10 @@ impl FiberHandle {
             } else {
                 FiberState::Pending
             };
-            self.transition_to(&mut lifecycle, target);
-        }
+            let changed = self.transition_to(&mut lifecycle, target);
+            (target, changed)
+        };
+        self.notify_state(changed, target);
         cleanup.map_err(FiberError::Cleanup)
     }
 
@@ -783,13 +805,19 @@ impl FiberHandle {
         effects
     }
 
-    fn transition_to(&self, lifecycle: &mut Lifecycle, state: FiberState) {
+    fn transition_to(&self, lifecycle: &mut Lifecycle, state: FiberState) -> bool {
         if lifecycle.state == state {
-            return;
+            return false;
         }
         lifecycle.state = state;
         self.inner.trace.send_modify(|trace| trace.push(state));
-        (self.inner.state_observer)(state);
+        true
+    }
+
+    fn notify_state(&self, changed: bool, state: FiberState) {
+        if changed {
+            (self.inner.state_observer)(state);
+        }
     }
 
     fn current_effect_store(&self) -> Arc<EffectStore> {

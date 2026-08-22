@@ -1,8 +1,8 @@
 use std::sync::{Arc, Mutex};
 
 use minion_agent::{
-    FiberState, PluginInitError, PluginSpec, Runtime, RuntimeObservation, RuntimeObserver, Service,
-    ServiceName,
+    FiberHandle, FiberState, PluginInitError, PluginSpec, Runtime, RuntimeObservation,
+    RuntimeObserver, Service, ServiceName,
 };
 use serde::Deserialize;
 use serde_json::json;
@@ -23,6 +23,44 @@ impl RuntimeObserver for Recorder {
     fn observe(&self, observation: RuntimeObservation) {
         self.0.lock().unwrap().push(observation);
     }
+}
+
+struct ReentrantObserver(Arc<Mutex<Option<FiberHandle>>>);
+
+impl RuntimeObserver for ReentrantObserver {
+    fn observe(&self, observation: RuntimeObservation) {
+        if matches!(observation, RuntimeObservation::FiberState { .. })
+            && let Some(fiber) = self.0.lock().unwrap().as_ref()
+        {
+            let _ = fiber.state();
+        }
+    }
+}
+
+#[test]
+fn state_observer_may_reenter_the_fiber_without_deadlocking() {
+    tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(2)
+        .build()
+        .unwrap()
+        .block_on(async {
+            let fiber_slot = Arc::new(Mutex::new(None));
+            let runtime =
+                Runtime::with_observer(Arc::new(ReentrantObserver(Arc::clone(&fiber_slot))));
+            let spec = PluginSpec::<EmptyConfig>::new(
+                "owner",
+                vec![],
+                || json!({ "type": "object" }),
+                |_context, _config| async { Ok::<_, PluginInitError>(()) },
+            )
+            .erase();
+            let fiber = runtime.mount(&spec, json!({})).unwrap();
+            *fiber_slot.lock().unwrap() = Some(fiber.clone());
+
+            runtime.reconcile().await.unwrap();
+
+            assert_eq!(fiber.state(), FiberState::Active);
+        });
 }
 
 #[test]

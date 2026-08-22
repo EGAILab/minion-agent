@@ -173,6 +173,10 @@ impl Runtime {
         Ok(scope)
     }
 
+    pub fn context(&self) -> super::Context {
+        FiberInitContext::runtime_view(self.core.services.clone(), self.core.events.clone())
+    }
+
     pub async fn reconcile(&self) -> Result<(), FiberError> {
         loop {
             self.core.reconcile_pending_revocations().await?;
@@ -260,10 +264,18 @@ impl RuntimeCore {
 
     async fn reconcile_pending_revocations(&self) -> Result<(), FiberError> {
         let names = std::mem::take(&mut *self.pending_revocations.lock());
+        let mut first_error = None;
         for name in names {
-            self.reconcile_dependents(&name).await?;
+            if let Err(error) = self.reconcile_dependents(&name).await
+                && first_error.is_none()
+            {
+                first_error = Some(error);
+            }
         }
-        Ok(())
+        match first_error {
+            Some(error) => Err(error),
+            None => Ok(()),
+        }
     }
 
     async fn reconcile_dependents(&self, name: &super::ServiceName) -> Result<(), FiberError> {
@@ -274,11 +286,19 @@ impl RuntimeCore {
             .filter(|fiber| fiber.inject().contains(name))
             .cloned()
             .collect();
+        let mut first_error = None;
         for fiber in fibers {
             fiber.dependencies_changed();
-            fiber.reconcile().await?;
+            if let Err(error) = fiber.reconcile().await
+                && first_error.is_none()
+            {
+                first_error = Some(error);
+            }
         }
-        Ok(())
+        match first_error {
+            Some(error) => Err(error),
+            None => Ok(()),
+        }
     }
 }
 

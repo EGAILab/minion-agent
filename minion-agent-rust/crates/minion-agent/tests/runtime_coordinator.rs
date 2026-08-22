@@ -229,6 +229,54 @@ fn provider_appearance_reaches_dependents_before_an_unrelated_failure_aborts_the
 }
 
 #[test]
+fn provider_appearance_reconciles_every_affected_dependent_before_returning_first_error() {
+    run(async {
+        let runtime = Runtime::new();
+        let failing_spec = PluginSpec::<EmptyConfig>::new(
+            "failing-dependent",
+            vec![ServiceName::new("tools").unwrap()],
+            || json!({ "type": "object" }),
+            |_context, _config| async { Err(PluginInitError::new("expected failure")) },
+        )
+        .erase();
+        let failing = runtime.mount(&failing_spec, json!({})).unwrap();
+        let healthy_spec = PluginSpec::<EmptyConfig>::new(
+            "healthy-dependent",
+            vec![ServiceName::new("tools").unwrap()],
+            || json!({ "type": "object" }),
+            |_context, _config| async { Ok::<_, PluginInitError>(()) },
+        )
+        .erase();
+        let healthy = runtime.mount(&healthy_spec, json!({})).unwrap();
+        runtime.reconcile().await.unwrap();
+        let provider = runtime.mount(&provider_spec(), json!({})).unwrap();
+
+        let error = runtime.reconcile().await.unwrap_err();
+
+        assert!(error.to_string().contains("expected failure"));
+        assert_eq!(provider.state(), FiberState::Active);
+        assert_eq!(failing.state(), FiberState::Failed);
+        assert_eq!(healthy.state(), FiberState::Active);
+    });
+}
+
+#[test]
+fn runtime_context_is_a_coordinated_read_view() {
+    run(async {
+        let runtime = Runtime::new();
+        let context = runtime.context();
+        assert!(context.events().is_ok());
+        assert!(context.require::<Tools>().is_err());
+
+        runtime.mount(&provider_spec(), json!({})).unwrap();
+        runtime.reconcile().await.unwrap();
+
+        assert!(context.require::<Tools>().is_ok());
+        assert!(context.provide(Arc::new(Tools), None).is_err());
+    });
+}
+
+#[test]
 fn dependency_revocation_from_inside_loading_invalidates_without_self_joining() {
     run(async {
         let runtime = Runtime::new();

@@ -117,3 +117,52 @@ async def test_an_effect_disposer_can_be_called_before_the_scope() -> None:
     await scope.dispose()
 
     assert order == ["early"]
+
+
+async def test_disposing_a_parent_scope_disposes_a_still_live_child_first() -> None:
+    """RT-012: descendant ownership follows nesting, not the caller.
+
+    No `dispose_scope` step ever runs on `inner` -- disposing `outer` alone
+    must settle `inner`, deepest first, as part of `Scope.dispose()`'s own
+    behavior, not something a caller (or a conformance runner) computes.
+    """
+    order: list[str] = []
+    ctx = Context()
+    outer_key = ScopeKey("outer")
+    outer = ctx.scope(outer_key)
+    inner = outer.ctx.scope(ScopeKey("inner", parent=outer_key))
+    outer.ctx.effect(lambda: lambda: order.append("outer"), "outer")
+    inner.ctx.effect(lambda: lambda: order.append("inner"), "inner")
+
+    await outer.dispose()
+
+    assert order == ["inner", "outer"]
+    assert inner.disposed
+    assert outer.disposed
+
+
+async def test_disposing_a_child_scope_leaves_the_parent_live() -> None:
+    ctx = Context()
+    outer_key = ScopeKey("outer")
+    outer = ctx.scope(outer_key)
+    inner = outer.ctx.scope(ScopeKey("inner", parent=outer_key))
+
+    await inner.dispose()
+
+    assert inner.disposed
+    assert not outer.disposed
+
+
+async def test_on_disposed_fires_once_for_direct_and_cascaded_disposal() -> None:
+    fired: list[str] = []
+    ctx = Context()
+    outer_key = ScopeKey("outer")
+    outer = ctx.scope(outer_key)
+    inner = outer.ctx.scope(ScopeKey("inner", parent=outer_key))
+    outer.on_disposed = lambda scope: fired.append(scope.key.name)
+    inner.on_disposed = lambda scope: fired.append(scope.key.name)
+
+    await outer.dispose()
+    await outer.dispose()  # idempotent: must not fire on_disposed a second time
+
+    assert fired == ["inner", "outer"]

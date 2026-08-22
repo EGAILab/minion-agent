@@ -40,7 +40,12 @@ class ScopeTable:
 
     Scenarios name scopes with plain strings and declare parents by name; this
     resolves those into real `ScopeKey` chains and keeps one live `Scope` per
-    name so a `dispose_scope` step can find it.
+    name so a `dispose_scope` step can find it. Descendant disposal ordering
+    (RT-012) is `Scope.dispose()`'s own responsibility, through the real
+    `ScopeTree` every `Context` shares -- this table only looks up which real
+    `Scope` a scenario's name refers to and observes what it does via
+    `on_disposed`, the same way `_attach_recording` observes a fiber's own
+    `on_state_change` instead of the runner deciding fiber transitions itself.
     """
 
     def __init__(self, recorder: TraceRecorder) -> None:
@@ -55,22 +60,20 @@ class ScopeTable:
         return self.keys[name]
 
     def open(self, ctx: Context, name: str, parent_name: str | None) -> Scope:
-        if name not in self.live:
-            self.live[name] = ctx.scope(self.key_for(name, parent_name))
-        return self.live[name]
+        existing = self.live.get(name)
+        if existing is not None and not existing.disposed:
+            return existing
+        scope = ctx.scope(self.key_for(name, parent_name))
+        scope.on_disposed = lambda _scope: self._recorder.record(
+            {"event": "scope_disposed", "scope": name}
+        )
+        self.live[name] = scope
+        return scope
 
     async def dispose(self, name: str) -> None:
-        """Dispose `name` and every descendant, deepest first."""
-        target = self.keys[name]
-        descendants = [
-            other
-            for other, key in self.keys.items()
-            if other in self.live and target in key.chain()
-        ]
-        descendants.sort(key=lambda other: -len(self.keys[other].chain()))
-        for other in descendants:
-            await self.live.pop(other).dispose()
-            self._recorder.record({"event": "scope_disposed", "scope": other})
+        """Dispose the named scope through its own real `dispose()`; the
+        scope itself settles any still-live descendants (RT-012)."""
+        await self.live[name].dispose()
 
 
 def _make_listener(

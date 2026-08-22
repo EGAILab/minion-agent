@@ -1,0 +1,37 @@
+name: disposing an ancestor scope cascades to a still-live descendant in one step
+description: >
+  Disposing a scope removes exactly its own and its descendants' registrations
+  (design spec section 3, RT-012). nested-scope-disposal already pins the
+  reverse-creation-order property, but it disposes the descendant scope
+  explicitly, one step at a time, so it never actually requires the runtime
+  to sweep a still-live descendant on its own -- a runner that computed and
+  disposed descendants itself would pass that scenario too. Here only the
+  outer scope is disposed; middle is never named in a dispose_scope step.
+  middle's effect must still unwind, and its scope_disposed event must still
+  fire, entirely as a side effect of disposing outer -- proving the real
+  runtime, not the conformance runner, owns descendant traversal.
+plugins:
+  - id: outer-plugin
+    scope: outer
+    effects:
+      - label: outer-effect
+  - id: middle-plugin
+    scope: middle
+    scope_parent: outer
+    effects:
+      - label: middle-effect
+steps:
+  - mount: outer-plugin
+  - mount: middle-plugin
+  - dispose_scope: outer
+expect_trace:
+  - { event: fiber_state, plugin: outer-plugin, state: loading }
+  - { event: effect_created, plugin: outer-plugin, label: outer-effect }
+  - { event: fiber_state, plugin: outer-plugin, state: active }
+  - { event: fiber_state, plugin: middle-plugin, state: loading }
+  - { event: effect_created, plugin: middle-plugin, label: middle-effect }
+  - { event: fiber_state, plugin: middle-plugin, state: active }
+  - { event: effect_disposed, plugin: middle-plugin, label: middle-effect }
+  - { event: scope_disposed, scope: middle }
+  - { event: effect_disposed, plugin: outer-plugin, label: outer-effect }
+  - { event: scope_disposed, scope: outer }

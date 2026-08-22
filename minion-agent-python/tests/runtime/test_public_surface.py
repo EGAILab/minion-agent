@@ -18,6 +18,7 @@ EXPECTED = {
     "RuntimeError_",
     "Scope",
     "ScopeKey",
+    "ScopeTree",
     "ScopedRegistry",
     "ServiceConflictError",
     "ServiceNotFoundError",

@@ -31,7 +31,7 @@ pub struct ServiceRegistry {
 }
 
 pub(crate) type ServiceRevoked =
-    Arc<dyn Fn(ServiceName) -> BoxFuture<'static, Result<(), DisposeError>> + Send + Sync>;
+    Arc<dyn Fn(ServiceName, String) -> BoxFuture<'static, Result<(), DisposeError>> + Send + Sync>;
 
 struct ServiceRegistryState {
     contracts: HashMap<ServiceName, ServiceContract>,
@@ -114,10 +114,12 @@ impl ServiceRegistry {
             format!("provide({name})"),
             move || {
                 Box::pin(async move {
-                    if remove_registration(removal_state, &removal_name, registration_id) {
+                    if let Some(holder) =
+                        remove_registration(removal_state, &removal_name, registration_id)
+                    {
                         let callback = on_revoked.lock().clone();
                         if let Some(callback) = callback {
-                            callback(removal_name).await?;
+                            callback(removal_name, holder).await?;
                         }
                     }
                     Ok(())
@@ -234,9 +236,9 @@ fn remove_registration(
     state: Weak<Mutex<ServiceRegistryState>>,
     name: &ServiceName,
     expected_id: u64,
-) -> bool {
+) -> Option<String> {
     let Some(state) = state.upgrade() else {
-        return false;
+        return None;
     };
     let removed = {
         let mut state = state.lock();
@@ -250,9 +252,9 @@ fn remove_registration(
             None
         }
     };
-    let was_removed = removed.is_some();
+    let holder = removed.as_ref().map(|entry| entry.holder.clone());
     drop(removed);
-    was_removed
+    holder
 }
 
 fn validate_registration<S>(

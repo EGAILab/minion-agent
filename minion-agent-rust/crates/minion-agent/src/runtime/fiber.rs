@@ -13,8 +13,9 @@ use thiserror::Error;
 use tokio::sync::{Mutex as AsyncMutex, watch};
 
 use super::{
-    DisposeError, DisposeErrors, EffectHandle, EffectStore, RuntimeError, Service, ServiceCheck,
-    ServiceName, ServiceOwner, ServiceRegistration, ServiceRegistry,
+    DisposeError, DisposeErrors, EffectHandle, EffectStore, RuntimeError, RuntimeObservation,
+    RuntimeObserver, Service, ServiceCheck, ServiceName, ServiceOwner, ServiceRegistration,
+    ServiceRegistry,
     plugin::{ErasedConfig, ErasedInitializer, PluginInitError},
 };
 
@@ -46,12 +47,15 @@ pub struct FiberInitContext {
     effects: Arc<EffectStore>,
     services: Option<ServiceRegistry>,
     owner: Option<Arc<dyn ServiceOwner>>,
+    plugin: Option<String>,
+    observer: Option<Arc<dyn RuntimeObserver>>,
 }
 
 pub type Context = FiberInitContext;
 
 pub(crate) type InitContextFactory =
     Arc<dyn Fn(Arc<EffectStore>) -> FiberInitContext + Send + Sync>;
+pub(crate) type FiberStateObserver = Arc<dyn Fn(FiberState) + Send + Sync>;
 
 impl std::fmt::Debug for FiberInitContext {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -65,6 +69,8 @@ impl FiberInitContext {
             effects,
             services: None,
             owner: None,
+            plugin: None,
+            observer: None,
         }
     }
 
@@ -72,11 +78,15 @@ impl FiberInitContext {
         effects: Arc<EffectStore>,
         services: ServiceRegistry,
         owner: Arc<dyn ServiceOwner>,
+        plugin: String,
+        observer: Arc<dyn RuntimeObserver>,
     ) -> Self {
         Self {
             effects,
             services: Some(services),
             owner: Some(owner),
+            plugin: Some(plugin),
+            observer: Some(observer),
         }
     }
 
@@ -88,7 +98,31 @@ impl FiberInitContext {
     where
         F: FnOnce() -> BoxFuture<'static, Result<(), DisposeError>> + Send + 'static,
     {
-        self.effects.push(label, disposer)
+        let label = label.into();
+        let Some(observer) = self.observer.as_ref() else {
+            return self.effects.push(label, disposer);
+        };
+        let plugin = self
+            .plugin
+            .as_ref()
+            .expect("coordinated context has a plugin name")
+            .clone();
+        let disposal_observer = Arc::clone(observer);
+        let disposal_plugin = plugin.clone();
+        let disposal_label = label.clone();
+        let handle = self.effects.push(label.clone(), move || {
+            let future = disposer();
+            Box::pin(async move {
+                let result = future.await;
+                disposal_observer.observe(RuntimeObservation::EffectDisposed {
+                    plugin: disposal_plugin,
+                    label: disposal_label,
+                });
+                result
+            })
+        })?;
+        observer.observe(RuntimeObservation::EffectCreated { plugin, label });
+        Ok(handle)
     }
 
     pub fn effect_store(&self) -> Arc<EffectStore> {
@@ -111,7 +145,20 @@ impl FiberInitContext {
             .owner
             .as_ref()
             .expect("coordinated context has a service owner");
-        services.provide(Arc::clone(owner), value, check)
+        let registration = services.provide(Arc::clone(owner), value, check)?;
+        self.observer
+            .as_ref()
+            .expect("coordinated context has an observer")
+            .observe(RuntimeObservation::ServiceProvided {
+                plugin: self
+                    .plugin
+                    .as_ref()
+                    .expect("coordinated context has a plugin name")
+                    .clone(),
+                service: ServiceName::new(S::NAME)
+                    .expect("Service constants must use normative names"),
+            });
+        Ok(registration)
     }
 
     pub fn require<S>(&self) -> Result<Arc<S>, RuntimeError>
@@ -137,6 +184,7 @@ struct FiberInner {
     config: Arc<dyn Any + Send + Sync>,
     dependencies_visible: Arc<dyn Fn() -> bool + Send + Sync>,
     context_factory: InitContextFactory,
+    state_observer: FiberStateObserver,
     transition: AsyncMutex<()>,
     lifecycle: Mutex<Lifecycle>,
     trace: watch::Sender<Vec<FiberState>>,
@@ -238,6 +286,7 @@ impl FiberHandle {
         config: ErasedConfig,
         dependencies_visible: Arc<dyn Fn() -> bool + Send + Sync>,
         context_factory: InitContextFactory,
+        state_observer: FiberStateObserver,
     ) -> Self {
         let (trace, _) = watch::channel(vec![FiberState::Pending]);
         Self {
@@ -248,6 +297,7 @@ impl FiberHandle {
                 config,
                 dependencies_visible,
                 context_factory,
+                state_observer,
                 transition: AsyncMutex::new(()),
                 lifecycle: Mutex::new(Lifecycle {
                     state: FiberState::Pending,
@@ -715,6 +765,7 @@ impl FiberHandle {
         }
         lifecycle.state = state;
         self.inner.trace.send_modify(|trace| trace.push(state));
+        (self.inner.state_observer)(state);
     }
 
     fn current_effect_store(&self) -> Arc<EffectStore> {

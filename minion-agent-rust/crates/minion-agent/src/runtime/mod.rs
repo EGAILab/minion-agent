@@ -9,7 +9,7 @@ mod scope;
 mod scoped_registry;
 mod service;
 
-pub use coordinator::Runtime;
+pub use coordinator::{Runtime, RuntimeObservation, RuntimeObserver};
 pub use disposable::{DisposeError, DisposeErrors, EffectHandle, EffectStore};
 pub use error::RuntimeError;
 pub use event::{

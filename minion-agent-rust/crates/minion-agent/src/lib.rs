@@ -8,7 +8,7 @@ pub use runtime::{
     Context, DispatchMode, DisposeError, DisposeErrors, DynPluginSpec, EffectHandle, EffectStore,
     EventBus, EventError, EventListenerError, EventListenerHandle, EventName, EventSpec,
     FiberError, FiberHandle, FiberInitContext, FiberState, Next, ParallelErrors, PluginConfigError,
-    PluginInitError, PluginSpec, RegistrationHandle, Runtime, RuntimeError, ScopeHandle, ScopeId,
-    ScopeTree, ScopedRegistry, Service, ServiceCheck, ServiceName, ServiceOwner,
-    ServiceRegistration, ServiceRegistry, WaterfallError,
+    PluginInitError, PluginSpec, RegistrationHandle, Runtime, RuntimeError, RuntimeObservation,
+    RuntimeObserver, ScopeHandle, ScopeId, ScopeTree, ScopedRegistry, Service, ServiceCheck,
+    ServiceName, ServiceOwner, ServiceRegistration, ServiceRegistry, WaterfallError,
 };

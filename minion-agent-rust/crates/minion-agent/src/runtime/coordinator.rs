@@ -9,6 +9,43 @@ use super::{
     ScopeTree, ServiceOwner, ServiceRegistry,
 };
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum RuntimeObservation {
+    FiberState {
+        plugin: String,
+        state: super::FiberState,
+    },
+    EffectCreated {
+        plugin: String,
+        label: String,
+    },
+    EffectDisposed {
+        plugin: String,
+        label: String,
+    },
+    ServiceProvided {
+        plugin: String,
+        service: super::ServiceName,
+    },
+    ServiceRevoked {
+        plugin: String,
+        service: super::ServiceName,
+    },
+    ScopeDisposed {
+        scope: super::ScopeId,
+    },
+}
+
+pub trait RuntimeObserver: Send + Sync + 'static {
+    fn observe(&self, observation: RuntimeObservation);
+}
+
+struct NoopObserver;
+
+impl RuntimeObserver for NoopObserver {
+    fn observe(&self, _observation: RuntimeObservation) {}
+}
+
 #[derive(Clone)]
 pub struct Runtime {
     core: Arc<RuntimeCore>,
@@ -19,10 +56,15 @@ struct RuntimeCore {
     events: EventBus,
     scopes: ScopeTree,
     fibers: Mutex<Vec<FiberHandle>>,
+    observer: Arc<dyn RuntimeObserver>,
 }
 
 impl Runtime {
     pub fn new() -> Self {
+        Self::with_observer(Arc::new(NoopObserver))
+    }
+
+    pub fn with_observer(observer: Arc<dyn RuntimeObserver>) -> Self {
         let scopes = ScopeTree::new();
         let services = ServiceRegistry::new();
         let core = Arc::new(RuntimeCore {
@@ -30,11 +72,18 @@ impl Runtime {
             events: EventBus::new(scopes.clone()),
             scopes,
             fibers: Mutex::new(Vec::new()),
+            observer,
         });
         let weak = Arc::downgrade(&core);
-        services.set_revocation_callback(Arc::new(move |name| {
+        let revoke_observer = Arc::clone(&core.observer);
+        services.set_revocation_callback(Arc::new(move |name, holder| {
             let weak = weak.clone();
+            let observer = Arc::clone(&revoke_observer);
             async move {
+                observer.observe(RuntimeObservation::ServiceRevoked {
+                    plugin: holder,
+                    service: name.clone(),
+                });
                 let Some(core) = weak.upgrade() else {
                     return Ok(());
                 };
@@ -57,6 +106,10 @@ impl Runtime {
         let owner = Arc::new(Mutex::new(None::<FiberHandle>));
         let context_owner = Arc::clone(&owner);
         let context_services = self.core.services.clone();
+        let context_observer = Arc::clone(&self.core.observer);
+        let plugin_name = spec.name().to_owned();
+        let state_observer = Arc::clone(&self.core.observer);
+        let state_plugin = plugin_name.clone();
         let fiber = spec.mount_with_context_factory(
             config,
             move || inject.iter().all(|name| services.is_visible(name)),
@@ -66,7 +119,19 @@ impl Runtime {
                     .clone()
                     .expect("coordinated fiber is installed before initialization");
                 let owner: Arc<dyn ServiceOwner> = Arc::new(fiber);
-                FiberInitContext::coordinated(effects, context_services.clone(), owner)
+                FiberInitContext::coordinated(
+                    effects,
+                    context_services.clone(),
+                    owner,
+                    plugin_name.clone(),
+                    Arc::clone(&context_observer),
+                )
+            }),
+            Arc::new(move |state| {
+                state_observer.observe(RuntimeObservation::FiberState {
+                    plugin: state_plugin.clone(),
+                    state,
+                });
             }),
         )?;
         *owner.lock() = Some(fiber.clone());

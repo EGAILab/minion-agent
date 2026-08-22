@@ -5,7 +5,10 @@ use serde::de::DeserializeOwned;
 use serde_json::Value;
 use thiserror::Error;
 
-use super::{FiberHandle, FiberInitContext, ServiceName, fiber::InitContextFactory};
+use super::{
+    FiberHandle, FiberInitContext, ServiceName,
+    fiber::{FiberStateObserver, InitContextFactory},
+};
 
 pub(crate) type ErasedConfig = Arc<dyn Any + Send + Sync>;
 pub(crate) type ErasedInitializer = Arc<
@@ -143,6 +146,7 @@ impl DynPluginSpec {
             config,
             Arc::new(dependencies_visible),
             Arc::new(FiberInitContext::standalone),
+            Arc::new(|_| {}),
         ))
     }
 
@@ -151,6 +155,7 @@ impl DynPluginSpec {
         config: Value,
         dependencies_visible: F,
         context_factory: InitContextFactory,
+        state_observer: FiberStateObserver,
     ) -> Result<FiberHandle, PluginConfigError>
     where
         F: Fn() -> bool + Send + Sync + 'static,
@@ -163,6 +168,7 @@ impl DynPluginSpec {
             config,
             Arc::new(dependencies_visible),
             context_factory,
+            state_observer,
         ))
     }
 }

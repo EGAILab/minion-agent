@@ -1,3 +1,4 @@
+mod coordinator;
 mod disposable;
 mod error;
 mod event;
@@ -8,13 +9,14 @@ mod scope;
 mod scoped_registry;
 mod service;
 
+pub use coordinator::Runtime;
 pub use disposable::{DisposeError, DisposeErrors, EffectHandle, EffectStore};
 pub use error::RuntimeError;
 pub use event::{
     DispatchMode, EventBus, EventError, EventListenerError, EventListenerHandle, EventSpec, Next,
     ParallelErrors, WaterfallError,
 };
-pub use fiber::{FiberError, FiberHandle, FiberInitContext, FiberState};
+pub use fiber::{Context, FiberError, FiberHandle, FiberInitContext, FiberState};
 pub use identity::{EventName, ServiceName};
 pub use plugin::{DynPluginSpec, PluginConfigError, PluginInitError, PluginSpec};
 pub use scope::{ScopeHandle, ScopeId, ScopeTree};

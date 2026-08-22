@@ -13,8 +13,8 @@ use thiserror::Error;
 use tokio::sync::{Mutex as AsyncMutex, watch};
 
 use super::{
-    DisposeError, DisposeErrors, EffectHandle, EffectStore, RuntimeError, ServiceName,
-    ServiceOwner,
+    DisposeError, DisposeErrors, EffectHandle, EffectStore, RuntimeError, Service, ServiceCheck,
+    ServiceName, ServiceOwner, ServiceRegistration, ServiceRegistry,
     plugin::{ErasedConfig, ErasedInitializer, PluginInitError},
 };
 
@@ -44,7 +44,14 @@ pub enum FiberError {
 #[derive(Clone)]
 pub struct FiberInitContext {
     effects: Arc<EffectStore>,
+    services: Option<ServiceRegistry>,
+    owner: Option<Arc<dyn ServiceOwner>>,
 }
+
+pub type Context = FiberInitContext;
+
+pub(crate) type InitContextFactory =
+    Arc<dyn Fn(Arc<EffectStore>) -> FiberInitContext + Send + Sync>;
 
 impl std::fmt::Debug for FiberInitContext {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -53,6 +60,26 @@ impl std::fmt::Debug for FiberInitContext {
 }
 
 impl FiberInitContext {
+    pub(crate) fn standalone(effects: Arc<EffectStore>) -> Self {
+        Self {
+            effects,
+            services: None,
+            owner: None,
+        }
+    }
+
+    pub(crate) fn coordinated(
+        effects: Arc<EffectStore>,
+        services: ServiceRegistry,
+        owner: Arc<dyn ServiceOwner>,
+    ) -> Self {
+        Self {
+            effects,
+            services: Some(services),
+            owner: Some(owner),
+        }
+    }
+
     pub fn effect<F>(
         &self,
         label: impl Into<String>,
@@ -67,6 +94,35 @@ impl FiberInitContext {
     pub fn effect_store(&self) -> Arc<EffectStore> {
         Arc::clone(&self.effects)
     }
+
+    pub fn provide<S>(
+        &self,
+        value: Arc<S>,
+        check: Option<ServiceCheck>,
+    ) -> Result<ServiceRegistration, RuntimeError>
+    where
+        S: Service,
+    {
+        let services = self
+            .services
+            .as_ref()
+            .ok_or_else(|| RuntimeError::UncoordinatedContext)?;
+        let owner = self
+            .owner
+            .as_ref()
+            .expect("coordinated context has a service owner");
+        services.provide(Arc::clone(owner), value, check)
+    }
+
+    pub fn require<S>(&self) -> Result<Arc<S>, RuntimeError>
+    where
+        S: Service,
+    {
+        self.services
+            .as_ref()
+            .ok_or(RuntimeError::UncoordinatedContext)?
+            .require::<S>()
+    }
 }
 
 #[derive(Clone)]
@@ -80,6 +136,7 @@ struct FiberInner {
     initializer: ErasedInitializer,
     config: Arc<dyn Any + Send + Sync>,
     dependencies_visible: Arc<dyn Fn() -> bool + Send + Sync>,
+    context_factory: InitContextFactory,
     transition: AsyncMutex<()>,
     lifecycle: Mutex<Lifecycle>,
     trace: watch::Sender<Vec<FiberState>>,
@@ -180,6 +237,7 @@ impl FiberHandle {
         initializer: ErasedInitializer,
         config: ErasedConfig,
         dependencies_visible: Arc<dyn Fn() -> bool + Send + Sync>,
+        context_factory: InitContextFactory,
     ) -> Self {
         let (trace, _) = watch::channel(vec![FiberState::Pending]);
         Self {
@@ -189,6 +247,7 @@ impl FiberHandle {
                 initializer,
                 config,
                 dependencies_visible,
+                context_factory,
                 transition: AsyncMutex::new(()),
                 lifecycle: Mutex::new(Lifecycle {
                     state: FiberState::Pending,
@@ -402,9 +461,7 @@ impl FiberHandle {
             (generation_id, effects, cancellation)
         };
 
-        let context = FiberInitContext {
-            effects: Arc::clone(&effects),
-        };
+        let context = (self.inner.context_factory)(Arc::clone(&effects));
         let initializer = match catch_unwind(AssertUnwindSafe(|| {
             (self.inner.initializer)(context, Arc::clone(&self.inner.config))
         })) {

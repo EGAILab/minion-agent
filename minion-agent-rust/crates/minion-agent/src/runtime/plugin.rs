@@ -5,7 +5,7 @@ use serde::de::DeserializeOwned;
 use serde_json::Value;
 use thiserror::Error;
 
-use super::{FiberHandle, FiberInitContext, ServiceName};
+use super::{FiberHandle, FiberInitContext, ServiceName, fiber::InitContextFactory};
 
 pub(crate) type ErasedConfig = Arc<dyn Any + Send + Sync>;
 pub(crate) type ErasedInitializer = Arc<
@@ -142,6 +142,27 @@ impl DynPluginSpec {
             Arc::clone(&self.initializer),
             config,
             Arc::new(dependencies_visible),
+            Arc::new(FiberInitContext::standalone),
+        ))
+    }
+
+    pub(crate) fn mount_with_context_factory<F>(
+        &self,
+        config: Value,
+        dependencies_visible: F,
+        context_factory: InitContextFactory,
+    ) -> Result<FiberHandle, PluginConfigError>
+    where
+        F: Fn() -> bool + Send + Sync + 'static,
+    {
+        let config = (self.deserialize)(config)?;
+        Ok(FiberHandle::new(
+            self.name.clone(),
+            self.inject.clone(),
+            Arc::clone(&self.initializer),
+            config,
+            Arc::new(dependencies_visible),
+            context_factory,
         ))
     }
 }

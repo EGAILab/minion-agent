@@ -169,6 +169,21 @@ impl ServiceRegistry {
             Err(_) => panic!("service contract metadata disagrees with erased storage for {name}"),
         }
     }
+
+    pub(crate) fn is_visible(&self, name: &ServiceName) -> bool {
+        let snapshot = {
+            let state = self.state.lock();
+            state.registrations.get(name).map(|entry| ServiceSnapshot {
+                owner: Arc::clone(&entry.owner),
+                value: Arc::clone(&entry.value),
+                check: entry.check.clone(),
+            })
+        };
+        snapshot.is_some_and(|snapshot| {
+            snapshot.owner.service_owner_is_active()
+                && snapshot.check.as_ref().is_none_or(|check| check())
+        })
+    }
 }
 
 impl Default for ServiceRegistry {

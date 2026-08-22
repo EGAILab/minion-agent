@@ -180,3 +180,38 @@ fn provider_appearance_reaches_dependents_before_an_unrelated_failure_aborts_the
         assert_eq!(dependent.state(), FiberState::Active);
     });
 }
+
+#[test]
+fn dependency_revocation_from_inside_loading_invalidates_without_self_joining() {
+    run(async {
+        let runtime = Runtime::new();
+        let provider = runtime.mount(&provider_spec(), json!({})).unwrap();
+        runtime.reconcile().await.unwrap();
+        let provider_slot = Arc::new(std::sync::Mutex::new(Some(provider.clone())));
+        let subject_spec = PluginSpec::<EmptyConfig>::new(
+            "loading-subject",
+            vec![ServiceName::new("tools").unwrap()],
+            || json!({ "type": "object" }),
+            {
+                let runtime = runtime.clone();
+                let provider_slot = Arc::clone(&provider_slot);
+                move |_context, _config| {
+                    let runtime = runtime.clone();
+                    let provider = provider_slot.lock().unwrap().clone().unwrap();
+                    async move {
+                        runtime.unmount(&provider).await.unwrap();
+                        Ok::<_, PluginInitError>(())
+                    }
+                }
+            },
+        )
+        .erase();
+        let subject = runtime.mount(&subject_spec, json!({})).unwrap();
+
+        runtime.reconcile().await.unwrap();
+
+        assert_eq!(provider.state(), FiberState::Disposed);
+        assert_eq!(subject.state(), FiberState::Pending);
+        assert!(!subject.trace().contains(&FiberState::Active));
+    });
+}

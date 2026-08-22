@@ -166,6 +166,10 @@ impl ScopeHandle {
         &self.effects
     }
 
+    pub fn effect_store(&self) -> Arc<EffectStore> {
+        Arc::clone(&self.effects)
+    }
+
     pub fn is_active(&self) -> bool {
         self.state
             .lock()

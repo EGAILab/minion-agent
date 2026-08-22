@@ -56,6 +56,7 @@ struct RuntimeCore {
     events: EventBus,
     scopes: ScopeTree,
     fibers: Mutex<Vec<FiberHandle>>,
+    pending_revocations: Mutex<Vec<super::ServiceName>>,
     observer: Arc<dyn RuntimeObserver>,
 }
 
@@ -72,6 +73,7 @@ impl Runtime {
             events: EventBus::new(scopes.clone()),
             scopes,
             fibers: Mutex::new(Vec::new()),
+            pending_revocations: Mutex::new(Vec::new()),
             observer,
         });
         let weak = Arc::downgrade(&core);
@@ -87,7 +89,7 @@ impl Runtime {
                 let Some(core) = weak.upgrade() else {
                     return Ok(());
                 };
-                core.reconcile_dependents(&name).await.map_err(|error| {
+                core.invalidate_dependents(&name).await.map_err(|error| {
                     super::DisposeError::new(format!("reconcile({name})"), error.to_string())
                 })
             }
@@ -101,12 +103,23 @@ impl Runtime {
         spec: &DynPluginSpec,
         config: Value,
     ) -> Result<FiberHandle, PluginConfigError> {
+        self.mount_in(spec, config, None)
+    }
+
+    pub fn mount_in(
+        &self,
+        spec: &DynPluginSpec,
+        config: Value,
+        scope: Option<super::ScopeHandle>,
+    ) -> Result<FiberHandle, PluginConfigError> {
         let services = self.core.services.clone();
         let inject = spec.inject().to_vec();
         let owner = Arc::new(Mutex::new(None::<FiberHandle>));
         let context_owner = Arc::clone(&owner);
         let context_services = self.core.services.clone();
         let context_observer = Arc::clone(&self.core.observer);
+        let context_events = self.core.events.clone();
+        let context_scope = scope.clone();
         let plugin_name = spec.name().to_owned();
         let state_observer = Arc::clone(&self.core.observer);
         let state_plugin = plugin_name.clone();
@@ -125,6 +138,8 @@ impl Runtime {
                     owner,
                     plugin_name.clone(),
                     Arc::clone(&context_observer),
+                    context_events.clone(),
+                    context_scope.clone(),
                 )
             }),
             Arc::new(move |state| {
@@ -139,8 +154,28 @@ impl Runtime {
         Ok(fiber)
     }
 
+    pub fn create_scope(
+        &self,
+        parent: Option<&super::ScopeHandle>,
+    ) -> Result<super::ScopeHandle, super::RuntimeError> {
+        let scope = match parent {
+            Some(parent) => self.core.scopes.create_child(parent)?,
+            None => self.core.scopes.create_root(),
+        };
+        let observer = Arc::clone(&self.core.observer);
+        let id = scope.id();
+        scope.effects().push("runtime.scope-observer", move || {
+            Box::pin(async move {
+                observer.observe(RuntimeObservation::ScopeDisposed { scope: id });
+                Ok(())
+            })
+        })?;
+        Ok(scope)
+    }
+
     pub async fn reconcile(&self) -> Result<(), FiberError> {
         loop {
+            self.core.reconcile_pending_revocations().await?;
             let fibers = self.core.fibers.lock().clone();
             let before: Vec<_> = fibers.iter().map(FiberHandle::state).collect();
             for (fiber, before_state) in fibers.iter().zip(&before) {
@@ -165,7 +200,9 @@ impl Runtime {
     }
 
     pub async fn unmount(&self, fiber: &FiberHandle) -> Result<(), FiberError> {
-        fiber.dispose().await
+        let disposal = fiber.dispose().await;
+        let reconciliation = self.core.reconcile_pending_revocations().await;
+        disposal.and(reconciliation)
     }
 
     pub fn services(&self) -> &ServiceRegistry {
@@ -182,6 +219,41 @@ impl Runtime {
 }
 
 impl RuntimeCore {
+    async fn invalidate_dependents(&self, name: &super::ServiceName) -> Result<(), FiberError> {
+        let fibers: Vec<_> = self
+            .fibers
+            .lock()
+            .iter()
+            .filter(|fiber| fiber.inject().contains(name))
+            .cloned()
+            .collect();
+        let mut deferred = false;
+        for fiber in fibers {
+            let state = fiber.state();
+            fiber.dependencies_changed();
+            match state {
+                super::FiberState::Active => fiber.reconcile().await?,
+                super::FiberState::Loading => deferred = true,
+                _ => {}
+            }
+        }
+        if deferred {
+            let mut pending = self.pending_revocations.lock();
+            if !pending.contains(name) {
+                pending.push(name.clone());
+            }
+        }
+        Ok(())
+    }
+
+    async fn reconcile_pending_revocations(&self) -> Result<(), FiberError> {
+        let names = std::mem::take(&mut *self.pending_revocations.lock());
+        for name in names {
+            self.reconcile_dependents(&name).await?;
+        }
+        Ok(())
+    }
+
     async fn reconcile_dependents(&self, name: &super::ServiceName) -> Result<(), FiberError> {
         let fibers: Vec<_> = self
             .fibers

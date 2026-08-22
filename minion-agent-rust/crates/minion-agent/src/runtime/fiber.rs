@@ -13,9 +13,9 @@ use thiserror::Error;
 use tokio::sync::{Mutex as AsyncMutex, watch};
 
 use super::{
-    DisposeError, DisposeErrors, EffectHandle, EffectStore, RuntimeError, RuntimeObservation,
-    RuntimeObserver, Service, ServiceCheck, ServiceName, ServiceOwner, ServiceRegistration,
-    ServiceRegistry,
+    DisposeError, DisposeErrors, EffectHandle, EffectStore, EventBus, RuntimeError,
+    RuntimeObservation, RuntimeObserver, ScopeHandle, Service, ServiceCheck, ServiceName,
+    ServiceOwner, ServiceRegistration, ServiceRegistry,
     plugin::{ErasedConfig, ErasedInitializer, PluginInitError},
 };
 
@@ -49,6 +49,8 @@ pub struct FiberInitContext {
     owner: Option<Arc<dyn ServiceOwner>>,
     plugin: Option<String>,
     observer: Option<Arc<dyn RuntimeObserver>>,
+    events: Option<EventBus>,
+    scope: Option<ScopeHandle>,
 }
 
 pub type Context = FiberInitContext;
@@ -71,6 +73,8 @@ impl FiberInitContext {
             owner: None,
             plugin: None,
             observer: None,
+            events: None,
+            scope: None,
         }
     }
 
@@ -80,6 +84,8 @@ impl FiberInitContext {
         owner: Arc<dyn ServiceOwner>,
         plugin: String,
         observer: Arc<dyn RuntimeObserver>,
+        events: EventBus,
+        scope: Option<ScopeHandle>,
     ) -> Self {
         Self {
             effects,
@@ -87,6 +93,8 @@ impl FiberInitContext {
             owner: Some(owner),
             plugin: Some(plugin),
             observer: Some(observer),
+            events: Some(events),
+            scope,
         }
     }
 
@@ -99,8 +107,12 @@ impl FiberInitContext {
         F: FnOnce() -> BoxFuture<'static, Result<(), DisposeError>> + Send + 'static,
     {
         let label = label.into();
+        let owner_effects = self
+            .scope
+            .as_ref()
+            .map_or(self.effects.as_ref(), ScopeHandle::effects);
         let Some(observer) = self.observer.as_ref() else {
-            return self.effects.push(label, disposer);
+            return owner_effects.push(label, disposer);
         };
         let plugin = self
             .plugin
@@ -110,7 +122,7 @@ impl FiberInitContext {
         let disposal_observer = Arc::clone(observer);
         let disposal_plugin = plugin.clone();
         let disposal_label = label.clone();
-        let handle = self.effects.push(label.clone(), move || {
+        let handle = owner_effects.push(label.clone(), move || {
             let future = disposer();
             Box::pin(async move {
                 let result = future.await;
@@ -126,7 +138,19 @@ impl FiberInitContext {
     }
 
     pub fn effect_store(&self) -> Arc<EffectStore> {
-        Arc::clone(&self.effects)
+        self.scope
+            .as_ref()
+            .map_or_else(|| Arc::clone(&self.effects), ScopeHandle::effect_store)
+    }
+
+    pub fn events(&self) -> Result<&EventBus, RuntimeError> {
+        self.events
+            .as_ref()
+            .ok_or(RuntimeError::UncoordinatedContext)
+    }
+
+    pub fn scope(&self) -> Option<&ScopeHandle> {
+        self.scope.as_ref()
     }
 
     pub fn provide<S>(

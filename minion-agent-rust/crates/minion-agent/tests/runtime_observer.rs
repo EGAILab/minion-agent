@@ -124,3 +124,50 @@ fn observer_records_effect_boundaries_from_the_real_context() {
             }));
         });
 }
+
+#[test]
+fn scoped_context_routes_effect_ownership_and_observes_real_scope_disposal() {
+    tokio::runtime::Builder::new_current_thread()
+        .build()
+        .unwrap()
+        .block_on(async {
+            let observations = Arc::new(Mutex::new(Vec::new()));
+            let runtime = Runtime::with_observer(Arc::new(Recorder(Arc::clone(&observations))));
+            let scope = runtime.create_scope(None).unwrap();
+            let spec = PluginSpec::<EmptyConfig>::new(
+                "scoped-owner",
+                vec![],
+                || json!({ "type": "object" }),
+                |context, _config| async move {
+                    context
+                        .effect("scoped-resource", || Box::pin(async { Ok(()) }))
+                        .unwrap();
+                    Ok::<_, PluginInitError>(())
+                },
+            )
+            .erase();
+            let fiber = runtime
+                .mount_in(&spec, json!({}), Some(scope.clone()))
+                .unwrap();
+            runtime.reconcile().await.unwrap();
+
+            scope.dispose().await.unwrap();
+
+            assert_eq!(fiber.state(), FiberState::Active);
+            let observations = observations.lock().unwrap();
+            let effect = observations
+                .iter()
+                .position(|item| {
+                    item == &RuntimeObservation::EffectDisposed {
+                        plugin: "scoped-owner".into(),
+                        label: "scoped-resource".into(),
+                    }
+                })
+                .unwrap();
+            let disposed = observations
+                .iter()
+                .position(|item| item == &RuntimeObservation::ScopeDisposed { scope: scope.id() })
+                .unwrap();
+            assert!(effect < disposed);
+        });
+}

@@ -17,6 +17,7 @@ from .errors import (
 from .events import DispatchMode, EventBus
 from .fiber import Fiber, FiberState
 from .plugin import PluginSpec, plugin, spec_of
+from .registry import PluginRegistry
 from .scope import Scope, ScopeKey, scope_of
 from .scoped_registry import ScopedRegistry
 from .service import Impl, ServiceRegistry
@@ -32,6 +33,7 @@ __all__ = [
     "FiberState",
     "Impl",
     "InactiveFiberError",
+    "PluginRegistry",
     "PluginSpec",
     "RuntimeError_",
     "Scope",

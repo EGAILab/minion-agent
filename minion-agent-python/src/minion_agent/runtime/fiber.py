@@ -143,21 +143,31 @@ class Fiber:
             if inspect.isawaitable(result):
                 await result
         except Exception:
-            await self._unwind()
-            self._transition(FiberState.FAILED)
+            # The state settles even if unwind itself raises (a disposer
+            # failing on top of the body's own failure) -- a fiber stuck at
+            # LOADING forever would be worse than a disposal failure that
+            # still propagates to the caller after the state is final.
+            try:
+                await self._unwind()
+            finally:
+                self._transition(FiberState.FAILED)
             return
 
         if validate is not None and not validate():
-            await self._unwind()
-            self._transition(FiberState.PENDING)
+            try:
+                await self._unwind()
+            finally:
+                self._transition(FiberState.PENDING)
             return
 
         self._transition(FiberState.ACTIVE)
 
     async def _unwind(self) -> None:
         """Dispose this fiber's effects and start a fresh disposable list."""
-        await self._disposables.dispose_all()
-        self._disposables = DisposableList()
+        try:
+            await self._disposables.dispose_all()
+        finally:
+            self._disposables = DisposableList()
 
     async def unload(self) -> None:
         """Unwind effects and return to PENDING, ready to load again.
@@ -170,9 +180,16 @@ class Fiber:
         if self._state not in _LIVE_STATES:
             return
         self._transition(FiberState.UNLOADING)
-        await self._disposables.dispose_all()
-        self._disposables = DisposableList()
-        self._transition(FiberState.PENDING)
+        try:
+            await self._unwind()
+        finally:
+            # Reached even if a disposer raised: UNLOADING must not be a
+            # trap a failing disposer can strand the fiber in forever. The
+            # aggregated ExceptionGroup from _unwind() still propagates to
+            # the caller after this settles -- the failure is surfaced, not
+            # swallowed, the same principle DisposableList itself applies to
+            # individual disposers.
+            self._transition(FiberState.PENDING)
 
     async def dispose(self) -> None:
         """Unwind effects and enter the terminal DISPOSED state.
@@ -191,6 +208,10 @@ class Fiber:
         unwind = self._state in _LIVE_STATES
         if self._state is FiberState.ACTIVE:
             self._transition(FiberState.UNLOADING)
-        if unwind:
-            await self._unwind()
-        self._transition(FiberState.DISPOSED)
+        try:
+            if unwind:
+                await self._unwind()
+        finally:
+            # DISPOSED is terminal and must always be reached, even if
+            # unwind fails -- the same reasoning as unload() above.
+            self._transition(FiberState.DISPOSED)

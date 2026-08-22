@@ -13,6 +13,7 @@ EXPECTED = {
     "FiberState",
     "Impl",
     "InactiveFiberError",
+    "PluginRegistry",
     "PluginSpec",
     "RuntimeError_",
     "Scope",

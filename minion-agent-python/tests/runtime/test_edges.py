@@ -9,7 +9,7 @@ from contextlib import contextmanager
 
 import pytest
 
-from minion_agent.runtime import Context, DispatchMode, FiberState, ScopeKey
+from minion_agent.runtime import Context, DispatchMode, FiberState, RuntimeError_, ScopeKey
 from minion_agent.runtime.fiber import Fiber
 from minion_agent.runtime.plugin import PluginSpec
 
@@ -30,12 +30,12 @@ def test_attribute_access_on_an_uninitialised_context_raises_attribute_error() -
 
 
 def test_effect_outside_a_plugin_raises() -> None:
-    with pytest.raises(RuntimeError, match="requires a fiber"):
+    with pytest.raises(RuntimeError_, match="requires a fiber"):
         Context().effect(lambda: None, "no-fiber")
 
 
 def test_provide_outside_a_plugin_raises() -> None:
-    with pytest.raises(RuntimeError, match="requires a fiber"):
+    with pytest.raises(RuntimeError_, match="requires a fiber"):
         Context().provide("tools", object())
 
 

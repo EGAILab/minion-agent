@@ -13,7 +13,7 @@ from contextlib import AbstractContextManager
 from typing import TYPE_CHECKING, Any, TypeVar
 
 from .disposable import DisposableList, Disposer
-from .errors import InactiveFiberError, ServiceNotFoundError
+from .errors import InactiveFiberError, RuntimeError_, ServiceNotFoundError
 from .events import EventBus
 from .plugin import spec_of
 from .registry import PluginRegistry
@@ -125,7 +125,7 @@ class Context:
         if self._scope_disposables is not None:
             return _scoped_effect(self._scope_disposables, execute, label)
         if self._fiber is None:
-            raise RuntimeError("ctx.effect() requires a fiber; call it inside a plugin")
+            raise RuntimeError_("ctx.effect() requires a fiber; call it inside a plugin")
         return self._fiber.effect(execute, label)
 
     def on(
@@ -162,7 +162,7 @@ class Context:
         it needs disappears.
         """
         if self._fiber is None:
-            raise RuntimeError("ctx.provide() requires a fiber; call it inside a plugin")
+            raise RuntimeError_("ctx.provide() requires a fiber; call it inside a plugin")
         fiber = self._fiber
         plugins = self._plugins
         registry = self._registry

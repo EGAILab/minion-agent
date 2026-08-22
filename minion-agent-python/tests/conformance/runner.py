@@ -77,28 +77,58 @@ def _make_listener(
     spec: dict[str, Any],
     plugin_id: str,
     recorder: TraceRecorder,
-) -> Callable[..., Awaitable[Any]]:
+) -> Callable[..., Any]:
+    """Build the callback a plugin registers for one declared listener.
+
+    `emit` invokes listeners with a plain `callback(*args)` call and never
+    awaits the result -- true fire-and-forget (design spec section 3). An
+    `async def` listener returns an unawaited, never-run coroutine under
+    that call, so any action that does not need to await `next` (every
+    action except `delegate`/`transform`/`delegate_twice`, which only ever
+    receive a real `next` under waterfall dispatch) is built as a plain
+    synchronous function instead. `_call()` in events.py already unwraps an
+    awaitable return value for parallel/serial/waterfall, so a sync listener
+    works correctly under every mode; only the three delegating actions need
+    to stay `async def`, since they must await `next` before deciding what to
+    return.
+    """
     action = spec["action"]
     tag = spec["tag"]
     returns = spec.get("returns")
     replacement = spec.get("replacement")
 
-    async def listener(*args: Any) -> Any:
+    def _enter(args: tuple[Any, ...]) -> tuple[Callable[..., Any] | None, tuple[Any, ...]]:
         recorder.record({"event": "listener_entered", "plugin": plugin_id, "tag": tag})
         next_ = args[-1] if args and callable(args[-1]) else None
+        received = args[:-1] if next_ is not None else args
+        return next_, received
 
+    if action in ("delegate", "transform", "delegate_twice"):
+
+        async def delegating_listener(*args: Any) -> Any:
+            next_, _received = _enter(args)
+            if next_ is None:
+                return returns
+            if action == "transform":
+                return await next_(replacement)
+            if action == "delegate_twice":
+                await next_()
+                return await next_()
+            return await next_()
+
+        return delegating_listener
+
+    def listener(*args: Any) -> Any:
+        _next, received = _enter(args)
         if action == "raise":
             raise ValueError(f"{tag} raised")
-        if action in ("short_circuit", "observe"):
-            return returns
-        if next_ is None:
-            return returns
-        if action == "transform":
-            return await next_(replacement)
-        if action == "delegate_twice":
-            await next_()
-            return await next_()
-        return await next_()
+        if action == "echo_args":
+            # Reveals what this listener actually received, so a scenario can
+            # assert that an upstream `next(*replacement)` call propagated
+            # replacement arguments this far down the chain, not just to the
+            # terminal (RT-019).
+            return list(received)
+        return returns  # short_circuit, observe
 
     return listener
 
@@ -132,7 +162,13 @@ def build_plugin(
 ) -> PluginSpec:
     """Turn one declarative plugin entry into a mountable PluginSpec."""
     plugin_id = entry["id"]
-    provides = entry.get("provides")
+    provides_entry = entry.get("provides")
+    if isinstance(provides_entry, dict):
+        provides = provides_entry["name"]
+        provides_visible = provides_entry.get("visible", True)
+    else:
+        provides = provides_entry
+        provides_visible = True
     effects = entry.get("effects", [])
     listeners = entry.get("listeners", [])
     fails = entry.get("fails", False)
@@ -148,7 +184,8 @@ def build_plugin(
             target = scopes.open(ctx, scope_name, scope_parent).ctx
 
         if provides is not None:
-            ctx.provide(provides, {"service": provides})
+            check = (lambda: False) if not provides_visible else None
+            ctx.provide(provides, {"service": provides}, check=check)
             recorder.record({"event": "service_provided", "plugin": plugin_id, "service": provides})
 
         for effect in effects:
@@ -220,6 +257,15 @@ async def run_runtime_scenario(document: dict[str, Any]) -> RunOutcome:
 
         elif "dispose_scope" in step:
             await scopes.dispose(step["dispose_scope"])
+
+        elif "attempt_effect" in step:
+            # Calls ctx.effect() from outside the plugin's own apply() body,
+            # against whatever state the fiber is in right now -- the only way
+            # to reach a fiber that is no longer Loading/Active (RT-015).
+            target = step["attempt_effect"]
+            fiber = fibers[target["plugin"]]
+            label = target.get("label", "late-effect")
+            fiber.ctx.effect(lambda: None, label)
 
         elif "dispatch" in step:
             dispatch = step["dispatch"]

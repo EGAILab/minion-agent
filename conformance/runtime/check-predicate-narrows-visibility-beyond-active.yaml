@@ -1,0 +1,25 @@
+name: a false check predicate keeps a service invisible even though its provider is active
+description: >
+  Visibility is narrower than registration (design spec section 3): a service
+  resolves only while its providing fiber is ACTIVE, and a provider may
+  attach a check predicate narrowing visibility further. This pins the check
+  half specifically -- ACTIVE-gating alone is already exercised by every
+  ordinary inject/provide scenario (e.g. reactive-dependency), where a
+  provider always becomes visible once ACTIVE. Here the provider reaches and
+  stays ACTIVE and service_provided still fires (registration succeeded),
+  but its check predicate always returns false, so the dependent must never
+  resolve it and stays pending indefinitely.
+plugins:
+  - id: gated-provider
+    provides:
+      name: gated_service
+      visible: false
+  - id: dependent
+    inject: [gated_service]
+steps:
+  - mount: gated-provider
+  - mount: dependent
+expect_trace:
+  - { event: fiber_state, plugin: gated-provider, state: loading }
+  - { event: service_provided, plugin: gated-provider, service: gated_service }
+  - { event: fiber_state, plugin: gated-provider, state: active }

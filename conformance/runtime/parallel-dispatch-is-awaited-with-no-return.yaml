@@ -1,0 +1,35 @@
+name: parallel awaits every listener to completion but captures no return value
+description: >
+  parallel is awaited, concurrent, no return value (design spec section 3,
+  dispatch-mode matrix) -- the opposite of emit on the awaited column and the
+  same as emit on the return column. Awaited-ness is pinned by the trace
+  itself: both listeners' entries appear, which they could not if the
+  dispatch step returned before they ran. Two listeners each return a
+  distinct non-null value; expect_result names null, because parallel
+  discards every listener's return the same way emit does -- only serial and
+  waterfall produce a result.
+plugins:
+  - id: listener-a
+    listeners:
+      - event: test/fan-out
+        action: observe
+        tag: a
+        returns: a-value
+  - id: listener-b
+    listeners:
+      - event: test/fan-out
+        action: observe
+        tag: b
+        returns: b-value
+steps:
+  - mount: listener-a
+  - mount: listener-b
+  - dispatch: { event: test/fan-out, mode: parallel }
+expect_trace:
+  - { event: fiber_state, plugin: listener-a, state: loading }
+  - { event: fiber_state, plugin: listener-a, state: active }
+  - { event: fiber_state, plugin: listener-b, state: loading }
+  - { event: fiber_state, plugin: listener-b, state: active }
+  - { event: listener_entered, plugin: listener-a, tag: a }
+  - { event: listener_entered, plugin: listener-b, tag: b }
+expect_result: null

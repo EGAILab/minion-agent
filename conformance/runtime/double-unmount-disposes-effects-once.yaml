@@ -1,0 +1,21 @@
+name: unmounting an already-disposed plugin a second time is a no-op
+description: >
+  Double-disposal is a no-op (design spec section 3). Unmounting the same
+  plugin twice must dispose its effects exactly once -- the second unmount
+  must not re-run disposal, raise, or emit a second round of disposal trace
+  entries.
+plugins:
+  - id: effect-owner
+    effects:
+      - label: only-effect
+steps:
+  - mount: effect-owner
+  - unmount: effect-owner
+  - unmount: effect-owner
+expect_trace:
+  - { event: fiber_state, plugin: effect-owner, state: loading }
+  - { event: effect_created, plugin: effect-owner, label: only-effect }
+  - { event: fiber_state, plugin: effect-owner, state: active }
+  - { event: fiber_state, plugin: effect-owner, state: unloading }
+  - { event: effect_disposed, plugin: effect-owner, label: only-effect }
+  - { event: fiber_state, plugin: effect-owner, state: disposed }

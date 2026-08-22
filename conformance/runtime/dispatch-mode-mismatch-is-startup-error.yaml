@@ -1,0 +1,30 @@
+name: dispatching an event in a mode other than its declared one is a startup error
+description: >
+  Dispatch mode is part of an event's public contract, declared where the
+  event is declared; a mismatch between declaration and dispatch site is a
+  startup error (design spec section 3), not a silent behavior change or a
+  runtime failure mid-scenario. Two dispatch steps name the same event with
+  different modes, so declaration itself must reject the second one before
+  any step executes.
+plugins:
+  - id: bystander
+    listeners:
+      - event: test/mode-locked
+        action: short_circuit
+        tag: unreached
+        returns: never-seen
+steps:
+  - mount: bystander
+  - dispatch:
+      event: test/mode-locked
+      mode: waterfall
+      args: []
+      terminal: unreached-terminal
+  - dispatch:
+      event: test/mode-locked
+      mode: emit
+      args: []
+expect_trace: []
+expect_error:
+  type: EventModeError
+  message_contains: "test/mode-locked"

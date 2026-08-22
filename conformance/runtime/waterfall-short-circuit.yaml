@@ -1,0 +1,34 @@
+name: a listener that does not call next short-circuits the chain
+description: >
+  Not calling `next` stops the chain, and that listener's own return value is
+  the chain's result (design spec section 3, the decision pattern). The
+  second listener must never run -- if it did, its "second" tag would appear
+  in the trace, and the result would be its return value instead.
+plugins:
+  - id: deciding-listener
+    listeners:
+      - event: test/decide
+        action: short_circuit
+        tag: first
+        returns: first-decided
+  - id: never-reached-listener
+    listeners:
+      - event: test/decide
+        action: short_circuit
+        tag: second
+        returns: second-decided
+steps:
+  - mount: deciding-listener
+  - mount: never-reached-listener
+  - dispatch:
+      event: test/decide
+      mode: waterfall
+      args: []
+      terminal: unreached-terminal
+expect_trace:
+  - { event: fiber_state, plugin: deciding-listener, state: loading }
+  - { event: fiber_state, plugin: deciding-listener, state: active }
+  - { event: fiber_state, plugin: never-reached-listener, state: loading }
+  - { event: fiber_state, plugin: never-reached-listener, state: active }
+  - { event: listener_entered, plugin: deciding-listener, tag: first }
+expect_result: first-decided

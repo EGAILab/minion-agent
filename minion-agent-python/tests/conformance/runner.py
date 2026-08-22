@@ -251,11 +251,18 @@ async def run_runtime_scenario(document: dict[str, Any]) -> RunOutcome:
 
     # Declare every dispatched event up front. A listener cannot register for
     # an undeclared event -- mode is part of the contract -- so declaration has
-    # to precede the first mount, not the first dispatch.
+    # to precede the first mount, not the first dispatch. A mode conflict here
+    # is itself the design spec's "startup error" (section 3): two dispatch
+    # steps naming the same event with different modes must settle into
+    # `outcome.error` exactly like a conflict discovered during step
+    # execution, not escape as an uncaught exception from this setup loop.
     for step in document["steps"]:
         dispatch = step.get("dispatch")
         if dispatch is not None:
-            root.events.declare(dispatch["event"], DispatchMode(dispatch["mode"]))
+            try:
+                root.events.declare(dispatch["event"], DispatchMode(dispatch["mode"]))
+            except RuntimeError_ as error:
+                return RunOutcome(trace=recorder.entries, result=result, error=error)
 
     for step in document["steps"]:
         try:

@@ -132,6 +132,17 @@ rows:
   python: src/minion_agent/llm/ (realign wrapper)
   rust: Phase 2 AssistantStream
   disposition: adopted
+- id: AI-013
+  phase: 2
+  pi: packages/ai/src/api/openai-responses-shared.ts
+  surface: Responses-family thinking/text signature replay
+  rule: content-owned opaque-string replay; same-model signed thinking retains and replays including empty visible thinking; same-model unsigned non-empty thinking retains visible text; same-model unsigned empty thinking is removed; cross-model non-redacted thinking converts to ordinary text and the replay signature does not survive; cross-model redacted thinking is omitted; text_signature preserves Responses message id/phase for replay
+  tests:
+  - same-model-thinking-signature-replayed
+  - cross-model-signatures-stripped
+  python: 'target: src/minion_agent/llm/ (Responses-family replay logic, Phase 5 -- the text_signature/thinking_signature/thought_signature vocabulary fields this depends on already exist, see AI-001/AI-002/AI-003)'
+  rust: 'target: Phase 5 llm Responses replay'
+  disposition: adopted
 - id: AI-020
   phase: 2
   pi: packages/ai/src/api/transform-messages.ts::transformMessages

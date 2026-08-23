@@ -55,7 +55,7 @@ fn concurrent_appends_allocate_sequence_in_committed_log_order() {
             let session = session.clone();
             std::thread::spawn(move || {
                 session
-                    .append("plugin/audit", serde_json::json!({"index": index}))
+                    .append_raw("plugin/audit", serde_json::json!({"index": index}))
                     .unwrap()
             })
         })
@@ -98,16 +98,28 @@ fn reset_compaction_and_fork_are_derived_by_the_real_session() {
 }
 
 #[test]
+fn a_fork_rejects_a_boundary_beyond_the_committed_tip() {
+    let session = Session::new("parent", [] as [&str; 0]).unwrap();
+    assert_eq!(
+        session.fork("child", Some(1)).err(),
+        Some(SessionError::InvalidForkBoundary {
+            boundary: 1,
+            tip: 0
+        })
+    );
+}
+
+#[test]
 fn open_event_is_log_only_unless_explicitly_surface_admitted() {
     let hidden = Session::new("hidden", [] as [&str; 0]).unwrap();
     hidden
-        .append_projectable("plugin/note", user("hidden"))
+        .append_projectable(EventKind::new("plugin/note").unwrap(), user("hidden"))
         .unwrap();
     assert!(hidden.derive_messages().unwrap().is_empty());
 
     let visible = Session::new("visible", ["plugin/note"]).unwrap();
     visible
-        .append_projectable("plugin/note", user("visible"))
+        .append_projectable(EventKind::new("plugin/note").unwrap(), user("visible"))
         .unwrap();
     assert_eq!(visible.derive_messages().unwrap(), vec![user("visible")]);
 }
@@ -130,6 +142,7 @@ fn artifacts_are_content_addressed_and_headers_reconstruct_real_state() {
     let reconstructed = session.reconstruct_header(&header).unwrap();
     assert_eq!(reconstructed.components, components);
     assert_eq!(reconstructed.tools, tools);
+    assert_eq!(reconstructed.model, "mock-1");
     assert_eq!(store.len(), 3);
     assert_eq!(reconstructed.assembled_system, "remember\n\nbe helpful");
 }

@@ -41,6 +41,16 @@ impl EventKind {
     pub fn as_str(&self) -> &str {
         &self.0
     }
+
+    pub fn user_message() -> Self {
+        Self(USER.into())
+    }
+    pub fn assistant_message() -> Self {
+        Self(ASSISTANT.into())
+    }
+    pub fn tool_result() -> Self {
+        Self(TOOL_RESULT.into())
+    }
 }
 
 impl<'de> Deserialize<'de> for EventKind {
@@ -85,6 +95,8 @@ pub enum SessionError {
     MissingArtifact(String),
     #[error("request header is malformed")]
     InvalidHeader,
+    #[error("fork boundary {boundary} is beyond committed tip {tip}")]
+    InvalidForkBoundary { boundary: u64, tip: u64 },
 }
 
 impl Session {
@@ -134,7 +146,12 @@ impl Session {
         self.inner.artifacts.len()
     }
 
-    pub fn append(
+    pub fn append(&self, kind: EventKind, data: Map<String, Value>) -> SessionEvent {
+        let mut events = self.inner.events.lock();
+        Self::append_locked(&mut events, kind, data)
+    }
+
+    pub fn append_raw(
         &self,
         kind: impl Into<String>,
         data: Value,
@@ -143,37 +160,47 @@ impl Session {
         let Value::Object(data) = data else {
             return Err(SessionError::InvalidEventData);
         };
-        let mut events = self.inner.events.lock();
+        Ok(self.append(kind, data))
+    }
+
+    fn append_locked(
+        events: &mut Vec<SessionEvent>,
+        kind: EventKind,
+        data: Map<String, Value>,
+    ) -> SessionEvent {
         let event = SessionEvent {
             seq: events.len() as u64 + 1,
             kind,
             data,
         };
         events.push(event.clone());
-        Ok(event)
+        event
     }
 
     pub fn append_message(&self, message: Message) -> Result<SessionEvent, SessionError> {
         let kind = match &message {
-            Message::User(_) => USER,
-            Message::Assistant(_) => ASSISTANT,
-            Message::ToolResult(_) => TOOL_RESULT,
+            Message::User(_) => EventKind::user_message(),
+            Message::Assistant(_) => EventKind::assistant_message(),
+            Message::ToolResult(_) => EventKind::tool_result(),
         };
         self.append_projectable(kind, message)
     }
 
     pub fn append_projectable(
         &self,
-        kind: impl Into<String>,
+        kind: EventKind,
         message: Message,
     ) -> Result<SessionEvent, SessionError> {
         let message =
             serde_json::to_value(message).map_err(|e| SessionError::Message(e.to_string()))?;
-        self.append(kind, serde_json::json!({"message": message}))
+        let Value::Object(data) = serde_json::json!({"message": message}) else {
+            unreachable!()
+        };
+        Ok(self.append(kind, data))
     }
 
     pub fn reset(&self) -> Result<SessionEvent, SessionError> {
-        self.append(RESET, serde_json::json!({}))
+        self.append_raw(RESET, serde_json::json!({}))
     }
 
     pub fn compact(
@@ -181,7 +208,16 @@ impl Session {
         summary: impl Into<String>,
         keep: usize,
     ) -> Result<SessionEvent, SessionError> {
-        let surface = self.effective_surface(u64::MAX);
+        let mut events = self.inner.events.lock();
+        let floor = events
+            .iter()
+            .rev()
+            .find(|event| event.kind.as_str() == RESET)
+            .map_or(0, |event| event.seq);
+        let surface = events
+            .iter()
+            .filter(|event| event.seq > floor && self.inner.surface.contains(&event.kind))
+            .collect::<Vec<_>>();
         let retained = surface
             .iter()
             .rev()
@@ -189,11 +225,23 @@ impl Session {
             .map(|event| event.seq)
             .collect::<Vec<_>>();
         let through = surface.last().map_or(0, |event| event.seq);
-        self.append(COMPACTION, serde_json::json!({"summary": summary.into(), "superseded_through": through, "retained": retained.into_iter().rev().collect::<Vec<_>>() }))
+        let Value::Object(data) = serde_json::json!({"summary": summary.into(), "superseded_through": through, "retained": retained.into_iter().rev().collect::<Vec<_>>() })
+        else {
+            unreachable!()
+        };
+        Ok(Self::append_locked(
+            &mut events,
+            EventKind::new(COMPACTION)?,
+            data,
+        ))
     }
 
     pub fn fork(&self, id: impl Into<String>, at: Option<u64>) -> Result<Self, SessionError> {
-        let boundary = at.unwrap_or_else(|| self.inner.events.lock().len() as u64);
+        let tip = self.inner.events.lock().len() as u64;
+        let boundary = at.unwrap_or(tip);
+        if boundary > tip {
+            return Err(SessionError::InvalidForkBoundary { boundary, tip });
+        }
         let child = Self {
             inner: Arc::new(SessionInner {
                 id: id.into(),
@@ -204,7 +252,7 @@ impl Session {
                 artifacts: self.inner.artifacts.clone(),
             }),
         };
-        child.append(
+        child.append_raw(
             FORKED,
             serde_json::json!({"source": self.id(), "boundary": boundary}),
         )?;
@@ -213,19 +261,6 @@ impl Session {
 
     pub fn derive_messages(&self) -> Result<Vec<Message>, SessionError> {
         self.derive_until(u64::MAX)
-    }
-
-    fn effective_surface(&self, limit: u64) -> Vec<SessionEvent> {
-        let events = self.events();
-        let floor = events
-            .iter()
-            .rev()
-            .find(|e| e.seq <= limit && e.kind.as_str() == RESET)
-            .map_or(0, |e| e.seq);
-        events
-            .into_iter()
-            .filter(|e| e.seq <= limit && e.seq > floor && self.inner.surface.contains(&e.kind))
-            .collect()
     }
 
     fn derive_until(&self, limit: u64) -> Result<Vec<Message>, SessionError> {
@@ -250,14 +285,16 @@ impl Session {
                 .get("superseded_through")
                 .and_then(Value::as_u64)
                 .ok_or(SessionError::InvalidEventData)?;
-            let retained = compaction
+            let retained_values = compaction
                 .data
                 .get("retained")
                 .and_then(Value::as_array)
-                .ok_or(SessionError::InvalidEventData)?
+                .ok_or(SessionError::InvalidEventData)?;
+            let retained = retained_values
                 .iter()
-                .filter_map(Value::as_u64)
-                .collect::<HashSet<_>>();
+                .map(Value::as_u64)
+                .collect::<Option<HashSet<_>>>()
+                .ok_or(SessionError::InvalidEventData)?;
             let summary = compaction
                 .data
                 .get("summary")
@@ -318,7 +355,7 @@ impl Session {
         let tools_json =
             serde_json::to_vec(&tools).map_err(|e| SessionError::Message(e.to_string()))?;
         let tools_ref = self.inner.artifacts.put(&tools_json);
-        self.append(REQUEST_HEADER, serde_json::json!({"model": model.into(), "components": references, "tools": tools_ref}))
+        self.append_raw(REQUEST_HEADER, serde_json::json!({"model": model.into(), "components": references, "tools": tools_ref}))
     }
 
     pub fn reconstruct_header(
@@ -349,7 +386,14 @@ impl Session {
             .ok_or(SessionError::InvalidHeader)?;
         let tools = serde_json::from_slice(&self.inner.artifacts.get(tools_ref)?)
             .map_err(|e| SessionError::Message(e.to_string()))?;
+        let model = event
+            .data
+            .get("model")
+            .and_then(Value::as_str)
+            .ok_or(SessionError::InvalidHeader)?
+            .to_owned();
         Ok(ReconstructedHeader {
+            model,
             assembled_system: assemble_system(&components),
             components,
             tools,
@@ -359,6 +403,7 @@ impl Session {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ReconstructedHeader {
+    pub model: String,
     pub components: BTreeMap<String, String>,
     pub tools: Vec<ToolDefinition>,
     pub assembled_system: String,

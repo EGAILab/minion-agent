@@ -6,7 +6,7 @@ use minion_agent::{
         Message, ModelIdentity, ToolDefinition, ToolResultContentBlock, ToolResultMessage, Usage,
         UserContent, UserMessage,
     },
-    session::{Session, SessionEvent},
+    session::{EventKind, Session, SessionEvent},
 };
 use serde_json::{Map, Value, json};
 
@@ -318,12 +318,13 @@ fn all_current_layer_session_scenarios_drive_the_real_typed_rust_session() {
                 let role = spec["role"].as_str().unwrap();
                 session
                     .append_projectable(
-                        match role {
+                        EventKind::new(match role {
                             "user" => "user/message",
                             "assistant" => "assistant/message",
                             "tool_result" => "tool/result",
                             other => other,
-                        },
+                        })
+                        .unwrap(),
                         make_message(role, spec),
                     )
                     .unwrap();

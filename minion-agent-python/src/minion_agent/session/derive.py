@@ -17,6 +17,10 @@ from typing import Any
 from ..llm.content import ContentBlock, ImageBlock, TextBlock, ThinkingBlock, ToolCallBlock
 from ..llm.messages import (
     AssistantMessage,
+    AssistantMessageDiagnostic,
+    Cost,
+    DeferredHandle,
+    DiagnosticError,
     Message,
     StopReason,
     ToolResultMessage,
@@ -30,11 +34,19 @@ from .log import SessionLog
 def _encode_block(block: ContentBlock) -> dict[str, Any]:
     match block:
         case TextBlock():
-            return {"type": "text", "text": block.text}
+            encoded: dict[str, Any] = {"type": "text", "text": block.text}
+            if block.text_signature is not None:
+                encoded["text_signature"] = block.text_signature
+            return encoded
         case ThinkingBlock():
-            return {"type": "thinking", "thinking": block.thinking}
+            encoded = {"type": "thinking", "thinking": block.thinking}
+            if block.thinking_signature is not None:
+                encoded["thinking_signature"] = block.thinking_signature
+            if block.redacted:
+                encoded["redacted"] = True
+            return encoded
         case ImageBlock():
-            encoded: dict[str, Any] = {"type": "image", "mime_type": block.mime_type}
+            encoded = {"type": "image", "mime_type": block.mime_type}
             if block.reference is not None:
                 encoded["reference"] = block.reference
             else:
@@ -43,27 +55,136 @@ def _encode_block(block: ContentBlock) -> dict[str, Any]:
                 encoded["data"] = base64.b64encode(block.data).decode("ascii")
             return encoded
         case ToolCallBlock():
-            return {
+            encoded = {
                 "type": "tool_call",
                 "id": block.id,
                 "name": block.name,
                 "arguments": block.arguments,
             }
+            if block.thought_signature is not None:
+                encoded["thought_signature"] = block.thought_signature
+            if block.namespace is not None:
+                encoded["namespace"] = block.namespace
+            return encoded
 
 
 def _decode_block(raw: dict[str, Any]) -> ContentBlock:
     kind = raw["type"]
     if kind == "text":
-        return TextBlock(text=raw["text"])
+        return TextBlock(text=raw["text"], text_signature=raw.get("text_signature"))
     if kind == "thinking":
-        return ThinkingBlock(thinking=raw["thinking"])
+        return ThinkingBlock(
+            thinking=raw["thinking"],
+            thinking_signature=raw.get("thinking_signature"),
+            redacted=raw.get("redacted", False),
+        )
     if kind == "image":
         if "reference" in raw:
             return ImageBlock(mime_type=raw["mime_type"], reference=raw["reference"])
         return ImageBlock(mime_type=raw["mime_type"], data=base64.b64decode(raw["data"]))
     if kind == "tool_call":
-        return ToolCallBlock(id=raw["id"], name=raw["name"], arguments=raw["arguments"])
+        return ToolCallBlock(
+            id=raw["id"],
+            name=raw["name"],
+            arguments=raw["arguments"],
+            thought_signature=raw.get("thought_signature"),
+            namespace=raw.get("namespace"),
+        )
     raise ValueError(f"unknown content block type {kind!r}")
+
+
+def _encode_usage(usage: Usage) -> dict[str, Any]:
+    return {
+        "input": usage.input,
+        "output": usage.output,
+        "cache_read": usage.cache_read,
+        "cache_write": usage.cache_write,
+        "cache_write_1h": usage.cache_write_1h,
+        "reasoning": usage.reasoning,
+        "total_tokens": usage.total_tokens,
+        "cost": {
+            "input": usage.cost.input,
+            "output": usage.cost.output,
+            "cache_read": usage.cost.cache_read,
+            "cache_write": usage.cost.cache_write,
+            "total": usage.cost.total,
+        },
+    }
+
+
+def _decode_usage(raw: dict[str, Any]) -> Usage:
+    cost = raw.get("cost")
+    return Usage(
+        input=raw["input"],
+        output=raw["output"],
+        cache_read=raw["cache_read"],
+        cache_write=raw["cache_write"],
+        cache_write_1h=raw.get("cache_write_1h"),
+        reasoning=raw["reasoning"],
+        total_tokens=raw.get("total_tokens", 0),
+        cost=Cost(**cost) if cost is not None else Cost(),
+    )
+
+
+def _encode_diagnostic(diagnostic: AssistantMessageDiagnostic) -> dict[str, Any]:
+    encoded: dict[str, Any] = {"type": diagnostic.type, "timestamp": diagnostic.timestamp}
+    if diagnostic.error is not None:
+        error: dict[str, Any] = {"message": diagnostic.error.message}
+        if diagnostic.error.name is not None:
+            error["name"] = diagnostic.error.name
+        if diagnostic.error.stack is not None:
+            error["stack"] = diagnostic.error.stack
+        if diagnostic.error.code is not None:
+            error["code"] = diagnostic.error.code
+        encoded["error"] = error
+    if diagnostic.details is not None:
+        encoded["details"] = diagnostic.details
+    return encoded
+
+
+def _decode_diagnostic(raw: dict[str, Any]) -> AssistantMessageDiagnostic:
+    raw_error = raw.get("error")
+    error = (
+        DiagnosticError(
+            message=raw_error["message"],
+            name=raw_error.get("name"),
+            stack=raw_error.get("stack"),
+            code=raw_error.get("code"),
+        )
+        if raw_error is not None
+        else None
+    )
+    return AssistantMessageDiagnostic(
+        type=raw["type"], timestamp=raw["timestamp"], error=error, details=raw.get("details")
+    )
+
+
+def _encode_deferred(handle: DeferredHandle) -> dict[str, Any]:
+    encoded: dict[str, Any] = {
+        "provider": handle.provider,
+        "model_id": handle.model_id,
+        "api": handle.api,
+        "id": handle.id,
+    }
+    if handle.expires_at is not None:
+        encoded["expires_at"] = handle.expires_at
+    if handle.poll_after_ms is not None:
+        encoded["poll_after_ms"] = handle.poll_after_ms
+    if handle.data is not None:
+        encoded["data"] = handle.data
+    return encoded
+
+
+def _decode_deferred(raw: dict[str, Any]) -> DeferredHandle:
+    return DeferredHandle(
+        provider=raw["provider"],
+        model_id=raw["model_id"],
+        api=raw["api"],
+        id=raw["id"],
+        expires_at=raw.get("expires_at"),
+        poll_after_ms=raw.get("poll_after_ms"),
+        data=raw.get("data"),
+    )
 
 
 def encode_message(message: Message) -> dict[str, Any]:
@@ -73,7 +194,7 @@ def encode_message(message: Message) -> dict[str, Any]:
         case UserMessage():
             return {"role": "user", "content": content, "timestamp": message.timestamp}
         case AssistantMessage():
-            return {
+            encoded_assistant: dict[str, Any] = {
                 "role": "assistant",
                 "content": content,
                 "timestamp": message.timestamp,
@@ -81,22 +202,41 @@ def encode_message(message: Message) -> dict[str, Any]:
                 "model": message.model,
                 "provider": message.provider,
                 "error_message": message.error_message,
-                "usage": {
-                    "input": message.usage.input,
-                    "output": message.usage.output,
-                    "cache_read": message.usage.cache_read,
-                    "cache_write": message.usage.cache_write,
-                    "reasoning": message.usage.reasoning,
-                },
+                "usage": _encode_usage(message.usage),
+                "api": message.api,
             }
+            if message.response_model is not None:
+                encoded_assistant["response_model"] = message.response_model
+            if message.response_id is not None:
+                encoded_assistant["response_id"] = message.response_id
+            if message.diagnostics is not None:
+                encoded_assistant["diagnostics"] = [
+                    _encode_diagnostic(diagnostic) for diagnostic in message.diagnostics
+                ]
+            if message.deferred is not None:
+                encoded_assistant["deferred"] = _encode_deferred(message.deferred)
+            if message.raw_stop_reason is not None:
+                encoded_assistant["raw_stop_reason"] = message.raw_stop_reason
+            if message.end_turn is not None:
+                encoded_assistant["end_turn"] = message.end_turn
+            return encoded_assistant
         case ToolResultMessage():
-            return {
+            encoded: dict[str, Any] = {
                 "role": "tool_result",
                 "content": content,
                 "timestamp": message.timestamp,
                 "tool_call_id": message.tool_call_id,
                 "is_error": message.is_error,
             }
+            if message.tool_name is not None:
+                encoded["tool_name"] = message.tool_name
+            if message.details is not None:
+                encoded["details"] = message.details
+            if message.usage is not None:
+                encoded["usage"] = _encode_usage(message.usage)
+            if message.added_tool_names is not None:
+                encoded["added_tool_names"] = list(message.added_tool_names)
+            return encoded
 
 
 def decode_message(raw: dict[str, Any]) -> Message:
@@ -106,28 +246,40 @@ def decode_message(raw: dict[str, Any]) -> Message:
     if role == "user":
         return UserMessage(content=content, timestamp=raw["timestamp"])
     if role == "assistant":
-        usage = raw["usage"]
+        raw_diagnostics = raw.get("diagnostics")
+        raw_deferred = raw.get("deferred")
         return AssistantMessage(
             content=content,
             stop_reason=StopReason(raw["stop_reason"]),
-            usage=Usage(
-                input=usage["input"],
-                output=usage["output"],
-                cache_read=usage["cache_read"],
-                cache_write=usage["cache_write"],
-                reasoning=usage["reasoning"],
-            ),
+            usage=_decode_usage(raw["usage"]),
             model=raw["model"],
             provider=raw["provider"],
             timestamp=raw["timestamp"],
             error_message=raw["error_message"],
+            api=raw.get("api", "mock"),
+            response_model=raw.get("response_model"),
+            response_id=raw.get("response_id"),
+            diagnostics=(
+                tuple(_decode_diagnostic(entry) for entry in raw_diagnostics)
+                if raw_diagnostics is not None
+                else None
+            ),
+            deferred=_decode_deferred(raw_deferred) if raw_deferred is not None else None,
+            raw_stop_reason=raw.get("raw_stop_reason"),
+            end_turn=raw.get("end_turn"),
         )
     if role == "tool_result":
+        raw_usage = raw.get("usage")
+        added_tool_names = raw.get("added_tool_names")
         return ToolResultMessage(
             tool_call_id=raw["tool_call_id"],
             content=content,
             timestamp=raw["timestamp"],
             is_error=raw["is_error"],
+            tool_name=raw.get("tool_name"),
+            details=raw.get("details"),
+            usage=_decode_usage(raw_usage) if raw_usage is not None else None,
+            added_tool_names=tuple(added_tool_names) if added_tool_names is not None else None,
         )
     raise ValueError(f"unknown message role {role!r}")
 

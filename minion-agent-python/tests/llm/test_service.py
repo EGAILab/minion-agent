@@ -24,6 +24,7 @@ def _settled(reason: StopReason = StopReason.STOP) -> AssistantMessage:
 
 class GoodAdapter:
     provider = "mock"
+    api = "mock"
     models = frozenset({"mock-1"})
 
     def stream(self, request: Request) -> AsyncIterator[StreamChunk]:
@@ -38,6 +39,7 @@ class FailingAdapter:
     """Fails the way an adapter must: in-band, never by raising."""
 
     provider = "mock"
+    api = "mock"
     models = frozenset({"mock-1"})
 
     def stream(self, request: Request) -> AsyncIterator[StreamChunk]:
@@ -84,6 +86,31 @@ def test_models_lists_every_registered_pair() -> None:
     service.register(GoodAdapter())
 
     assert service.models() == frozenset({ModelId("mock", "mock-1")})
+
+
+def test_model_id_defaults_api_to_mock() -> None:
+    """Identity is the provider+api+model triple (design spec section 4).
+    `api` defaults to "mock" only because no second API exists yet
+    (LLM-F006) -- every existing caller means this value."""
+    assert ModelId("mock", "mock-1").api == "mock"
+
+
+def test_registering_an_adapter_carries_its_declared_api() -> None:
+    class OtherApiAdapter:
+        provider = "mock"
+        api = "not-mock"
+        models = frozenset({"other-1"})
+
+        def stream(self, request: Request) -> AsyncIterator[StreamChunk]:
+            async def run() -> AsyncIterator[StreamChunk]:
+                yield StreamDone(message=_settled(), partial=_settled())
+
+            return run()
+
+    service = LlmService()
+    service.register(OtherApiAdapter())
+
+    assert service.models() == frozenset({ModelId("mock", "other-1", "not-mock")})
 
 
 def test_unregistering_withdraws_the_models() -> None:

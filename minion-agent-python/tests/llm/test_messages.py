@@ -5,6 +5,10 @@ import pytest
 from minion_agent.llm.content import TextBlock, ToolCallBlock
 from minion_agent.llm.messages import (
     AssistantMessage,
+    AssistantMessageDiagnostic,
+    Cost,
+    DeferredHandle,
+    DiagnosticError,
     StopReason,
     ToolResultMessage,
     Usage,
@@ -62,11 +66,123 @@ def test_assistant_message_may_carry_an_error() -> None:
     assert message.error_message == "upstream 500"
 
 
+def test_assistant_message_api_defaults_to_mock() -> None:
+    """Defaults to "mock" only because the mock adapter is the sole
+    registered adapter today (LLM-F003's disposition)."""
+    assert _assistant().api == "mock"
+
+
+def test_assistant_message_response_identity_fields_default_and_are_settable() -> None:
+    plain = _assistant()
+    assert (plain.response_model, plain.response_id, plain.raw_stop_reason, plain.end_turn) == (
+        None,
+        None,
+        None,
+        None,
+    )
+
+    full = _assistant(
+        response_model="anthropic/claude-3",
+        response_id="resp_123",
+        raw_stop_reason="max_tokens",
+        end_turn=True,
+    )
+    assert full.response_model == "anthropic/claude-3"
+    assert full.response_id == "resp_123"
+    assert full.raw_stop_reason == "max_tokens"
+    assert full.end_turn is True
+
+
+def test_assistant_message_diagnostics_default_and_are_settable() -> None:
+    assert _assistant().diagnostics is None
+
+    diagnostic = AssistantMessageDiagnostic(
+        type="retry", timestamp=1, error=DiagnosticError(message="timeout")
+    )
+    message = _assistant(diagnostics=(diagnostic,))
+    assert message.diagnostics == (diagnostic,)
+
+
+def test_assistant_message_deferred_defaults_and_is_settable() -> None:
+    assert _assistant().deferred is None
+
+    handle = DeferredHandle(provider="mock", model_id="mock-1", api="mock", id="req-1")
+    message = _assistant(stop_reason=StopReason.DEFERRED, deferred=handle)
+    assert message.deferred == handle
+
+
 def test_tool_result_message_links_to_its_call() -> None:
     message = ToolResultMessage(tool_call_id="t1", content=(TextBlock(text="ok"),), timestamp=2)
 
     assert message.tool_call_id == "t1"
     assert not message.is_error
+
+
+def test_tool_result_message_optional_fields_default_and_are_settable() -> None:
+    plain = ToolResultMessage(tool_call_id="t1", content=(), timestamp=2)
+    assert (plain.tool_name, plain.details, plain.usage, plain.added_tool_names) == (
+        None,
+        None,
+        None,
+        None,
+    )
+
+    full = ToolResultMessage(
+        tool_call_id="t1",
+        content=(),
+        timestamp=2,
+        tool_name="bash",
+        details={"exit_code": 0},
+        usage=Usage(input=1),
+        added_tool_names=("new_tool",),
+    )
+    assert full.tool_name == "bash"
+    assert full.details == {"exit_code": 0}
+    assert full.usage == Usage(input=1)
+    assert full.added_tool_names == ("new_tool",)
+
+
+def test_stop_reason_includes_deferred() -> None:
+    assert StopReason.DEFERRED == "deferred"
+
+
+def test_usage_cost_and_total_tokens_default_and_are_settable() -> None:
+    plain = Usage()
+    assert plain.total_tokens == 0
+    assert plain.cost == Cost()
+
+    priced = Usage(total_tokens=42, cost=Cost(input=0.01, output=0.02, total=0.03))
+    assert priced.total_tokens == 42
+    assert priced.cost.total == 0.03
+
+
+def test_usage_cache_write_1h_defaults_to_none() -> None:
+    assert Usage().cache_write_1h is None
+    assert Usage(cache_write_1h=5).cache_write_1h == 5
+
+
+def test_deferred_handle_carries_provider_identity() -> None:
+    handle = DeferredHandle(provider="mock", model_id="mock-1", api="mock", id="req-1")
+
+    assert (handle.provider, handle.model_id, handle.api, handle.id) == (
+        "mock",
+        "mock-1",
+        "mock",
+        "req-1",
+    )
+    assert handle.expires_at is None
+
+
+def test_assistant_message_diagnostic_carries_a_structured_error() -> None:
+    diagnostic = AssistantMessageDiagnostic(
+        type="retry",
+        timestamp=1,
+        error=DiagnosticError(message="upstream 500", code=500),
+    )
+
+    assert diagnostic.error is not None
+    assert diagnostic.error.message == "upstream 500"
+    assert diagnostic.error.code == 500
 
 
 def test_text_of_concatenates_only_text_blocks() -> None:

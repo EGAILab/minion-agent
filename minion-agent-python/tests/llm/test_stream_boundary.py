@@ -38,6 +38,7 @@ class _Adapter:
     """Yields exactly the chunks it was given, however malformed."""
 
     provider = "mock"
+    api = "mock"
     models = frozenset({"mock-1"})
 
     def __init__(self, *chunks: StreamChunk) -> None:

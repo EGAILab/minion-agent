@@ -5,6 +5,10 @@ import pytest
 from minion_agent.llm.content import ImageBlock, TextBlock, ThinkingBlock, ToolCallBlock
 from minion_agent.llm.messages import (
     AssistantMessage,
+    AssistantMessageDiagnostic,
+    Cost,
+    DeferredHandle,
+    DiagnosticError,
     Message,
     StopReason,
     ToolResultMessage,
@@ -85,6 +89,72 @@ def test_tool_result_message_round_trips() -> None:
     assert decode_message(encode_message(message)) == message
 
 
+def test_tool_result_message_optional_fields_round_trip() -> None:
+    message = ToolResultMessage(
+        tool_call_id="t1",
+        content=(TextBlock(text="ok"),),
+        timestamp=3,
+        tool_name="bash",
+        details={"exit_code": 0},
+        usage=Usage(input=2, total_tokens=2),
+        added_tool_names=("new_tool",),
+    )
+
+    assert decode_message(encode_message(message)) == message
+
+
+def test_usage_cost_and_total_tokens_round_trip() -> None:
+    message = _assistant("hi")
+    message = AssistantMessage(
+        content=message.content,
+        stop_reason=message.stop_reason,
+        usage=Usage(input=1, output=2, total_tokens=3, cost=Cost(input=0.1, total=0.1)),
+        model=message.model,
+        provider=message.provider,
+        timestamp=message.timestamp,
+    )
+
+    restored = decode_message(encode_message(message))
+
+    assert restored == message
+    assert restored.usage.cost.total == 0.1
+
+
+def test_assistant_message_response_identity_and_diagnostics_round_trip() -> None:
+    message = AssistantMessage(
+        content=(TextBlock(text="hi"),),
+        stop_reason=StopReason.DEFERRED,
+        usage=Usage(input=1),
+        model="mock-1",
+        provider="mock",
+        timestamp=2,
+        api="not-mock",
+        response_model="mock-1-router",
+        response_id="resp_1",
+        diagnostics=(
+            AssistantMessageDiagnostic(
+                type="retry",
+                timestamp=1,
+                error=DiagnosticError(message="timeout", name="TimeoutError", code=504),
+                details={"attempt": 2},
+            ),
+        ),
+        deferred=DeferredHandle(
+            provider="mock",
+            model_id="mock-1",
+            api="mock",
+            id="req-1",
+            expires_at=1000,
+            poll_after_ms=500,
+            data={"batch_id": "b1"},
+        ),
+        raw_stop_reason="max_tokens",
+        end_turn=True,
+    )
+
+    assert decode_message(encode_message(message)) == message
+
+
 def test_every_content_block_round_trips() -> None:
     message = UserMessage(
         content=(
@@ -92,6 +162,28 @@ def test_every_content_block_round_trips() -> None:
             ThinkingBlock(thinking="r"),
             ImageBlock(mime_type="image/png", reference="sha256:abc"),
             ToolCallBlock(id="t1", name="bash", arguments={"command": "ls"}),
+        ),
+        timestamp=1,
+    )
+
+    assert decode_message(encode_message(message)) == message
+
+
+def test_replay_signature_fields_round_trip() -> None:
+    """Opaque provider replay metadata (design spec section 4) must survive
+    session serialization -- the log is the only place this data is stored
+    between requests."""
+    message = UserMessage(
+        content=(
+            TextBlock(text="t", text_signature="sig-text"),
+            ThinkingBlock(thinking="r", thinking_signature="sig-think", redacted=True),
+            ToolCallBlock(
+                id="t1",
+                name="bash",
+                arguments={"command": "ls"},
+                thought_signature="sig-tool",
+                namespace="mcp:fs",
+            ),
         ),
         timestamp=1,
     )

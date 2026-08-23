@@ -24,10 +24,20 @@ from .tools import ToolSchema
 
 @dataclass(frozen=True, slots=True)
 class ModelId:
-    """A provider and one of its models."""
+    """Model identity: the `provider + api + model` triple (design spec
+    section 4). `api` is the wire protocol (e.g. `openai-completions`); a
+    single API may serve several providers, and compatibility checks key on
+    all three, not `model` alone.
+
+    `api` defaults to `"mock"` only because the mock adapter is the sole
+    registered adapter today (LLM-F006's disposition, see
+    assurance/layers/02-llm.md) -- every current caller wants that value.
+    The default becomes actively wrong once a second API exists (Phase 5);
+    remove it then, so every caller must say which API it means."""
 
     provider: str
     model: str
+    api: str = "mock"
 
 
 @dataclass(frozen=True, slots=True)
@@ -53,6 +63,7 @@ class Adapter(Protocol):
     """
 
     provider: str
+    api: str
     models: frozenset[str]
 
     def stream(self, request: Request) -> AssistantStream: ...
@@ -72,7 +83,7 @@ class LlmService:
         The handle removes only registrations this adapter still holds, so
         withdrawing a superseded adapter cannot remove its replacement.
         """
-        ids = [ModelId(adapter.provider, model) for model in adapter.models]
+        ids = [ModelId(adapter.provider, model, adapter.api) for model in adapter.models]
         for model_id in ids:
             self._adapters[model_id] = adapter
 
@@ -111,6 +122,7 @@ def _empty_partial(request: Request) -> AssistantMessage:
         model=request.model.model,
         provider=request.model.provider,
         timestamp=0,
+        api=request.model.api,
     )
 
 

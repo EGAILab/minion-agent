@@ -48,6 +48,7 @@ class MockAdapter:
     """Returns scripted responses in order, recording each request."""
 
     provider = "mock"
+    api = "mock"
     models = frozenset({"mock-1"})
 
     def __init__(self, script: Sequence[ScriptedResponse]) -> None:
@@ -84,6 +85,7 @@ class MockAdapter:
                 provider=request.model.provider,
                 timestamp=len(self.requests),
                 error_message=response.error_message,
+                api=request.model.api,
             )
 
         # Built eagerly, then replayed. A generator would suspend at each

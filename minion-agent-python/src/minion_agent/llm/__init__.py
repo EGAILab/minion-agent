@@ -4,6 +4,10 @@ from .content import ContentBlock, ImageBlock, TextBlock, ThinkingBlock, ToolCal
 from .errors import AdapterProtocolError, LlmError, UnknownModelError
 from .messages import (
     AssistantMessage,
+    AssistantMessageDiagnostic,
+    Cost,
+    DeferredHandle,
+    DiagnosticError,
     Message,
     StopReason,
     ToolResultMessage,
@@ -35,8 +39,12 @@ __all__ = [
     "Adapter",
     "AdapterProtocolError",
     "AssistantMessage",
+    "AssistantMessageDiagnostic",
     "AssistantStream",
     "ContentBlock",
+    "Cost",
+    "DeferredHandle",
+    "DiagnosticError",
     "ImageBlock",
     "LlmError",
     "LlmService",

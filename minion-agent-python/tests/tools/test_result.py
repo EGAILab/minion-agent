@@ -28,10 +28,21 @@ def test_a_result_converts_to_the_message_the_model_sees() -> None:
 
 def test_details_do_not_reach_the_model() -> None:
     """Details are for listeners and telemetry. Putting them in front of the
-    model would make every audit annotation part of the transcript."""
+    model would make every audit annotation part of the transcript -- but the
+    message still carries them as structured metadata alongside `content`
+    (design spec section 4), distinct from the readable text the model sees."""
     result = replace(text_result("t1", "done"), details={"audited": True})
 
-    assert "audited" not in text_of(result.to_message())
+    message = result.to_message()
+
+    assert "audited" not in text_of(message)
+    assert message.details == {"audited": True}
+
+
+def test_a_result_with_no_details_carries_none_on_the_message() -> None:
+    """The default empty dict maps to the vocabulary's "not present" state,
+    not an empty-but-present dict, matching the optional field's meaning."""
+    assert text_result("t1", "done").to_message().details is None
 
 
 def test_terminate_does_not_reach_the_model_either() -> None:
@@ -69,3 +80,13 @@ def test_added_tool_names_are_carried() -> None:
     result = replace(text_result("t1", "loaded"), added_tool_names=("deploy",))
 
     assert result.added_tool_names == ("deploy",)
+
+
+def test_added_tool_names_reach_the_message() -> None:
+    result = replace(text_result("t1", "loaded"), added_tool_names=("deploy",))
+
+    assert result.to_message().added_tool_names == ("deploy",)
+
+
+def test_a_result_with_no_added_tool_names_carries_none_on_the_message() -> None:
+    assert text_result("t1", "done").to_message().added_tool_names is None

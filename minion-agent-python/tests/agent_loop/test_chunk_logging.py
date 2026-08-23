@@ -96,6 +96,7 @@ class _DeltaAdapter:
     """
 
     provider = "delta-mock"
+    api = "mock"
     models = frozenset({"delta-1"})
 
     async def stream(self, request: Request) -> AssistantStream:

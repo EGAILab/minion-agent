@@ -15,6 +15,10 @@ class TextBlock:
     """Ordinary model-visible text."""
 
     text: str
+    text_signature: str | None = None
+    """Opaque provider replay metadata (design spec section 4). Preserves
+    Responses-family message item identity/phase; core code persists this
+    string without assigning it provider-independent meaning."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -22,6 +26,11 @@ class ThinkingBlock:
     """Reasoning content, when a provider exposes it separately from text."""
 
     thinking: str
+    thinking_signature: str | None = None
+    """Opaque provider replay metadata: the complete provider reasoning item
+    needed for Responses-family replay (design spec section 4)."""
+    redacted: bool = False
+    """Whether the provider redacted this thinking block's visible text."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -58,6 +67,12 @@ class ToolCallBlock:
     id: str
     name: str
     arguments: dict[str, Any]
+    thought_signature: str | None = None
+    """Opaque provider-specific replay metadata used by APIs that need it
+    (design spec section 4); cross-model transformation strips it."""
+    namespace: str | None = None
+    """The tool namespace this call belongs to, when a provider distinguishes
+    tools by more than name alone."""
 
 
 type ContentBlock = TextBlock | ThinkingBlock | ImageBlock | ToolCallBlock

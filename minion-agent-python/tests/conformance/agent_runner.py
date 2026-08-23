@@ -258,6 +258,7 @@ def _assistant_detail(message: AssistantMessage) -> dict[str, Any]:
         "api": message.api,
         "provider": message.provider,
         "model": message.model,
+        "timestamp": message.timestamp,
         "response_model": message.response_model,
         "response_id": message.response_id,
         "stop_reason": message.stop_reason.value,

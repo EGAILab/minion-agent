@@ -320,9 +320,13 @@
       "additionalProperties": false,
       "properties": {
         "type": { "type": "string" },
-        "timestamp": { "type": "integer" },
-        "error": { "$ref": "#/$defs/diagnosticError" },
-        "details": { "type": "object" }
+        "timestamp": { "type": "number" },
+        "error": {
+          "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/diagnosticError" }]
+        },
+        "details": {
+          "oneOf": [{ "type": "null" }, { "type": "object" }]
+        }
       },
       "description": "AssistantMessageDiagnostic: redacted provider/runtime diagnostics for failures and recoveries (design spec section 4)."
     },
@@ -335,8 +339,8 @@
         "model_id": { "type": "string" },
         "api": { "type": "string" },
         "id": { "type": "string" },
-        "expires_at": { "type": "integer" },
-        "poll_after_ms": { "type": "integer" },
+        "expires_at": { "type": ["number", "null"] },
+        "poll_after_ms": { "type": ["number", "null"] },
         "data": {}
       },
       "description": "A pending async/deferred provider response, polled or resumed later (design spec section 4)."
@@ -347,6 +351,7 @@
         "api",
         "provider",
         "model",
+        "timestamp",
         "response_model",
         "response_id",
         "stop_reason",
@@ -363,6 +368,7 @@
         "api": { "type": "string" },
         "provider": { "type": "string" },
         "model": { "type": "string" },
+        "timestamp": { "type": "number" },
         "response_model": { "type": ["string", "null"] },
         "response_id": { "type": ["string", "null"] },
         "stop_reason": {
@@ -386,7 +392,7 @@
           "items": { "$ref": "#/$defs/contentBlock" }
         }
       },
-      "description": "The exhaustive public AssistantMessage shape (design spec section 4), normalized from a real object the implementation produced -- every field required so a scenario cannot silently omit one it should be checking. Optional Pi fields absent from the real message are represented as null, not omitted."
+      "description": "The exhaustive public AssistantMessage shape (design spec section 4), normalized from a real object the implementation produced -- every field required so a scenario cannot silently omit one it should be checking. Optional Pi fields absent from the real message are represented as null, not omitted. `role` is intentionally omitted: this definition only ever normalizes AssistantMessage instances, so role is always the constant \"assistant\" and carries no information -- the definition's own name encodes it instead."
     },
     "toolStub": {
       "type": "object",

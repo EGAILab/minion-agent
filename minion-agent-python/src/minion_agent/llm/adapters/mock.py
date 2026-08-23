@@ -12,7 +12,13 @@ from collections.abc import AsyncIterator, Sequence
 from dataclasses import dataclass
 
 from ..content import ContentBlock, TextBlock
-from ..messages import AssistantMessage, StopReason, Usage
+from ..messages import (
+    AssistantMessage,
+    AssistantMessageDiagnostic,
+    DeferredHandle,
+    StopReason,
+    Usage,
+)
 from ..service import Request
 from ..stream import StreamChunk, StreamDone, StreamError, StreamStart, TextDelta
 
@@ -42,6 +48,16 @@ class ScriptedResponse:
 
     A misbehaving provider. The service must fuse after the first terminal, so
     none of this reaches a consumer."""
+    response_model: str | None = None
+    response_id: str | None = None
+    diagnostics: tuple[AssistantMessageDiagnostic, ...] | None = None
+    deferred: DeferredHandle | None = None
+    raw_stop_reason: str | None = None
+    end_turn: bool | None = None
+    """Response-identity/diagnostic fields (design spec section 4). A real
+    provider adapter would set these from what it actually received; the
+    reference adapter must be able to script them too, or no canonical
+    scenario could ever observe them through a real stream (LLM-F010)."""
 
 
 class MockAdapter:
@@ -86,6 +102,12 @@ class MockAdapter:
                 timestamp=len(self.requests),
                 error_message=response.error_message,
                 api=request.model.api,
+                response_model=response.response_model,
+                response_id=response.response_id,
+                diagnostics=response.diagnostics,
+                deferred=response.deferred,
+                raw_stop_reason=response.raw_stop_reason,
+                end_turn=response.end_turn,
             )
 
         # Built eagerly, then replayed. A generator would suspend at each

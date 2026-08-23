@@ -87,10 +87,16 @@
           "length",
           "tool_use",
           "error",
-          "aborted"
+          "aborted",
+          "deferred"
         ]
       },
       "description": "Stop reason of each assistant message reaching model history, in order."
+    },
+    "expect_assistant_details": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/assistantMessageDetail" },
+      "description": "The full public AssistantMessage shape (design spec section 4) for each assistant message reaching model history, in order -- parallel to expect_assistant_stop_reasons but exhaustive rather than stop-reason-only. Every field the real object carries must be given exactly; optional fields absent from the real message are asserted as null, not omitted, so a scenario cannot silently skip checking one."
     },
     "listeners": {
       "type": "array",
@@ -165,14 +171,15 @@
             "length",
             "tool_use",
             "error",
-            "aborted"
+            "aborted",
+            "deferred"
           ]
         },
         "error_message": {
           "type": "string"
         },
         "usage": {
-          "type": "object"
+          "$ref": "#/$defs/usage"
         },
         "truncated": {
           "type": "boolean",
@@ -184,6 +191,28 @@
           "minimum": 0,
           "default": 0,
           "description": "Extra chunks a misbehaving provider emits after its terminal. The public stream must fuse and deliver none of them."
+        },
+        "response_model": {
+          "type": "string",
+          "description": "Concrete model when different from the requested model (design spec section 4)."
+        },
+        "response_id": {
+          "type": "string",
+          "description": "Provider-specific response/message identifier, when the upstream API exposes one."
+        },
+        "diagnostics": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/diagnostic" }
+        },
+        "deferred": {
+          "$ref": "#/$defs/deferredHandle"
+        },
+        "raw_stop_reason": {
+          "type": "string",
+          "description": "The provider's own stop-reason string, preserved alongside the normalized stop_reason."
+        },
+        "end_turn": {
+          "type": "boolean"
         }
       }
     },
@@ -192,6 +221,7 @@
       "required": [
         "type"
       ],
+      "additionalProperties": false,
       "properties": {
         "type": {
           "enum": [
@@ -204,8 +234,20 @@
         "text": {
           "type": "string"
         },
+        "text_signature": {
+          "type": ["string", "null"],
+          "description": "Opaque provider replay metadata preserving Responses-family message item identity/phase (design spec section 4)."
+        },
         "thinking": {
           "type": "string"
+        },
+        "thinking_signature": {
+          "type": ["string", "null"],
+          "description": "Opaque provider replay metadata: the complete provider reasoning item needed for Responses-family replay."
+        },
+        "redacted": {
+          "type": "boolean",
+          "description": "Whether the provider redacted this thinking block's visible text."
         },
         "mime_type": {
           "type": "string"
@@ -224,8 +266,133 @@
         },
         "arguments": {
           "type": "object"
+        },
+        "thought_signature": {
+          "type": ["string", "null"],
+          "description": "Opaque provider-specific replay metadata used by APIs that need it; cross-model transformation strips it."
+        },
+        "namespace": {
+          "type": ["string", "null"],
+          "description": "The tool namespace this call belongs to, when a provider distinguishes tools by more than name alone."
         }
       }
+    },
+    "cost": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "input": { "type": "number" },
+        "output": { "type": "number" },
+        "cache_read": { "type": "number" },
+        "cache_write": { "type": "number" },
+        "total": { "type": "number" }
+      },
+      "description": "Monetary cost matching Usage's token breakdown (design spec section 4)."
+    },
+    "usage": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "input": { "type": "integer" },
+        "output": { "type": "integer" },
+        "cache_read": { "type": "integer" },
+        "cache_write": { "type": "integer" },
+        "cache_write_1h": { "type": ["integer", "null"] },
+        "reasoning": { "type": ["integer", "null"] },
+        "total_tokens": { "type": "integer" },
+        "cost": { "$ref": "#/$defs/cost" }
+      }
+    },
+    "diagnosticError": {
+      "type": "object",
+      "required": ["message"],
+      "additionalProperties": false,
+      "properties": {
+        "message": { "type": "string" },
+        "name": { "type": ["string", "null"] },
+        "stack": { "type": ["string", "null"] },
+        "code": { "oneOf": [{ "type": "string" }, { "type": "number" }, { "type": "null" }] }
+      }
+    },
+    "diagnostic": {
+      "type": "object",
+      "required": ["type", "timestamp"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "type": "string" },
+        "timestamp": { "type": "number" },
+        "error": {
+          "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/diagnosticError" }]
+        },
+        "details": {
+          "oneOf": [{ "type": "null" }, { "type": "object" }]
+        }
+      },
+      "description": "AssistantMessageDiagnostic: redacted provider/runtime diagnostics for failures and recoveries (design spec section 4)."
+    },
+    "deferredHandle": {
+      "type": "object",
+      "required": ["provider", "model_id", "api", "id"],
+      "additionalProperties": false,
+      "properties": {
+        "provider": { "type": "string" },
+        "model_id": { "type": "string" },
+        "api": { "type": "string" },
+        "id": { "type": "string" },
+        "expires_at": { "type": ["number", "null"] },
+        "poll_after_ms": { "type": ["number", "null"] },
+        "data": {}
+      },
+      "description": "A pending async/deferred provider response, polled or resumed later (design spec section 4)."
+    },
+    "assistantMessageDetail": {
+      "type": "object",
+      "required": [
+        "api",
+        "provider",
+        "model",
+        "timestamp",
+        "response_model",
+        "response_id",
+        "stop_reason",
+        "raw_stop_reason",
+        "end_turn",
+        "error_message",
+        "usage",
+        "diagnostics",
+        "deferred",
+        "content"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "api": { "type": "string" },
+        "provider": { "type": "string" },
+        "model": { "type": "string" },
+        "timestamp": { "type": "number" },
+        "response_model": { "type": ["string", "null"] },
+        "response_id": { "type": ["string", "null"] },
+        "stop_reason": {
+          "enum": ["pending", "stop", "length", "tool_use", "error", "aborted", "deferred"]
+        },
+        "raw_stop_reason": { "type": ["string", "null"] },
+        "end_turn": { "type": ["boolean", "null"] },
+        "error_message": { "type": ["string", "null"] },
+        "usage": { "$ref": "#/$defs/usage" },
+        "diagnostics": {
+          "oneOf": [
+            { "type": "null" },
+            { "type": "array", "items": { "$ref": "#/$defs/diagnostic" } }
+          ]
+        },
+        "deferred": {
+          "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/deferredHandle" }]
+        },
+        "content": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/contentBlock" }
+        }
+      },
+      "description": "The exhaustive public AssistantMessage shape (design spec section 4), normalized from a real object the implementation produced -- every field required so a scenario cannot silently omit one it should be checking. Optional Pi fields absent from the real message are represented as null, not omitted. `role` is intentionally omitted: this definition only ever normalizes AssistantMessage instances, so role is always the constant \"assistant\" and carries no information -- the definition's own name encodes it instead."
     },
     "toolStub": {
       "type": "object",

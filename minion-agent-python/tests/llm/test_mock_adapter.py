@@ -2,7 +2,15 @@
 
 from minion_agent.llm.adapters.mock import MockAdapter, ScriptedResponse
 from minion_agent.llm.content import TextBlock, ToolCallBlock
-from minion_agent.llm.messages import StopReason, Usage, UserMessage
+from minion_agent.llm.messages import (
+    AssistantMessageDiagnostic,
+    Cost,
+    DeferredHandle,
+    DiagnosticError,
+    StopReason,
+    Usage,
+    UserMessage,
+)
 from minion_agent.llm.service import ModelId, Request
 from minion_agent.llm.stream import StreamDone, StreamError, TextDelta, collect
 
@@ -98,3 +106,68 @@ async def test_an_aborted_response_also_rides_the_stream() -> None:
 
     assert isinstance(chunks[-1], StreamError)
     assert chunks[-1].reason is StopReason.ABORTED
+
+
+async def test_response_identity_and_diagnostic_fields_are_carried_through() -> None:
+    """LLM-F010: a real (reference) adapter must be able to script every
+    Pi-required AssistantMessage field, not just the original 7 -- otherwise
+    no canonical scenario could ever observe them through the real stream."""
+    diagnostic = AssistantMessageDiagnostic(
+        type="retry", timestamp=1, error=DiagnosticError(message="timeout")
+    )
+    handle = DeferredHandle(provider="mock", model_id="mock-1", api="mock", id="req-1")
+    adapter = MockAdapter(
+        [
+            ScriptedResponse(
+                (),
+                StopReason.DEFERRED,
+                response_model="mock-1-router",
+                response_id="resp_1",
+                diagnostics=(diagnostic,),
+                deferred=handle,
+                raw_stop_reason="provider_deferred",
+                end_turn=True,
+            )
+        ]
+    )
+
+    message = await collect(adapter.stream(_request()))
+
+    assert message.stop_reason is StopReason.DEFERRED
+    assert message.response_model == "mock-1-router"
+    assert message.response_id == "resp_1"
+    assert message.diagnostics == (diagnostic,)
+    assert message.deferred == handle
+    assert message.raw_stop_reason == "provider_deferred"
+    assert message.end_turn is True
+
+
+async def test_unset_response_identity_fields_stay_absent_not_synthesized() -> None:
+    """The adapter must not invent values for fields a scenario didn't
+    script -- absence has to stay observable as None, not a fabricated
+    default that would let a runner's projection lie about what the real
+    object carries."""
+    adapter = MockAdapter([ScriptedResponse((), StopReason.STOP)])
+
+    message = await collect(adapter.stream(_request()))
+
+    assert (
+        message.response_model,
+        message.response_id,
+        message.diagnostics,
+        message.deferred,
+        message.raw_stop_reason,
+        message.end_turn,
+    ) == (None, None, None, None, None, None)
+
+
+async def test_cost_is_carried_through_usage() -> None:
+    cost = Cost(input=0.01, output=0.02, total=0.03)
+    adapter = MockAdapter(
+        [ScriptedResponse((), StopReason.STOP, usage=Usage(input=5, total_tokens=5, cost=cost))]
+    )
+
+    message = await collect(adapter.stream(_request()))
+
+    assert message.usage.total_tokens == 5
+    assert message.usage.cost == cost

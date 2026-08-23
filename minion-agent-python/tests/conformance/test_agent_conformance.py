@@ -42,6 +42,9 @@ async def test_agent_scenario(scenario: Path) -> None:
     if "expect_assistant_stop_reasons" in document:
         assert outcome["assistant_stop_reasons"] == document["expect_assistant_stop_reasons"]
 
+    if "expect_assistant_details" in document:
+        assert outcome["assistant_details"] == document["expect_assistant_details"]
+
     if "expect_tool_completion_order" in document:
         assert outcome["tool_completion_order"] == document["expect_tool_completion_order"]
 

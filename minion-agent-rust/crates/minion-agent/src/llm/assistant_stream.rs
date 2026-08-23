@@ -10,6 +10,12 @@ use super::{
     RawAssistantStream, StopReason, StreamChunk,
 };
 
+/// Settled public assistant stream.
+///
+/// Expected raw operational failures are converted to one terminal item.
+/// Premature EOF becomes a terminal protocol error preserving the last partial.
+/// The first terminal fuses the stream and releases its raw source without
+/// hidden draining. Rust panics remain invariant/programming failures.
 pub struct AssistantStream {
     raw: Option<RawAssistantStream>,
     partial: AssistantMessage,
@@ -79,6 +85,11 @@ impl Stream for AssistantStream {
                             ErrorReason::Error => StopReason::Error,
                             ErrorReason::Aborted => StopReason::Aborted,
                         };
+                        if error.error_message.as_deref().is_none_or(str::is_empty) {
+                            error.error_message = Some(
+                                "adapter returned a terminal error without a diagnostic".into(),
+                            );
+                        }
                     }
                     _ => {}
                 }

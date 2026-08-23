@@ -1,3 +1,8 @@
+//! Provider-neutral LLM vocabulary and streaming boundary.
+//!
+//! Adapters decode provider protocols into typed raw chunks. [`AssistantStream`]
+//! owns Minion's provider-neutral settlement and fusion rules.
+
 mod adapter;
 mod assistant_stream;
 mod model;

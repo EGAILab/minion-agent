@@ -4,7 +4,7 @@ use futures::{StreamExt, stream};
 use minion_agent::llm::{
     AdapterStartError, AdapterStreamError, AdapterStreamErrorKind, AssistantContentBlock,
     AssistantMessage, DoneReason, ErrorReason, LlmAdapter, LlmContext, LlmRequest, LlmService,
-    ModelIdentity, RawAssistantStream, StopReason, StreamChunk, StreamOptions, TextBlock,
+    ModelIdentity, RawAssistantStream, SimpleStreamOptions, StopReason, StreamChunk, TextBlock,
 };
 
 struct ItemsAdapter(Vec<Result<StreamChunk, AdapterStreamError>>);
@@ -23,7 +23,7 @@ fn request() -> LlmRequest {
     LlmRequest {
         model: identity(),
         context: LlmContext::default(),
-        options: StreamOptions::default(),
+        options: SimpleStreamOptions::default(),
     }
 }
 
@@ -149,6 +149,30 @@ fn premature_eof_synthesizes_error_terminal_preserving_partial() {
         ));
         assert_eq!(terminal.partial().content, observed.content);
         assert_eq!(terminal.partial().usage, observed.usage);
+        assert_eq!(terminal.partial().stop_reason, StopReason::Error);
+        assert!(
+            terminal
+                .partial()
+                .error_message
+                .as_deref()
+                .is_some_and(|message| !message.is_empty())
+        );
+        assert!(public.next().await.is_none());
+    });
+}
+
+#[test]
+fn malformed_terminal_error_is_normalized_without_weakening_public_shape() {
+    futures::executor::block_on(async {
+        let mut malformed = partial("kept");
+        malformed.stop_reason = StopReason::Pending;
+        malformed.error_message = None;
+        let service = service(vec![Ok(StreamChunk::Error {
+            reason: ErrorReason::Error,
+            error: malformed,
+        })]);
+        let mut public = service.stream(request()).unwrap();
+        let terminal = public.next().await.unwrap();
         assert_eq!(terminal.partial().stop_reason, StopReason::Error);
         assert!(
             terminal

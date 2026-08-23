@@ -7,6 +7,11 @@ use super::{
     AdapterStartError, AssistantMessage, AssistantStream, LlmAdapter, LlmRequest, ModelIdentity,
 };
 
+/// Resolves strict three-part model identities before creating assistant streams.
+///
+/// Lookup and adapter-start failures are eager typed errors. The adapter is
+/// cloned out of the registry before user/provider code runs, so no registry
+/// lock is held while starting a stream.
 #[derive(Default)]
 pub struct LlmService {
     adapters: RwLock<HashMap<ModelIdentity, Arc<dyn LlmAdapter>>>,

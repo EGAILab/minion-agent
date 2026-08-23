@@ -1,7 +1,8 @@
 use std::collections::BTreeMap;
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
+use thiserror::Error;
 
 use super::ModelIdentity;
 
@@ -72,8 +73,40 @@ enum ThinkingKind {
 #[serde(untagged)]
 pub enum ImageSource {
     Data { data: String },
-    Reference { reference: String },
+    Reference { reference: ArtifactHash },
 }
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[serde(transparent)]
+pub struct ArtifactHash(String);
+
+impl ArtifactHash {
+    pub fn new(value: impl Into<String>) -> Result<Self, ArtifactHashError> {
+        let value = value.into();
+        let digest = value.strip_prefix("sha256:").ok_or(ArtifactHashError)?;
+        if digest.len() != 64 || !digest.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+            return Err(ArtifactHashError);
+        }
+        Ok(Self(value))
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl<'de> Deserialize<'de> for ArtifactHash {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        Self::new(String::deserialize(deserializer)?).map_err(serde::de::Error::custom)
+    }
+}
+
+#[derive(Clone, Copy, Debug, Error, Eq, PartialEq)]
+#[error("artifact identity must be sha256 followed by 64 hexadecimal digits")]
+pub struct ArtifactHashError;
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct ImageBlock {
@@ -95,13 +128,11 @@ impl ImageBlock {
         }
     }
 
-    pub fn reference(mime_type: impl Into<String>, reference: impl Into<String>) -> Self {
+    pub fn reference(mime_type: impl Into<String>, reference: ArtifactHash) -> Self {
         Self {
             kind: ImageKind::Image,
             mime_type: mime_type.into(),
-            source: ImageSource::Reference {
-                reference: reference.into(),
-            },
+            source: ImageSource::Reference { reference },
         }
     }
 }
@@ -118,7 +149,7 @@ pub struct ToolCall {
     kind: ToolCallKind,
     pub id: String,
     pub name: String,
-    pub arguments: Value,
+    pub arguments: BTreeMap<String, Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub thought_signature: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -126,7 +157,11 @@ pub struct ToolCall {
 }
 
 impl ToolCall {
-    pub fn new(id: impl Into<String>, name: impl Into<String>, arguments: Value) -> Self {
+    pub fn new(
+        id: impl Into<String>,
+        name: impl Into<String>,
+        arguments: BTreeMap<String, Value>,
+    ) -> Self {
         Self {
             kind: ToolCallKind::ToolCall,
             id: id.into(),
@@ -365,6 +400,28 @@ pub struct ToolResultMessage {
     pub timestamp: f64,
 }
 
+impl ToolResultMessage {
+    pub fn new(
+        tool_call_id: impl Into<String>,
+        tool_name: impl Into<String>,
+        content: Vec<ToolResultContentBlock>,
+        is_error: bool,
+        timestamp: f64,
+    ) -> Self {
+        Self {
+            role: ToolResultRole::ToolResult,
+            tool_call_id: tool_call_id.into(),
+            tool_name: tool_name.into(),
+            content,
+            details: None,
+            usage: None,
+            added_tool_names: None,
+            is_error,
+            timestamp,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 enum ToolResultRole {
@@ -375,8 +432,8 @@ enum ToolResultRole {
 #[serde(untagged)]
 pub enum Message {
     User(UserMessage),
-    Assistant(AssistantMessage),
-    ToolResult(ToolResultMessage),
+    Assistant(Box<AssistantMessage>),
+    ToolResult(Box<ToolResultMessage>),
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -396,7 +453,40 @@ pub struct LlmContext {
 }
 
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
+pub struct ProviderRequestOptions {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub timeout_ms: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_retries: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_retry_delay_ms: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub headers: Option<BTreeMap<String, Option<String>>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub env: Option<BTreeMap<String, String>>,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum Transport {
+    Sse,
+    Websocket,
+    WebsocketCached,
+    Auto,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CacheRetention {
+    None,
+    Short,
+    Long,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
 pub struct StreamOptions {
+    #[serde(flatten)]
+    pub provider: ProviderRequestOptions,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub temperature: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -404,7 +494,82 @@ pub struct StreamOptions {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_tokens: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub transport: Option<Transport>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cache_retention: Option<CacheRetention>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub websocket_connect_timeout_ms: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub metadata: Option<BTreeMap<String, Value>>,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ToolChoice {
+    Auto,
+    None,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ThinkingLevel {
+    Minimal,
+    Low,
+    Medium,
+    High,
+    Xhigh,
+    Max,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
+pub struct ThinkingBudgets {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub minimal: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub low: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub medium: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub high: Option<u64>,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
+pub enum DeferredWindow {
+    #[serde(rename = "15m")]
+    FifteenMinutes,
+    #[serde(rename = "1h")]
+    OneHour,
+    #[serde(rename = "24h")]
+    TwentyFourHours,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
+pub struct DeferredOptions {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub window: Option<DeferredWindow>,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(untagged)]
+pub enum DeferredRequest {
+    Enabled(bool),
+    Options(DeferredOptions),
+}
+
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
+pub struct SimpleStreamOptions {
+    #[serde(flatten)]
+    pub stream: StreamOptions,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tool_choice: Option<ToolChoice>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reasoning: Option<ThinkingLevel>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub deferred: Option<DeferredRequest>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub thinking_budgets: Option<ThinkingBudgets>,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -412,7 +577,7 @@ pub struct LlmRequest {
     pub model: ModelIdentity,
     pub context: LlmContext,
     #[serde(default)]
-    pub options: StreamOptions,
+    pub options: SimpleStreamOptions,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]

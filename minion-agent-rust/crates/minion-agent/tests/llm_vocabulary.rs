@@ -1,6 +1,6 @@
 use minion_agent::llm::{
-    AssistantContentBlock, AssistantMessage, Cost, ModelIdentity, ModelIdentityError, StopReason,
-    TextBlock, ThinkingBlock, ToolCall, Usage,
+    ArtifactHash, AssistantContentBlock, AssistantMessage, Cost, ImageBlock, ModelIdentity,
+    ModelIdentityError, StopReason, TextBlock, ThinkingBlock, ToolCall, Usage,
 };
 
 #[test]
@@ -78,8 +78,12 @@ fn model_identity_deserialization_uses_the_same_validation_boundary() {
 fn core_vocabulary_uses_canonical_snake_case_and_omits_absent_fields() {
     let text = TextBlock::new("answer");
     let thinking = ThinkingBlock::new("reason").with_signature("opaque");
-    let tool_call = ToolCall::new("call-1", "lookup", serde_json::json!({"query": "rust"}))
-        .with_namespace("web");
+    let tool_call = ToolCall::new(
+        "call-1",
+        "lookup",
+        serde_json::from_value(serde_json::json!({"query": "rust"})).unwrap(),
+    )
+    .with_namespace("web");
 
     assert_eq!(
         serde_json::to_value(StopReason::ToolUse).unwrap(),
@@ -142,4 +146,16 @@ fn thinking_redacted_defaults_false_when_absent() {
     let value = serde_json::json!({"type": "thinking", "thinking": "visible"});
     let block: ThinkingBlock = serde_json::from_value(value).unwrap();
     assert!(!block.redacted);
+}
+
+#[test]
+fn image_references_require_content_addressed_identity() {
+    let hash = format!("sha256:{}", "ab".repeat(32));
+    let image = ImageBlock::reference(
+        "image/png",
+        ArtifactHash::new(hash.clone()).expect("sha256 identity must validate"),
+    );
+    assert_eq!(serde_json::to_value(image).unwrap()["reference"], hash);
+    assert!(ArtifactHash::new("https://mutable.example/image.png").is_err());
+    assert!(ArtifactHash::new("sha256:short").is_err());
 }

@@ -7,7 +7,7 @@ use futures::{Stream, stream};
 use minion_agent::llm::{
     AdapterStartError, AdapterStreamError, LlmAdapter, LlmContext, LlmRequest, LlmService,
     LlmStartError, ModelIdentity, RawAssistantStream, Script, ScriptItem, ScriptedAdapter,
-    StreamOptions,
+    SimpleStreamOptions,
 };
 
 #[derive(Clone)]
@@ -34,7 +34,7 @@ fn request(identity: ModelIdentity) -> LlmRequest {
     LlmRequest {
         model: identity,
         context: LlmContext::default(),
-        options: StreamOptions::default(),
+        options: SimpleStreamOptions::default(),
     }
 }
 

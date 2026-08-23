@@ -9,7 +9,7 @@ use super::{
 
 #[derive(Clone, Debug)]
 pub enum ScriptItem {
-    Chunk(StreamChunk),
+    Chunk(Box<StreamChunk>),
     Error(AdapterStreamError),
 }
 
@@ -53,7 +53,7 @@ impl LlmAdapter for ScriptedAdapter {
         })?;
         Ok(Box::pin(stream::iter(script.items.into_iter().map(
             |item| match item {
-                ScriptItem::Chunk(chunk) => Ok(chunk),
+                ScriptItem::Chunk(chunk) => Ok(*chunk),
                 ScriptItem::Error(error) => Err(error),
             },
         ))))

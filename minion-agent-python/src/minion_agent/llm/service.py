@@ -129,30 +129,43 @@ def _empty_partial(request: Request) -> AssistantMessage:
 async def _settled(source: AssistantStream, request: Request) -> AssistantStream:
     """Guarantee the contract §4 states for a returned stream.
 
-    Two guarantees, both observable:
+    Three guarantees, all observable:
 
     * **Nothing escapes iteration.** A raw stream that ends before emitting a
       terminal is a runtime streaming failure — a truncated response is the
       ordinary case — so it settles as a terminal error chunk rather than
       raising. The accumulated partial is preserved: discarding it would
       replace a real partial response with an unrelated empty one.
+    * **An adapter that raises instead of encoding a failure still settles
+      in-band.** Pi's contract (`StreamFunction`) requires request/provider/
+      network/runtime failures to be encoded in the returned stream, not
+      thrown — an adapter that gets this wrong and raises mid-iteration
+      (LLM-F007) must not be able to break the guarantee for every
+      well-behaved adapter's caller.
     * **The first terminal wins, and the stream then fuses.** Nothing is
       yielded afterward, and the source is not drained further merely to
       discover whether a provider would have violated the protocol again.
     """
     partial: AssistantMessage | None = None
 
-    async for chunk in source:
-        partial = chunk.partial
-        yield chunk
-        if isinstance(chunk, StreamDone | StreamError):
-            return
+    def _error_terminal(message: str) -> StreamError:
+        settled = replace(
+            partial if partial is not None else _empty_partial(request),
+            stop_reason=StopReason.ERROR,
+            error_message=message,
+        )
+        return StreamError(reason=StopReason.ERROR, message=settled, partial=settled)
 
-    settled = replace(
-        partial if partial is not None else _empty_partial(request),
-        stop_reason=StopReason.ERROR,
-        error_message=(
-            "provider stream ended without a terminal chunk; the response is incomplete"
-        ),
+    try:
+        async for chunk in source:
+            partial = chunk.partial
+            yield chunk
+            if isinstance(chunk, StreamDone | StreamError):
+                return
+    except Exception as error:
+        yield _error_terminal(f"provider stream raised {type(error).__name__}: {error}")
+        return
+
+    yield _error_terminal(
+        "provider stream ended without a terminal chunk; the response is incomplete"
     )
-    yield StreamError(reason=StopReason.ERROR, message=settled, partial=settled)

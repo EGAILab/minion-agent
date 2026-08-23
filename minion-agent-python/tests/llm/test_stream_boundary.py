@@ -149,6 +149,36 @@ async def test_a_represented_provider_error_still_rides_the_stream() -> None:
     assert message.stop_reason is StopReason.ERROR
 
 
+async def test_an_adapter_that_raises_mid_iteration_still_settles_in_band() -> None:
+    """LLM-F007: an adapter that gets the never-raises contract wrong and
+    raises instead of encoding its failure must not be able to break the
+    guarantee for its own caller -- the accumulated partial is preserved
+    exactly like the premature-EOF case."""
+
+    class RudeAdapter:
+        provider = "mock"
+        api = "mock"
+        models = frozenset({"mock-1"})
+
+        def stream(self, request: Request) -> AsyncIterator[StreamChunk]:
+            partial = _partial("half a sen")
+
+            async def run() -> AsyncIterator[StreamChunk]:
+                yield StreamStart(partial=partial)
+                raise ConnectionError("the socket just died, mid-response")
+
+            return run()
+
+    service = LlmService()
+    service.register(RudeAdapter())
+
+    chunks = [chunk async for chunk in service.stream(_request())]
+
+    assert isinstance(chunks[-1], StreamError)
+    assert text_of(chunks[-1].message) == "half a sen"
+    assert "ConnectionError" in (chunks[-1].message.error_message or "")
+
+
 async def test_an_unknown_model_still_fails_eagerly() -> None:
     """The other side of the boundary is unchanged: caller bugs raise."""
     service = _service()

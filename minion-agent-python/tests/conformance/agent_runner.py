@@ -23,16 +23,21 @@ from minion_agent.agent.projection import TurnEnd, event_names, project
 from minion_agent.agent_loop import agent_loop_plugin
 from minion_agent.llm import (
     AssistantMessage,
+    AssistantMessageDiagnostic,
     ContentBlock,
+    Cost,
+    DeferredHandle,
+    DiagnosticError,
     ModelId,
     TextBlock,
+    ThinkingBlock,
     ToolCallBlock,
     ToolResultMessage,
     UserMessage,
     text_of,
 )
 from minion_agent.llm.adapters.mock import MockAdapter, ScriptedResponse
-from minion_agent.llm.messages import StopReason
+from minion_agent.llm.messages import StopReason, Usage
 from minion_agent.llm.plugin import llm_plugin
 from minion_agent.runtime import Context
 from minion_agent.session import EventKind, derive_messages
@@ -53,8 +58,60 @@ _ROLE = {
 
 def _block(raw: dict[str, Any]) -> ContentBlock:
     if raw["type"] == "tool_call":
-        return ToolCallBlock(id=raw["id"], name=raw["name"], arguments=raw.get("arguments", {}))
-    return TextBlock(text=raw.get("text", ""))
+        return ToolCallBlock(
+            id=raw["id"],
+            name=raw["name"],
+            arguments=raw.get("arguments", {}),
+            thought_signature=raw.get("thought_signature"),
+            namespace=raw.get("namespace"),
+        )
+    if raw["type"] == "thinking":
+        return ThinkingBlock(
+            thinking=raw.get("thinking", ""),
+            thinking_signature=raw.get("thinking_signature"),
+            redacted=raw.get("redacted", False),
+        )
+    return TextBlock(text=raw.get("text", ""), text_signature=raw.get("text_signature"))
+
+
+def _usage(raw: dict[str, Any] | None) -> Usage:
+    if raw is None:
+        return Usage()
+    cost = raw.get("cost")
+    return Usage(
+        input=raw.get("input", 0),
+        output=raw.get("output", 0),
+        cache_read=raw.get("cache_read", 0),
+        cache_write=raw.get("cache_write", 0),
+        cache_write_1h=raw.get("cache_write_1h"),
+        reasoning=raw.get("reasoning"),
+        total_tokens=raw.get("total_tokens", 0),
+        cost=Cost(**cost) if cost is not None else Cost(),
+    )
+
+
+def _diagnostic(raw: dict[str, Any]) -> AssistantMessageDiagnostic:
+    raw_error = raw.get("error")
+    return AssistantMessageDiagnostic(
+        type=raw["type"],
+        timestamp=raw["timestamp"],
+        error=DiagnosticError(**raw_error) if raw_error is not None else None,
+        details=raw.get("details"),
+    )
+
+
+def _deferred(raw: dict[str, Any] | None) -> DeferredHandle | None:
+    if raw is None:
+        return None
+    return DeferredHandle(
+        provider=raw["provider"],
+        model_id=raw["model_id"],
+        api=raw["api"],
+        id=raw["id"],
+        expires_at=raw.get("expires_at"),
+        poll_after_ms=raw.get("poll_after_ms"),
+        data=raw.get("data"),
+    )
 
 
 def _script(document: dict[str, Any]) -> list[ScriptedResponse]:
@@ -63,9 +120,20 @@ def _script(document: dict[str, Any]) -> list[ScriptedResponse]:
         ScriptedResponse(
             content=tuple(_block(raw) for raw in response.get("content", [])),
             stop_reason=StopReason(response["stop_reason"]),
+            usage=_usage(response.get("usage")),
             error_message=response.get("error_message"),
             truncated=response.get("truncated", False),
             chunks_after_terminal=response.get("chunks_after_terminal", 0),
+            response_model=response.get("response_model"),
+            response_id=response.get("response_id"),
+            diagnostics=(
+                tuple(_diagnostic(raw) for raw in response["diagnostics"])
+                if "diagnostics" in response
+                else None
+            ),
+            deferred=_deferred(response.get("deferred")),
+            raw_stop_reason=response.get("raw_stop_reason"),
+            end_turn=response.get("end_turn"),
         )
         for response in document["provider_script"]
     ]
@@ -103,6 +171,108 @@ def _stub(spec: dict[str, Any], registry: ToolRegistry) -> Any:
         )
 
     return run
+
+
+def _normalize_block(block: ContentBlock) -> dict[str, Any]:
+    """Read a real content-block object's actual fields -- never invent one
+    the object doesn't carry."""
+    if isinstance(block, TextBlock):
+        return {"type": "text", "text": block.text, "text_signature": block.text_signature}
+    if isinstance(block, ThinkingBlock):
+        return {
+            "type": "thinking",
+            "thinking": block.thinking,
+            "thinking_signature": block.thinking_signature,
+            "redacted": block.redacted,
+        }
+    if isinstance(block, ToolCallBlock):
+        return {
+            "type": "tool_call",
+            "id": block.id,
+            "name": block.name,
+            "arguments": block.arguments,
+            "thought_signature": block.thought_signature,
+            "namespace": block.namespace,
+        }
+    return {"type": "image"}
+
+
+def _normalize_usage(usage: Usage) -> dict[str, Any]:
+    return {
+        "input": usage.input,
+        "output": usage.output,
+        "cache_read": usage.cache_read,
+        "cache_write": usage.cache_write,
+        "cache_write_1h": usage.cache_write_1h,
+        "reasoning": usage.reasoning,
+        "total_tokens": usage.total_tokens,
+        "cost": {
+            "input": usage.cost.input,
+            "output": usage.cost.output,
+            "cache_read": usage.cost.cache_read,
+            "cache_write": usage.cost.cache_write,
+            "total": usage.cost.total,
+        },
+    }
+
+
+def _normalize_diagnostic(diagnostic: AssistantMessageDiagnostic) -> dict[str, Any]:
+    error = diagnostic.error
+    normalized_error = (
+        None
+        if error is None
+        else {
+            "message": error.message,
+            "name": error.name,
+            "stack": error.stack,
+            "code": error.code,
+        }
+    )
+    return {
+        "type": diagnostic.type,
+        "timestamp": diagnostic.timestamp,
+        "error": normalized_error,
+        "details": diagnostic.details,
+    }
+
+
+def _normalize_deferred(handle: DeferredHandle | None) -> dict[str, Any] | None:
+    if handle is None:
+        return None
+    return {
+        "provider": handle.provider,
+        "model_id": handle.model_id,
+        "api": handle.api,
+        "id": handle.id,
+        "expires_at": handle.expires_at,
+        "poll_after_ms": handle.poll_after_ms,
+        "data": handle.data,
+    }
+
+
+def _assistant_detail(message: AssistantMessage) -> dict[str, Any]:
+    """Normalize a real AssistantMessage the implementation actually
+    produced into the canonical dict shape (LLM-F010). Reads every field off
+    the object directly; synthesizes nothing the object doesn't carry."""
+    return {
+        "api": message.api,
+        "provider": message.provider,
+        "model": message.model,
+        "response_model": message.response_model,
+        "response_id": message.response_id,
+        "stop_reason": message.stop_reason.value,
+        "raw_stop_reason": message.raw_stop_reason,
+        "end_turn": message.end_turn,
+        "error_message": message.error_message,
+        "usage": _normalize_usage(message.usage),
+        "diagnostics": (
+            None
+            if message.diagnostics is None
+            else [_normalize_diagnostic(d) for d in message.diagnostics]
+        ),
+        "deferred": _normalize_deferred(message.deferred),
+        "content": [_normalize_block(block) for block in message.content],
+    }
 
 
 def _listener(spec: dict[str, Any]) -> Any:
@@ -218,6 +388,9 @@ async def run_agent_scenario(document: dict[str, Any]) -> dict[str, Any]:
         "causes": [list(event.causes) for event in events if isinstance(event, TurnEnd)],
         "assistant_stop_reasons": [
             m.stop_reason.value for m in messages if isinstance(m, AssistantMessage)
+        ],
+        "assistant_details": [
+            _assistant_detail(m) for m in messages if isinstance(m, AssistantMessage)
         ],
         "tool_completion_order": [
             entry.data["message"]["tool_call_id"]

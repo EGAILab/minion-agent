@@ -2,6 +2,7 @@
 
 pub mod llm;
 pub mod runtime;
+pub mod session;
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 

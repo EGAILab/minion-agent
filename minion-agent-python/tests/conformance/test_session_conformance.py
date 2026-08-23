@@ -17,4 +17,13 @@ def test_session_scenario(scenario: Path) -> None:
     if is_placeholder(document):
         pytest.xfail(f"{scenario.stem}: TO_BE_FILLED placeholder, see pi-parity-manifest.yaml")
 
-    assert run_session_scenario(document) == document["expect_messages"]
+    outcome = run_session_scenario(document)
+    assert outcome["messages"] == document["expect_messages"]
+    if "expect_assistant_details" in document:
+        assert outcome["assistant_details"] == document["expect_assistant_details"]
+    if "expect_tool_result_details" in document:
+        assert outcome["tool_result_details"] == document["expect_tool_result_details"]
+    if "expect_reconstructed_header" in document:
+        assert outcome["reconstructed_header"] == document["expect_reconstructed_header"]
+    if "expect_artifact_count" in document:
+        assert outcome["artifact_count"] == document["expect_artifact_count"]

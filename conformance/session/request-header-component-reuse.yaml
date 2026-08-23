@@ -1,0 +1,48 @@
+name: request-header-component-reuse
+description: >
+  Design spec section 5's motivating case: "Reconstruct request state from
+  content-addressed components, never from repeated monolithic snapshots." A
+  stable system-prompt block and a stable tool set, recorded across three
+  separate request headers alongside a component that changes every time, must
+  cost one artifact for what's stable and one per distinct value for what
+  isn't -- not one full snapshot per header. This is the design's own
+  originally-named "request-header-component-reuse" scenario (SES-F001), never
+  previously authored under any name.
+steps:
+  - record_header:
+      components:
+        system_base: "a large stable system prompt"
+        memory: "recall for step 1"
+      model: mock-1
+      tools:
+        - name: lookup
+          description: "look something up"
+          parameters: { type: object, properties: {} }
+  - record_header:
+      components:
+        system_base: "a large stable system prompt"
+        memory: "recall for step 2"
+      model: mock-1
+      tools:
+        - name: lookup
+          description: "look something up"
+          parameters: { type: object, properties: {} }
+  - record_header:
+      components:
+        system_base: "a large stable system prompt"
+        memory: "recall for step 3"
+      model: mock-1
+      tools:
+        - name: lookup
+          description: "look something up"
+          parameters: { type: object, properties: {} }
+expect_messages: []
+expect_reconstructed_header:
+  components:
+    system_base: "a large stable system prompt"
+    memory: "recall for step 3"
+  tools:
+    - name: lookup
+      description: "look something up"
+      parameters: { type: object, properties: {} }
+expect_artifact_count: 5

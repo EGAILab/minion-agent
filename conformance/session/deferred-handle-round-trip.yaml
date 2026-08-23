@@ -1,11 +1,91 @@
 name: deferred-handle-round-trip
-family: session
-status: canonical-baseline
-authority: 2026-08-20-minion-agent-design.md
-pi_revision: b7bb00b936dbe21b8e160b3e89efdec361846699
-given:
-  fixture: TO_BE_FILLED
-when:
-  op: TO_BE_BOUND_TO_REAL_PUBLIC_API
-expect:
-  observable: TO_BE_PINNED_EXACTLY
+description: >
+  DeferredHandle (SES-F001) must survive the log's encode/decode round trip,
+  including its own optional sub-fields staying null when absent rather than
+  being synthesized -- the same edge case LLM-F010's Rust review caught in the
+  agent-family schema. One assistant message carries a fully-populated handle;
+  a second carries a required-fields-only handle.
+steps:
+  - append:
+      role: assistant
+      text: "polling later"
+      stop_reason: deferred
+      deferred:
+        provider: mock
+        model_id: mock-1
+        api: mock
+        id: handle-1
+        expires_at: 1000
+        poll_after_ms: 500
+        data: { note: "full handle" }
+  - append:
+      role: assistant
+      text: "polling later, minimal"
+      stop_reason: deferred
+      deferred:
+        provider: mock
+        model_id: mock-1
+        api: mock
+        id: handle-2
+expect_messages:
+  - role: assistant
+    text: "polling later"
+  - role: assistant
+    text: "polling later, minimal"
+expect_assistant_details:
+  - content:
+      - type: text
+        text: "polling later"
+        text_signature: null
+    stop_reason: deferred
+    usage:
+      input: 0
+      output: 0
+      cache_read: 0
+      cache_write: 0
+      cache_write_1h: null
+      reasoning: null
+      total_tokens: 0
+      cost: { input: 0, output: 0, cache_read: 0, cache_write: 0, total: 0 }
+    api: mock
+    response_model: null
+    response_id: null
+    diagnostics: null
+    deferred:
+      provider: mock
+      model_id: mock-1
+      api: mock
+      id: handle-1
+      expires_at: 1000
+      poll_after_ms: 500
+      data: { note: "full handle" }
+    raw_stop_reason: null
+    end_turn: null
+  - content:
+      - type: text
+        text: "polling later, minimal"
+        text_signature: null
+    stop_reason: deferred
+    usage:
+      input: 0
+      output: 0
+      cache_read: 0
+      cache_write: 0
+      cache_write_1h: null
+      reasoning: null
+      total_tokens: 0
+      cost: { input: 0, output: 0, cache_read: 0, cache_write: 0, total: 0 }
+    api: mock
+    response_model: null
+    response_id: null
+    diagnostics: null
+    deferred:
+      provider: mock
+      model_id: mock-1
+      api: mock
+      id: handle-2
+      expires_at: null
+      poll_after_ms: null
+      data: null
+    raw_stop_reason: null
+    end_turn: null

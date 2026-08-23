@@ -1,11 +1,36 @@
 name: request-reconstruction-with-artifacts
-family: session
-status: canonical-baseline
-authority: 2026-08-20-minion-agent-design.md
-pi_revision: b7bb00b936dbe21b8e160b3e89efdec361846699
-given:
-  fixture: TO_BE_FILLED
-when:
-  op: TO_BE_BOUND_TO_REAL_PUBLIC_API
-expect:
-  observable: TO_BE_PINNED_EXACTLY
+description: >
+  MINION-003's content-addressed request-header divergence (design spec
+  section 5): reconstruction from the artifact store must reproduce exactly
+  what was recorded -- "the model saw what the log says" -- and the components
+  plus the tool schema must be stored by hash (content-addressed), not inline.
+  This is the exact scenario MINION-003's own parity-manifest row cites as its
+  evidence (SES-F001).
+steps:
+  - record_header:
+      components:
+        system_base: "you are a helpful assistant"
+        memory: "the user prefers concise answers"
+      model: mock-1
+      tools:
+        - name: lookup
+          description: "look something up"
+          parameters:
+            type: object
+            properties:
+              query: { type: string }
+            required: [query]
+expect_messages: []
+expect_reconstructed_header:
+  components:
+    system_base: "you are a helpful assistant"
+    memory: "the user prefers concise answers"
+  tools:
+    - name: lookup
+      description: "look something up"
+      parameters:
+        type: object
+        properties:
+          query: { type: string }
+        required: [query]
+expect_artifact_count: 3

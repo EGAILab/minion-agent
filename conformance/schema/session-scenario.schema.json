@@ -46,6 +46,37 @@
         }
       }
     },
+    "expect_assistant_details": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/assistantDetail" },
+      "description": "The full round-tripped AssistantMessage shape for each assistant message in derivation order -- proves the log's encode/decode carries every field, not just text (design spec section 4/5)."
+    },
+    "expect_tool_result_details": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/toolResultDetail" },
+      "description": "The full round-tripped ToolResultMessage shape for each tool-result message in derivation order."
+    },
+    "expect_reconstructed_header": {
+      "type": "object",
+      "required": ["components"],
+      "additionalProperties": false,
+      "properties": {
+        "components": {
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        },
+        "tools": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/toolStub" }
+        }
+      },
+      "description": "Reconstructing the most recent record_header step must reproduce exactly what was given -- the property the design's own invariant checks (design spec section 5): the model saw what the log says."
+    },
+    "expect_artifact_count": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "The shared ArtifactStore's final size. Proves content-addressed reuse: a stable component recorded across many steps costs one artifact, not one per step."
+    },
     "expect_error": {
       "type": "object",
       "required": [
@@ -80,8 +111,7 @@
         "append": {
           "type": "object",
           "required": [
-            "role",
-            "text"
+            "role"
           ],
           "additionalProperties": false,
           "properties": {
@@ -91,9 +121,53 @@
               "description": "user, assistant, or tool_result for core kinds; any validated event name for a plugin-declared kind. The name string is the identity."
             },
             "text": {
-              "type": "string"
+              "type": "string",
+              "description": "Shorthand for a single text content block. Ignored when `content` is given."
+            },
+            "content": {
+              "type": "array",
+              "items": { "$ref": "#/$defs/contentBlock" },
+              "description": "Full content-block list, for scenarios that need signature/thinking/tool-call fields `text` cannot express."
+            },
+            "usage": { "$ref": "#/$defs/usage" },
+            "api": { "type": "string" },
+            "response_model": { "type": "string" },
+            "response_id": { "type": "string" },
+            "diagnostics": {
+              "type": "array",
+              "items": { "$ref": "#/$defs/diagnostic" }
+            },
+            "deferred": { "$ref": "#/$defs/deferredHandle" },
+            "raw_stop_reason": { "type": "string" },
+            "end_turn": { "type": "boolean" },
+            "stop_reason": {
+              "enum": ["stop", "length", "tool_use", "error", "aborted", "deferred"],
+              "description": "Assistant-only. Defaults to `stop` when omitted."
+            },
+            "tool_name": { "type": "string" },
+            "details": {},
+            "added_tool_names": {
+              "type": "array",
+              "items": { "type": "string" }
             }
           }
+        },
+        "record_header": {
+          "type": "object",
+          "required": ["components", "model"],
+          "additionalProperties": false,
+          "properties": {
+            "components": {
+              "type": "object",
+              "additionalProperties": { "type": "string" }
+            },
+            "model": { "type": "string" },
+            "tools": {
+              "type": "array",
+              "items": { "$ref": "#/$defs/toolStub" }
+            }
+          },
+          "description": "Records a request header through the real content-addressed store (design spec section 5)."
         },
         "fork": {
           "type": "object",
@@ -128,6 +202,158 @@
         "derive": {
           "type": "object",
           "additionalProperties": false
+        }
+      }
+    },
+    "contentBlock": {
+      "type": "object",
+      "required": ["type"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "enum": ["text", "thinking", "image", "tool_call"] },
+        "text": { "type": "string" },
+        "text_signature": { "type": ["string", "null"] },
+        "thinking": { "type": "string" },
+        "thinking_signature": { "type": ["string", "null"] },
+        "redacted": { "type": "boolean" },
+        "mime_type": { "type": "string" },
+        "data": { "type": "string" },
+        "reference": { "type": "string" },
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "arguments": { "type": "object" },
+        "thought_signature": { "type": ["string", "null"] },
+        "namespace": { "type": ["string", "null"] }
+      }
+    },
+    "cost": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "input": { "type": "number" },
+        "output": { "type": "number" },
+        "cache_read": { "type": "number" },
+        "cache_write": { "type": "number" },
+        "total": { "type": "number" }
+      }
+    },
+    "usage": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "input": { "type": "integer" },
+        "output": { "type": "integer" },
+        "cache_read": { "type": "integer" },
+        "cache_write": { "type": "integer" },
+        "cache_write_1h": { "type": ["integer", "null"] },
+        "reasoning": { "type": ["integer", "null"] },
+        "total_tokens": { "type": "integer" },
+        "cost": { "$ref": "#/$defs/cost" }
+      }
+    },
+    "diagnosticError": {
+      "type": "object",
+      "required": ["message"],
+      "additionalProperties": false,
+      "properties": {
+        "message": { "type": "string" },
+        "name": { "type": ["string", "null"] },
+        "stack": { "type": ["string", "null"] },
+        "code": { "oneOf": [{ "type": "string" }, { "type": "number" }, { "type": "null" }] }
+      }
+    },
+    "diagnostic": {
+      "type": "object",
+      "required": ["type", "timestamp"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "type": "string" },
+        "timestamp": { "type": "number" },
+        "error": {
+          "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/diagnosticError" }]
+        },
+        "details": {
+          "oneOf": [{ "type": "null" }, { "type": "object" }]
+        }
+      }
+    },
+    "deferredHandle": {
+      "type": "object",
+      "required": ["provider", "model_id", "api", "id"],
+      "additionalProperties": false,
+      "properties": {
+        "provider": { "type": "string" },
+        "model_id": { "type": "string" },
+        "api": { "type": "string" },
+        "id": { "type": "string" },
+        "expires_at": { "type": ["number", "null"] },
+        "poll_after_ms": { "type": ["number", "null"] },
+        "data": {}
+      }
+    },
+    "toolStub": {
+      "type": "object",
+      "required": ["name", "description", "parameters"],
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "parameters": { "type": "object" }
+      }
+    },
+    "assistantDetail": {
+      "type": "object",
+      "required": [
+        "content", "stop_reason", "usage", "api", "response_model", "response_id",
+        "diagnostics", "deferred", "raw_stop_reason", "end_turn"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "content": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/contentBlock" }
+        },
+        "stop_reason": {
+          "enum": ["stop", "length", "tool_use", "error", "aborted", "deferred"]
+        },
+        "usage": { "$ref": "#/$defs/usage" },
+        "api": { "type": "string" },
+        "response_model": { "type": ["string", "null"] },
+        "response_id": { "type": ["string", "null"] },
+        "diagnostics": {
+          "oneOf": [
+            { "type": "null" },
+            { "type": "array", "items": { "$ref": "#/$defs/diagnostic" } }
+          ]
+        },
+        "deferred": {
+          "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/deferredHandle" }]
+        },
+        "raw_stop_reason": { "type": ["string", "null"] },
+        "end_turn": { "type": ["boolean", "null"] }
+      },
+      "description": "The round-tripped AssistantMessage shape this DSL can assert -- a session-layer-scoped subset of design spec section 4's full vocabulary (provider/model/timestamp/error_message are fixed by the runner, not scripted, so they are not asserted here)."
+    },
+    "toolResultDetail": {
+      "type": "object",
+      "required": ["content", "is_error", "tool_name", "details", "usage", "added_tool_names"],
+      "additionalProperties": false,
+      "properties": {
+        "content": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/contentBlock" }
+        },
+        "is_error": { "type": "boolean" },
+        "tool_name": { "type": ["string", "null"] },
+        "details": {},
+        "usage": {
+          "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/usage" }]
+        },
+        "added_tool_names": {
+          "oneOf": [
+            { "type": "null" },
+            { "type": "array", "items": { "type": "string" } }
+          ]
         }
       }
     }

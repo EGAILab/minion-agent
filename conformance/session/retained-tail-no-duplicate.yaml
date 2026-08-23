@@ -1,0 +1,23 @@
+name: retained-tail-no-duplicate
+description: >
+  Design spec section 5's compaction provenance rule, in its own dedicated
+  scenario (distinct from compaction-repeated-and-nested.yaml, which tests
+  supersession across two compactions, not this property): a retained tail is
+  carried forward by reference (named by sequence), never copied, so no
+  retained message can appear twice in derivation alongside the summary that
+  superseded its span. Five messages compacted with a 3-message retained tail
+  must derive to exactly [summary, msg3, msg4, msg5] -- each retained message
+  present exactly once, in original order, with nothing before the summary
+  and nothing duplicated after it.
+steps:
+  - append: { role: user, text: "one" }
+  - append: { role: user, text: "two" }
+  - append: { role: user, text: "three" }
+  - append: { role: user, text: "four" }
+  - append: { role: user, text: "five" }
+  - compact: { summary: "discussed one and two", keep: 3 }
+expect_messages:
+  - { role: user, text: "discussed one and two" }
+  - { role: user, text: "three" }
+  - { role: user, text: "four" }
+  - { role: user, text: "five" }

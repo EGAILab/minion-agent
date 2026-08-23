@@ -1,11 +1,104 @@
 name: content-signatures-round-trip
-family: session
-status: canonical-baseline
-authority: 2026-08-20-minion-agent-design.md
-pi_revision: b7bb00b936dbe21b8e160b3e89efdec361846699
-given:
-  fixture: TO_BE_FILLED
-when:
-  op: TO_BE_BOUND_TO_REAL_PUBLIC_API
-expect:
-  observable: TO_BE_PINNED_EXACTLY
+description: >
+  The three opaque replay-signature fields (SES-F001) must survive the log's own
+  encode/decode round trip, not just the LLM layer's in-memory dataclasses. One
+  assistant message carries a signed text block, a redacted signed thinking
+  block, and a signed namespaced tool call; a second carries the same block
+  types with every signature absent, proving absence survives as null rather
+  than being fabricated or dropped.
+steps:
+  - append:
+      role: assistant
+      content:
+        - type: text
+          text: "here is my answer"
+          text_signature: sig-text-1
+        - type: thinking
+          thinking: "reasoning about the answer"
+          thinking_signature: sig-think-1
+          redacted: true
+        - type: tool_call
+          id: call-1
+          name: lookup
+          arguments: { query: "answer" }
+          thought_signature: sig-thought-1
+          namespace: ns-a
+  - append:
+      role: assistant
+      content:
+        - type: text
+          text: "second answer"
+        - type: thinking
+          thinking: "second reasoning"
+        - type: tool_call
+          id: call-2
+          name: lookup
+          arguments: { query: "second" }
+expect_messages:
+  - role: assistant
+    text: "here is my answer"
+  - role: assistant
+    text: "second answer"
+expect_assistant_details:
+  - content:
+      - type: text
+        text: "here is my answer"
+        text_signature: sig-text-1
+      - type: thinking
+        thinking: "reasoning about the answer"
+        thinking_signature: sig-think-1
+        redacted: true
+      - type: tool_call
+        id: call-1
+        name: lookup
+        arguments: { query: "answer" }
+        thought_signature: sig-thought-1
+        namespace: ns-a
+    stop_reason: stop
+    usage:
+      input: 0
+      output: 0
+      cache_read: 0
+      cache_write: 0
+      cache_write_1h: null
+      reasoning: null
+      total_tokens: 0
+      cost: { input: 0, output: 0, cache_read: 0, cache_write: 0, total: 0 }
+    api: mock
+    response_model: null
+    response_id: null
+    diagnostics: null
+    deferred: null
+    raw_stop_reason: null
+    end_turn: null
+  - content:
+      - type: text
+        text: "second answer"
+        text_signature: null
+      - type: thinking
+        thinking: "second reasoning"
+        thinking_signature: null
+        redacted: false
+      - type: tool_call
+        id: call-2
+        name: lookup
+        arguments: { query: "second" }
+        thought_signature: null
+        namespace: null
+    stop_reason: stop
+    usage:
+      input: 0
+      output: 0
+      cache_read: 0
+      cache_write: 0
+      cache_write_1h: null
+      reasoning: null
+      total_tokens: 0
+      cost: { input: 0, output: 0, cache_read: 0, cache_write: 0, total: 0 }
+    api: mock
+    response_model: null
+    response_id: null
+    diagnostics: null
+    deferred: null
+    raw_stop_reason: null
+    end_turn: null

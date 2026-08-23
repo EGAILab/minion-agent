@@ -1,11 +1,120 @@
 name: rich-assistant-message-round-trip
-family: session
-status: canonical-baseline
-authority: 2026-08-20-minion-agent-design.md
-pi_revision: b7bb00b936dbe21b8e160b3e89efdec361846699
-given:
-  fixture: TO_BE_FILLED
-when:
-  op: TO_BE_BOUND_TO_REAL_PUBLIC_API
-expect:
-  observable: TO_BE_PINNED_EXACTLY
+description: >
+  The remaining AssistantMessage fields (SES-F001) not covered by the
+  content-signature, deferred-handle, or diagnostic round-trip scenarios --
+  api, response_model, response_id, raw_stop_reason, end_turn, and full
+  usage/cost accounting -- plus ToolResultMessage's own rich fields (tool_name,
+  details, usage, added_tool_names) must survive the log's encode/decode round
+  trip. One assistant/tool_result pair scripts every optional field; a second
+  pair scripts none of them, proving absence stays null rather than being
+  synthesized.
+steps:
+  - append:
+      role: assistant
+      text: "calling a tool"
+      api: mock
+      response_model: mock-1-router
+      response_id: resp_1
+      raw_stop_reason: stop_natural
+      end_turn: true
+      usage:
+        input: 10
+        output: 5
+        cache_read: 2
+        cache_write: 1
+        cache_write_1h: 1
+        reasoning: 3
+        total_tokens: 15
+        cost: { input: 0.001, output: 0.002, cache_read: 0.0001, cache_write: 0.0001, total: 0.0032 }
+  - append:
+      role: tool_result
+      text: "tool ran"
+      tool_name: lookup
+      details: { attempt: 1 }
+      usage: { input: 0, output: 0, cache_read: 0, cache_write: 0, total_tokens: 0 }
+      added_tool_names: [followup_tool]
+  - append:
+      role: assistant
+      text: "second answer, nothing extra scripted"
+  - append:
+      role: tool_result
+      text: "second tool result, nothing extra scripted"
+expect_messages:
+  - role: assistant
+    text: "calling a tool"
+  - role: tool_result
+    text: "tool ran"
+  - role: assistant
+    text: "second answer, nothing extra scripted"
+  - role: tool_result
+    text: "second tool result, nothing extra scripted"
+expect_assistant_details:
+  - content:
+      - type: text
+        text: "calling a tool"
+        text_signature: null
+    stop_reason: stop
+    usage:
+      input: 10
+      output: 5
+      cache_read: 2
+      cache_write: 1
+      cache_write_1h: 1
+      reasoning: 3
+      total_tokens: 15
+      cost: { input: 0.001, output: 0.002, cache_read: 0.0001, cache_write: 0.0001, total: 0.0032 }
+    api: mock
+    response_model: mock-1-router
+    response_id: resp_1
+    diagnostics: null
+    deferred: null
+    raw_stop_reason: stop_natural
+    end_turn: true
+  - content:
+      - type: text
+        text: "second answer, nothing extra scripted"
+        text_signature: null
+    stop_reason: stop
+    usage:
+      input: 0
+      output: 0
+      cache_read: 0
+      cache_write: 0
+      cache_write_1h: null
+      reasoning: null
+      total_tokens: 0
+      cost: { input: 0, output: 0, cache_read: 0, cache_write: 0, total: 0 }
+    api: mock
+    response_model: null
+    response_id: null
+    diagnostics: null
+    deferred: null
+    raw_stop_reason: null
+    end_turn: null
+expect_tool_result_details:
+  - content:
+      - type: text
+        text: "tool ran"
+        text_signature: null
+    is_error: false
+    tool_name: lookup
+    details: { attempt: 1 }
+    usage:
+      input: 0
+      output: 0
+      cache_read: 0
+      cache_write: 0
+      cache_write_1h: null
+      reasoning: null
+      total_tokens: 0
+      cost: { input: 0, output: 0, cache_read: 0, cache_write: 0, total: 0 }
+    added_tool_names: [followup_tool]
+  - content:
+      - type: text
+        text: "second tool result, nothing extra scripted"
+        text_signature: null
+    is_error: false
+    tool_name: null
+    details: null
+    usage: null
+    added_tool_names: null

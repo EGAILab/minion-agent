@@ -1,11 +1,61 @@
 name: diagnostic-round-trip
-family: session
-status: canonical-baseline
-authority: 2026-08-20-minion-agent-design.md
-pi_revision: b7bb00b936dbe21b8e160b3e89efdec361846699
-given:
-  fixture: TO_BE_FILLED
-when:
-  op: TO_BE_BOUND_TO_REAL_PUBLIC_API
-expect:
-  observable: TO_BE_PINNED_EXACTLY
+description: >
+  AssistantMessageDiagnostic, including its nested DiagnosticError (SES-F001),
+  must survive the log's encode/decode round trip -- both when every optional
+  field is present and when a diagnostic carries neither `error` nor `details`,
+  the exact edge case LLM-F010's Rust review caught in the sibling agent-family
+  schema.
+steps:
+  - append:
+      role: assistant
+      text: "recovered after a retry"
+      diagnostics:
+        - type: retry
+          timestamp: 1
+          error:
+            message: transient timeout
+            name: TimeoutError
+            stack: "at fetch (adapter.ts:1)"
+            code: 504
+          details:
+            attempt: 2
+        - type: recovery
+          timestamp: 2
+expect_messages:
+  - role: assistant
+    text: "recovered after a retry"
+expect_assistant_details:
+  - content:
+      - type: text
+        text: "recovered after a retry"
+        text_signature: null
+    stop_reason: stop
+    usage:
+      input: 0
+      output: 0
+      cache_read: 0
+      cache_write: 0
+      cache_write_1h: null
+      reasoning: null
+      total_tokens: 0
+      cost: { input: 0, output: 0, cache_read: 0, cache_write: 0, total: 0 }
+    api: mock
+    response_model: null
+    response_id: null
+    diagnostics:
+      - type: retry
+        timestamp: 1
+        error:
+          message: transient timeout
+          name: TimeoutError
+          stack: "at fetch (adapter.ts:1)"
+          code: 504
+        details:
+          attempt: 2
+      - type: recovery
+        timestamp: 2
+        error: null
+        details: null
+    deferred: null
+    raw_stop_reason: null
+    end_turn: null

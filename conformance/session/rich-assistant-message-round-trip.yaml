@@ -1,17 +1,24 @@
 name: rich-assistant-message-round-trip
 description: >
-  The remaining AssistantMessage fields (SES-F001) not covered by the
-  content-signature, deferred-handle, or diagnostic round-trip scenarios --
+  The remaining AssistantMessage/ToolResultMessage fields (SES-F001, Rust
+  review items 1-2) not covered by the content-signature, deferred-handle, or
+  diagnostic round-trip scenarios -- provider, model, timestamp, error_message,
   api, response_model, response_id, raw_stop_reason, end_turn, and full
-  usage/cost accounting -- plus ToolResultMessage's own rich fields (tool_name,
-  details, usage, added_tool_names) must survive the log's encode/decode round
-  trip. One assistant/tool_result pair scripts every optional field; a second
-  pair scripts none of them, proving absence stays null rather than being
-  synthesized.
+  usage/cost accounting; plus tool_call_id, timestamp, tool_name, details,
+  usage, added_tool_names on the tool-result side -- must survive the log's
+  encode/decode round trip. One assistant/tool_result pair scripts every
+  optional field with genuinely non-default values (not just the runner's
+  defaults), proving real variability round-trips, not merely presence; a
+  second pair scripts none of them, proving absence/defaults stay exactly
+  that rather than being synthesized.
 steps:
   - append:
       role: assistant
       text: "calling a tool"
+      provider: real-provider
+      model: real-model-x
+      timestamp: 42
+      error_message: "a transient note"
       api: mock
       response_model: mock-1-router
       response_id: resp_1
@@ -29,6 +36,8 @@ steps:
   - append:
       role: tool_result
       text: "tool ran"
+      tool_call_id: call-99
+      timestamp: 43
       tool_name: lookup
       details: { attempt: 1 }
       usage: { input: 0, output: 0, cache_read: 0, cache_write: 0, total_tokens: 0 }
@@ -63,6 +72,10 @@ expect_assistant_details:
       reasoning: 3
       total_tokens: 15
       cost: { input: 0.001, output: 0.002, cache_read: 0.0001, cache_write: 0.0001, total: 0.0032 }
+    provider: real-provider
+    model: real-model-x
+    timestamp: 42
+    error_message: "a transient note"
     api: mock
     response_model: mock-1-router
     response_id: resp_1
@@ -84,6 +97,10 @@ expect_assistant_details:
       reasoning: null
       total_tokens: 0
       cost: { input: 0, output: 0, cache_read: 0, cache_write: 0, total: 0 }
+    provider: mock
+    model: mock-1
+    timestamp: 1
+    error_message: null
     api: mock
     response_model: null
     response_id: null
@@ -92,10 +109,12 @@ expect_assistant_details:
     raw_stop_reason: null
     end_turn: null
 expect_tool_result_details:
-  - content:
+  - tool_call_id: call-99
+    content:
       - type: text
         text: "tool ran"
         text_signature: null
+    timestamp: 43
     is_error: false
     tool_name: lookup
     details: { attempt: 1 }
@@ -109,10 +128,12 @@ expect_tool_result_details:
       total_tokens: 0
       cost: { input: 0, output: 0, cache_read: 0, cache_write: 0, total: 0 }
     added_tool_names: [followup_tool]
-  - content:
+  - tool_call_id: t1
+    content:
       - type: text
         text: "second tool result, nothing extra scripted"
         text_signature: null
+    timestamp: 1
     is_error: false
     tool_name: null
     details: null

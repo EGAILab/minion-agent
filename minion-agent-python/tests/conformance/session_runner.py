@@ -134,17 +134,19 @@ def _message(role: str, spec: dict[str, Any]) -> Message:
     core vocabulary, and only the event *name* is new.
     """
     content = _content(spec)
+    timestamp = spec.get("timestamp", 1)
     if role not in _KIND or role == "user":
-        return UserMessage(content=content, timestamp=1)
+        return UserMessage(content=content, timestamp=timestamp)
     if role == "assistant":
         raw_diagnostics = spec.get("diagnostics")
         return AssistantMessage(
             content=content,
             stop_reason=StopReason(spec.get("stop_reason", "stop")),
             usage=_usage(spec.get("usage")),
-            model="mock-1",
-            provider="mock",
-            timestamp=1,
+            model=spec.get("model", "mock-1"),
+            provider=spec.get("provider", "mock"),
+            timestamp=timestamp,
+            error_message=spec.get("error_message"),
             api=spec.get("api", "mock"),
             response_model=spec.get("response_model"),
             response_id=spec.get("response_id"),
@@ -158,9 +160,9 @@ def _message(role: str, spec: dict[str, Any]) -> Message:
             end_turn=spec.get("end_turn"),
         )
     return ToolResultMessage(
-        tool_call_id="t1",
+        tool_call_id=spec.get("tool_call_id", "t1"),
         content=content,
-        timestamp=1,
+        timestamp=timestamp,
         tool_name=spec.get("tool_name"),
         details=spec.get("details"),
         usage=_usage(spec["usage"]) if "usage" in spec else None,
@@ -265,6 +267,10 @@ def _assistant_detail(message: AssistantMessage) -> dict[str, Any]:
         "content": [_normalize_block(block) for block in message.content],
         "stop_reason": message.stop_reason.value,
         "usage": _normalize_usage(message.usage),
+        "provider": message.provider,
+        "model": message.model,
+        "timestamp": message.timestamp,
+        "error_message": message.error_message,
         "api": message.api,
         "response_model": message.response_model,
         "response_id": message.response_id,
@@ -281,7 +287,9 @@ def _assistant_detail(message: AssistantMessage) -> dict[str, Any]:
 
 def _tool_result_detail(message: ToolResultMessage) -> dict[str, Any]:
     return {
+        "tool_call_id": message.tool_call_id,
         "content": [_normalize_block(block) for block in message.content],
+        "timestamp": message.timestamp,
         "is_error": message.is_error,
         "tool_name": message.tool_name,
         "details": message.details,

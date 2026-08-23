@@ -110,9 +110,7 @@
       "properties": {
         "append": {
           "type": "object",
-          "required": [
-            "role"
-          ],
+          "required": ["role"],
           "additionalProperties": false,
           "properties": {
             "role": {
@@ -129,7 +127,14 @@
               "items": { "$ref": "#/$defs/contentBlock" },
               "description": "Full content-block list, for scenarios that need signature/thinking/tool-call fields `text` cannot express."
             },
+            "timestamp": {
+              "type": "number",
+              "description": "Shared across UserMessage/AssistantMessage/ToolResultMessage. Defaults to 1 when omitted."
+            },
             "usage": { "$ref": "#/$defs/usage" },
+            "provider": { "type": "string", "description": "Assistant-only. Defaults to `mock` when omitted." },
+            "model": { "type": "string", "description": "Assistant-only. Defaults to `mock-1` when omitted." },
+            "error_message": { "type": "string", "description": "Assistant-only." },
             "api": { "type": "string" },
             "response_model": { "type": "string" },
             "response_id": { "type": "string" },
@@ -144,13 +149,58 @@
               "enum": ["stop", "length", "tool_use", "error", "aborted", "deferred"],
               "description": "Assistant-only. Defaults to `stop` when omitted."
             },
+            "tool_call_id": { "type": "string", "description": "Tool-result-only. Defaults to `t1` when omitted." },
             "tool_name": { "type": "string" },
             "details": {},
             "added_tool_names": {
               "type": "array",
               "items": { "type": "string" }
             }
-          }
+          },
+          "allOf": [
+            {
+              "if": {
+                "not": {
+                  "required": ["role"],
+                  "properties": { "role": { "const": "assistant" } }
+                }
+              },
+              "then": {
+                "properties": {
+                  "provider": false, "model": false, "error_message": false,
+                  "api": false, "response_model": false, "response_id": false,
+                  "diagnostics": false, "deferred": false, "raw_stop_reason": false,
+                  "end_turn": false, "stop_reason": false
+                }
+              }
+            },
+            {
+              "if": {
+                "not": {
+                  "required": ["role"],
+                  "properties": { "role": { "const": "tool_result" } }
+                }
+              },
+              "then": {
+                "properties": {
+                  "tool_call_id": false, "tool_name": false, "details": false,
+                  "added_tool_names": false
+                }
+              }
+            },
+            {
+              "if": {
+                "not": {
+                  "required": ["role"],
+                  "properties": { "role": { "enum": ["assistant", "tool_result"] } }
+                }
+              },
+              "then": {
+                "properties": { "usage": false }
+              }
+            }
+          ],
+          "description": "Role-discriminated: fields outside a role's real message constructor are schema-invalid, not silently ignored (Rust review item 3)."
         },
         "record_header": {
           "type": "object",
@@ -206,25 +256,59 @@
       }
     },
     "contentBlock": {
-      "type": "object",
-      "required": ["type"],
-      "additionalProperties": false,
-      "properties": {
-        "type": { "enum": ["text", "thinking", "image", "tool_call"] },
-        "text": { "type": "string" },
-        "text_signature": { "type": ["string", "null"] },
-        "thinking": { "type": "string" },
-        "thinking_signature": { "type": ["string", "null"] },
-        "redacted": { "type": "boolean" },
-        "mime_type": { "type": "string" },
-        "data": { "type": "string" },
-        "reference": { "type": "string" },
-        "id": { "type": "string" },
-        "name": { "type": "string" },
-        "arguments": { "type": "object" },
-        "thought_signature": { "type": ["string", "null"] },
-        "namespace": { "type": ["string", "null"] }
-      }
+      "description": "Discriminated by `type` -- each variant is closed to exactly its own real dataclass fields (Rust review item 4).",
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["type", "text"],
+          "additionalProperties": false,
+          "properties": {
+            "type": { "const": "text" },
+            "text": { "type": "string" },
+            "text_signature": { "type": ["string", "null"] }
+          }
+        },
+        {
+          "type": "object",
+          "required": ["type", "thinking"],
+          "additionalProperties": false,
+          "properties": {
+            "type": { "const": "thinking" },
+            "thinking": { "type": "string" },
+            "thinking_signature": { "type": ["string", "null"] },
+            "redacted": { "type": "boolean" }
+          }
+        },
+        {
+          "type": "object",
+          "required": ["type", "mime_type"],
+          "additionalProperties": false,
+          "properties": {
+            "type": { "const": "image" },
+            "mime_type": { "type": "string" },
+            "data": { "type": "string" },
+            "reference": { "type": "string" }
+          },
+          "oneOf": [
+            { "required": ["data"], "not": { "required": ["reference"] } },
+            { "required": ["reference"], "not": { "required": ["data"] } }
+          ],
+          "description": "Exactly one of data/reference, matching ImageBlock.__post_init__'s enforced exclusive-or."
+        },
+        {
+          "type": "object",
+          "required": ["type", "id", "name", "arguments"],
+          "additionalProperties": false,
+          "properties": {
+            "type": { "const": "tool_call" },
+            "id": { "type": "string" },
+            "name": { "type": "string" },
+            "arguments": { "type": "object" },
+            "thought_signature": { "type": ["string", "null"] },
+            "namespace": { "type": ["string", "null"] }
+          }
+        }
+      ]
     },
     "cost": {
       "type": "object",
@@ -304,8 +388,9 @@
     "assistantDetail": {
       "type": "object",
       "required": [
-        "content", "stop_reason", "usage", "api", "response_model", "response_id",
-        "diagnostics", "deferred", "raw_stop_reason", "end_turn"
+        "content", "stop_reason", "usage", "provider", "model", "timestamp", "error_message",
+        "api", "response_model", "response_id", "diagnostics", "deferred", "raw_stop_reason",
+        "end_turn"
       ],
       "additionalProperties": false,
       "properties": {
@@ -317,6 +402,10 @@
           "enum": ["stop", "length", "tool_use", "error", "aborted", "deferred"]
         },
         "usage": { "$ref": "#/$defs/usage" },
+        "provider": { "type": "string" },
+        "model": { "type": "string" },
+        "timestamp": { "type": "number" },
+        "error_message": { "type": ["string", "null"] },
         "api": { "type": "string" },
         "response_model": { "type": ["string", "null"] },
         "response_id": { "type": ["string", "null"] },
@@ -332,17 +421,22 @@
         "raw_stop_reason": { "type": ["string", "null"] },
         "end_turn": { "type": ["boolean", "null"] }
       },
-      "description": "The round-tripped AssistantMessage shape this DSL can assert -- a session-layer-scoped subset of design spec section 4's full vocabulary (provider/model/timestamp/error_message are fixed by the runner, not scripted, so they are not asserted here)."
+      "description": "The complete round-tripped AssistantMessage shape this DSL asserts -- every field the frozen Layer-02 vocabulary carries, all scriptable through the canonical append input and observed from the real reconstructed message (Rust review item 1)."
     },
     "toolResultDetail": {
       "type": "object",
-      "required": ["content", "is_error", "tool_name", "details", "usage", "added_tool_names"],
+      "required": [
+        "tool_call_id", "content", "timestamp", "is_error", "tool_name", "details", "usage",
+        "added_tool_names"
+      ],
       "additionalProperties": false,
       "properties": {
+        "tool_call_id": { "type": "string" },
         "content": {
           "type": "array",
           "items": { "$ref": "#/$defs/contentBlock" }
         },
+        "timestamp": { "type": "number" },
         "is_error": { "type": "boolean" },
         "tool_name": { "type": ["string", "null"] },
         "details": {},
@@ -355,7 +449,8 @@
             { "type": "array", "items": { "type": "string" } }
           ]
         }
-      }
+      },
+      "description": "The complete round-tripped ToolResultMessage shape this DSL asserts, including tool_call_id and timestamp (Rust review item 2)."
     }
   }
 }

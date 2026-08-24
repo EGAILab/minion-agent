@@ -363,6 +363,78 @@ def test_multiple_calls_each_get_independently_normalized_and_matched() -> None:
     assert [r.tool_call_id for r in out[1:]] == ["norm-a", "norm-b"]
 
 
+# --- empty-string normalized id (XFORM-R005): Pi's asymmetric truthy check ------------------
+#
+# Pi's ToolCall rewrite is unconditional on `returned != original`; the later ToolResult rewrite
+# additionally requires the mapped value be truthy. A callback returning "" therefore rewrites the
+# ToolCall to "" but leaves the matching real ToolResult at its original id -- the two no longer
+# match, so the transformed call is left unresolved and orphan synthesis (rule 14) fires for it.
+
+
+def test_normalizer_returning_the_same_id_has_no_mapping_effect() -> None:
+    def normalize(call_id: str, target: TargetModel, source: AssistantMessage) -> str:
+        return call_id
+
+    call = ToolCallBlock(id="orig", name="t", arguments={})
+    assistant = _assistant((call,), model="m2")
+    result = _result("orig")
+
+    out = transform_messages([assistant, result], TARGET_TEXT_ONLY, normalize)
+
+    assert out[0].content == (call,)
+    assert out[1].tool_call_id == "orig"
+
+
+def test_normalizer_returning_empty_string_rewrites_the_call_but_not_the_matching_result() -> None:
+    def normalize(call_id: str, target: TargetModel, source: AssistantMessage) -> str:
+        return ""
+
+    call = ToolCallBlock(id="old", name="lookup", arguments={})
+    assistant = _assistant((call,), model="m2")
+    result = _result("old")
+
+    out = transform_messages([assistant, result], TARGET_TEXT_ONLY, normalize)
+
+    assert len(out) == 3
+    assert out[0].content == (ToolCallBlock(id="", name="lookup", arguments={}),)
+    # the real result is left at its original id -- the empty mapped value is falsy
+    assert out[1].tool_call_id == "old"
+    assert out[1].content == (TextBlock(text="ok"),)
+    # the now-unmatched "" call is orphaned and synthesized, alongside the real result
+    assert out[2].tool_call_id == ""
+    assert out[2].tool_name == "lookup"
+    assert out[2].is_error is True
+    assert out[2].content == (TextBlock(text="No result provided"),)
+
+
+def test_an_unrelated_tool_result_is_unchanged_when_the_normalizer_returns_empty_string() -> None:
+    def normalize(call_id: str, target: TargetModel, source: AssistantMessage) -> str:
+        return ""
+
+    call = ToolCallBlock(id="old", name="lookup", arguments={})
+    assistant = _assistant((call,), model="m2")
+    unrelated = _result("unrelated")
+
+    out = transform_messages([assistant, unrelated], TARGET_TEXT_ONLY, normalize)
+
+    assert out[1].tool_call_id == "unrelated"
+    assert out[1].content == (TextBlock(text="ok"),)
+
+
+def test_same_model_never_invokes_the_normalize_callback() -> None:
+    calls: list[str] = []
+
+    def normalize(call_id: str, target: TargetModel, source: AssistantMessage) -> str:
+        calls.append(call_id)
+        return ""
+
+    call = ToolCallBlock(id="orig", name="t", arguments={})
+    out = transform_messages([_assistant((call,))], TARGET_TEXT_ONLY, normalize)
+
+    assert calls == []
+    assert out[0].content == (call,)
+
+
 # --- orphan tool-result synthesis (AI-024) -------------------------------------------------
 
 

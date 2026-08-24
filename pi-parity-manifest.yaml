@@ -177,7 +177,10 @@ rows:
   - nonvision-user-image-placeholder
   - nonvision-tool-image-placeholder
   python: src/minion_agent/llm/transform_messages.py
-  rust: Phase 2 target-model transform
+  rust: 'minion-agent-rust/crates/minion-agent/src/llm/transform.rs::downgrade_images/
+    downgrade_user_blocks/downgrade_tool_blocks (merged, PR #7 @ 439651e);
+    tests/llm_transform.rs::image_capability_preserves_or_downgrades_role_specific_blocks,
+    image_placeholder_suppression_is_per_run_and_per_message'
   disposition: adopted
 - id: AI-021
   phase: 2
@@ -194,7 +197,9 @@ rows:
   - cross-model-thinking-converts-to-text
   - cross-model-redacted-thinking-omitted
   python: src/minion_agent/llm/transform_messages.py
-  rust: Phase 2 target-model transform
+  rust: 'minion-agent-rust/crates/minion-agent/src/llm/transform.rs::transform_thinking (merged,
+    PR #7 @ 439651e); tests/llm_transform.rs::same_model_thinking_retains_only_the_certified_cases,
+    cross_model_thinking_and_signatures_are_made_compatible'
   disposition: adopted
 - id: AI-022
   phase: 2
@@ -206,20 +211,35 @@ rows:
   tests:
   - cross-model-signatures-stripped
   python: src/minion_agent/llm/transform_messages.py
-  rust: Phase 2 target-model transform
+  rust: 'minion-agent-rust/crates/minion-agent/src/llm/transform.rs::transform_assistant_block
+    (thought_signature stripping, merged, PR #7 @ 439651e);
+    tests/llm_transform.rs::every_identity_component_participates_in_signature_compatibility,
+    cross_model_thinking_and_signatures_are_made_compatible'
   disposition: adopted
 - id: AI-023
   phase: 2
   pi: packages/ai/src/api/transform-messages.ts::transformMessages
   surface: tool-call ID normalization
-  rule: transform_messages has no built-in normalization algorithm -- Pi injects normalizeToolCallId as a per-adapter
+  rule: 'transform_messages has no built-in normalization algorithm -- Pi injects normalizeToolCallId as a per-adapter
     callback (every real Pi provider supplies its own), invoked cross-model only, in transcript order; this module
     owns only the generic map-building/consistent-rewrite orchestration (XFORM-008, spec/target-model-transformation.md
-    rule 13). The concrete per-target-API algorithm is Phase-5/provider territory, not this row's scope.
+    rule 13). The concrete per-target-API algorithm is Phase-5/provider territory, not this row''s scope. The
+    ToolCall rewrite and the later matching ToolResult rewrite follow two different, asymmetric conditions
+    (XFORM-R005): a returned id that differs from the original -- including an empty string -- always rewrites the
+    ToolCall and is recorded in the map, but the later ToolResult is rewritten only when the mapped value is truthy
+    (non-empty) and differs from the result''s current id, reproducing pinned Pi''s own JavaScript truthy check. A
+    mapped empty string therefore leaves the real ToolResult at its original id while the ToolCall itself becomes
+    "", so the two no longer match and orphan synthesis (AI-024) fires for the empty id.'
   tests:
   - tool-call-id-normalization
+  - tool-call-id-normalization-empty-string
   python: src/minion_agent/llm/transform_messages.py
-  rust: Phase 2 target-model transform
+  rust: 'minion-agent-rust/crates/minion-agent/src/llm/transform.rs::transform_assistant_block
+    (ToolCall rewrite, correct), transform_content (matching ToolResult rewrite -- currently
+    unconditional on any mapping, not gated on truthiness; XFORM-R005 Rust remediation PENDING,
+    not performed this pass; see assurance/layers/04-target-model-transformation.md SS21); PR #7
+    @ 439651e; tests/llm_transform.rs::injected_id_policy_receives_original_assistant_and_rewrites_matching_results,
+    same_model_never_invokes_the_id_policy, id_policy_runs_in_transcript_order_and_rewrites_each_matching_result'
   disposition: adopted
 - id: AI-024
   phase: 2
@@ -232,7 +252,10 @@ rows:
   tests:
   - orphan-tool-result-synthesized
   python: src/minion_agent/llm/transform_messages.py
-  rust: Phase 2 target-model transform
+  rust: 'minion-agent-rust/crates/minion-agent/src/llm/transform.rs::synthesize_orphans/flush_orphans
+    (merged, PR #7 @ 439651e);
+    tests/llm_transform.rs::unresolved_calls_synthesize_ordered_required_results_before_interruptions,
+    resolved_calls_do_not_synthesize_and_normalized_orphans_use_transformed_ids'
   disposition: adopted
 - id: AI-025
   phase: 2
@@ -245,20 +268,31 @@ rows:
   - errored-assistant-excluded-from-replay
   - aborted-assistant-excluded-from-replay
   python: src/minion_agent/llm/transform_messages.py
-  rust: Phase 2 target-model transform
+  rust: 'minion-agent-rust/crates/minion-agent/src/llm/transform.rs::error_and_aborted_assistants
+    exclusion in synthesize_orphans (merged, PR #7 @ 439651e);
+    tests/llm_transform.rs::error_and_aborted_assistants_are_excluded_without_orphan_results'
   disposition: adopted
 - id: AI-026
   phase: 2
   pi: packages/ai/src/api/transform-messages.ts::transformMessages
   surface: legacy null content normalization
-  rule: null/undefined legacy content -> empty list, unconditionally, first, on every role (XFORM-001,
-    spec/target-model-transformation.md rule 1). Minion's typed Message dataclasses cannot themselves hold null
-    content (unlike Pi's TS types, unenforced at runtime); the defensive check lives inside transform_messages()
-    itself, exactly where Pi places it, not at the Session decode boundary.
+  rule: 'null/undefined legacy content normalizes to role-valid empty content before typed XFORM stages execute
+    (XFORM-001, spec/target-model-transformation.md rule 1), unconditionally, first, on every role. The
+    normalization is library-owned at the dynamic/legacy transform boundary, not Session-owned and not
+    runner-owned -- language-neutral wording corrected by XFORM-R007, which no longer overstates a
+    single-implementation architecture (see the python:/rust: fields for where each implementation places the
+    boundary).'
   tests:
   - null-content-normalizes-empty
-  python: src/minion_agent/llm/transform_messages.py
-  rust: Phase 2 target-model transform
+  python: 'src/minion_agent/llm/transform_messages.py::_normalize_legacy_content -- Python''s dataclasses cannot
+    themselves hold null content statically (unlike Pi''s TS types, unenforced at runtime), so the defensive
+    normalization lives directly inside the typed transform entry, matching Pi''s own placement exactly.'
+  rust: 'minion-agent-rust/crates/minion-agent/src/llm/transform_compat.rs::transform_legacy_messages -- Rust''s
+    typed Message cannot represent null content at all, so the dynamic/legacy compatibility boundary is a
+    separate, feature-gated module (only reachable behind the non-default `conformance` feature) that decodes
+    untyped JSON into the typed Message vocabulary before delegating to the ordinary typed transform_messages();
+    it is not inside transform_messages() itself. Merged PR #7 @ 439651e;
+    tests/llm_transform.rs::legacy_null_content_is_normalized_by_the_library_before_typed_transformation.'
   disposition: adopted
 - id: AG-001
   phase: 3

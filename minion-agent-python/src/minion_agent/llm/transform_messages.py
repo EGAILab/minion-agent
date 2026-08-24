@@ -221,7 +221,10 @@ def _content_transform_pass(
             transformed.append(message)
         elif isinstance(message, ToolResultMessage):
             normalized_id = tool_call_id_map.get(message.tool_call_id)
-            if normalized_id is not None and normalized_id != message.tool_call_id:
+            # Truthy check, matching Pi's `if (normalizedId && normalizedId !== msg.toolCallId)`
+            # exactly: a mapped empty string is falsy and must NOT rewrite the real result, even
+            # though the matching ToolCall.id above was itself rewritten to "" (XFORM-R005).
+            if normalized_id and normalized_id != message.tool_call_id:
                 transformed.append(dataclasses.replace(message, tool_call_id=normalized_id))
             else:
                 transformed.append(message)

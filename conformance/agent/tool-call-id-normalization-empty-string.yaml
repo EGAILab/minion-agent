@@ -1,0 +1,113 @@
+name: tool-call-id-normalization-empty-string
+pi_revision: b7bb00b936dbe21b8e160b3e89efdec361846699
+authority: 2026-08-20-minion-agent-design.md
+notes: 'XFORM-R005: pinned Pi''s ToolCall rewrite and its later ToolResult rewrite are governed
+  by two different, asymmetric conditions. The ToolCall rewrite is unconditional on
+  `returned != original`, including when `returned` is the empty string -- so a callback that
+  returns "" still rewrites ToolCall.id to "". The matching ToolResult rewrite additionally
+  requires the mapped value be truthy (`if (normalizedId && normalizedId !== msg.toolCallId)`),
+  so a mapped empty string is falsy and does NOT rewrite the real result -- it keeps its original
+  id. The two representations of the same call no longer match, so the transformed call is left
+  unresolved and orphan synthesis (rule 14) fires for it, alongside the real, now-unmatched
+  result. This is a deliberate reproduction of Pi''s own JavaScript truthiness quirk, not a
+  simplification target -- see spec/target-model-transformation.md rule 13.
+
+  '
+transform:
+  messages:
+  - role: assistant
+    content:
+    - type: tool_call
+      id: old-id
+      name: lookup
+      arguments: {}
+    provider: p
+    api: a
+    model: m2
+    stop_reason: tool_use
+    timestamp: 1
+    usage:
+      input: 0
+      output: 0
+      cache_read: 0
+      cache_write: 0
+      total_tokens: 0
+      cost:
+        input: 0
+        output: 0
+        cache_read: 0
+        cache_write: 0
+        total: 0
+  - role: tool_result
+    content:
+    - type: text
+      text: sunny
+    tool_call_id: old-id
+    tool_name: lookup
+    is_error: false
+    timestamp: 2
+  target:
+    provider: p
+    api: a
+    model_id: m1
+    supports_images: false
+  normalize_tool_call_ids:
+    old-id: ""
+expect:
+  messages:
+  - role: assistant
+    content:
+    - type: tool_call
+      id: ""
+      name: lookup
+      arguments: {}
+      thought_signature: null
+      namespace: null
+    provider: p
+    api: a
+    model: m2
+    stop_reason: tool_use
+    timestamp: 1
+    usage:
+      input: 0
+      output: 0
+      cache_read: 0
+      cache_write: 0
+      cache_write_1h: null
+      reasoning: null
+      total_tokens: 0
+      cost:
+        input: 0
+        output: 0
+        cache_read: 0
+        cache_write: 0
+        total: 0
+    response_model: null
+    response_id: null
+    diagnostics: null
+    deferred: null
+    error_message: null
+    raw_stop_reason: null
+    end_turn: null
+  - role: tool_result
+    content:
+    - type: text
+      text: sunny
+      text_signature: null
+    tool_call_id: old-id
+    tool_name: lookup
+    is_error: false
+    details: null
+    usage: null
+    added_tool_names: null
+  - role: tool_result
+    content:
+    - type: text
+      text: No result provided
+      text_signature: null
+    tool_call_id: ""
+    tool_name: lookup
+    is_error: true
+    details: null
+    usage: null
+    added_tool_names: null

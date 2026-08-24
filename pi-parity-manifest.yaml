@@ -235,11 +235,14 @@ rows:
   - tool-call-id-normalization-empty-string
   python: src/minion_agent/llm/transform_messages.py
   rust: 'minion-agent-rust/crates/minion-agent/src/llm/transform.rs::transform_assistant_block
-    (ToolCall rewrite, correct), transform_content (matching ToolResult rewrite -- currently
-    unconditional on any mapping, not gated on truthiness; XFORM-R005 Rust remediation PENDING,
-    not performed this pass; see assurance/layers/04-target-model-transformation.md SS21); PR #7
-    @ 439651e; tests/llm_transform.rs::injected_id_policy_receives_original_assistant_and_rewrites_matching_results,
-    same_model_never_invokes_the_id_policy, id_policy_runs_in_transcript_order_and_rewrites_each_matching_result'
+    (ToolCall rewrite) and transform_content (matching ToolResult rewrite, gated on mapping
+    existence + non-empty mapped value + inequality, reproducing Pi''s truthy check exactly --
+    XFORM-R005 RESOLVED by PR #8 @ feed2fba); tests/llm_transform.rs::
+    injected_id_policy_receives_original_assistant_and_rewrites_matching_results,
+    same_model_never_invokes_the_id_policy, id_policy_runs_in_transcript_order_and_rewrites_each_matching_result,
+    normalizer_returning_empty_string_preserves_real_result_and_synthesizes_orphan (PR #8);
+    xform_conformance.rs drives 14/14 canonical scenarios including
+    tool-call-id-normalization-empty-string'
   disposition: adopted
 - id: AI-024
   phase: 2

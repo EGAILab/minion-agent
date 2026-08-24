@@ -1,0 +1,42 @@
+name: string-user-message-round-trip
+description: >
+  SES-F009: UserMessage.content is str | [TextBlock|ImageBlock] (spec/llm.md; LLM-F012), both
+  first-class. expect_messages' role/text projection alone cannot distinguish a string-valued
+  UserMessage.content from a single-TextBlock array -- both project to the same visible text -- so
+  expect_user_details observes the real derived representation directly. Proves: a scripted string
+  round-trips as a string (not normalized into a one-element block array); a scripted block array
+  round-trips as a block array (not collapsed into a string); a forked child inherits its parent's
+  string-content message with the representation intact, unaffected by fork boundary mechanics.
+steps:
+  - append:
+      role: user
+      content: hello
+      timestamp: 1
+  - append:
+      role: user
+      content:
+        - type: text
+          text: hello
+      timestamp: 2
+  - fork: {}
+  - append:
+      role: user
+      content: "still a string after fork"
+      timestamp: 3
+expect_messages:
+  - role: user
+    text: hello
+  - role: user
+    text: hello
+  - role: user
+    text: still a string after fork
+expect_user_details:
+  - content: hello
+    timestamp: 1
+  - content:
+      - type: text
+        text: hello
+        text_signature: null
+    timestamp: 2
+  - content: still a string after fork
+    timestamp: 3

@@ -76,3 +76,10 @@ class ToolCallBlock:
 
 
 type ContentBlock = TextBlock | ThinkingBlock | ImageBlock | ToolCallBlock
+"""Every block kind. Generic helpers (encode/decode, normalization) that operate uniformly
+across roles use this; message types use the narrower role-specific aliases below instead,
+matching Pi's own frozen per-role unions (`packages/ai/src/types.ts`, `LLM-F012`)."""
+
+type UserContentBlock = TextBlock | ImageBlock
+type AssistantContentBlock = TextBlock | ThinkingBlock | ToolCallBlock
+type ToolResultContentBlock = TextBlock | ImageBlock

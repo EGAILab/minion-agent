@@ -11,7 +11,7 @@ from __future__ import annotations
 from collections.abc import AsyncIterator, Sequence
 from dataclasses import dataclass
 
-from ..content import ContentBlock, TextBlock
+from ..content import AssistantContentBlock, TextBlock
 from ..messages import (
     AssistantMessage,
     AssistantMessageDiagnostic,
@@ -33,7 +33,7 @@ scripted response can mutate what another one sees."""
 class ScriptedResponse:
     """One response the adapter will return, in order."""
 
-    content: tuple[ContentBlock, ...]
+    content: tuple[AssistantContentBlock, ...]
     stop_reason: StopReason
     usage: Usage = _NO_USAGE
     error_message: str | None = None

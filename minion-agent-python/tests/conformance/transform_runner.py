@@ -76,19 +76,29 @@ def _content(raw: list[dict[str, Any]] | None) -> tuple[ContentBlock, ...] | Non
     return tuple(_block(block) for block in raw)
 
 
-def _usage(raw: dict[str, Any] | None) -> Usage:
-    if raw is None:
-        return Usage()
-    cost = raw.get("cost")
+def _usage(raw: dict[str, Any]) -> Usage:
+    """Reads a schema-validated `Usage` object directly -- no defaults, no fabricated fields
+    (`XFORM-R002`). `AssistantMessage.usage` is required (`spec/llm.md`) and the schema now
+    enforces every non-optional member is present too, so a schema-valid scenario always
+    supplies a complete object here; `ToolResultMessage.usage` stays genuinely optional at the
+    call site (`None` when the key is absent), but when present it is exercised through this
+    same function and so is equally complete."""
+    cost = raw["cost"]
     return Usage(
-        input=raw.get("input", 0),
-        output=raw.get("output", 0),
-        cache_read=raw.get("cache_read", 0),
-        cache_write=raw.get("cache_write", 0),
+        input=raw["input"],
+        output=raw["output"],
+        cache_read=raw["cache_read"],
+        cache_write=raw["cache_write"],
         cache_write_1h=raw.get("cache_write_1h"),
         reasoning=raw.get("reasoning"),
-        total_tokens=raw.get("total_tokens", 0),
-        cost=Cost(**cost) if cost is not None else Cost(),
+        total_tokens=raw["total_tokens"],
+        cost=Cost(
+            input=cost["input"],
+            output=cost["output"],
+            cache_read=cost["cache_read"],
+            cache_write=cost["cache_write"],
+            total=cost["total"],
+        ),
     )
 
 
@@ -132,7 +142,7 @@ def _message(raw: dict[str, Any]) -> Message:
         return AssistantMessage(
             content=_content(raw.get("content")),  # type: ignore[arg-type]
             stop_reason=StopReason(raw["stop_reason"]),
-            usage=_usage(raw.get("usage")),
+            usage=_usage(raw["usage"]),
             model=raw["model"],
             provider=raw["provider"],
             api=raw["api"],

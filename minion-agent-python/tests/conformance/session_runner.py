@@ -129,16 +129,26 @@ def _content(spec: dict[str, Any]) -> tuple[ContentBlock, ...]:
     return ()
 
 
+def _user_content(spec: dict[str, Any]) -> str | tuple[ContentBlock, ...]:
+    """`UserMessage.content` is `str | tuple[...]` (`LLM-F012`/`SES-F009`) -- both first-class.
+    A scripted string stays a string; only a block array or the `text` shorthand goes through
+    `_content()`. `text` never means "wrap this string in a one-block array" for `content` itself
+    -- it is a distinct shorthand, not a normalization of the string form."""
+    if "content" in spec and isinstance(spec["content"], str):
+        return spec["content"]
+    return _content(spec)
+
+
 def _message(role: str, spec: dict[str, Any]) -> Message:
     """Build the message a role carries, threading every scriptable field.
 
     A plugin-declared kind builds as a user message: the payload shape is the
     core vocabulary, and only the event *name* is new.
     """
-    content = _content(spec)
     timestamp = spec.get("timestamp", 1)
     if role not in _KIND or role == "user":
-        return UserMessage(content=content, timestamp=timestamp)
+        return UserMessage(content=_user_content(spec), timestamp=timestamp)
+    content = _content(spec)
     if role == "assistant":
         raw_diagnostics = spec.get("diagnostics")
         return AssistantMessage(
@@ -267,6 +277,19 @@ def _normalize_deferred(handle: DeferredHandle | None) -> dict[str, Any] | None:
     }
 
 
+def _user_detail(message: UserMessage) -> dict[str, Any]:
+    """The real derived `UserMessage.content`, exactly as Session reconstructed it -- a string
+    stays a string, never normalized into a one-element block array (`LLM-F012`/`SES-F009`).
+    `expect_messages`' role/text projection cannot distinguish the two representations, since both
+    produce the same visible text; this is the observation that actually can."""
+    content: Any = (
+        message.content
+        if isinstance(message.content, str)
+        else [_normalize_block(block) for block in message.content]
+    )
+    return {"content": content, "timestamp": message.timestamp}
+
+
 def _assistant_detail(message: AssistantMessage) -> dict[str, Any]:
     return {
         "content": [_normalize_block(block) for block in message.content],
@@ -353,6 +376,7 @@ def run_session_scenario(document: dict[str, Any]) -> dict[str, Any]:
     messages = () if error is not None else derive_messages(log)
     result: dict[str, Any] = {
         "messages": [{"role": _role_of(m), "text": text_of(m)} for m in messages],
+        "user_details": [_user_detail(m) for m in messages if isinstance(m, UserMessage)],
         "assistant_details": [
             _assistant_detail(m) for m in messages if isinstance(m, AssistantMessage)
         ],

@@ -72,6 +72,33 @@ def test_user_message_round_trips() -> None:
     assert decode_message(encode_message(message)) == message
 
 
+def test_string_valued_user_message_round_trips_as_a_string() -> None:
+    """UserMessage.content is str | tuple[...] (LLM-F012/SES-F009), both first-class. A string
+    must survive Session persistence exactly as a string -- not normalized into a one-element
+    TextBlock array."""
+    message = UserMessage(content="hello", timestamp=1)
+
+    restored = decode_message(encode_message(message))
+
+    assert restored == message
+    assert isinstance(restored.content, str)
+    assert restored.content == "hello"
+
+
+def test_string_and_single_text_block_user_messages_remain_distinct_after_round_trip() -> None:
+    """Both representations project to the same visible text, but Session must not conflate
+    them: a real string stays a string, and a real single-TextBlock array stays an array."""
+    as_string = UserMessage(content="hello", timestamp=1)
+    as_block = UserMessage(content=(TextBlock(text="hello"),), timestamp=1)
+
+    restored_string = decode_message(encode_message(as_string))
+    restored_block = decode_message(encode_message(as_block))
+
+    assert isinstance(restored_string.content, str)
+    assert isinstance(restored_block.content, tuple)
+    assert restored_string != restored_block
+
+
 def test_assistant_message_round_trips_with_accounting() -> None:
     message = _assistant("hi")
 

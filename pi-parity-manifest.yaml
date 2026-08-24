@@ -43,11 +43,16 @@ rows:
   phase: 2
   pi: packages/ai/src/types.ts::UserMessage
   surface: user string-or-block content
-  rule: UserMessage.content = string | [TextBlock|ImageBlock]
+  rule: 'UserMessage.content = string | [TextBlock|ImageBlock] -- corrected by LLM-F012: the Python
+    implementation had silently diverged from this already-correct rule (content was typed
+    tuple-only, excluding the string alternative) until a Layer-04 Rust review reproduced the
+    defect via a direct static probe. This row previously cited implementation evidence without
+    the string alternative ever actually being statically constructible; that gap is now closed.'
   tests:
   - public-llm-vocabulary-schema
   - null-content-normalizes-empty
-  python: src/minion_agent/llm/messages.py (rewrite)
+  python: src/minion_agent/llm/messages.py (rewrite; content typed str | tuple[UserContentBlock,
+    ...] as of LLM-F012)
   rust: Phase 2 llm messages (new)
   disposition: adopted
 - id: AI-005

@@ -26,6 +26,18 @@ transform:
     model: m1
     stop_reason: error
     timestamp: 2
+    usage:
+      input: 0
+      output: 0
+      cache_read: 0
+      cache_write: 0
+      total_tokens: 0
+      cost: &id001
+        input: 0
+        output: 0
+        cache_read: 0
+        cache_write: 0
+        total: 0
   - role: assistant
     content:
     - type: text
@@ -35,6 +47,13 @@ transform:
     model: m1
     stop_reason: stop
     timestamp: 3
+    usage:
+      input: 0
+      output: 0
+      cache_read: 0
+      cache_write: 0
+      total_tokens: 0
+      cost: *id001
   target:
     provider: p
     api: a

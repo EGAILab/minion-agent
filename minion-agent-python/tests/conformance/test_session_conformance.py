@@ -41,3 +41,5 @@ def test_session_scenario(scenario: Path) -> None:
         assert outcome["event_kinds"] == document["expect_event_kinds"]
     if "expect_transformed_messages" in document:
         assert outcome["transformed_messages"] == document["expect_transformed_messages"]
+    if "expect_user_details" in document:
+        assert outcome["user_details"] == document["expect_user_details"]

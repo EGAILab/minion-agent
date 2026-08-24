@@ -12,9 +12,18 @@ immutable (design spec section 4).
 from __future__ import annotations
 
 import base64
-from typing import Any
+from typing import Any, cast
 
-from ..llm.content import ContentBlock, ImageBlock, TextBlock, ThinkingBlock, ToolCallBlock
+from ..llm.content import (
+    AssistantContentBlock,
+    ContentBlock,
+    ImageBlock,
+    TextBlock,
+    ThinkingBlock,
+    ToolCallBlock,
+    ToolResultContentBlock,
+    UserContentBlock,
+)
 from ..llm.messages import (
     AssistantMessage,
     AssistantMessageDiagnostic,
@@ -188,12 +197,22 @@ def _decode_deferred(raw: dict[str, Any]) -> DeferredHandle:
 
 
 def encode_message(message: Message) -> dict[str, Any]:
-    """Render `message` as JSON-safe data the log will accept."""
-    content = [_encode_block(block) for block in message.content]
+    """Render `message` as JSON-safe data the log will accept.
+
+    `UserMessage.content` is `str | tuple[UserContentBlock, ...]` (`LLM-F012`) -- a string encodes
+    as itself (already JSON-safe), never as a one-element block array; the two representations
+    are both first-class and must round-trip as what they were, not normalized into each other.
+    """
     match message:
         case UserMessage():
-            return {"role": "user", "content": content, "timestamp": message.timestamp}
+            user_content: Any = (
+                message.content
+                if isinstance(message.content, str)
+                else [_encode_block(block) for block in message.content]
+            )
+            return {"role": "user", "content": user_content, "timestamp": message.timestamp}
         case AssistantMessage():
+            content = [_encode_block(block) for block in message.content]
             encoded_assistant: dict[str, Any] = {
                 "role": "assistant",
                 "content": content,
@@ -221,6 +240,7 @@ def encode_message(message: Message) -> dict[str, Any]:
                 encoded_assistant["end_turn"] = message.end_turn
             return encoded_assistant
         case ToolResultMessage():
+            content = [_encode_block(block) for block in message.content]
             encoded: dict[str, Any] = {
                 "role": "tool_result",
                 "content": content,
@@ -239,12 +259,27 @@ def encode_message(message: Message) -> dict[str, Any]:
 
 
 def decode_message(raw: dict[str, Any]) -> Message:
-    """Restore a message encoded by `encode_message`."""
-    content = tuple(_decode_block(block) for block in raw["content"])
+    """Restore a message encoded by `encode_message`.
+
+    A role's own real content type (not the generic `_decode_block` return type) is what the
+    typed constructor needs; the cast trusts that this data was produced by `encode_message`
+    for a role-appropriate value in the first place (role/content legality is a schema-level
+    concern -- `SES-F005` -- not re-validated here, matching the project's own rule against
+    adding runtime validation solely to mimic static typing).
+    """
     role = raw["role"]
     if role == "user":
-        return UserMessage(content=content, timestamp=raw["timestamp"])
+        raw_content = raw["content"]
+        user_content: str | tuple[UserContentBlock, ...] = (
+            raw_content
+            if isinstance(raw_content, str)
+            else tuple(cast(UserContentBlock, _decode_block(block)) for block in raw_content)
+        )
+        return UserMessage(content=user_content, timestamp=raw["timestamp"])
     if role == "assistant":
+        content = tuple(
+            cast(AssistantContentBlock, _decode_block(block)) for block in raw["content"]
+        )
         raw_diagnostics = raw.get("diagnostics")
         raw_deferred = raw.get("deferred")
         return AssistantMessage(
@@ -268,11 +303,14 @@ def decode_message(raw: dict[str, Any]) -> Message:
             end_turn=raw.get("end_turn"),
         )
     if role == "tool_result":
+        result_content = tuple(
+            cast(ToolResultContentBlock, _decode_block(block)) for block in raw["content"]
+        )
         raw_usage = raw.get("usage")
         added_tool_names = raw.get("added_tool_names")
         return ToolResultMessage(
             tool_call_id=raw["tool_call_id"],
-            content=content,
+            content=result_content,
             timestamp=raw["timestamp"],
             tool_name=raw["tool_name"],
             is_error=raw["is_error"],

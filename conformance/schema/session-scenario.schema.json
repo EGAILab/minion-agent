@@ -46,6 +46,11 @@
         }
       }
     },
+    "expect_user_details": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/userDetail" },
+      "description": "The full round-tripped UserMessage shape (real content representation plus timestamp) for each user message in derivation order. expect_messages' role/text projection cannot distinguish a string-valued UserMessage.content from a single-TextBlock array -- both project to the same visible text -- so this is the language-neutral observation that actually proves which representation Session persisted and derived (LLM-F012/SES-F009)."
+    },
     "expect_assistant_details": {
       "type": "array",
       "items": { "$ref": "#/$defs/assistantDetail" },
@@ -154,9 +159,11 @@
               "description": "Shorthand for a single text content block. Ignored when `content` is given."
             },
             "content": {
-              "type": "array",
-              "items": { "$ref": "#/$defs/contentBlock" },
-              "description": "Full content-block list, for scenarios that need signature/thinking/tool-call fields `text` cannot express."
+              "oneOf": [
+                { "type": "string" },
+                { "type": "array", "items": { "$ref": "#/$defs/contentBlock" } }
+              ],
+              "description": "A content-block array, for scenarios that need signature/thinking/tool-call fields `text` cannot express; or, for `role: user` only, a bare string -- UserMessage.content's frozen `string | [TextBlock|ImageBlock]` union (`spec/llm.md`; `LLM-F012`/`SES-F009`). The role-conditional `allOf` entries below further pin the exact allowed shape and item-type set per role; this property alone only bounds the JSON type to string-or-array-of-content-blocks."
             },
             "timestamp": {
               "type": "number",
@@ -238,18 +245,49 @@
               "then": {
                 "properties": {
                   "content": {
+                    "type": "array",
                     "items": { "properties": { "type": { "enum": ["text", "thinking", "tool_call"] } } }
                   }
                 }
               },
-              "else": {
+              "description": "Role-restricted content variants, matching Pi's frozen per-role content union exactly (packages/ai/src/types.ts: UserMessage/ToolResultMessage carry TextContent|ImageContent, AssistantMessage carries TextContent|ThinkingContent|ToolCall) -- delta finding C. An assistant append cannot carry an image block, and (unlike user) cannot be a bare string -- AssistantMessage.content has no string variant."
+            },
+            {
+              "if": {
+                "required": ["role"],
+                "properties": { "role": { "const": "tool_result" } }
+              },
+              "then": {
                 "properties": {
                   "content": {
+                    "type": "array",
                     "items": { "properties": { "type": { "enum": ["text", "image"] } } }
                   }
                 }
               },
-              "description": "Role-restricted content variants, matching Pi's frozen per-role content union exactly (packages/ai/src/types.ts: UserMessage/ToolResultMessage carry TextContent|ImageContent, AssistantMessage carries TextContent|ThinkingContent|ToolCall) -- delta finding C. A user/tool_result/plugin append cannot carry a thinking or tool_call block; an assistant append cannot carry an image block."
+              "description": "A tool_result append cannot carry a thinking or tool_call block, and (unlike user) cannot be a bare string -- ToolResultMessage.content has no string variant, matching Pi's frozen per-role union exactly."
+            },
+            {
+              "if": {
+                "not": {
+                  "required": ["role"],
+                  "properties": { "role": { "enum": ["assistant", "tool_result"] } }
+                }
+              },
+              "then": {
+                "properties": {
+                  "content": {
+                    "oneOf": [
+                      { "type": "string" },
+                      {
+                        "type": "array",
+                        "items": { "properties": { "type": { "enum": ["text", "image"] } } }
+                      }
+                    ]
+                  }
+                }
+              },
+              "description": "A user (or plugin-declared, which session_runner.py builds as a user message) append may be a bare string or a text/image block array -- UserMessage.content's frozen string|array union (`spec/llm.md`; `LLM-F012`/`SES-F009`). A real string is not shorthand for a one-block array: no layer may silently convert between them."
             },
             {
               "if": {
@@ -446,6 +484,29 @@
         "description": { "type": "string" },
         "parameters": { "type": "object" }
       }
+    },
+    "userDetail": {
+      "type": "object",
+      "required": ["content", "timestamp"],
+      "additionalProperties": false,
+      "properties": {
+        "content": {
+          "oneOf": [
+            { "type": "string" },
+            {
+              "type": "array",
+              "items": {
+                "allOf": [
+                  { "$ref": "#/$defs/contentBlock" },
+                  { "properties": { "type": { "enum": ["text", "image"] } } }
+                ]
+              }
+            }
+          ]
+        },
+        "timestamp": { "type": "number" }
+      },
+      "description": "The real derived UserMessage.content, exactly as Session reconstructed it -- a string stays a string, never normalized into a one-element block array (LLM-F012/SES-F009)."
     },
     "assistantDetail": {
       "type": "object",

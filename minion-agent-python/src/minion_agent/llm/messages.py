@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any
 
-from .content import ContentBlock, TextBlock
+from .content import AssistantContentBlock, TextBlock, ToolResultContentBlock, UserContentBlock
 
 
 class StopReason(StrEnum):
@@ -119,7 +119,11 @@ class DeferredHandle:
 class UserMessage:
     """Input from a user or an application."""
 
-    content: tuple[ContentBlock, ...]
+    content: str | tuple[UserContentBlock, ...]
+    """Either a bare string, or `TextBlock`/`ImageBlock` content (`spec/llm.md`; pinned Pi's
+    `UserMessage.content: string | (TextContent|ImageContent)[]`, `types.ts`). Both are
+    first-class -- a string is not legacy shorthand for a one-block array, and no layer may
+    silently convert between them (`LLM-F012`)."""
     timestamp: int
 
 
@@ -129,7 +133,7 @@ class AssistantMessage:
     identity/state needed by provider replay and caller behavior (design
     spec section 4)."""
 
-    content: tuple[ContentBlock, ...]
+    content: tuple[AssistantContentBlock, ...]
     stop_reason: StopReason
     usage: Usage
     model: str
@@ -163,7 +167,7 @@ class ToolResultMessage:
     """The result of one tool call, linked by `tool_call_id`."""
 
     tool_call_id: str
-    content: tuple[ContentBlock, ...]
+    content: tuple[ToolResultContentBlock, ...]
     timestamp: int
     tool_name: str
     """The tool that produced this result. Required -- Pi's `ToolResultMessage.toolName`
@@ -183,5 +187,12 @@ type Message = UserMessage | AssistantMessage | ToolResultMessage
 
 
 def text_of(message: Message) -> str:
-    """Concatenate a message's text blocks, ignoring every other kind."""
+    """The message's visible text.
+
+    A string-valued `UserMessage.content` *is* the text -- it is not an iterable of blocks and
+    must never be split character-by-character (`LLM-F012`). Otherwise, concatenate text blocks,
+    ignoring every other kind.
+    """
+    if isinstance(message.content, str):
+        return message.content
     return "".join(block.text for block in message.content if isinstance(block, TextBlock))

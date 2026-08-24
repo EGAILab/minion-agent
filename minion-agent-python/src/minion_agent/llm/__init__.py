@@ -1,6 +1,15 @@
 """The provider-neutral LLM vocabulary and adapter seam."""
 
-from .content import ContentBlock, ImageBlock, TextBlock, ThinkingBlock, ToolCallBlock
+from .content import (
+    AssistantContentBlock,
+    ContentBlock,
+    ImageBlock,
+    TextBlock,
+    ThinkingBlock,
+    ToolCallBlock,
+    ToolResultContentBlock,
+    UserContentBlock,
+)
 from .errors import AdapterProtocolError, LlmError, UnknownModelError
 from .messages import (
     AssistantMessage,
@@ -38,6 +47,7 @@ from .tools import ToolSchema
 __all__ = [
     "Adapter",
     "AdapterProtocolError",
+    "AssistantContentBlock",
     "AssistantMessage",
     "AssistantMessageDiagnostic",
     "AssistantStream",
@@ -68,10 +78,12 @@ __all__ = [
     "ToolCallDelta",
     "ToolCallEnd",
     "ToolCallStart",
+    "ToolResultContentBlock",
     "ToolResultMessage",
     "ToolSchema",
     "UnknownModelError",
     "Usage",
+    "UserContentBlock",
     "UserMessage",
     "collect",
     "text_of",

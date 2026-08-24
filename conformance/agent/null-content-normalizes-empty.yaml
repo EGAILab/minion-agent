@@ -21,6 +21,18 @@ transform:
     model: m1
     stop_reason: stop
     timestamp: 2
+    usage:
+      input: 0
+      output: 0
+      cache_read: 0
+      cache_write: 0
+      total_tokens: 0
+      cost:
+        input: 0
+        output: 0
+        cache_read: 0
+        cache_write: 0
+        total: 0
   - role: tool_result
     content: null
     tool_call_id: t1

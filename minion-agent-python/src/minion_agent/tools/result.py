@@ -18,7 +18,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from ..llm import ContentBlock, TextBlock, ToolResultMessage
+from ..llm import TextBlock, ToolResultContentBlock, ToolResultMessage
 
 
 @dataclass(frozen=True, slots=True)
@@ -26,7 +26,7 @@ class ToolResult:
     """One finalized tool outcome."""
 
     tool_call_id: str
-    content: tuple[ContentBlock, ...]
+    content: tuple[ToolResultContentBlock, ...]
     tool_name: str
     """The tool that produced this result. Required, matching
     `ToolResultMessage.tool_name` (LLM-F0-delta finding A) -- the pipeline

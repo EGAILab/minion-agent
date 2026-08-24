@@ -25,7 +25,14 @@ import dataclasses
 import time
 from collections.abc import Callable, Sequence
 
-from .content import ContentBlock, ImageBlock, TextBlock, ThinkingBlock, ToolCallBlock
+from .content import (
+    AssistantContentBlock,
+    ImageBlock,
+    TextBlock,
+    ThinkingBlock,
+    ToolCallBlock,
+    UserContentBlock,
+)
 from .messages import AssistantMessage, Message, StopReason, ToolResultMessage, UserMessage
 from .service import ModelId
 
@@ -74,9 +81,12 @@ def _normalize_legacy_content(message: Message) -> Message:
 
 
 def _replace_images_with_placeholder(
-    content: tuple[ContentBlock, ...], placeholder: str
-) -> tuple[ContentBlock, ...]:
-    result: list[ContentBlock] = []
+    content: tuple[UserContentBlock, ...], placeholder: str
+) -> tuple[UserContentBlock, ...]:
+    """`UserContentBlock` and `ToolResultContentBlock` are both `TextBlock | ImageBlock`
+    (`content.py`) -- the same structural type under two names, so this one implementation
+    serves both call sites (user and tool-result image downgrade) without a TypeVar."""
+    result: list[UserContentBlock] = []
     previous_was_placeholder = False
     for block in content:
         if isinstance(block, ImageBlock):
@@ -134,7 +144,9 @@ def _is_same_model(assistant: AssistantMessage, target: TargetModel) -> bool:
     )
 
 
-def _transform_thinking(block: ThinkingBlock, same_model: bool) -> tuple[ContentBlock, ...]:
+def _transform_thinking(
+    block: ThinkingBlock, same_model: bool
+) -> tuple[AssistantContentBlock, ...]:
     if block.redacted:
         # Redacted thinking is opaque encrypted content, only valid for the same model.
         return (block,) if same_model else ()
@@ -174,9 +186,9 @@ def _transform_assistant_content(
     target: TargetModel,
     normalize_tool_call_id: NormalizeToolCallId | None,
     tool_call_id_map: dict[str, str],
-) -> tuple[ContentBlock, ...]:
+) -> tuple[AssistantContentBlock, ...]:
     same_model = _is_same_model(assistant, target)
-    transformed: list[ContentBlock] = []
+    transformed: list[AssistantContentBlock] = []
     for block in assistant.content:
         if isinstance(block, ThinkingBlock):
             transformed.extend(_transform_thinking(block, same_model))

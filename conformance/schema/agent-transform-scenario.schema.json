@@ -144,6 +144,7 @@
     },
     "cost": {
       "type": "object",
+      "required": ["input", "output", "cache_read", "cache_write", "total"],
       "additionalProperties": false,
       "properties": {
         "input": { "type": "number" },
@@ -155,7 +156,9 @@
     },
     "usage": {
       "type": "object",
+      "required": ["input", "output", "cache_read", "cache_write", "total_tokens", "cost"],
       "additionalProperties": false,
+      "description": "Every non-optional Usage member is required (spec/llm.md: only cache_write_1h and reasoning carry `?`). A canonical scenario must supply a complete Usage object, not rely on the runner to invent one for an omitted field.",
       "properties": {
         "input": { "type": "integer" },
         "output": { "type": "integer" },
@@ -218,7 +221,7 @@
         },
         {
           "type": "object",
-          "required": ["role", "provider", "api", "model", "stop_reason", "timestamp"],
+          "required": ["role", "provider", "api", "model", "stop_reason", "timestamp", "usage"],
           "additionalProperties": false,
           "properties": {
             "role": { "const": "assistant" },
@@ -303,7 +306,7 @@
         },
         {
           "type": "object",
-          "required": ["role", "content", "provider", "api", "model", "stop_reason", "timestamp"],
+          "required": ["role", "content", "provider", "api", "model", "stop_reason", "timestamp", "usage"],
           "additionalProperties": false,
           "properties": {
             "role": { "const": "assistant" },

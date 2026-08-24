@@ -188,6 +188,14 @@ def test_assistant_message_diagnostic_carries_a_structured_error() -> None:
     assert diagnostic.error.code == 500
 
 
+def test_text_of_a_string_valued_user_message_is_the_string_itself() -> None:
+    """A string-valued UserMessage.content is not an iterable of blocks -- text_of() must return
+    it directly, never split it character-by-character (LLM-F012)."""
+    message = UserMessage(content="hello world", timestamp=1)
+
+    assert text_of(message) == "hello world"
+
+
 def test_text_of_concatenates_only_text_blocks() -> None:
     message = _assistant(
         content=(

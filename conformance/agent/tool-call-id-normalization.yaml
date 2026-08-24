@@ -24,6 +24,18 @@ transform:
     model: m2
     stop_reason: tool_use
     timestamp: 1
+    usage:
+      input: 0
+      output: 0
+      cache_read: 0
+      cache_write: 0
+      total_tokens: 0
+      cost: &id001
+        input: 0
+        output: 0
+        cache_read: 0
+        cache_write: 0
+        total: 0
   - role: tool_result
     content:
     - type: text
@@ -51,6 +63,13 @@ transform:
     model: m1
     stop_reason: tool_use
     timestamp: 4
+    usage:
+      input: 0
+      output: 0
+      cache_read: 0
+      cache_write: 0
+      total_tokens: 0
+      cost: *id001
   - role: tool_result
     content:
     - type: text
@@ -81,7 +100,7 @@ expect:
     model: m2
     stop_reason: tool_use
     timestamp: 1
-    usage: &id001
+    usage: &id002
       input: 0
       output: 0
       cache_read: 0
@@ -137,7 +156,7 @@ expect:
     model: m1
     stop_reason: tool_use
     timestamp: 4
-    usage: *id001
+    usage: *id002
     response_model: null
     response_id: null
     diagnostics: null

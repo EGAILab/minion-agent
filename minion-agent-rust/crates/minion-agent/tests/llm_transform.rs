@@ -1,10 +1,10 @@
 use std::collections::BTreeMap;
 
 use minion_agent::llm::{
-    AssistantContentBlock, AssistantMessage, ImageBlock, Message, ModelIdentity, StopReason,
-    TextBlock, ThinkingBlock, ToolCall, ToolResultContentBlock, ToolResultMessage, TransformTarget,
-    Usage, UserContent, UserContentBlock, UserMessage, transform_legacy_messages,
-    transform_messages,
+    AssistantContentBlock, AssistantMessage, AssistantMessageDiagnostic, DeferredHandle,
+    DiagnosticCode, DiagnosticError, ImageBlock, Message, ModelIdentity, StopReason, TextBlock,
+    ThinkingBlock, ToolCall, ToolResultContentBlock, ToolResultMessage, TransformTarget, Usage,
+    UserContent, UserContentBlock, UserMessage, transform_legacy_messages, transform_messages,
 };
 
 fn target(provider: &str, api: &str, model: &str, supports_images: bool) -> TransformTarget {
@@ -502,5 +502,54 @@ fn legacy_null_content_is_normalized_by_the_library_before_typed_transformation(
                 3.0,
             ))),
         ]
+    );
+}
+
+#[test]
+fn transforming_assistant_content_preserves_every_unrelated_rich_field() {
+    let mut source_message = match assistant(
+        "p",
+        "a",
+        "m1",
+        vec![AssistantContentBlock::Text(
+            TextBlock::new("answer").with_signature("strip-me"),
+        )],
+    ) {
+        Message::Assistant(message) => *message,
+        _ => unreachable!(),
+    };
+    source_message.response_model = Some("response-model".into());
+    source_message.response_id = Some("response-id".into());
+    source_message.diagnostics = Some(vec![AssistantMessageDiagnostic {
+        diagnostic_type: "provider".into(),
+        timestamp: 9.0,
+        error: Some(DiagnosticError {
+            message: "detail".into(),
+            name: Some("ProviderError".into()),
+            stack: Some("stack".into()),
+            code: Some(DiagnosticCode::String("E1".into())),
+        }),
+        details: Some(BTreeMap::from([("retry".into(), serde_json::json!(false))])),
+    }]);
+    source_message.usage.input = 11;
+    source_message.deferred = Some(DeferredHandle {
+        provider: "p".into(),
+        model_id: "m1".into(),
+        api: "a".into(),
+        id: "deferred-id".into(),
+        expires_at: Some(10.0),
+        poll_after_ms: Some(20),
+        data: Some(serde_json::json!({"key":"value"})),
+    });
+    source_message.error_message = Some("retained".into());
+    source_message.raw_stop_reason = Some("native".into());
+    source_message.end_turn = Some(true);
+    let source = vec![Message::Assistant(Box::new(source_message.clone()))];
+    let mut expected = source_message;
+    expected.content = vec![AssistantContentBlock::Text(TextBlock::new("answer"))];
+
+    assert_eq!(
+        transform_messages(&source, &target("p", "a", "m2", true), None)[0],
+        Message::Assistant(Box::new(expected))
     );
 }

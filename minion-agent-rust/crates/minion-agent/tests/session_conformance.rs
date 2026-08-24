@@ -3,8 +3,8 @@ use std::{collections::BTreeMap, fs, path::PathBuf};
 use minion_agent::{
     llm::{
         AssistantContentBlock, AssistantMessage, AssistantMessageDiagnostic, Cost, DeferredHandle,
-        Message, ModelIdentity, ToolDefinition, ToolResultContentBlock, ToolResultMessage, Usage,
-        UserContent, UserMessage,
+        Message, ModelIdentity, ToolDefinition, ToolResultContentBlock, ToolResultMessage,
+        TransformTarget, Usage, UserContent, UserMessage, transform_messages,
     },
     session::{EventKind, Session, SessionEvent},
 };
@@ -303,9 +303,6 @@ fn canonical_numbers(value: Value) -> Value {
 
 #[test]
 fn all_current_layer_session_scenarios_drive_the_real_typed_rust_session() {
-    const DEFERRED_UNTIL_RUST_XFORM_EXISTS: &str =
-        "request-reconstruction-after-target-transform.yaml";
-
     let directory = root().join("conformance/session");
     let mut files = fs::read_dir(directory)
         .unwrap()
@@ -316,9 +313,6 @@ fn all_current_layer_session_scenarios_drive_the_real_typed_rust_session() {
     assert_eq!(files.len(), 20);
     let mut executed = 0;
     for path in files {
-        if path.file_name().unwrap() == DEFERRED_UNTIL_RUST_XFORM_EXISTS {
-            continue;
-        }
         let document: Value = serde_yaml::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
         let object = document.as_object().unwrap();
         let surface = object
@@ -418,6 +412,36 @@ fn all_current_layer_session_scenarios_drive_the_real_typed_rust_session() {
             "{}",
             path.display()
         );
+        if let Some(expected) = object.get("expect_transformed_messages") {
+            let target = object["transform_target"].as_object().unwrap();
+            let transformed = transform_messages(
+                &messages,
+                &TransformTarget::new(
+                    ModelIdentity::new(
+                        target["provider"].as_str().unwrap(),
+                        target["api"].as_str().unwrap(),
+                        target["model_id"].as_str().unwrap(),
+                    )
+                    .unwrap(),
+                    target["supports_images"].as_bool().unwrap(),
+                ),
+                None,
+            );
+            let actual = transformed
+                .iter()
+                .map(|message| {
+                    json!({
+                        "role": match message {
+                            Message::User(_) => "user",
+                            Message::Assistant(_) => "assistant",
+                            Message::ToolResult(_) => "tool_result",
+                        },
+                        "text": text_of(message),
+                    })
+                })
+                .collect::<Vec<_>>();
+            assert_eq!(Value::Array(actual), *expected, "{}", path.display());
+        }
         if let Some(expected) = object.get("expect_assistant_details") {
             let actual = messages
                 .iter()
@@ -494,5 +518,5 @@ fn all_current_layer_session_scenarios_drive_the_real_typed_rust_session() {
         }
         executed += 1;
     }
-    assert_eq!(executed, 19);
+    assert_eq!(executed, 20);
 }

@@ -69,7 +69,9 @@ rows:
   - public-llm-vocabulary-schema
   - rich-assistant-message-round-trip
   python: src/minion_agent/llm/messages.py (rewrite)
-  rust: Phase 2 llm messages (new)
+  rust: 'minion-agent-rust/crates/minion-agent/src/llm/vocabulary.rs::ToolResultMessage (merged, tool_name
+    required as String, PR #3 @ 05acd1a, post-certification delta fix PR #5 @ 7e45cd1);
+    tests/llm_vocabulary.rs::tool_result_requires_and_round_trips_the_real_tool_name'
   disposition: adopted
 - id: AI-007
   phase: 2
@@ -487,7 +489,9 @@ rows:
   tests:
   - session derivation/reconstruction suite
   python: src/minion_agent/session/ (retain/realign)
-  rust: Phase 2 session
+  rust: 'minion-agent-rust/crates/minion-agent/src/session/mod.rs (merged, PR #4 @ 2519fc1;
+    post-certification delta fixes for SES-F004/F006/F007/F008 in PR #5 @ 7e45cd1);
+    tests/session.rs, tests/session_conformance.rs'
   disposition: intentional divergence
 - id: MINION-003
   phase: 2

@@ -53,7 +53,11 @@ rows:
   - null-content-normalizes-empty
   python: src/minion_agent/llm/messages.py (rewrite; content typed str | tuple[UserContentBlock,
     ...] as of LLM-F012)
-  rust: Phase 2 llm messages (new)
+  rust: 'minion-agent-rust/crates/minion-agent/src/llm/vocabulary.rs::UserContent (Text(String) |
+    Blocks(Vec<UserContentBlock>), already conforming pre-existing, confirmed by the
+    dependency-ordered LLM-F012 review, no Rust semantic change required, PR #3 @ 05acd1a);
+    tests/session.rs::string_and_block_user_content_remain_distinct_through_fork_derivation (PR #6
+    @ 54928e2)'
   disposition: adopted
 - id: AI-005
   phase: 2
@@ -524,8 +528,9 @@ rows:
   - session derivation/reconstruction suite
   python: src/minion_agent/session/ (retain/realign)
   rust: 'minion-agent-rust/crates/minion-agent/src/session/mod.rs (merged, PR #4 @ 2519fc1;
-    post-certification delta fixes for SES-F004/F006/F007/F008 in PR #5 @ 7e45cd1);
-    tests/session.rs, tests/session_conformance.rs'
+    post-certification delta fixes for SES-F004/F006/F007/F008 in PR #5 @ 7e45cd1; SES-F009
+    evidence -- already-conforming Session confirmed, canonical adapter remediated -- in PR #6
+    @ 54928e2); tests/session.rs, tests/session_conformance.rs'
   disposition: intentional divergence
 - id: MINION-003
   phase: 2

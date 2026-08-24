@@ -1,7 +1,7 @@
 # Rust Layer 04 XFORM Implementation Design
 
-**Status:** APPROVED  
-**Certified contract:** `minion-agent-docs@0b02b9bcdef31ff9b23da7e7eeea48a13a732681`  
+**Status:** APPROVED
+**Certified contract:** `minion-agent-docs@0b02b9bcdef31ff9b23da7e7eeea48a13a732681`
 **Implementation baseline:** `minion-agent@65569ba7079995e6e8dc717652ce17152fe08b78`
 
 ## Architecture

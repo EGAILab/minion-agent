@@ -1,3 +1,5 @@
+#![cfg(feature = "conformance")]
+
 use std::{collections::BTreeMap, fs, path::PathBuf};
 
 use minion_agent::llm::{

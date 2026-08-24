@@ -1,10 +1,12 @@
 use std::collections::BTreeMap;
 
+#[cfg(feature = "conformance")]
+use minion_agent::llm::transform_legacy_messages;
 use minion_agent::llm::{
     AssistantContentBlock, AssistantMessage, AssistantMessageDiagnostic, DeferredHandle,
     DiagnosticCode, DiagnosticError, ImageBlock, Message, ModelIdentity, StopReason, TextBlock,
     ThinkingBlock, ToolCall, ToolResultContentBlock, ToolResultMessage, TransformTarget, Usage,
-    UserContent, UserContentBlock, UserMessage, transform_legacy_messages, transform_messages,
+    UserContent, UserContentBlock, UserMessage, transform_messages,
 };
 
 fn target(provider: &str, api: &str, model: &str, supports_images: bool) -> TransformTarget {
@@ -360,6 +362,45 @@ fn same_model_never_invokes_the_id_policy() {
 }
 
 #[test]
+fn id_policy_runs_in_transcript_order_and_rewrites_each_matching_result() {
+    let source = vec![
+        assistant("p", "a", "m1", vec![tool_call("first", "lookup")]),
+        Message::ToolResult(Box::new(ToolResultMessage::new(
+            "first",
+            "lookup",
+            Vec::new(),
+            false,
+            1.0,
+        ))),
+        assistant("p", "a", "m1", vec![tool_call("second", "fetch")]),
+        Message::ToolResult(Box::new(ToolResultMessage::new(
+            "second",
+            "fetch",
+            Vec::new(),
+            false,
+            2.0,
+        ))),
+    ];
+    let mut calls = Vec::new();
+    let mut policy = |id: &str, _target: &TransformTarget, _source: &AssistantMessage| {
+        calls.push(id.to_owned());
+        format!("normalized-{id}")
+    };
+
+    let result = transform_messages(&source, &target("p", "a", "m2", true), Some(&mut policy));
+
+    assert_eq!(calls, ["first", "second"]);
+    let result_ids = result
+        .iter()
+        .filter_map(|message| match message {
+            Message::ToolResult(message) => Some(message.tool_call_id.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(result_ids, ["normalized-first", "normalized-second"]);
+}
+
+#[test]
 fn error_and_aborted_assistants_are_excluded_without_orphan_results() {
     let source = vec![
         assistant_with_reason(
@@ -465,6 +506,7 @@ fn resolved_calls_do_not_synthesize_and_normalized_orphans_use_transformed_ids()
     assert_eq!(orphan.tool_name, "search");
 }
 
+#[cfg(feature = "conformance")]
 #[test]
 fn legacy_null_content_is_normalized_by_the_library_before_typed_transformation() {
     let usage = serde_json::json!({

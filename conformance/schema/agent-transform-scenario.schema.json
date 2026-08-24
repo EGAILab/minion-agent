@@ -1,0 +1,280 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://minion-agent.dev/conformance/agent-transform-scenario.schema.json",
+  "title": "Minion Agent target-model transform (XFORM) conformance scenario",
+  "description": "Exercises the real transform_messages() library seam directly on a given Message list and target-model identity/capability, observing the transformed Message list it returns. Deliberately narrower than the full agent-loop scenario shape (agent-scenario.schema.json): XFORM is a pure function over already-derived messages, not a turn/step/tool-orchestration surface, so this schema has no provider_script/steps/tools -- forcing a full agent-loop run to exercise a pure transformer would violate the thin-runner rule by making the runner (or the scenario) simulate Agent semantics it does not own. Scenarios in this shape still live in conformance/agent/ (the `agent` canonical family) -- this is a second schema for that same directory's scenarios, discriminated by the top-level `transform` key, not a fourth canonical family.",
+  "type": "object",
+  "required": [
+    "name",
+    "pi_revision",
+    "authority",
+    "transform",
+    "expect"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "name": { "type": "string", "minLength": 1 },
+    "pi_revision": { "type": "string" },
+    "authority": { "type": "string" },
+    "notes": { "type": "string" },
+    "transform": {
+      "type": "object",
+      "required": ["messages", "target"],
+      "additionalProperties": false,
+      "properties": {
+        "messages": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/inputMessage" },
+          "description": "The Message list transform_messages() receives, in order."
+        },
+        "target": {
+          "type": "object",
+          "required": ["provider", "api", "model_id", "supports_images"],
+          "additionalProperties": false,
+          "properties": {
+            "provider": { "type": "string" },
+            "api": { "type": "string" },
+            "model_id": { "type": "string" },
+            "supports_images": {
+              "type": "boolean",
+              "description": "Pi's model.input.includes(\"image\"); the only capability transform_messages() itself consults."
+            }
+          },
+          "description": "The frozen provider+api+model_id identity triple, plus the one capability flag XFORM's image-downgrade rule needs. Not a full model-registry entry (Phase-5 provider registry territory)."
+        },
+        "normalize_tool_call_ids": {
+          "type": "object",
+          "additionalProperties": { "type": "string" },
+          "description": "A literal old_id -> new_id map standing in for a real Provider-supplied normalizeToolCallId callback (Pi injects this per-adapter; transformMessages itself has no built-in algorithm -- see AI-023). Exercises the real generic map-building/consistent-rewrite orchestration in transform_messages() with a trivial real callback, not a fabricated one. Omit to test with no normalizer (matching a same-model or normalizer-less call)."
+        }
+      }
+    },
+    "expect": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "messages": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/outputMessage" },
+          "description": "The exact transformed Message list, in order."
+        },
+        "error": {
+          "type": "object",
+          "required": ["type"],
+          "additionalProperties": false,
+          "properties": {
+            "type": { "type": "string" },
+            "message_contains": { "type": "string" }
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "contentBlock": {
+      "description": "Same closed, type-discriminated shape as session-scenario.schema.json's contentBlock -- the Layer-02 vocabulary is frozen and shared, not redefined per scenario family.",
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["type", "text"],
+          "additionalProperties": false,
+          "properties": {
+            "type": { "const": "text" },
+            "text": { "type": "string" },
+            "text_signature": { "type": ["string", "null"] }
+          }
+        },
+        {
+          "type": "object",
+          "required": ["type", "thinking"],
+          "additionalProperties": false,
+          "properties": {
+            "type": { "const": "thinking" },
+            "thinking": { "type": "string" },
+            "thinking_signature": { "type": ["string", "null"] },
+            "redacted": { "type": "boolean" }
+          }
+        },
+        {
+          "type": "object",
+          "required": ["type", "mime_type"],
+          "additionalProperties": false,
+          "properties": {
+            "type": { "const": "image" },
+            "mime_type": { "type": "string" },
+            "data": { "type": "string" },
+            "reference": { "type": "string" }
+          },
+          "oneOf": [
+            { "required": ["data"], "not": { "required": ["reference"] } },
+            { "required": ["reference"], "not": { "required": ["data"] } }
+          ]
+        },
+        {
+          "type": "object",
+          "required": ["type", "id", "name", "arguments"],
+          "additionalProperties": false,
+          "properties": {
+            "type": { "const": "tool_call" },
+            "id": { "type": "string" },
+            "name": { "type": "string" },
+            "arguments": { "type": "object" },
+            "thought_signature": { "type": ["string", "null"] },
+            "namespace": { "type": ["string", "null"] }
+          }
+        }
+      ]
+    },
+    "inputMessage": {
+      "description": "Same role-discriminated shape as the Layer-02/03 vocabulary, except `content` may also be `null` on any role -- the one legitimate way to script AI-026's legacy-null-content input, since Minion's typed Message dataclasses cannot themselves hold null content (they are constructed here only by the thin runner, from this permissive input shape).",
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["role", "timestamp"],
+          "additionalProperties": false,
+          "properties": {
+            "role": { "const": "user" },
+            "content": {
+              "oneOf": [
+                { "type": "null" },
+                {
+                  "type": "array",
+                  "items": {
+                    "allOf": [
+                      { "$ref": "#/$defs/contentBlock" },
+                      { "properties": { "type": { "enum": ["text", "image"] } } }
+                    ]
+                  }
+                }
+              ]
+            },
+            "timestamp": { "type": "number" }
+          }
+        },
+        {
+          "type": "object",
+          "required": ["role", "provider", "api", "model", "stop_reason", "timestamp"],
+          "additionalProperties": false,
+          "properties": {
+            "role": { "const": "assistant" },
+            "content": {
+              "oneOf": [
+                { "type": "null" },
+                {
+                  "type": "array",
+                  "items": {
+                    "allOf": [
+                      { "$ref": "#/$defs/contentBlock" },
+                      { "properties": { "type": { "enum": ["text", "thinking", "tool_call"] } } }
+                    ]
+                  }
+                }
+              ]
+            },
+            "provider": { "type": "string" },
+            "api": { "type": "string" },
+            "model": { "type": "string" },
+            "stop_reason": {
+              "enum": ["pending", "stop", "length", "tool_use", "error", "aborted", "deferred"]
+            },
+            "timestamp": { "type": "number" }
+          }
+        },
+        {
+          "type": "object",
+          "required": ["role", "tool_call_id", "tool_name", "is_error", "timestamp"],
+          "additionalProperties": false,
+          "properties": {
+            "role": { "const": "tool_result" },
+            "content": {
+              "oneOf": [
+                { "type": "null" },
+                {
+                  "type": "array",
+                  "items": {
+                    "allOf": [
+                      { "$ref": "#/$defs/contentBlock" },
+                      { "properties": { "type": { "enum": ["text", "image"] } } }
+                    ]
+                  }
+                }
+              ]
+            },
+            "tool_call_id": { "type": "string" },
+            "tool_name": { "type": "string" },
+            "is_error": { "type": "boolean" },
+            "timestamp": { "type": "number" }
+          }
+        }
+      ]
+    },
+    "outputMessage": {
+      "description": "Same shape as inputMessage, except `content` is a strict array -- transform_messages() never returns a Message with null content; legacy-null is normalized away before anything else runs.",
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["role", "content", "timestamp"],
+          "additionalProperties": false,
+          "properties": {
+            "role": { "const": "user" },
+            "content": {
+              "type": "array",
+              "items": {
+                "allOf": [
+                  { "$ref": "#/$defs/contentBlock" },
+                  { "properties": { "type": { "enum": ["text", "image"] } } }
+                ]
+              }
+            },
+            "timestamp": { "type": "number" }
+          }
+        },
+        {
+          "type": "object",
+          "required": ["role", "content", "provider", "api", "model", "stop_reason", "timestamp"],
+          "additionalProperties": false,
+          "properties": {
+            "role": { "const": "assistant" },
+            "content": {
+              "type": "array",
+              "items": {
+                "allOf": [
+                  { "$ref": "#/$defs/contentBlock" },
+                  { "properties": { "type": { "enum": ["text", "thinking", "tool_call"] } } }
+                ]
+              }
+            },
+            "provider": { "type": "string" },
+            "api": { "type": "string" },
+            "model": { "type": "string" },
+            "stop_reason": {
+              "enum": ["pending", "stop", "length", "tool_use", "error", "aborted", "deferred"]
+            },
+            "timestamp": { "type": "number" }
+          }
+        },
+        {
+          "type": "object",
+          "required": ["role", "content", "tool_call_id", "tool_name", "is_error"],
+          "additionalProperties": false,
+          "description": "No `timestamp` property: a synthesized orphan result's timestamp is real wall-clock time (Pi's Date.now()), never an observable XFORM contract value -- see spec/target-model-transformation.md.",
+          "properties": {
+            "role": { "const": "tool_result" },
+            "content": {
+              "type": "array",
+              "items": {
+                "allOf": [
+                  { "$ref": "#/$defs/contentBlock" },
+                  { "properties": { "type": { "enum": ["text", "image"] } } }
+                ]
+              }
+            },
+            "tool_call_id": { "type": "string" },
+            "tool_name": { "type": "string" },
+            "is_error": { "type": "boolean" }
+          }
+        }
+      ]
+    }
+  }
+}

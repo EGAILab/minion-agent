@@ -1,11 +1,59 @@
 name: errored-assistant-excluded-from-replay
-family: agent
-status: canonical-baseline
-authority: 2026-08-20-minion-agent-design.md
 pi_revision: b7bb00b936dbe21b8e160b3e89efdec361846699
-given:
-  fixture: TO_BE_FILLED_FROM_PINNED_PI_BEHAVIOR
-when:
-  op: TO_BE_BOUND_TO_REAL_PUBLIC_API
+authority: 2026-08-20-minion-agent-design.md
+notes: >
+  A historical assistant with stop_reason=error is dropped entirely, including any tool calls it
+  made -- those are never tracked as pending and so never receive a synthetic result either
+  (AI-025). A following, ordinary assistant is unaffected.
+transform:
+  messages:
+    - role: user
+      content:
+        - type: text
+          text: "do it"
+      timestamp: 1
+    - role: assistant
+      content:
+        - type: text
+          text: "partial"
+        - type: tool_call
+          id: dropped-call
+          name: risky
+          arguments: {}
+      provider: p
+      api: a
+      model: m1
+      stop_reason: error
+      timestamp: 2
+    - role: assistant
+      content:
+        - type: text
+          text: "retrying cleanly"
+      provider: p
+      api: a
+      model: m1
+      stop_reason: stop
+      timestamp: 3
+  target:
+    provider: p
+    api: a
+    model_id: m1
+    supports_images: false
 expect:
-  observable: TO_BE_PINNED_EXACTLY
+  messages:
+    - role: user
+      content:
+        - type: text
+          text: "do it"
+          text_signature: null
+      timestamp: 1
+    - role: assistant
+      content:
+        - type: text
+          text: "retrying cleanly"
+          text_signature: null
+      provider: p
+      api: a
+      model: m1
+      stop_reason: stop
+      timestamp: 3

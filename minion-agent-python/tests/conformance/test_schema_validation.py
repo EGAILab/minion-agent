@@ -1,11 +1,14 @@
 """Every conformance scenario validates against its shape's JSON Schema.
 
-Two scenario shapes currently coexist during the Pi-fidelity realignment (see
+Three scenario shapes currently coexist during the Pi-fidelity realignment (see
 `minion-agent-docs/process/implementation-conformance-workflow.md` section 8.1): the legacy
-per-family shape (`provider_script`/`steps`/`expect_*`, one schema file per family) and the newer
-unified shape (`family`/`status`/`authority`/`pi_revision`/`given`/`when`/`expect`, one shared
-schema). A scenario's own top-level `family` key is the discriminator -- its presence means the
-unified schema governs, not the legacy per-family one.
+per-family shape (`provider_script`/`steps`/`expect_*`, one schema file per family), the unified
+shape (`family`/`status`/`authority`/`pi_revision`/`given`/`when`/`expect`, one shared schema), and
+the transform (XFORM) shape (`transform`/`expect`, `agent-transform-scenario.schema.json`) -- a
+second schema for `conformance/agent/`'s own directory, not a fourth canonical family, since XFORM
+scenarios exercise `transform_messages()` directly rather than a full agent-loop turn. A scenario's
+own top-level `transform` key routes to the transform schema; `family` routes to the unified schema;
+otherwise the legacy per-family schema governs.
 """
 
 import json
@@ -25,6 +28,7 @@ LEGACY_FAMILIES = {
     "session": CONFORMANCE / "schema" / "session-scenario.schema.json",
 }
 UNIFIED_SCHEMA = CONFORMANCE / "schema" / "scenario.schema.json"
+TRANSFORM_SCHEMA = CONFORMANCE / "schema" / "agent-transform-scenario.schema.json"
 
 # Families whose scenarios arrive in a later plan. Their schema must still exist
 # and must still be a valid JSON Schema. Empty now that every family is
@@ -37,7 +41,10 @@ def _scenarios(family: str) -> list[Path]:
 
 
 def _schema_path_for(document: dict[str, Any], family: str) -> Path:
-    """The unified shape's own `family` key is the discriminator (see module docstring)."""
+    """The unified shape's own `family` key and the transform shape's own `transform` key are the
+    discriminators (see module docstring)."""
+    if "transform" in document:
+        return TRANSFORM_SCHEMA
     if "family" in document:
         return UNIFIED_SCHEMA
     return LEGACY_FAMILIES[family]
@@ -51,7 +58,9 @@ def test_family_has_scenarios(family: str) -> None:
 
 
 @pytest.mark.parametrize(
-    "schema_path", [*LEGACY_FAMILIES.values(), UNIFIED_SCHEMA], ids=lambda p: p.stem
+    "schema_path",
+    [*LEGACY_FAMILIES.values(), UNIFIED_SCHEMA, TRANSFORM_SCHEMA],
+    ids=lambda p: p.stem,
 )
 def test_family_schema_is_wellformed(schema_path: Path) -> None:
     schema = json.loads(schema_path.read_text(encoding="utf-8"))

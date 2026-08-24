@@ -150,76 +150,95 @@ rows:
   phase: 2
   pi: packages/ai/src/api/transform-messages.ts::transformMessages
   surface: unsupported image downgrade
-  rule: exact user/tool placeholder strings; adjacent placeholder dedupe
+  rule: 'exact user/tool placeholder strings, gated only on the target model''s own image-input capability; consecutive
+    raw images in one message collapse into one placeholder, a non-image block breaks the run, and a real text block
+    already matching the placeholder string suppresses the next image''s own placeholder too (XFORM-002/XFORM-003,
+    spec/target-model-transformation.md rules 2-4)'
   tests:
   - nonvision-user-image-placeholder
   - nonvision-tool-image-placeholder
-  python: 'target: src/minion_agent/llm/transform_messages.py'
+  python: src/minion_agent/llm/transform_messages.py
   rust: Phase 2 target-model transform
   disposition: adopted
 - id: AI-021
   phase: 2
   pi: packages/ai/src/api/transform-messages.ts::transformMessages
   surface: thinking compatibility
-  rule: same-model signature retention; unsigned empty removal; cross-model non-redacted -> text; redacted cross-model ->
-    omit
+  rule: 'same-model signed retention (even empty); same-model unsigned non-empty retention; same-model unsigned empty
+    removal; same-model redacted retention unchanged (missing from the frozen spec until Layer 04''s Pi re-audit found
+    it -- the redacted check runs before every other case); cross-model non-redacted non-empty -> text, signature
+    discarded; cross-model non-redacted empty removal; cross-model redacted omission regardless of signature
+    (XFORM-004/XFORM-005, spec/target-model-transformation.md rules 5-11)'
   tests:
   - same-model-thinking-signature-replayed
   - same-model-unsigned-thinking-not-replayed
   - cross-model-thinking-converts-to-text
   - cross-model-redacted-thinking-omitted
-  python: 'target: src/minion_agent/llm/transform_messages.py'
+  python: src/minion_agent/llm/transform_messages.py
   rust: Phase 2 target-model transform
   disposition: adopted
 - id: AI-022
   phase: 2
   pi: packages/ai/src/api/transform-messages.ts::transformMessages
   surface: cross-model replay metadata stripping
-  rule: strip text_signature and thought_signature cross-model
+  rule: strip text_signature and thought_signature cross-model, independently of the thinking rules; an empty-string
+    thought_signature is left untouched (matches Pi's own truthy check, not a presence check); namespace/id/name/
+    arguments never touched (XFORM-006/XFORM-007, spec/target-model-transformation.md rules 12-13)
   tests:
   - cross-model-signatures-stripped
-  python: 'target: src/minion_agent/llm/transform_messages.py'
+  python: src/minion_agent/llm/transform_messages.py
   rust: Phase 2 target-model transform
   disposition: adopted
 - id: AI-023
   phase: 2
   pi: packages/ai/src/api/transform-messages.ts::transformMessages
   surface: tool-call ID normalization
-  rule: normalize target API tool-call ids and matching tool-result ids consistently
+  rule: transform_messages has no built-in normalization algorithm -- Pi injects normalizeToolCallId as a per-adapter
+    callback (every real Pi provider supplies its own), invoked cross-model only, in transcript order; this module
+    owns only the generic map-building/consistent-rewrite orchestration (XFORM-008, spec/target-model-transformation.md
+    rule 13). The concrete per-target-API algorithm is Phase-5/provider territory, not this row's scope.
   tests:
   - tool-call-id-normalization
-  python: 'target: src/minion_agent/llm/transform_messages.py'
+  python: src/minion_agent/llm/transform_messages.py
   rust: Phase 2 target-model transform
   disposition: adopted
 - id: AI-024
   phase: 2
   pi: packages/ai/src/api/transform-messages.ts::transformMessages
   surface: orphan tool result synthesis
-  rule: synthesize is_error=true result "No result provided" before later user/assistant and at end
+  rule: synthesize is_error=true result "No result provided" before a later user/assistant message and at end of
+    history; tool_call_id/tool_name sourced from the real ToolCall (tool_name is required, not fabricated -- LLM-F011);
+    only calls belonging to a kept (non-error/aborted) assistant are ever tracked as pending (XFORM-009/XFORM-010,
+    spec/target-model-transformation.md rule 14)
   tests:
   - orphan-tool-result-synthesized
-  python: 'target: src/minion_agent/llm/transform_messages.py'
+  python: src/minion_agent/llm/transform_messages.py
   rust: Phase 2 target-model transform
   disposition: adopted
 - id: AI-025
   phase: 2
   pi: packages/ai/src/api/transform-messages.ts::transformMessages
   surface: errored/aborted history exclusion
-  rule: exclude historical assistant error/aborted from provider replay
+  rule: exclude historical assistant error/aborted (and only those two stop reasons) from provider replay; its own
+    tool calls are discarded with it and never receive a synthetic result (XFORM-011/XFORM-012,
+    spec/target-model-transformation.md rule 15)
   tests:
   - errored-assistant-excluded-from-replay
   - aborted-assistant-excluded-from-replay
-  python: 'target: src/minion_agent/llm/transform_messages.py'
+  python: src/minion_agent/llm/transform_messages.py
   rust: Phase 2 target-model transform
   disposition: adopted
 - id: AI-026
   phase: 2
   pi: packages/ai/src/api/transform-messages.ts::transformMessages
   surface: legacy null content normalization
-  rule: null/undefined legacy content -> empty list before transformation
+  rule: null/undefined legacy content -> empty list, unconditionally, first, on every role (XFORM-001,
+    spec/target-model-transformation.md rule 1). Minion's typed Message dataclasses cannot themselves hold null
+    content (unlike Pi's TS types, unenforced at runtime); the defensive check lives inside transform_messages()
+    itself, exactly where Pi places it, not at the Session decode boundary.
   tests:
   - null-content-normalizes-empty
-  python: 'target: src/minion_agent/llm/transform_messages.py'
+  python: src/minion_agent/llm/transform_messages.py
   rust: Phase 2 target-model transform
   disposition: adopted
 - id: AG-001

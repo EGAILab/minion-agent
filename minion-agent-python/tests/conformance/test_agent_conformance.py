@@ -1,4 +1,11 @@
-"""Execute every conformance/agent/*.yaml scenario."""
+"""Execute every conformance/agent/*.yaml scenario that drives a full agent-loop turn.
+
+Excludes XFORM (transform_messages()) scenarios in the same directory: those script a `transform`
+block instead of `provider_script`/`steps` and are executed by test_transform_conformance.py
+against the real transform_messages() seam directly, not through a full agent-loop turn -- see
+agent-transform-scenario.schema.json's own docstring for why a pure transformer scenario does not
+force a full run.
+"""
 
 from pathlib import Path
 from typing import Any
@@ -9,7 +16,15 @@ import yaml
 from .agent_runner import run_agent_scenario
 from .placeholder import is_placeholder
 
-SCENARIOS = sorted((Path(__file__).resolve().parents[3] / "conformance" / "agent").glob("*.yaml"))
+AGENT_DIR = Path(__file__).resolve().parents[3] / "conformance" / "agent"
+
+
+def _is_full_loop_scenario(path: Path) -> bool:
+    document = yaml.safe_load(path.read_text(encoding="utf-8"))
+    return not (isinstance(document, dict) and "transform" in document)
+
+
+SCENARIOS = sorted(p for p in AGENT_DIR.glob("*.yaml") if _is_full_loop_scenario(p))
 
 
 @pytest.mark.parametrize("scenario", SCENARIOS, ids=lambda path: path.stem)

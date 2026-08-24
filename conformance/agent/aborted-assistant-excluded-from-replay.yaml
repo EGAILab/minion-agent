@@ -1,11 +1,38 @@
 name: aborted-assistant-excluded-from-replay
-family: agent
-status: canonical-baseline
-authority: 2026-08-20-minion-agent-design.md
 pi_revision: b7bb00b936dbe21b8e160b3e89efdec361846699
-given:
-  fixture: TO_BE_FILLED_FROM_PINNED_PI_BEHAVIOR
-when:
-  op: TO_BE_BOUND_TO_REAL_PUBLIC_API
+authority: 2026-08-20-minion-agent-design.md
+notes: >
+  Same exclusion rule as errored-assistant-excluded-from-replay.yaml, for stop_reason=aborted --
+  Pi checks both reasons in one condition, not two separate rules (AI-025). Only these two stop
+  reasons exclude; test_only_error_and_aborted_are_excluded_not_other_stop_reasons in
+  tests/llm/test_transform_messages.py pins the negative cases (pending/stop/length/tool_use/
+  deferred) this single canonical scenario cannot efficiently enumerate.
+transform:
+  messages:
+    - role: assistant
+      content:
+        - type: text
+          text: "cancelled mid-thought"
+      provider: p
+      api: a
+      model: m1
+      stop_reason: aborted
+      timestamp: 1
+    - role: user
+      content:
+        - type: text
+          text: "try again"
+      timestamp: 2
+  target:
+    provider: p
+    api: a
+    model_id: m1
+    supports_images: false
 expect:
-  observable: TO_BE_PINNED_EXACTLY
+  messages:
+    - role: user
+      content:
+        - type: text
+          text: "try again"
+          text_signature: null
+      timestamp: 2

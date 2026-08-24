@@ -1,11 +1,133 @@
 name: orphan-tool-result-synthesized
-family: agent
-status: canonical-baseline
-authority: 2026-08-20-minion-agent-design.md
 pi_revision: b7bb00b936dbe21b8e160b3e89efdec361846699
-given:
-  fixture: TO_BE_FILLED_FROM_PINNED_PI_BEHAVIOR
-when:
-  op: TO_BE_BOUND_TO_REAL_PUBLIC_API
+authority: 2026-08-20-minion-agent-design.md
+notes: >
+  Three placements from Pi's second transform pass (AI-024): a tool call resolved by a real result
+  needs nothing synthesized; an unresolved call is flushed the moment a later user message
+  interrupts; an unresolved call left at the very end of history is flushed once more after the
+  loop. The synthesized result must be a fully valid ToolResultMessage carrying the real tool_name
+  from its own ToolCall (LLM-F011 -- tool_name is required, not fabricated or omitted).
+transform:
+  messages:
+    - role: assistant
+      content:
+        - type: tool_call
+          id: resolved-1
+          name: search
+          arguments: {}
+      provider: p
+      api: a
+      model: m1
+      stop_reason: tool_use
+      timestamp: 1
+    - role: tool_result
+      content:
+        - type: text
+          text: found it
+      tool_call_id: resolved-1
+      tool_name: search
+      is_error: false
+      timestamp: 2
+    - role: assistant
+      content:
+        - type: tool_call
+          id: orphan-before-user
+          name: fetch
+          arguments: {}
+      provider: p
+      api: a
+      model: m1
+      stop_reason: tool_use
+      timestamp: 3
+    - role: user
+      content:
+        - type: text
+          text: "never mind"
+      timestamp: 4
+    - role: assistant
+      content:
+        - type: tool_call
+          id: orphan-at-end
+          name: cleanup
+          arguments: {}
+      provider: p
+      api: a
+      model: m1
+      stop_reason: tool_use
+      timestamp: 5
+  target:
+    provider: p
+    api: a
+    model_id: m1
+    supports_images: false
 expect:
-  observable: TO_BE_PINNED_EXACTLY
+  messages:
+    - role: assistant
+      content:
+        - type: tool_call
+          id: resolved-1
+          name: search
+          arguments: {}
+          thought_signature: null
+          namespace: null
+      provider: p
+      api: a
+      model: m1
+      stop_reason: tool_use
+      timestamp: 1
+    - role: tool_result
+      content:
+        - type: text
+          text: found it
+          text_signature: null
+      tool_call_id: resolved-1
+      tool_name: search
+      is_error: false
+    - role: assistant
+      content:
+        - type: tool_call
+          id: orphan-before-user
+          name: fetch
+          arguments: {}
+          thought_signature: null
+          namespace: null
+      provider: p
+      api: a
+      model: m1
+      stop_reason: tool_use
+      timestamp: 3
+    - role: tool_result
+      content:
+        - type: text
+          text: No result provided
+          text_signature: null
+      tool_call_id: orphan-before-user
+      tool_name: fetch
+      is_error: true
+    - role: user
+      content:
+        - type: text
+          text: "never mind"
+          text_signature: null
+      timestamp: 4
+    - role: assistant
+      content:
+        - type: tool_call
+          id: orphan-at-end
+          name: cleanup
+          arguments: {}
+          thought_signature: null
+          namespace: null
+      provider: p
+      api: a
+      model: m1
+      stop_reason: tool_use
+      timestamp: 5
+    - role: tool_result
+      content:
+        - type: text
+          text: No result provided
+          text_signature: null
+      tool_call_id: orphan-at-end
+      tool_name: cleanup
+      is_error: true

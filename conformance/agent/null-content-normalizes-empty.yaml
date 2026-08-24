@@ -1,11 +1,49 @@
 name: null-content-normalizes-empty
-family: agent
-status: canonical-baseline
-authority: 2026-08-20-minion-agent-design.md
 pi_revision: b7bb00b936dbe21b8e160b3e89efdec361846699
-given:
-  fixture: TO_BE_FILLED_FROM_PINNED_PI_BEHAVIOR
-when:
-  op: TO_BE_BOUND_TO_REAL_PUBLIC_API
+authority: 2026-08-20-minion-agent-design.md
+notes: >
+  Pi's transformMessages() normalizes msg.content == null to [] as its first, unconditional step,
+  for every role -- "untyped callers (custom tools, hand-built histories, old session files)"
+  (transform-messages.ts's own comment). Minion's typed Message dataclasses cannot themselves hold
+  null content, so this scenario scripts it via the runner's permissive input decoder, matching a
+  legacy/untyped caller exactly as Pi's own comment describes (AI-026).
+transform:
+  messages:
+    - role: user
+      content: null
+      timestamp: 1
+    - role: assistant
+      content: null
+      provider: p
+      api: a
+      model: m1
+      stop_reason: stop
+      timestamp: 2
+    - role: tool_result
+      content: null
+      tool_call_id: t1
+      tool_name: lookup
+      is_error: false
+      timestamp: 3
+  target:
+    provider: p
+    api: a
+    model_id: m1
+    supports_images: false
 expect:
-  observable: TO_BE_PINNED_EXACTLY
+  messages:
+    - role: user
+      content: []
+      timestamp: 1
+    - role: assistant
+      content: []
+      provider: p
+      api: a
+      model: m1
+      stop_reason: stop
+      timestamp: 2
+    - role: tool_result
+      content: []
+      tool_call_id: t1
+      tool_name: lookup
+      is_error: false

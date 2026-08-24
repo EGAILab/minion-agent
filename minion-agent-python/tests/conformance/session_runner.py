@@ -30,7 +30,9 @@ from minion_agent.llm.messages import (
     UserMessage,
     text_of,
 )
+from minion_agent.llm.service import ModelId
 from minion_agent.llm.tools import ToolSchema
+from minion_agent.llm.transform_messages import TargetModel, transform_messages
 from minion_agent.session.artifacts import ArtifactStore
 from minion_agent.session.derive import derive_messages, encode_message
 from minion_agent.session.events import CORE_SURFACE_KINDS, EventKind
@@ -373,4 +375,17 @@ def run_session_scenario(document: dict[str, Any]) -> dict[str, Any]:
                 for t in reconstruct_tools(event, header_store)
             ],
         }
+    if "transform_target" in document and error is None:
+        # Session reconstruction feeds the real transform_messages() seam directly -- Session does
+        # not simulate target-model compatibility, and XFORM does not re-derive Session state
+        # (SES-013, activated now that Layer 04 exists).
+        spec = document["transform_target"]
+        target = TargetModel(
+            identity=ModelId(provider=spec["provider"], model=spec["model_id"], api=spec["api"]),
+            supports_images=spec["supports_images"],
+        )
+        transformed = transform_messages(messages, target)
+        result["transformed_messages"] = [
+            {"role": _role_of(m), "text": text_of(m)} for m in transformed
+        ]
     return result

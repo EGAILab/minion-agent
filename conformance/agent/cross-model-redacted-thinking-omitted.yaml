@@ -1,11 +1,40 @@
 name: cross-model-redacted-thinking-omitted
-family: agent
-status: canonical-baseline
-authority: 2026-08-20-minion-agent-design.md
 pi_revision: b7bb00b936dbe21b8e160b3e89efdec361846699
-given:
-  fixture: TO_BE_FILLED_FROM_PINNED_PI_BEHAVIOR
-when:
-  op: TO_BE_BOUND_TO_REAL_PUBLIC_API
+authority: 2026-08-20-minion-agent-design.md
+notes: >
+  Redacted thinking is opaque encrypted content, only valid for the model that produced it
+  (transform-messages.ts's own comment): crossing to a different target drops it entirely,
+  regardless of signature or visible text -- the redacted check runs before any signature/empty
+  check (AI-021).
+transform:
+  messages:
+    - role: assistant
+      content:
+        - type: thinking
+          thinking: "visible fragment"
+          thinking_signature: opaque-blob
+          redacted: true
+        - type: text
+          text: "the answer"
+      provider: p
+      api: a
+      model: m1
+      stop_reason: stop
+      timestamp: 1
+  target:
+    provider: p
+    api: a
+    model_id: m2
+    supports_images: false
 expect:
-  observable: TO_BE_PINNED_EXACTLY
+  messages:
+    - role: assistant
+      content:
+        - type: text
+          text: "the answer"
+          text_signature: null
+      provider: p
+      api: a
+      model: m1
+      stop_reason: stop
+      timestamp: 1

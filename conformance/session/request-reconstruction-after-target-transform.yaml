@@ -1,11 +1,46 @@
 name: request-reconstruction-after-target-transform
-family: session
-status: canonical-baseline
-authority: 2026-08-20-minion-agent-design.md
-pi_revision: b7bb00b936dbe21b8e160b3e89efdec361846699
-given:
-  fixture: TO_BE_FILLED
-when:
-  op: TO_BE_BOUND_TO_REAL_PUBLIC_API
-expect:
-  observable: TO_BE_PINNED_EXACTLY
+description: >
+  Activates SES-013 now that Layer 04 exists: session-derived source messages feed the real
+  transform_messages() seam directly (session_runner.py's transform_target step), proving
+  reconstruction stays correct once target-model transformation runs on top of it. expect_messages
+  proves Session's own committed history is untouched -- still carries the real image and the
+  unresolved tool call; expect_transformed_messages proves the request-time compatibility view is
+  a distinct, ephemeral projection (design spec section 5's own "Relationship to Pi's message
+  projection"): the image is downgraded to its placeholder and the unresolved call gets a synthetic
+  error result, neither of which is ever written back into the log.
+steps:
+  - append:
+      role: user
+      content:
+        - type: image
+          mime_type: image/png
+          data: eA==
+      timestamp: 1
+  - append:
+      role: assistant
+      content:
+        - type: tool_call
+          id: call-1
+          name: lookup
+          arguments: {}
+      model: m1
+      provider: p
+      api: a
+      timestamp: 2
+expect_messages:
+  - role: user
+    text: ""
+  - role: assistant
+    text: ""
+transform_target:
+  provider: p
+  api: a
+  model_id: m1
+  supports_images: false
+expect_transformed_messages:
+  - role: user
+    text: "(image omitted: model does not support images)"
+  - role: assistant
+    text: ""
+  - role: tool_result
+    text: "No result provided"

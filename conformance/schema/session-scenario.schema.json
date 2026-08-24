@@ -105,6 +105,31 @@
         "pattern": "^[a-z][a-z0-9_]*(?:/[a-z][a-z0-9_-]*)*$"
       },
       "description": "Event names this session treats as surface, beyond the core three. An open namespace is not an open surface: a plugin event derives only when the deployment declares it here."
+    },
+    "transform_target": {
+      "type": "object",
+      "required": ["provider", "api", "model_id", "supports_images"],
+      "additionalProperties": false,
+      "properties": {
+        "provider": { "type": "string" },
+        "api": { "type": "string" },
+        "model_id": { "type": "string" },
+        "supports_images": { "type": "boolean" }
+      },
+      "description": "If present, the runner feeds this scenario's real derive_messages() output directly into the real transform_messages() seam (SES-013/Layer-04 activation) -- Session does not simulate target-model compatibility itself."
+    },
+    "expect_transformed_messages": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["role"],
+        "additionalProperties": false,
+        "properties": {
+          "role": { "enum": ["user", "assistant", "tool_result"] },
+          "text": { "type": "string" }
+        }
+      },
+      "description": "The role/text projection of transform_messages()'s real output, only asserted when transform_target is present."
     }
   },
   "$defs": {

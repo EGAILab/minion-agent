@@ -55,10 +55,14 @@ class EventKind(StrEnum):
     SESSION_RESET = "session/reset"
     COMPACTION = "session/compaction"
     """Namespaced consistently with `session/forked`/`session/reset`
-    (delta finding B) -- confirmed the canonical spelling: no normative
-    source pinned the un-prefixed `"compaction"` this constant previously
-    held, and `session/*` is the established pattern for Session-owned
-    operation kinds."""
+    (delta finding SES-F004). The un-prefixed `"compaction"` this constant
+    previously held was itself a genuine prior normative contract choice --
+    `spec/session.md` explicitly pinned it at the time Layer 03 was first
+    certified -- not implementation drift or an unpinned value. Post-
+    certification independent Rust implementation evidence (PR #4) triggered
+    a delta audit, which deliberately superseded that prior choice with the
+    namespaced `session/*` spelling, consistent with `session/forked`/
+    `session/reset`."""
 
 
 CORE_SURFACE_KINDS: frozenset[EventName] = frozenset(

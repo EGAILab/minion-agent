@@ -85,3 +85,46 @@ async def test_two_concurrent_compactions_each_commit_a_complete_event() -> None
         assert set(event.data) == {"summary", "superseded_through", "retained"}, (
             "each compaction's data must be a complete, uninterleaved write"
         )
+
+
+async def test_compaction_provenance_matches_exactly_what_committed_before_its_own_marker() -> None:
+    """SES-F007's second, more specific claim: a compaction's effective-surface
+    snapshot and its marker commit must linearize as one operation relative to
+    concurrent append/compact, not merely avoid torn writes (the two tests
+    above already cover torn-write absence and sequence gaplessness). If an
+    append could land "between" a compaction's snapshot read and its marker
+    append, that compaction's `superseded_through` would fail to name the
+    intervening append even though the append's seq precedes the marker's --
+    exactly the split-lock race `spec/session.md`'s compaction-linearization
+    paragraph now forbids. Interleaves many concurrent appenders and
+    compactors and checks every compaction's recorded provenance against what
+    the log actually holds immediately before that compaction's own seq.
+    """
+    log = SessionLog("s1")
+
+    async def appender(prefix: str, count: int) -> None:
+        for i in range(count):
+            _say(log, f"{prefix}-{i}")
+            await asyncio.sleep(0)
+
+    async def compactor(prefix: str, count: int) -> None:
+        for i in range(count):
+            compact(log, summary=f"{prefix}-{i}", keep=0)
+            await asyncio.sleep(0)
+
+    await asyncio.gather(
+        appender("a", 15),
+        compactor("c1", 5),
+        appender("b", 15),
+        compactor("c2", 5),
+    )
+
+    surface_seqs = [event.seq for event in log.events if event.kind != EventKind.COMPACTION]
+    for event in log.events:
+        if event.kind != EventKind.COMPACTION:
+            continue
+        expected = max((seq for seq in surface_seqs if seq < event.seq), default=0)
+        assert event.data["superseded_through"] == expected, (
+            f"compaction at seq {event.seq} has provenance inconsistent with what was "
+            "actually committed before it -- a real snapshot/commit linearization failure"
+        )

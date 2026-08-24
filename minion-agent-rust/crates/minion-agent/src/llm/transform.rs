@@ -109,7 +109,10 @@ fn transform_content(
                 Message::Assistant(assistant)
             }
             Message::ToolResult(mut result) => {
-                if let Some(normalized) = id_map.get(&result.tool_call_id) {
+                if let Some(normalized) = id_map.get(&result.tool_call_id)
+                    && !normalized.is_empty()
+                    && normalized != &result.tool_call_id
+                {
                     result.tool_call_id.clone_from(normalized);
                 }
                 Message::ToolResult(result)

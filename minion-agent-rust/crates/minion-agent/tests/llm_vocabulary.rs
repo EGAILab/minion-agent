@@ -1,6 +1,7 @@
 use minion_agent::llm::{
     ArtifactHash, AssistantContentBlock, AssistantMessage, Cost, ImageBlock, ModelIdentity,
-    ModelIdentityError, StopReason, TextBlock, ThinkingBlock, ToolCall, Usage,
+    ModelIdentityError, StopReason, TextBlock, ThinkingBlock, ToolCall, ToolResultContentBlock,
+    ToolResultMessage, Usage,
 };
 
 #[test]
@@ -158,4 +159,30 @@ fn image_references_require_content_addressed_identity() {
     assert_eq!(serde_json::to_value(image).unwrap()["reference"], hash);
     assert!(ArtifactHash::new("https://mutable.example/image.png").is_err());
     assert!(ArtifactHash::new("sha256:short").is_err());
+}
+
+#[test]
+fn tool_result_requires_and_round_trips_the_real_tool_name() {
+    let message = ToolResultMessage::new(
+        "call-7",
+        "weather_lookup",
+        vec![ToolResultContentBlock::Text(TextBlock::new("sunny"))],
+        false,
+        7.0,
+    );
+    let value = serde_json::to_value(&message).unwrap();
+    assert_eq!(value["tool_name"], "weather_lookup");
+    assert_eq!(
+        serde_json::from_value::<ToolResultMessage>(value).unwrap(),
+        message
+    );
+
+    let missing = serde_json::json!({
+        "role": "tool_result",
+        "tool_call_id": "call-7",
+        "content": [{"type": "text", "text": "sunny"}],
+        "is_error": false,
+        "timestamp": 7.0
+    });
+    assert!(serde_json::from_value::<ToolResultMessage>(missing).is_err());
 }

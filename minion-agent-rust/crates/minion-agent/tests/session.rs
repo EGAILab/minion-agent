@@ -1,4 +1,7 @@
-use std::{collections::BTreeMap, sync::Arc};
+use std::{
+    collections::BTreeMap,
+    sync::{Arc, Barrier},
+};
 
 use minion_agent::{
     llm::{
@@ -33,6 +36,27 @@ fn event_identity_is_open_validated_and_compared_by_value() {
         EventKind::new("Plugin/Note"),
         Err(SessionError::InvalidEventKind)
     );
+
+    for valid in [
+        "plugin/foo",
+        "plugin/foo-bar",
+        "plugin/foo_bar",
+        "plugin2/foo",
+    ] {
+        assert!(EventKind::new(valid).is_ok(), "{valid} must be accepted");
+    }
+    for invalid in [
+        "Plugin/foo",
+        "plugin-name/foo",
+        "plugin//foo",
+        "/foo",
+        "plugin/",
+    ] {
+        assert!(
+            EventKind::new(invalid).is_err(),
+            "{invalid} must be rejected"
+        );
+    }
 }
 
 #[test]
@@ -74,6 +98,76 @@ fn concurrent_appends_allocate_sequence_in_committed_log_order() {
             .collect::<Vec<_>>(),
         (1..=32).collect::<Vec<_>>()
     );
+}
+
+#[test]
+fn concurrent_compaction_marker_provenance_matches_its_serialized_snapshot() {
+    let session = Arc::new(Session::new("linearized", [] as [&str; 0]).unwrap());
+    let barrier = Arc::new(Barrier::new(8));
+    let workers = (0..8)
+        .map(|worker| {
+            let session = session.clone();
+            let barrier = barrier.clone();
+            std::thread::spawn(move || {
+                barrier.wait();
+                for iteration in 0..64 {
+                    match (worker + iteration) % 5 {
+                        0 => {
+                            session.reset().unwrap();
+                        }
+                        1 => {
+                            session
+                                .compact(format!("summary-{worker}-{iteration}"), 0)
+                                .unwrap();
+                        }
+                        _ => {
+                            session
+                                .append_message(user(&format!("message-{worker}-{iteration}")))
+                                .unwrap();
+                        }
+                    }
+                }
+            })
+        })
+        .collect::<Vec<_>>();
+    for worker in workers {
+        worker.join().unwrap();
+    }
+
+    let events = session.events();
+    assert_eq!(
+        events.iter().map(|event| event.seq).collect::<Vec<_>>(),
+        (1..=events.len() as u64).collect::<Vec<_>>()
+    );
+    for marker in events
+        .iter()
+        .filter(|event| event.kind.as_str() == "session/compaction")
+    {
+        let floor = events
+            .iter()
+            .rev()
+            .find(|event| event.seq < marker.seq && event.kind.as_str() == "session/reset")
+            .map_or(0, |event| event.seq);
+        let expected_through = events
+            .iter()
+            .filter(|event| {
+                event.seq > floor
+                    && event.seq < marker.seq
+                    && matches!(
+                        event.kind.as_str(),
+                        "user/message" | "assistant/message" | "tool/result"
+                    )
+            })
+            .map(|event| event.seq)
+            .max()
+            .unwrap_or(0);
+        assert_eq!(
+            marker.data["superseded_through"],
+            serde_json::json!(expected_through),
+            "compaction marker {} must describe exactly its serialized snapshot",
+            marker.seq
+        );
+    }
 }
 
 #[test]

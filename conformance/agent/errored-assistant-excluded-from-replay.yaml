@@ -1,39 +1,40 @@
 name: errored-assistant-excluded-from-replay
 pi_revision: b7bb00b936dbe21b8e160b3e89efdec361846699
 authority: 2026-08-20-minion-agent-design.md
-notes: >
-  A historical assistant with stop_reason=error is dropped entirely, including any tool calls it
-  made -- those are never tracked as pending and so never receive a synthetic result either
-  (AI-025). A following, ordinary assistant is unaffected.
+notes: 'A historical assistant with stop_reason=error is dropped entirely, including
+  any tool calls it made -- those are never tracked as pending and so never receive
+  a synthetic result either (AI-025). A following, ordinary assistant is unaffected.
+
+  '
 transform:
   messages:
-    - role: user
-      content:
-        - type: text
-          text: "do it"
-      timestamp: 1
-    - role: assistant
-      content:
-        - type: text
-          text: "partial"
-        - type: tool_call
-          id: dropped-call
-          name: risky
-          arguments: {}
-      provider: p
-      api: a
-      model: m1
-      stop_reason: error
-      timestamp: 2
-    - role: assistant
-      content:
-        - type: text
-          text: "retrying cleanly"
-      provider: p
-      api: a
-      model: m1
-      stop_reason: stop
-      timestamp: 3
+  - role: user
+    content:
+    - type: text
+      text: do it
+    timestamp: 1
+  - role: assistant
+    content:
+    - type: text
+      text: partial
+    - type: tool_call
+      id: dropped-call
+      name: risky
+      arguments: {}
+    provider: p
+    api: a
+    model: m1
+    stop_reason: error
+    timestamp: 2
+  - role: assistant
+    content:
+    - type: text
+      text: retrying cleanly
+    provider: p
+    api: a
+    model: m1
+    stop_reason: stop
+    timestamp: 3
   target:
     provider: p
     api: a
@@ -41,19 +42,40 @@ transform:
     supports_images: false
 expect:
   messages:
-    - role: user
-      content:
-        - type: text
-          text: "do it"
-          text_signature: null
-      timestamp: 1
-    - role: assistant
-      content:
-        - type: text
-          text: "retrying cleanly"
-          text_signature: null
-      provider: p
-      api: a
-      model: m1
-      stop_reason: stop
-      timestamp: 3
+  - role: user
+    content:
+    - type: text
+      text: do it
+      text_signature: null
+    timestamp: 1
+  - role: assistant
+    content:
+    - type: text
+      text: retrying cleanly
+      text_signature: null
+    provider: p
+    api: a
+    model: m1
+    stop_reason: stop
+    timestamp: 3
+    usage:
+      input: 0
+      output: 0
+      cache_read: 0
+      cache_write: 0
+      cache_write_1h: null
+      reasoning: null
+      total_tokens: 0
+      cost:
+        input: 0
+        output: 0
+        cache_read: 0
+        cache_write: 0
+        total: 0
+    response_model: null
+    response_id: null
+    diagnostics: null
+    deferred: null
+    error_message: null
+    raw_stop_reason: null
+    end_turn: null

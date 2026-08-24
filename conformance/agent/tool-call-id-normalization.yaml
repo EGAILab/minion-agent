@@ -1,118 +1,158 @@
 name: tool-call-id-normalization
 pi_revision: b7bb00b936dbe21b8e160b3e89efdec361846699
 authority: 2026-08-20-minion-agent-design.md
-notes: >
-  transformMessages() has no built-in normalization algorithm -- Pi injects one per target API as a
-  caller-supplied callback, and every real Pi provider adapter supplies its own (AI-023). This
-  scenario exercises the real generic orchestration (build an id map cross-model only, rewrite the
-  matching ToolResult consistently, leave an unrelated result's id untouched) through
-  `normalize_tool_call_ids`, a literal old->new map standing in for a real Provider-supplied
-  callback -- not a runner-fabricated algorithm. Same-model calls are never normalized, proven by a
+notes: 'transformMessages() has no built-in normalization algorithm -- Pi injects
+  one per target API as a caller-supplied callback, and every real Pi provider adapter
+  supplies its own (AI-023). This scenario exercises the real generic orchestration
+  (build an id map cross-model only, rewrite the matching ToolResult consistently,
+  leave an unrelated result''s id untouched) through `normalize_tool_call_ids`, a
+  literal old->new map standing in for a real Provider-supplied callback -- not a
+  runner-fabricated algorithm. Same-model calls are never normalized, proven by a
   second assistant/result pair against the same target.
+
+  '
 transform:
   messages:
-    - role: assistant
-      content:
-        - type: tool_call
-          id: "openai-resp-id-with-|-and-450-chars"
-          name: lookup
-          arguments: {}
-      provider: p
-      api: a
-      model: m2
-      stop_reason: tool_use
-      timestamp: 1
-    - role: tool_result
-      content:
-        - type: text
-          text: sunny
-      tool_call_id: "openai-resp-id-with-|-and-450-chars"
-      tool_name: lookup
-      is_error: false
-      timestamp: 2
-    - role: tool_result
-      content:
-        - type: text
-          text: unrelated
-      tool_call_id: unrelated-id
-      tool_name: other
-      is_error: false
-      timestamp: 3
-    - role: assistant
-      content:
-        - type: tool_call
-          id: same-model-id
-          name: lookup
-          arguments: {}
-      provider: p
-      api: a
-      model: m1
-      stop_reason: tool_use
-      timestamp: 4
-    - role: tool_result
-      content:
-        - type: text
-          text: sunny
-      tool_call_id: same-model-id
-      tool_name: lookup
-      is_error: false
-      timestamp: 5
+  - role: assistant
+    content:
+    - type: tool_call
+      id: openai-resp-id-with-|-and-450-chars
+      name: lookup
+      arguments: {}
+    provider: p
+    api: a
+    model: m2
+    stop_reason: tool_use
+    timestamp: 1
+  - role: tool_result
+    content:
+    - type: text
+      text: sunny
+    tool_call_id: openai-resp-id-with-|-and-450-chars
+    tool_name: lookup
+    is_error: false
+    timestamp: 2
+  - role: tool_result
+    content:
+    - type: text
+      text: unrelated
+    tool_call_id: unrelated-id
+    tool_name: other
+    is_error: false
+    timestamp: 3
+  - role: assistant
+    content:
+    - type: tool_call
+      id: same-model-id
+      name: lookup
+      arguments: {}
+    provider: p
+    api: a
+    model: m1
+    stop_reason: tool_use
+    timestamp: 4
+  - role: tool_result
+    content:
+    - type: text
+      text: sunny
+    tool_call_id: same-model-id
+    tool_name: lookup
+    is_error: false
+    timestamp: 5
   target:
     provider: p
     api: a
     model_id: m1
     supports_images: false
   normalize_tool_call_ids:
-    "openai-resp-id-with-|-and-450-chars": "anth_safe_id_1"
+    openai-resp-id-with-|-and-450-chars: anth_safe_id_1
 expect:
   messages:
-    - role: assistant
-      content:
-        - type: tool_call
-          id: anth_safe_id_1
-          name: lookup
-          arguments: {}
-          thought_signature: null
-          namespace: null
-      provider: p
-      api: a
-      model: m2
-      stop_reason: tool_use
-      timestamp: 1
-    - role: tool_result
-      content:
-        - type: text
-          text: sunny
-          text_signature: null
-      tool_call_id: anth_safe_id_1
-      tool_name: lookup
-      is_error: false
-    - role: tool_result
-      content:
-        - type: text
-          text: unrelated
-          text_signature: null
-      tool_call_id: unrelated-id
-      tool_name: other
-      is_error: false
-    - role: assistant
-      content:
-        - type: tool_call
-          id: same-model-id
-          name: lookup
-          arguments: {}
-          thought_signature: null
-          namespace: null
-      provider: p
-      api: a
-      model: m1
-      stop_reason: tool_use
-      timestamp: 4
-    - role: tool_result
-      content:
-        - type: text
-          text: sunny
-          text_signature: null
-      tool_call_id: same-model-id
-      tool_name: lookup
-      is_error: false
+  - role: assistant
+    content:
+    - type: tool_call
+      id: anth_safe_id_1
+      name: lookup
+      arguments: {}
+      thought_signature: null
+      namespace: null
+    provider: p
+    api: a
+    model: m2
+    stop_reason: tool_use
+    timestamp: 1
+    usage: &id001
+      input: 0
+      output: 0
+      cache_read: 0
+      cache_write: 0
+      cache_write_1h: null
+      reasoning: null
+      total_tokens: 0
+      cost:
+        input: 0
+        output: 0
+        cache_read: 0
+        cache_write: 0
+        total: 0
+    response_model: null
+    response_id: null
+    diagnostics: null
+    deferred: null
+    error_message: null
+    raw_stop_reason: null
+    end_turn: null
+  - role: tool_result
+    content:
+    - type: text
+      text: sunny
+      text_signature: null
+    tool_call_id: anth_safe_id_1
+    tool_name: lookup
+    is_error: false
+    details: null
+    usage: null
+    added_tool_names: null
+  - role: tool_result
+    content:
+    - type: text
+      text: unrelated
+      text_signature: null
+    tool_call_id: unrelated-id
+    tool_name: other
+    is_error: false
+    details: null
+    usage: null
+    added_tool_names: null
+  - role: assistant
+    content:
+    - type: tool_call
+      id: same-model-id
+      name: lookup
+      arguments: {}
+      thought_signature: null
+      namespace: null
+    provider: p
+    api: a
+    model: m1
+    stop_reason: tool_use
+    timestamp: 4
+    usage: *id001
+    response_model: null
+    response_id: null
+    diagnostics: null
+    deferred: null
+    error_message: null
+    raw_stop_reason: null
+    end_turn: null
+  - role: tool_result
+    content:
+    - type: text
+      text: sunny
+      text_signature: null
+    tool_call_id: same-model-id
+    tool_name: lookup
+    is_error: false
+    details: null
+    usage: null
+    added_tool_names: null

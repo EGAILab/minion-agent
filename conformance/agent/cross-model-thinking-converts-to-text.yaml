@@ -1,25 +1,27 @@
 name: cross-model-thinking-converts-to-text
 pi_revision: b7bb00b936dbe21b8e160b3e89efdec361846699
 authority: 2026-08-20-minion-agent-design.md
-notes: >
-  A non-redacted, non-empty thinking block crossing to a different target model converts to
-  ordinary text and loses its signature -- true whether or not it was signed, since transformMessages
-  only checks same-model+signature for retention (AI-021). A non-empty case and an empty case are
-  both scripted so the removal rule doesn't get conflated with the conversion rule.
+notes: 'A non-redacted, non-empty thinking block crossing to a different target model
+  converts to ordinary text and loses its signature -- true whether or not it was
+  signed, since transformMessages only checks same-model+signature for retention (AI-021).
+  A non-empty case and an empty case are both scripted so the removal rule doesn''t
+  get conflated with the conversion rule.
+
+  '
 transform:
   messages:
-    - role: assistant
-      content:
-        - type: thinking
-          thinking: "step by step reasoning"
-          thinking_signature: opaque-blob
-        - type: thinking
-          thinking: ""
-      provider: p
-      api: a
-      model: m1
-      stop_reason: stop
-      timestamp: 1
+  - role: assistant
+    content:
+    - type: thinking
+      thinking: step by step reasoning
+      thinking_signature: opaque-blob
+    - type: thinking
+      thinking: ''
+    provider: p
+    api: a
+    model: m1
+    stop_reason: stop
+    timestamp: 1
   target:
     provider: p
     api: a
@@ -27,13 +29,34 @@ transform:
     supports_images: false
 expect:
   messages:
-    - role: assistant
-      content:
-        - type: text
-          text: "step by step reasoning"
-          text_signature: null
-      provider: p
-      api: a
-      model: m1
-      stop_reason: stop
-      timestamp: 1
+  - role: assistant
+    content:
+    - type: text
+      text: step by step reasoning
+      text_signature: null
+    provider: p
+    api: a
+    model: m1
+    stop_reason: stop
+    timestamp: 1
+    usage:
+      input: 0
+      output: 0
+      cache_read: 0
+      cache_write: 0
+      cache_write_1h: null
+      reasoning: null
+      total_tokens: 0
+      cost:
+        input: 0
+        output: 0
+        cache_read: 0
+        cache_write: 0
+        total: 0
+    response_model: null
+    response_id: null
+    diagnostics: null
+    deferred: null
+    error_message: null
+    raw_stop_reason: null
+    end_turn: null

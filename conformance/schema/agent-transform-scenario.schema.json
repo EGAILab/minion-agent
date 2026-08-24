@@ -32,15 +32,15 @@
           "required": ["provider", "api", "model_id", "supports_images"],
           "additionalProperties": false,
           "properties": {
-            "provider": { "type": "string" },
-            "api": { "type": "string" },
-            "model_id": { "type": "string" },
+            "provider": { "type": "string", "minLength": 1 },
+            "api": { "type": "string", "minLength": 1 },
+            "model_id": { "type": "string", "minLength": 1 },
             "supports_images": {
               "type": "boolean",
               "description": "Pi's model.input.includes(\"image\"); the only capability transform_messages() itself consults."
             }
           },
-          "description": "The frozen provider+api+model_id identity triple, plus the one capability flag XFORM's image-downgrade rule needs. Not a full model-registry entry (Phase-5 provider registry territory)."
+          "description": "The frozen provider+api+model_id identity triple (each component non-empty, matching the identity contract), plus the one capability flag XFORM's image-downgrade rule needs. Not a full model-registry entry (Phase-5 provider registry territory)."
         },
         "normalize_tool_call_ids": {
           "type": "object",
@@ -52,6 +52,8 @@
     "expect": {
       "type": "object",
       "additionalProperties": false,
+      "minProperties": 1,
+      "description": "At least one observable assertion is required -- a scenario asserting nothing could pass while proving nothing.",
       "properties": {
         "messages": {
           "type": "array",
@@ -125,8 +127,84 @@
         }
       ]
     },
+    "userContent": {
+      "description": "UserMessage.content is string | tuple[ContentBlock, ...] (spec/llm.md; Pi's own Array.isArray(msg.content) guard) -- both are first-class certified shapes, not one legacy and one modern.",
+      "oneOf": [
+        { "type": "string" },
+        {
+          "type": "array",
+          "items": {
+            "allOf": [
+              { "$ref": "#/$defs/contentBlock" },
+              { "properties": { "type": { "enum": ["text", "image"] } } }
+            ]
+          }
+        }
+      ]
+    },
+    "cost": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "input": { "type": "number" },
+        "output": { "type": "number" },
+        "cache_read": { "type": "number" },
+        "cache_write": { "type": "number" },
+        "total": { "type": "number" }
+      }
+    },
+    "usage": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "input": { "type": "integer" },
+        "output": { "type": "integer" },
+        "cache_read": { "type": "integer" },
+        "cache_write": { "type": "integer" },
+        "cache_write_1h": { "type": ["integer", "null"] },
+        "reasoning": { "type": ["integer", "null"] },
+        "total_tokens": { "type": "integer" },
+        "cost": { "$ref": "#/$defs/cost" }
+      }
+    },
+    "diagnosticError": {
+      "type": "object",
+      "required": ["message"],
+      "additionalProperties": false,
+      "properties": {
+        "message": { "type": "string" },
+        "name": { "type": ["string", "null"] },
+        "stack": { "type": ["string", "null"] },
+        "code": { "oneOf": [{ "type": "string" }, { "type": "number" }, { "type": "null" }] }
+      }
+    },
+    "diagnostic": {
+      "type": "object",
+      "required": ["type", "timestamp"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "type": "string" },
+        "timestamp": { "type": "number" },
+        "error": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/diagnosticError" }] },
+        "details": {}
+      }
+    },
+    "deferredHandle": {
+      "type": "object",
+      "required": ["provider", "model_id", "api", "id"],
+      "additionalProperties": false,
+      "properties": {
+        "provider": { "type": "string" },
+        "model_id": { "type": "string" },
+        "api": { "type": "string" },
+        "id": { "type": "string" },
+        "expires_at": { "type": ["integer", "null"] },
+        "poll_after_ms": { "type": ["integer", "null"] },
+        "data": {}
+      }
+    },
     "inputMessage": {
-      "description": "Same role-discriminated shape as the Layer-02/03 vocabulary, except `content` may also be `null` on any role -- the one legitimate way to script AI-026's legacy-null-content input, since Minion's typed Message dataclasses cannot themselves hold null content (they are constructed here only by the thin runner, from this permissive input shape).",
+      "description": "Same role-discriminated shape as the Layer-02/03 vocabulary, except `content` may also be `null` on any role -- the one legitimate way to script AI-026's legacy-null-content input, since Minion's typed Message dataclasses cannot themselves hold null content (they are constructed here only by the thin runner, from this permissive input shape). Rich optional fields (usage/diagnostics/deferred/etc.) are inlined directly rather than composed via allOf, since additionalProperties:false does not see properties declared in a sibling allOf branch.",
       "oneOf": [
         {
           "type": "object",
@@ -134,20 +212,7 @@
           "additionalProperties": false,
           "properties": {
             "role": { "const": "user" },
-            "content": {
-              "oneOf": [
-                { "type": "null" },
-                {
-                  "type": "array",
-                  "items": {
-                    "allOf": [
-                      { "$ref": "#/$defs/contentBlock" },
-                      { "properties": { "type": { "enum": ["text", "image"] } } }
-                    ]
-                  }
-                }
-              ]
-            },
+            "content": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/userContent" }] },
             "timestamp": { "type": "number" }
           }
         },
@@ -177,7 +242,17 @@
             "stop_reason": {
               "enum": ["pending", "stop", "length", "tool_use", "error", "aborted", "deferred"]
             },
-            "timestamp": { "type": "number" }
+            "timestamp": { "type": "number" },
+            "usage": { "$ref": "#/$defs/usage" },
+            "response_model": { "type": ["string", "null"] },
+            "response_id": { "type": ["string", "null"] },
+            "diagnostics": {
+              "oneOf": [{ "type": "null" }, { "type": "array", "items": { "$ref": "#/$defs/diagnostic" } }]
+            },
+            "deferred": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/deferredHandle" }] },
+            "error_message": { "type": ["string", "null"] },
+            "raw_stop_reason": { "type": ["string", "null"] },
+            "end_turn": { "type": ["boolean", "null"] }
           }
         },
         {
@@ -203,13 +278,18 @@
             "tool_call_id": { "type": "string" },
             "tool_name": { "type": "string" },
             "is_error": { "type": "boolean" },
-            "timestamp": { "type": "number" }
+            "timestamp": { "type": "number" },
+            "details": {},
+            "usage": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/usage" }] },
+            "added_tool_names": {
+              "oneOf": [{ "type": "null" }, { "type": "array", "items": { "type": "string" } }]
+            }
           }
         }
       ]
     },
     "outputMessage": {
-      "description": "Same shape as inputMessage, except `content` is a strict array -- transform_messages() never returns a Message with null content; legacy-null is normalized away before anything else runs.",
+      "description": "Same shape as inputMessage, except `content` is never `null` -- transform_messages() never returns a Message with null content; legacy-null is normalized away before anything else runs.",
       "oneOf": [
         {
           "type": "object",
@@ -217,15 +297,7 @@
           "additionalProperties": false,
           "properties": {
             "role": { "const": "user" },
-            "content": {
-              "type": "array",
-              "items": {
-                "allOf": [
-                  { "$ref": "#/$defs/contentBlock" },
-                  { "properties": { "type": { "enum": ["text", "image"] } } }
-                ]
-              }
-            },
+            "content": { "$ref": "#/$defs/userContent" },
             "timestamp": { "type": "number" }
           }
         },
@@ -250,14 +322,24 @@
             "stop_reason": {
               "enum": ["pending", "stop", "length", "tool_use", "error", "aborted", "deferred"]
             },
-            "timestamp": { "type": "number" }
+            "timestamp": { "type": "number" },
+            "usage": { "$ref": "#/$defs/usage" },
+            "response_model": { "type": ["string", "null"] },
+            "response_id": { "type": ["string", "null"] },
+            "diagnostics": {
+              "oneOf": [{ "type": "null" }, { "type": "array", "items": { "$ref": "#/$defs/diagnostic" } }]
+            },
+            "deferred": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/deferredHandle" }] },
+            "error_message": { "type": ["string", "null"] },
+            "raw_stop_reason": { "type": ["string", "null"] },
+            "end_turn": { "type": ["boolean", "null"] }
           }
         },
         {
           "type": "object",
           "required": ["role", "content", "tool_call_id", "tool_name", "is_error"],
           "additionalProperties": false,
-          "description": "No `timestamp` property: a synthesized orphan result's timestamp is real wall-clock time (Pi's Date.now()), never an observable XFORM contract value -- see spec/target-model-transformation.md.",
+          "description": "`timestamp` is allowed but optional: a real pass-through result's timestamp is real, observable, preserved state and may be asserted; a synthesized orphan result's timestamp is wall-clock time at synthesis (Pi's Date.now()) and is never required or compared -- the runner drops it from the comparison whenever a scenario's own expected tool_result omits it (spec/target-model-transformation.md).",
           "properties": {
             "role": { "const": "tool_result" },
             "content": {
@@ -271,7 +353,13 @@
             },
             "tool_call_id": { "type": "string" },
             "tool_name": { "type": "string" },
-            "is_error": { "type": "boolean" }
+            "is_error": { "type": "boolean" },
+            "timestamp": { "type": "number" },
+            "details": {},
+            "usage": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/usage" }] },
+            "added_tool_names": {
+              "oneOf": [{ "type": "null" }, { "type": "array", "items": { "type": "string" } }]
+            }
           }
         }
       ]

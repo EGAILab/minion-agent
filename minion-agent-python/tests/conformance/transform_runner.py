@@ -2,10 +2,10 @@
 `transform_messages()` seam.
 
 Deliberately independent of `agent_runner.py`/`session_runner.py`'s own thin decoders: this DSL's
-message shape is intentionally narrower (no usage/diagnostics/deferred -- XFORM's own rules never
-touch them) and, uniquely, must accept `content: null` on input to script AI-026's legacy-content
-case, which the real typed `Message` dataclasses cannot themselves represent. Each family's runner
-stays thin for its own DSL rather than sharing a decoder tuned for a different one.
+message shape must, uniquely, accept `content: null` on any role (AI-026's legacy-content input,
+which the real typed `Message` dataclasses cannot themselves represent) and `content: <string>` on
+`user` (the first-class `UserMessage.content: string | [...]` shape, `spec/llm.md`). Each family's
+runner stays thin for its own DSL rather than sharing a decoder tuned for a different one.
 """
 
 from __future__ import annotations
@@ -22,6 +22,10 @@ from minion_agent.llm.content import (
 )
 from minion_agent.llm.messages import (
     AssistantMessage,
+    AssistantMessageDiagnostic,
+    Cost,
+    DeferredHandle,
+    DiagnosticError,
     Message,
     StopReason,
     ToolResultMessage,
@@ -57,34 +61,106 @@ def _block(raw: dict[str, Any]) -> ContentBlock:
     raise ValueError(f"unknown content block type {kind!r}")
 
 
+def _user_content(raw: Any) -> str | tuple[ContentBlock, ...] | None:
+    """`UserMessage.content` is `string | tuple[ContentBlock, ...]` -- both first-class
+    (`spec/llm.md`) -- plus the legacy-null input case (`AI-026`). A JSON string stays a string;
+    only a JSON array is decoded into blocks."""
+    if raw is None or isinstance(raw, str):
+        return raw
+    return tuple(_block(block) for block in raw)
+
+
 def _content(raw: list[dict[str, Any]] | None) -> tuple[ContentBlock, ...] | None:
     if raw is None:
         return None
     return tuple(_block(block) for block in raw)
 
 
+def _usage(raw: dict[str, Any] | None) -> Usage:
+    if raw is None:
+        return Usage()
+    cost = raw.get("cost")
+    return Usage(
+        input=raw.get("input", 0),
+        output=raw.get("output", 0),
+        cache_read=raw.get("cache_read", 0),
+        cache_write=raw.get("cache_write", 0),
+        cache_write_1h=raw.get("cache_write_1h"),
+        reasoning=raw.get("reasoning"),
+        total_tokens=raw.get("total_tokens", 0),
+        cost=Cost(**cost) if cost is not None else Cost(),
+    )
+
+
+def _diagnostic(raw: dict[str, Any]) -> AssistantMessageDiagnostic:
+    raw_error = raw.get("error")
+    error = (
+        DiagnosticError(
+            message=raw_error["message"],
+            name=raw_error.get("name"),
+            stack=raw_error.get("stack"),
+            code=raw_error.get("code"),
+        )
+        if raw_error is not None
+        else None
+    )
+    return AssistantMessageDiagnostic(
+        type=raw["type"], timestamp=raw["timestamp"], error=error, details=raw.get("details")
+    )
+
+
+def _deferred(raw: dict[str, Any] | None) -> DeferredHandle | None:
+    if raw is None:
+        return None
+    return DeferredHandle(
+        provider=raw["provider"],
+        model_id=raw["model_id"],
+        api=raw["api"],
+        id=raw["id"],
+        expires_at=raw.get("expires_at"),
+        poll_after_ms=raw.get("poll_after_ms"),
+        data=raw.get("data"),
+    )
+
+
 def _message(raw: dict[str, Any]) -> Message:
     role = raw["role"]
-    content = _content(raw.get("content"))
     if role == "user":
-        return UserMessage(content=content, timestamp=raw["timestamp"])  # type: ignore[arg-type]
+        return UserMessage(content=_user_content(raw.get("content")), timestamp=raw["timestamp"])
     if role == "assistant":
+        raw_diagnostics = raw.get("diagnostics")
         return AssistantMessage(
-            content=content,  # type: ignore[arg-type]
+            content=_content(raw.get("content")),  # type: ignore[arg-type]
             stop_reason=StopReason(raw["stop_reason"]),
-            usage=Usage(),
+            usage=_usage(raw.get("usage")),
             model=raw["model"],
             provider=raw["provider"],
             api=raw["api"],
             timestamp=raw["timestamp"],
+            response_model=raw.get("response_model"),
+            response_id=raw.get("response_id"),
+            diagnostics=(
+                tuple(_diagnostic(d) for d in raw_diagnostics)
+                if raw_diagnostics is not None
+                else None
+            ),
+            deferred=_deferred(raw.get("deferred")),
+            error_message=raw.get("error_message"),
+            raw_stop_reason=raw.get("raw_stop_reason"),
+            end_turn=raw.get("end_turn"),
         )
     if role == "tool_result":
+        raw_usage = raw.get("usage")
+        added_tool_names = raw.get("added_tool_names")
         return ToolResultMessage(
             tool_call_id=raw["tool_call_id"],
-            content=content,  # type: ignore[arg-type]
+            content=_content(raw.get("content")),  # type: ignore[arg-type]
             timestamp=raw.get("timestamp", 0),
             tool_name=raw["tool_name"],
             is_error=raw["is_error"],
+            details=raw.get("details"),
+            usage=_usage(raw_usage) if raw_usage is not None else None,
+            added_tool_names=tuple(added_tool_names) if added_tool_names is not None else None,
         )
     raise ValueError(f"unknown message role {role!r}")
 
@@ -117,29 +193,109 @@ def _normalize_block(block: ContentBlock) -> dict[str, Any]:
     }
 
 
+def _normalize_user_content(content: str | tuple[ContentBlock, ...]) -> Any:
+    if isinstance(content, str):
+        return content
+    return [_normalize_block(block) for block in content]
+
+
+def _normalize_usage(usage: Usage) -> dict[str, Any]:
+    return {
+        "input": usage.input,
+        "output": usage.output,
+        "cache_read": usage.cache_read,
+        "cache_write": usage.cache_write,
+        "cache_write_1h": usage.cache_write_1h,
+        "reasoning": usage.reasoning,
+        "total_tokens": usage.total_tokens,
+        "cost": {
+            "input": usage.cost.input,
+            "output": usage.cost.output,
+            "cache_read": usage.cost.cache_read,
+            "cache_write": usage.cost.cache_write,
+            "total": usage.cost.total,
+        },
+    }
+
+
+def _normalize_diagnostic(diagnostic: AssistantMessageDiagnostic) -> dict[str, Any]:
+    error = diagnostic.error
+    return {
+        "type": diagnostic.type,
+        "timestamp": diagnostic.timestamp,
+        "error": (
+            None
+            if error is None
+            else {
+                "message": error.message,
+                "name": error.name,
+                "stack": error.stack,
+                "code": error.code,
+            }
+        ),
+        "details": diagnostic.details,
+    }
+
+
+def _normalize_deferred(handle: DeferredHandle | None) -> dict[str, Any] | None:
+    if handle is None:
+        return None
+    return {
+        "provider": handle.provider,
+        "model_id": handle.model_id,
+        "api": handle.api,
+        "id": handle.id,
+        "expires_at": handle.expires_at,
+        "poll_after_ms": handle.poll_after_ms,
+        "data": handle.data,
+    }
+
+
 def _normalize_message(message: Message) -> dict[str, Any]:
-    content = [_normalize_block(block) for block in message.content]
     if isinstance(message, UserMessage):
-        return {"role": "user", "content": content, "timestamp": message.timestamp}
+        return {
+            "role": "user",
+            "content": _normalize_user_content(message.content),
+            "timestamp": message.timestamp,
+        }
     if isinstance(message, AssistantMessage):
         return {
             "role": "assistant",
-            "content": content,
+            "content": [_normalize_block(block) for block in message.content],
             "provider": message.provider,
             "api": message.api,
             "model": message.model,
             "stop_reason": message.stop_reason.value,
             "timestamp": message.timestamp,
+            "usage": _normalize_usage(message.usage),
+            "response_model": message.response_model,
+            "response_id": message.response_id,
+            "diagnostics": (
+                None
+                if message.diagnostics is None
+                else [_normalize_diagnostic(d) for d in message.diagnostics]
+            ),
+            "deferred": _normalize_deferred(message.deferred),
+            "error_message": message.error_message,
+            "raw_stop_reason": message.raw_stop_reason,
+            "end_turn": message.end_turn,
         }
     return {
         "role": "tool_result",
-        "content": content,
+        "content": [_normalize_block(block) for block in message.content],
         "tool_call_id": message.tool_call_id,
         "tool_name": message.tool_name,
         "is_error": message.is_error,
-        # timestamp deliberately excluded: a synthesized orphan result's timestamp is real
-        # wall-clock time (matching Pi's Date.now()), not an observable XFORM contract value --
-        # see spec/target-model-transformation.md.
+        # timestamp is real, observable state -- always present here; a scenario's own
+        # expect.messages omits it for a synthesized result (wall-clock, not a contract value)
+        # and the test comparison drops it from this dict before comparing in that case --
+        # see test_transform_conformance.py and spec/target-model-transformation.md.
+        "timestamp": message.timestamp,
+        "details": message.details,
+        "usage": None if message.usage is None else _normalize_usage(message.usage),
+        "added_tool_names": (
+            None if message.added_tool_names is None else list(message.added_tool_names)
+        ),
     }
 
 

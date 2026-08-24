@@ -1,21 +1,23 @@
 name: nonvision-tool-image-placeholder
 pi_revision: b7bb00b936dbe21b8e160b3e89efdec361846699
 authority: 2026-08-20-minion-agent-design.md
-notes: >
-  The tool-result placeholder is a distinct string from the user-image placeholder
-  (transform-messages.ts::NON_VISION_TOOL_IMAGE_PLACEHOLDER) -- proven by exercising a tool-result
-  image on the same scenario a supported-image case would leave untouched (AI-020).
+notes: 'The tool-result placeholder is a distinct string from the user-image placeholder
+  (transform-messages.ts::NON_VISION_TOOL_IMAGE_PLACEHOLDER) -- proven by exercising
+  a tool-result image on the same scenario a supported-image case would leave untouched
+  (AI-020).
+
+  '
 transform:
   messages:
-    - role: tool_result
-      content:
-        - type: image
-          mime_type: image/png
-          data: eA==
-      tool_call_id: t1
-      tool_name: screenshot
-      is_error: false
-      timestamp: 1
+  - role: tool_result
+    content:
+    - type: image
+      mime_type: image/png
+      data: eA==
+    tool_call_id: t1
+    tool_name: screenshot
+    is_error: false
+    timestamp: 1
   target:
     provider: p
     api: a
@@ -23,11 +25,14 @@ transform:
     supports_images: false
 expect:
   messages:
-    - role: tool_result
-      content:
-        - type: text
-          text: "(tool image omitted: model does not support images)"
-          text_signature: null
-      tool_call_id: t1
-      tool_name: screenshot
-      is_error: false
+  - role: tool_result
+    content:
+    - type: text
+      text: '(tool image omitted: model does not support images)'
+      text_signature: null
+    tool_call_id: t1
+    tool_name: screenshot
+    is_error: false
+    details: null
+    usage: null
+    added_tool_names: null

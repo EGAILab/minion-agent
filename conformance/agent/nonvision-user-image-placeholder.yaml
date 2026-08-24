@@ -1,27 +1,29 @@
 name: nonvision-user-image-placeholder
 pi_revision: b7bb00b936dbe21b8e160b3e89efdec361846699
 authority: 2026-08-20-minion-agent-design.md
-notes: >
-  Pi's transformMessages() downgrades images only when the target model's capability flag excludes
-  "image" (transform-messages.ts::downgradeUnsupportedImages); a supported target leaves user
-  content untouched. Also pins the dedup mechanic: adjacent images collapse into one placeholder,
-  and a real text block interrupts the run so the next image gets its own placeholder (AI-020).
+notes: 'Pi''s transformMessages() downgrades images only when the target model''s
+  capability flag excludes "image" (transform-messages.ts::downgradeUnsupportedImages);
+  a supported target leaves user content untouched. Also pins the dedup mechanic:
+  adjacent images collapse into one placeholder, and a real text block interrupts
+  the run so the next image gets its own placeholder (AI-020).
+
+  '
 transform:
   messages:
-    - role: user
-      content:
-        - type: image
-          mime_type: image/png
-          data: eA==
-        - type: image
-          mime_type: image/png
-          data: eQ==
-        - type: text
-          text: "what's in these?"
-        - type: image
-          mime_type: image/png
-          data: eg==
-      timestamp: 1
+  - role: user
+    content:
+    - type: image
+      mime_type: image/png
+      data: eA==
+    - type: image
+      mime_type: image/png
+      data: eQ==
+    - type: text
+      text: what's in these?
+    - type: image
+      mime_type: image/png
+      data: eg==
+    timestamp: 1
   target:
     provider: p
     api: a
@@ -29,15 +31,15 @@ transform:
     supports_images: false
 expect:
   messages:
-    - role: user
-      content:
-        - type: text
-          text: "(image omitted: model does not support images)"
-          text_signature: null
-        - type: text
-          text: "what's in these?"
-          text_signature: null
-        - type: text
-          text: "(image omitted: model does not support images)"
-          text_signature: null
-      timestamp: 1
+  - role: user
+    content:
+    - type: text
+      text: '(image omitted: model does not support images)'
+      text_signature: null
+    - type: text
+      text: what's in these?
+      text_signature: null
+    - type: text
+      text: '(image omitted: model does not support images)'
+      text_signature: null
+    timestamp: 1

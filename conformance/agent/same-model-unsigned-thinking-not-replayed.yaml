@@ -1,26 +1,28 @@
 name: same-model-unsigned-thinking-not-replayed
 pi_revision: b7bb00b936dbe21b8e160b3e89efdec361846699
 authority: 2026-08-20-minion-agent-design.md
-notes: >
-  Question-A-only counterpart to same-model-thinking-signature-replayed.yaml (assurance §6): an
-  unsigned same-model thinking block carries no replay metadata for a provider to replay, but the
-  block itself still survives transform_messages() unchanged as long as its text is non-empty --
-  unsigned and empty is the one same-model case that is actually removed. Both are asserted here.
+notes: 'Question-A-only counterpart to same-model-thinking-signature-replayed.yaml
+  (assurance §6): an unsigned same-model thinking block carries no replay metadata
+  for a provider to replay, but the block itself still survives transform_messages()
+  unchanged as long as its text is non-empty -- unsigned and empty is the one same-model
+  case that is actually removed. Both are asserted here.
+
+  '
 transform:
   messages:
-    - role: assistant
-      content:
-        - type: thinking
-          thinking: "let me check"
-        - type: thinking
-          thinking: "   "
-        - type: text
-          text: "42"
-      provider: p
-      api: a
-      model: m1
-      stop_reason: stop
-      timestamp: 1
+  - role: assistant
+    content:
+    - type: thinking
+      thinking: let me check
+    - type: thinking
+      thinking: '   '
+    - type: text
+      text: '42'
+    provider: p
+    api: a
+    model: m1
+    stop_reason: stop
+    timestamp: 1
   target:
     provider: p
     api: a
@@ -28,17 +30,38 @@ transform:
     supports_images: false
 expect:
   messages:
-    - role: assistant
-      content:
-        - type: thinking
-          thinking: "let me check"
-          thinking_signature: null
-          redacted: false
-        - type: text
-          text: "42"
-          text_signature: null
-      provider: p
-      api: a
-      model: m1
-      stop_reason: stop
-      timestamp: 1
+  - role: assistant
+    content:
+    - type: thinking
+      thinking: let me check
+      thinking_signature: null
+      redacted: false
+    - type: text
+      text: '42'
+      text_signature: null
+    provider: p
+    api: a
+    model: m1
+    stop_reason: stop
+    timestamp: 1
+    usage:
+      input: 0
+      output: 0
+      cache_read: 0
+      cache_write: 0
+      cache_write_1h: null
+      reasoning: null
+      total_tokens: 0
+      cost:
+        input: 0
+        output: 0
+        cache_read: 0
+        cache_write: 0
+        total: 0
+    response_model: null
+    response_id: null
+    diagnostics: null
+    deferred: null
+    error_message: null
+    raw_stop_reason: null
+    end_turn: null

@@ -1,28 +1,30 @@
 name: same-model-thinking-signature-replayed
 pi_revision: b7bb00b936dbe21b8e160b3e89efdec361846699
 authority: 2026-08-20-minion-agent-design.md
-notes: >
-  Split from provider-wire replay by ownership (Layer 02/04 assurance §6): this scenario proves
-  only Question A -- what Message blocks survive transform_messages() for the same target model.
-  A signed ThinkingBlock is retained unchanged, signature included, even with empty visible text
-  (Pi's own OpenAI-encrypted-reasoning case). Question B -- how a retained thinking_signature is
-  encoded back into a real Responses-family provider request -- remains Phase-5-deferred
-  (assurance/layers/02-llm.md §7's own disposition, unchanged by this scenario); no provider wire
-  encoder is invoked or simulated here.
+notes: 'Split from provider-wire replay by ownership (Layer 02/04 assurance §6): this
+  scenario proves only Question A -- what Message blocks survive transform_messages()
+  for the same target model. A signed ThinkingBlock is retained unchanged, signature
+  included, even with empty visible text (Pi''s own OpenAI-encrypted-reasoning case).
+  Question B -- how a retained thinking_signature is encoded back into a real Responses-family
+  provider request -- remains Phase-5-deferred (assurance/layers/02-llm.md §7''s own
+  disposition, unchanged by this scenario); no provider wire encoder is invoked or
+  simulated here.
+
+  '
 transform:
   messages:
-    - role: assistant
-      content:
-        - type: thinking
-          thinking: ""
-          thinking_signature: opaque-replay-blob
-        - type: text
-          text: "the answer is 4"
-      provider: p
-      api: a
-      model: m1
-      stop_reason: stop
-      timestamp: 1
+  - role: assistant
+    content:
+    - type: thinking
+      thinking: ''
+      thinking_signature: opaque-replay-blob
+    - type: text
+      text: the answer is 4
+    provider: p
+    api: a
+    model: m1
+    stop_reason: stop
+    timestamp: 1
   target:
     provider: p
     api: a
@@ -30,17 +32,38 @@ transform:
     supports_images: false
 expect:
   messages:
-    - role: assistant
-      content:
-        - type: thinking
-          thinking: ""
-          thinking_signature: opaque-replay-blob
-          redacted: false
-        - type: text
-          text: "the answer is 4"
-          text_signature: null
-      provider: p
-      api: a
-      model: m1
-      stop_reason: stop
-      timestamp: 1
+  - role: assistant
+    content:
+    - type: thinking
+      thinking: ''
+      thinking_signature: opaque-replay-blob
+      redacted: false
+    - type: text
+      text: the answer is 4
+      text_signature: null
+    provider: p
+    api: a
+    model: m1
+    stop_reason: stop
+    timestamp: 1
+    usage:
+      input: 0
+      output: 0
+      cache_read: 0
+      cache_write: 0
+      cache_write_1h: null
+      reasoning: null
+      total_tokens: 0
+      cost:
+        input: 0
+        output: 0
+        cache_read: 0
+        cache_write: 0
+        total: 0
+    response_model: null
+    response_id: null
+    diagnostics: null
+    deferred: null
+    error_message: null
+    raw_stop_reason: null
+    end_turn: null

@@ -75,6 +75,64 @@ def test_legacy_null_content_normalizes_to_empty_on_every_role() -> None:
     assert [m.content for m in out] == [(), (), ()]
 
 
+# --- string-valued UserMessage.content (XFORM-R001) ----------------------------------------
+#
+# UserMessage.content is string | tuple[ContentBlock, ...] (spec/llm.md; Pi's own
+# Array.isArray(msg.content) guard in downgradeUnsupportedImages). A string carries no image
+# blocks by construction and must survive untouched, for both a vision-capable and a
+# non-vision target -- treating it as a generic iterable of blocks would corrupt it into a
+# tuple of individual characters (the exact defect the Rust review reproduced).
+
+
+def test_string_user_content_survives_a_vision_target_unchanged() -> None:
+    user = UserMessage(content="hello", timestamp=1)
+    out = transform_messages([user], TARGET_VISION)
+    assert out[0].content == "hello"
+
+
+def test_string_user_content_survives_a_non_vision_target_unchanged() -> None:
+    user = UserMessage(content="hello", timestamp=1)
+    out = transform_messages([user], TARGET_TEXT_ONLY)
+    assert out[0].content == "hello"
+
+
+def test_empty_string_user_content_survives_a_non_vision_target_unchanged() -> None:
+    user = UserMessage(content="", timestamp=1)
+    out = transform_messages([user], TARGET_TEXT_ONLY)
+    assert out[0].content == ""
+
+
+def test_whitespace_only_string_user_content_survives_unchanged() -> None:
+    user = UserMessage(content="   ", timestamp=1)
+    out = transform_messages([user], TARGET_TEXT_ONLY)
+    assert out[0].content == "   "
+
+
+def test_a_string_equal_to_the_image_placeholder_survives_unchanged_not_deduplicated() -> None:
+    """Placeholder-suppression dedup mechanics apply to the content-block array path only; a
+    bare string that happens to read the placeholder text is not an array of blocks and is not
+    subject to any collapse/suppression logic."""
+    placeholder_text = "(image omitted: model does not support images)"
+    user = UserMessage(content=placeholder_text, timestamp=1)
+    out = transform_messages([user], TARGET_TEXT_ONLY)
+    assert out[0].content == placeholder_text
+
+
+def test_string_user_content_transform_is_independent_of_target_image_capability() -> None:
+    user = UserMessage(content="hello", timestamp=1)
+    with_images = transform_messages([user], TARGET_VISION)
+    without_images = transform_messages([user], TARGET_TEXT_ONLY)
+    assert with_images[0].content == without_images[0].content == "hello"
+
+
+def test_block_array_user_content_still_follows_normal_image_downgrade() -> None:
+    """Regression guard: the string guard must not accidentally bypass downgrade for real
+    block-array content."""
+    user = _user((ImageBlock(mime_type="image/png", data=b"x"),))
+    out = transform_messages([user], TARGET_TEXT_ONLY)
+    assert out[0].content == (TextBlock(text="(image omitted: model does not support images)"),)
+
+
 # --- image downgrade + dedup (AI-020) ------------------------------------------------------
 
 

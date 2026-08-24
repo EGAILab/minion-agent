@@ -1,0 +1,30 @@
+name: string-user-content-survives-transformation
+pi_revision: b7bb00b936dbe21b8e160b3e89efdec361846699
+authority: 2026-08-20-minion-agent-design.md
+notes: >
+  XFORM-R001 regression evidence: UserMessage.content is string | [TextBlock|ImageBlock]
+  (spec/llm.md), both first-class, not one legacy and one modern. A string carries no image
+  blocks by construction, and Pi's downgradeUnsupportedImages guards on Array.isArray(msg.content)
+  before touching it -- a string must survive transform_messages() unchanged for both a
+  vision-capable and a non-vision target. The non-vision case is the critical parity case: a prior
+  Python defect iterated the string character-by-character, corrupting "hello" into
+  ("h","e","l","l","o"). This scenario pins the non-vision case as canonical, cross-language
+  evidence; the vision-target case and further edge cases (empty string, whitespace-only,
+  placeholder-literal string) are covered as language tests in
+  tests/llm/test_transform_messages.py, since the canonical DSL need not duplicate every variant a
+  focused unit test already pins.
+transform:
+  messages:
+    - role: user
+      content: "hello world"
+      timestamp: 1
+  target:
+    provider: p
+    api: a
+    model_id: m1
+    supports_images: false
+expect:
+  messages:
+    - role: user
+      content: "hello world"
+      timestamp: 1

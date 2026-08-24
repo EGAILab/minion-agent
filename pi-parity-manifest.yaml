@@ -139,11 +139,21 @@ rows:
   phase: 2
   pi: packages/ai/src/api/openai-responses-shared.ts
   surface: Responses-family thinking/text signature replay
-  rule: content-owned opaque-string replay; same-model signed thinking retains and replays including empty visible thinking; same-model unsigned non-empty thinking retains visible text; same-model unsigned empty thinking is removed; cross-model non-redacted thinking converts to ordinary text and the replay signature does not survive; cross-model redacted thinking is omitted; text_signature preserves Responses message id/phase for replay
+  rule: 'Two distinct questions, corrected this pass (XFORM-R003) after same-model-thinking-signature-replayed.yaml
+    and cross-model-signatures-stripped.yaml were rescoped to invoke only the generic transform_messages() seam:
+    QUESTION A (XFORM, Layer 04, executable now) -- does a thinking/text/thought signature survive the generic
+    target-model transform for the same model, and get stripped cross-model? Answered by the two tests below, which
+    prove only Message-level block survival/stripping, never a Responses wire payload. QUESTION B (Phase 5 provider
+    replay, NOT YET EVIDENCED) -- does a retained thinking_signature/text_signature get correctly re-encoded into a
+    real Responses-family request (content-owned opaque-string replay; message id/phase preservation)? No scenario
+    currently exercises a Responses encoder because none exists in this repository (Layer 02''s own exhaustive
+    git-history search, assurance/layers/02-llm.md section 7). This row''s tests: list is Question-A prerequisite
+    evidence only and must not be read as proof of Question B; Question B evidence is deferred until a real
+    Responses-family adapter exists to supply it.'
   tests:
   - same-model-thinking-signature-replayed
   - cross-model-signatures-stripped
-  python: 'target: src/minion_agent/llm/ (Responses-family replay logic, Phase 5 -- the text_signature/thinking_signature/thought_signature vocabulary fields this depends on already exist, see AI-001/AI-002/AI-003)'
+  python: 'target: src/minion_agent/llm/ (Responses-family replay logic, Phase 5 -- the text_signature/thinking_signature/thought_signature vocabulary fields this depends on already exist, see AI-001/AI-002/AI-003; the Question-A prerequisite orchestration these fields flow through, transform_messages(), is implemented -- src/minion_agent/llm/transform_messages.py, AI-021/AI-022)'
   rust: 'target: Phase 5 llm Responses replay'
   disposition: adopted
 - id: AI-020

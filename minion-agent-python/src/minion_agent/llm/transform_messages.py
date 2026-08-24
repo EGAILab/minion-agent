@@ -97,14 +97,21 @@ def _downgrade_unsupported_images(
     downgraded: list[Message] = []
     for message in messages:
         if isinstance(message, UserMessage):
-            downgraded.append(
-                dataclasses.replace(
-                    message,
-                    content=_replace_images_with_placeholder(
-                        message.content, _NON_VISION_USER_IMAGE_PLACEHOLDER
-                    ),
+            # UserMessage.content is string | tuple[ContentBlock, ...] (spec/llm.md; Pi's own
+            # Array.isArray(msg.content) guard). A string carries no image blocks by
+            # construction, so it passes through untouched -- treating it as an iterable of
+            # blocks would corrupt it into a tuple of individual characters.
+            if isinstance(message.content, str):
+                downgraded.append(message)
+            else:
+                downgraded.append(
+                    dataclasses.replace(
+                        message,
+                        content=_replace_images_with_placeholder(
+                            message.content, _NON_VISION_USER_IMAGE_PLACEHOLDER
+                        ),
+                    )
                 )
-            )
         elif isinstance(message, ToolResultMessage):
             downgraded.append(
                 dataclasses.replace(

@@ -388,8 +388,7 @@ enum AssistantRole {
 pub struct ToolResultMessage {
     role: ToolResultRole,
     pub tool_call_id: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub tool_name: Option<String>,
+    pub tool_name: String,
     pub content: Vec<ToolResultContentBlock>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub details: Option<Value>,
@@ -412,7 +411,7 @@ impl ToolResultMessage {
         Self {
             role: ToolResultRole::ToolResult,
             tool_call_id: tool_call_id.into(),
-            tool_name: Some(tool_name.into()),
+            tool_name: tool_name.into(),
             content,
             details: None,
             usage: None,

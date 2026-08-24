@@ -26,14 +26,16 @@ pub struct EventKind(String);
 impl EventKind {
     pub fn new(value: impl Into<String>) -> Result<Self, SessionError> {
         let value = value.into();
-        let valid = !value.is_empty()
-            && value.split('/').all(|part| {
-                let mut chars = part.chars();
-                chars.next().is_some_and(|c| c.is_ascii_lowercase())
-                    && chars.all(|c| {
-                        c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_' || c == '-'
-                    })
-            });
+        let valid = value.split('/').enumerate().all(|(index, part)| {
+            let mut chars = part.chars();
+            chars.next().is_some_and(|c| c.is_ascii_lowercase())
+                && chars.all(|c| {
+                    c.is_ascii_lowercase()
+                        || c.is_ascii_digit()
+                        || c == '_'
+                        || (index > 0 && c == '-')
+                })
+        });
         valid
             .then_some(Self(value))
             .ok_or(SessionError::InvalidEventKind)

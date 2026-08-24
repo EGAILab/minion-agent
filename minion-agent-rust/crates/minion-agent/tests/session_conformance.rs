@@ -143,15 +143,11 @@ fn make_message(role: &str, spec: &Map<String, Value>) -> Message {
         spec.get("tool_call_id")
             .and_then(Value::as_str)
             .unwrap_or("t1"),
-        spec.get("tool_name").and_then(Value::as_str).unwrap_or(""),
+        spec.get("tool_name").and_then(Value::as_str).unwrap(),
         content,
         false,
         timestamp,
     );
-    message.tool_name = spec
-        .get("tool_name")
-        .and_then(Value::as_str)
-        .map(str::to_owned);
     message.details = spec.get("details").cloned();
     message.usage = spec.get("usage").map(|v| usage(Some(v)));
     message.added_tool_names = spec
@@ -213,7 +209,7 @@ fn normalize_optional_fields(mut value: Value, tool_result: bool) -> Value {
     let object = value.as_object_mut().unwrap();
     object.remove("role");
     let optional = if tool_result {
-        vec!["tool_name", "details", "usage", "added_tool_names"]
+        vec!["details", "usage", "added_tool_names"]
     } else {
         vec![
             "error_message",
@@ -295,7 +291,7 @@ fn all_current_layer_session_scenarios_drive_the_real_typed_rust_session() {
         .filter(|p| p.extension().is_some_and(|e| e == "yaml"))
         .collect::<Vec<_>>();
     files.sort();
-    assert_eq!(files.len(), 17);
+    assert_eq!(files.len(), 19);
     let mut executed = 0;
     for path in files {
         if path.file_name().unwrap() == "request-reconstruction-after-target-transform.yaml" {
@@ -312,6 +308,7 @@ fn all_current_layer_session_scenarios_drive_the_real_typed_rust_session() {
             .collect::<Vec<_>>();
         let mut session = Session::new("scenario", surface).unwrap();
         let mut last_header: Option<SessionEvent> = None;
+        let mut actual_error: Option<Value> = None;
         for step in object["steps"].as_array().unwrap() {
             let step = step.as_object().unwrap();
             if let Some(spec) = step.get("append").and_then(Value::as_object) {
@@ -349,9 +346,19 @@ fn all_current_layer_session_scenarios_drive_the_real_typed_rust_session() {
                         .unwrap(),
                 );
             } else if let Some(spec) = step.get("fork").and_then(Value::as_object) {
-                session = session
-                    .fork("fork", spec.get("at").and_then(Value::as_u64))
-                    .unwrap();
+                match session.fork("fork", spec.get("at").and_then(Value::as_u64)) {
+                    Ok(child) => session = child,
+                    Err(
+                        error @ minion_agent::session::SessionError::InvalidForkBoundary { .. },
+                    ) => {
+                        actual_error = Some(json!({
+                            "type": "InvalidForkBoundaryError",
+                            "message": error.to_string()
+                        }));
+                        break;
+                    }
+                    Err(error) => panic!("unexpected fork error in {}: {error}", path.display()),
+                }
             } else if step.contains_key("reset") {
                 session.reset().unwrap();
             } else if let Some(spec) = step.get("compact").and_then(Value::as_object) {
@@ -362,6 +369,24 @@ fn all_current_layer_session_scenarios_drive_the_real_typed_rust_session() {
                     )
                     .unwrap();
             }
+        }
+        match object.get("expect_error") {
+            Some(Value::Object(expected)) => {
+                let actual = actual_error
+                    .as_ref()
+                    .and_then(Value::as_object)
+                    .unwrap_or_else(|| panic!("{} expected an error", path.display()));
+                assert_eq!(actual["type"], expected["type"], "{}", path.display());
+                if let Some(fragment) = expected.get("message_contains").and_then(Value::as_str) {
+                    assert!(
+                        actual["message"].as_str().unwrap().contains(fragment),
+                        "{}",
+                        path.display()
+                    );
+                }
+            }
+            None => assert!(actual_error.is_none(), "{}", path.display()),
+            Some(_) => panic!("{} has malformed expect_error", path.display()),
         }
         let messages = session.derive_messages().unwrap();
         let summaries = messages.iter().map(|m| json!({"role": match m { Message::User(_) => "user", Message::Assistant(_) => "assistant", Message::ToolResult(_) => "tool_result" }, "text": text_of(m)})).collect::<Vec<_>>();
@@ -422,7 +447,15 @@ fn all_current_layer_session_scenarios_drive_the_real_typed_rust_session() {
                 path.display()
             );
         }
+        if let Some(expected) = object.get("expect_event_kinds") {
+            let actual = session
+                .events()
+                .into_iter()
+                .map(|event| Value::String(event.kind.as_str().to_owned()))
+                .collect::<Vec<_>>();
+            assert_eq!(Value::Array(actual), *expected, "{}", path.display());
+        }
         executed += 1;
     }
-    assert_eq!(executed, 16);
+    assert_eq!(executed, 18);
 }

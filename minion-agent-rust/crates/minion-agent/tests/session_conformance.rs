@@ -61,7 +61,9 @@ fn make_message(role: &str, spec: &Map<String, Value>) -> Message {
     let timestamp = spec.get("timestamp").and_then(Value::as_f64).unwrap_or(1.0);
     let blocks = content_values(spec);
     if role != "assistant" && role != "tool_result" {
-        let content = if let Some(text) = spec.get("text").and_then(Value::as_str) {
+        let content = if let Some(text) = spec.get("content").and_then(Value::as_str) {
+            UserContent::Text(text.into())
+        } else if let Some(text) = spec.get("text").and_then(Value::as_str) {
             UserContent::Text(text.into())
         } else {
             UserContent::Blocks(
@@ -264,6 +266,23 @@ fn normalize_optional_fields(mut value: Value, tool_result: bool) -> Value {
     canonical_numbers(value)
 }
 
+fn normalize_user_fields(mut value: Value) -> Value {
+    let object = value.as_object_mut().unwrap();
+    object.remove("role");
+    if let Some(Value::Array(content)) = object.get_mut("content") {
+        for block in content {
+            if block.get("type").and_then(Value::as_str) == Some("text") {
+                block
+                    .as_object_mut()
+                    .unwrap()
+                    .entry("text_signature")
+                    .or_insert(Value::Null);
+            }
+        }
+    }
+    canonical_numbers(value)
+}
+
 fn canonical_numbers(value: Value) -> Value {
     match value {
         Value::Number(number) => number
@@ -284,6 +303,9 @@ fn canonical_numbers(value: Value) -> Value {
 
 #[test]
 fn all_current_layer_session_scenarios_drive_the_real_typed_rust_session() {
+    const DEFERRED_UNTIL_RUST_XFORM_EXISTS: &str =
+        "request-reconstruction-after-target-transform.yaml";
+
     let directory = root().join("conformance/session");
     let mut files = fs::read_dir(directory)
         .unwrap()
@@ -291,10 +313,10 @@ fn all_current_layer_session_scenarios_drive_the_real_typed_rust_session() {
         .filter(|p| p.extension().is_some_and(|e| e == "yaml"))
         .collect::<Vec<_>>();
     files.sort();
-    assert_eq!(files.len(), 19);
+    assert_eq!(files.len(), 20);
     let mut executed = 0;
     for path in files {
-        if path.file_name().unwrap() == "request-reconstruction-after-target-transform.yaml" {
+        if path.file_name().unwrap() == DEFERRED_UNTIL_RUST_XFORM_EXISTS {
             continue;
         }
         let document: Value = serde_yaml::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
@@ -412,6 +434,21 @@ fn all_current_layer_session_scenarios_drive_the_real_typed_rust_session() {
                 .collect::<Vec<_>>();
             assert_eq!(Value::Array(actual), *expected, "{}", path.display());
         }
+        if let Some(expected) = object.get("expect_user_details") {
+            let actual = messages
+                .iter()
+                .filter_map(|message| {
+                    if let Message::User(message) = message {
+                        Some(normalize_user_fields(
+                            serde_json::to_value(message).unwrap(),
+                        ))
+                    } else {
+                        None
+                    }
+                })
+                .collect::<Vec<_>>();
+            assert_eq!(Value::Array(actual), *expected, "{}", path.display());
+        }
         if let Some(expected) = object.get("expect_tool_result_details") {
             let actual = messages
                 .iter()
@@ -457,5 +494,5 @@ fn all_current_layer_session_scenarios_drive_the_real_typed_rust_session() {
         }
         executed += 1;
     }
-    assert_eq!(executed, 18);
+    assert_eq!(executed, 19);
 }

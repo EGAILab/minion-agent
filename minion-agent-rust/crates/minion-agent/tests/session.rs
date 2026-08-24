@@ -6,7 +6,7 @@ use std::{
 use minion_agent::{
     llm::{
         AssistantContentBlock, AssistantMessage, Message, ModelIdentity, StopReason, TextBlock,
-        ToolDefinition, Usage, UserContent, UserMessage,
+        ToolDefinition, Usage, UserContent, UserContentBlock, UserMessage,
     },
     session::{ArtifactStore, EventKind, Session, SessionError},
 };
@@ -68,6 +68,34 @@ fn append_is_gapless_and_message_round_trips_through_the_log() {
     assert_eq!(
         session.derive_messages().unwrap(),
         vec![user("hello"), assistant("world")]
+    );
+}
+
+#[test]
+fn string_and_block_user_content_remain_distinct_through_fork_derivation() {
+    let parent = Session::new("parent", [] as [&str; 0]).unwrap();
+    let string_message = Message::User(UserMessage::new(UserContent::Text("hello".into()), 1.0));
+    let block_message = Message::User(UserMessage::new(
+        UserContent::Blocks(vec![UserContentBlock::Text(TextBlock::new("hello"))]),
+        2.0,
+    ));
+    parent.append_message(string_message.clone()).unwrap();
+    parent.append_message(block_message.clone()).unwrap();
+
+    assert_eq!(
+        parent.derive_messages().unwrap(),
+        vec![string_message.clone(), block_message.clone()]
+    );
+
+    let child = parent.fork("child", None).unwrap();
+    let after_fork = Message::User(UserMessage::new(
+        UserContent::Text("still a string after fork".into()),
+        3.0,
+    ));
+    child.append_message(after_fork.clone()).unwrap();
+    assert_eq!(
+        child.derive_messages().unwrap(),
+        vec![string_message, block_message, after_fork]
     );
 }
 

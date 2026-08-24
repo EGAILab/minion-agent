@@ -10,7 +10,7 @@ from minion_agent.tools.result import text_result
 
 
 def test_a_result_defaults_to_success() -> None:
-    result = text_result("t1", "done")
+    result = text_result("t1", "done", "echo")
 
     assert not result.is_error
     assert not result.terminate
@@ -19,7 +19,7 @@ def test_a_result_defaults_to_success() -> None:
 
 
 def test_a_result_converts_to_the_message_the_model_sees() -> None:
-    message = text_result("t1", "done").to_message()
+    message = text_result("t1", "done", "echo").to_message()
 
     assert message.tool_call_id == "t1"
     assert text_of(message) == "done"
@@ -31,7 +31,7 @@ def test_details_do_not_reach_the_model() -> None:
     model would make every audit annotation part of the transcript -- but the
     message still carries them as structured metadata alongside `content`
     (design spec section 4), distinct from the readable text the model sees."""
-    result = replace(text_result("t1", "done"), details={"audited": True})
+    result = replace(text_result("t1", "done", "echo"), details={"audited": True})
 
     message = result.to_message()
 
@@ -42,18 +42,18 @@ def test_details_do_not_reach_the_model() -> None:
 def test_a_result_with_no_details_carries_none_on_the_message() -> None:
     """The default empty dict maps to the vocabulary's "not present" state,
     not an empty-but-present dict, matching the optional field's meaning."""
-    assert text_result("t1", "done").to_message().details is None
+    assert text_result("t1", "done", "echo").to_message().details is None
 
 
 def test_terminate_does_not_reach_the_model_either() -> None:
     """It is a loop instruction, not something the model said."""
-    message = text_result("t1", "stopping", terminate=True).to_message()
+    message = text_result("t1", "stopping", "echo", terminate=True).to_message()
 
     assert text_of(message) == "stopping"
 
 
 def test_an_error_result_is_still_a_result() -> None:
-    result = text_result("t1", "boom", is_error=True)
+    result = text_result("t1", "boom", "echo", is_error=True)
 
     assert result.is_error
     assert result.to_message().is_error
@@ -64,7 +64,7 @@ def test_results_are_frozen_so_transformation_is_explicit() -> None:
     could change a result another listener already returned. Frozen-ness
     enforces this: replace() constructs a new instance, and direct mutation
     is refused."""
-    original = text_result("t1", "one")
+    original = text_result("t1", "one", "echo")
 
     transformed = replace(original, content=(TextBlock(text="two"),))
 
@@ -77,16 +77,16 @@ def test_results_are_frozen_so_transformation_is_explicit() -> None:
 
 
 def test_added_tool_names_are_carried() -> None:
-    result = replace(text_result("t1", "loaded"), added_tool_names=("deploy",))
+    result = replace(text_result("t1", "loaded", "loader"), added_tool_names=("deploy",))
 
     assert result.added_tool_names == ("deploy",)
 
 
 def test_added_tool_names_reach_the_message() -> None:
-    result = replace(text_result("t1", "loaded"), added_tool_names=("deploy",))
+    result = replace(text_result("t1", "loaded", "loader"), added_tool_names=("deploy",))
 
     assert result.to_message().added_tool_names == ("deploy",)
 
 
 def test_a_result_with_no_added_tool_names_carries_none_on_the_message() -> None:
-    assert text_result("t1", "done").to_message().added_tool_names is None
+    assert text_result("t1", "done", "echo").to_message().added_tool_names is None

@@ -226,10 +226,9 @@ def encode_message(message: Message) -> dict[str, Any]:
                 "content": content,
                 "timestamp": message.timestamp,
                 "tool_call_id": message.tool_call_id,
+                "tool_name": message.tool_name,
                 "is_error": message.is_error,
             }
-            if message.tool_name is not None:
-                encoded["tool_name"] = message.tool_name
             if message.details is not None:
                 encoded["details"] = message.details
             if message.usage is not None:
@@ -275,8 +274,8 @@ def decode_message(raw: dict[str, Any]) -> Message:
             tool_call_id=raw["tool_call_id"],
             content=content,
             timestamp=raw["timestamp"],
+            tool_name=raw["tool_name"],
             is_error=raw["is_error"],
-            tool_name=raw.get("tool_name"),
             details=raw.get("details"),
             usage=_decode_usage(raw_usage) if raw_usage is not None else None,
             added_tool_names=tuple(added_tool_names) if added_tool_names is not None else None,

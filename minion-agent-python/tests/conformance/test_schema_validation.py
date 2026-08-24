@@ -9,6 +9,7 @@ unified schema governs, not the legacy per-family one.
 """
 
 import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -72,3 +73,115 @@ def test_scenario_validates(family: str, scenario: Path) -> None:
     assert not errors, "\n".join(
         f"{'/'.join(str(part) for part in error.path)}: {error.message}" for error in errors
     )
+
+
+def _session_document(append: dict[str, Any]) -> dict[str, Any]:
+    return {"name": "t", "steps": [{"append": append}], "expect_messages": []}
+
+
+@pytest.mark.parametrize(
+    "append",
+    [
+        pytest.param(
+            {"role": "user", "content": [{"type": "thinking", "thinking": "x"}]},
+            id="user+thinking",
+        ),
+        pytest.param(
+            {
+                "role": "user",
+                "content": [{"type": "tool_call", "id": "1", "name": "n", "arguments": {}}],
+            },
+            id="user+tool_call",
+        ),
+        pytest.param(
+            {"role": "assistant", "content": [{"type": "image", "mime_type": "m", "data": "x"}]},
+            id="assistant+image",
+        ),
+        pytest.param(
+            {
+                "role": "tool_result",
+                "tool_name": "t",
+                "content": [{"type": "thinking", "thinking": "x"}],
+            },
+            id="tool_result+thinking",
+        ),
+        pytest.param(
+            {
+                "role": "tool_result",
+                "tool_name": "t",
+                "content": [{"type": "tool_call", "id": "1", "name": "n", "arguments": {}}],
+            },
+            id="tool_result+tool_call",
+        ),
+    ],
+)
+def test_session_role_invalid_content_combinations_are_rejected(append: dict[str, Any]) -> None:
+    """A role cannot carry a content-block variant Pi's frozen per-role union
+    forbids (`packages/ai/src/types.ts`) -- delta finding C."""
+    schema = json.loads(LEGACY_FAMILIES["session"].read_text(encoding="utf-8"))
+    errors = list(Draft202012Validator(schema).iter_errors(_session_document(append)))
+    assert errors, f"expected role/content mismatch to be rejected: {append}"
+
+
+@pytest.mark.parametrize(
+    "append",
+    [
+        pytest.param({"role": "user", "content": [{"type": "text", "text": "x"}]}, id="user+text"),
+        pytest.param(
+            {"role": "user", "content": [{"type": "image", "mime_type": "m", "data": "x"}]},
+            id="user+image",
+        ),
+        pytest.param(
+            {"role": "assistant", "content": [{"type": "thinking", "thinking": "x"}]},
+            id="assistant+thinking",
+        ),
+        pytest.param(
+            {
+                "role": "assistant",
+                "content": [{"type": "tool_call", "id": "1", "name": "n", "arguments": {}}],
+            },
+            id="assistant+tool_call",
+        ),
+        pytest.param(
+            {
+                "role": "tool_result",
+                "tool_name": "t",
+                "content": [{"type": "image", "mime_type": "m", "data": "x"}],
+            },
+            id="tool_result+image",
+        ),
+    ],
+)
+def test_session_role_valid_content_combinations_are_accepted(append: dict[str, Any]) -> None:
+    """The positive counterpart to the rejection test above -- confirms the
+    restriction narrows exactly to Pi's frozen per-role union, not further."""
+    schema = json.loads(LEGACY_FAMILIES["session"].read_text(encoding="utf-8"))
+    errors = list(Draft202012Validator(schema).iter_errors(_session_document(append)))
+    assert not errors, f"expected role/content combination to validate: {append}\n{errors}"
+
+
+@pytest.mark.parametrize(
+    ("name", "expect_valid"),
+    [
+        ("plugin/foo", True),
+        ("plugin/foo-bar", True),
+        ("plugin/foo_bar", True),
+        ("plugin2/foo", True),
+        ("Plugin/foo", False),
+        ("plugin-name/foo", False),
+        ("plugin//foo", False),
+        ("/foo", False),
+        ("plugin/", False),
+    ],
+)
+def test_session_event_name_pattern_matches_the_canonical_rule(
+    name: str, expect_valid: bool
+) -> None:
+    """Pins the exact canonical event-name shape so a future implementation
+    (Rust's validator currently disagrees) can be checked against it, not
+    against prose (delta finding F). `plugin-name/foo` is invalid: the first
+    segment excludes `-`; only later segments allow it."""
+    schema = json.loads(LEGACY_FAMILIES["session"].read_text(encoding="utf-8"))
+    pattern = schema["$defs"]["step"]["properties"]["append"]["properties"]["role"]["pattern"]
+    matched = re.fullmatch(pattern, name) is not None
+    assert matched == expect_valid, f"{name!r}: matched={matched}, expected={expect_valid}"

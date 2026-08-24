@@ -1,0 +1,27 @@
+name: session-owned-event-identity
+description: >
+  Session-owned operation kinds (session/forked, session/reset,
+  session/compaction, request/header) are normative string identities, not
+  implementation-internal spellings compact()/derive() or fork()/derive()
+  could keep consistent with each other while disagreeing with a different
+  implementation (delta finding B). compact()'s own internal write and
+  derive()'s own internal read using the same wrong spelling would silently
+  cancel out and still pass every existing round-trip/derivation scenario --
+  this scenario is the one direct observation of the real committed kind
+  strings themselves, read straight off the log, that closes that gap.
+steps:
+  - fork: { at: 0 }
+  - append: { role: user, text: one }
+  - reset: {}
+  - append: { role: user, text: two }
+  - compact: { summary: s, keep: 0 }
+  - record_header: { components: { system_base: hi }, model: m }
+expect_messages:
+  - { role: user, text: s }
+expect_event_kinds:
+  - session/forked
+  - user/message
+  - session/reset
+  - user/message
+  - session/compaction
+  - request/header

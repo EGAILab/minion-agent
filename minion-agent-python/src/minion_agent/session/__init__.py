@@ -19,7 +19,7 @@ from .events import (
     validate_event_name,
 )
 from .log import NotJsonSafeError, SessionLog
-from .operations import compact, fork, reset
+from .operations import InvalidForkBoundaryError, compact, fork, reset
 from .request_header import (
     assemble_system,
     reconstruct_header,
@@ -35,6 +35,7 @@ __all__ = [
     "EventKind",
     "EventName",
     "InvalidEventNameError",
+    "InvalidForkBoundaryError",
     "MissingArtifactError",
     "NotJsonSafeError",
     "SessionEvent",

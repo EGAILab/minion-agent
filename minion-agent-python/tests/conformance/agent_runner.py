@@ -139,7 +139,7 @@ def _script(document: dict[str, Any]) -> list[ScriptedResponse]:
     ]
 
 
-def _stub(spec: dict[str, Any], registry: ToolRegistry) -> Any:
+def _stub(spec: dict[str, Any], registry: ToolRegistry, name: str) -> Any:
     """Build a tool body from a declarative stub."""
     text = spec.get("result", {}).get("text", "")
     ticks = spec.get("delay_ticks", 0)
@@ -154,11 +154,11 @@ def _stub(spec: dict[str, Any], registry: ToolRegistry) -> Any:
             await asyncio.sleep(0)
         if raises:
             raise RuntimeError(raises)
-        for name in adds:
+        for added_name in adds:
             registry.register(
                 ToolDefinition(
-                    name=name,
-                    description=name,
+                    name=added_name,
+                    description=added_name,
                     parameters=None,
                     execute=lambda inner: "added",
                 )
@@ -166,6 +166,7 @@ def _stub(spec: dict[str, Any], registry: ToolRegistry) -> Any:
         return ToolResult(
             tool_call_id="",
             content=(TextBlock(text=text),),
+            tool_name=name,
             terminate=terminate,
             added_tool_names=adds,
         )
@@ -343,7 +344,7 @@ async def run_agent_scenario(document: dict[str, Any]) -> dict[str, Any]:
                 name=name,
                 description=name,
                 parameters=None,
-                execute=_stub(stub, ctx.tools),
+                execute=_stub(stub, ctx.tools, name),
                 mode=ExecutionMode(stub.get("execution_mode", "parallel")),
             )
         )

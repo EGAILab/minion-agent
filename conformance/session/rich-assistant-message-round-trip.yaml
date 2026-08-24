@@ -9,8 +9,11 @@ description: >
   encode/decode round trip. One assistant/tool_result pair scripts every
   optional field with genuinely non-default values (not just the runner's
   defaults), proving real variability round-trips, not merely presence; a
-  second pair scripts none of them, proving absence/defaults stay exactly
-  that rather than being synthesized.
+  second pair scripts none of the *optional* fields, proving absence/defaults
+  stay exactly that rather than being synthesized. `tool_name` is required on
+  every tool-result, matching Pi's non-optional `ToolResultMessage.toolName`
+  (delta finding A) -- both pairs script it, with a distinct value in each to
+  prove the required field round-trips too, not merely defaults.
 steps:
   - append:
       role: assistant
@@ -48,6 +51,7 @@ steps:
   - append:
       role: tool_result
       text: "second tool result, nothing extra scripted"
+      tool_name: generic_tool
 expect_messages:
   - role: assistant
     text: "calling a tool"
@@ -135,7 +139,7 @@ expect_tool_result_details:
         text_signature: null
     timestamp: 1
     is_error: false
-    tool_name: null
+    tool_name: generic_tool
     details: null
     usage: null
     added_tool_names: null

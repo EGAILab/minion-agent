@@ -104,7 +104,7 @@ async def test_there_is_no_deep_merge() -> None:
     ctx = _ctx()
     definition = _echo(
         execute=lambda args: ToolResult(
-            tool_call_id="t1", content=(), details={"original": 1, "keep": 2}
+            tool_call_id="t1", content=(), tool_name="echo", details={"original": 1, "keep": 2}
         )
     )
 

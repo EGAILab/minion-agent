@@ -11,6 +11,16 @@ from .events import EventKind, SessionEvent
 from .log import SessionLog
 
 
+class InvalidForkBoundaryError(ValueError):
+    """A fork boundary beyond the ancestor's committed tip.
+
+    A boundary that does not exist yet cannot fix what the fork sees: later
+    ancestor writes that happen to land at or before that not-yet-committed
+    seq would leak into the child once appended, breaking "later writes to
+    either side stay private to that side" (delta finding D).
+    """
+
+
 def reset(log: SessionLog) -> SessionEvent:
     """Exclude everything so far from future derivation.
 
@@ -55,9 +65,16 @@ def fork(source: SessionLog, session_id: str, at: int | None = None) -> SessionL
     and create two places for one truth. Derivation walks the ancestry chain.
 
     The boundary is fixed here, so later writes to either side stay private to
-    that side.
+    that side. A boundary beyond the source's current tip is rejected rather
+    than silently accepted: it does not name a committed point yet, so it
+    cannot fix what the child sees (delta finding D).
     """
-    boundary = len(source) if at is None else at
+    tip = len(source)
+    boundary = tip if at is None else at
+    if boundary > tip:
+        raise InvalidForkBoundaryError(
+            f"fork boundary {boundary} is beyond committed tip {tip}"
+        )
     child = SessionLog(
         session_id,
         ancestor=source,

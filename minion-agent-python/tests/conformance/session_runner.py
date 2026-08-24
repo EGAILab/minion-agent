@@ -163,7 +163,10 @@ def _message(role: str, spec: dict[str, Any]) -> Message:
         tool_call_id=spec.get("tool_call_id", "t1"),
         content=content,
         timestamp=timestamp,
-        tool_name=spec.get("tool_name"),
+        # Required by the schema whenever role is tool_result (delta finding
+        # A) -- read directly, not defaulted, matching how other
+        # schema-required fields (e.g. record_header's model) are read here.
+        tool_name=spec["tool_name"],
         details=spec.get("details"),
         usage=_usage(spec["usage"]) if "usage" in spec else None,
         added_tool_names=(
@@ -307,35 +310,45 @@ def run_session_scenario(document: dict[str, Any]) -> dict[str, Any]:
     store = ArtifactStore()
     forks = 0
     last_header: tuple[Any, ArtifactStore] | None = None
+    error: Exception | None = None
 
-    for step in document["steps"]:
-        if "append" in step:
-            spec = step["append"]
-            role = spec["role"]
-            message = _message(role, spec)
-            # A core role encodes through the real vocabulary codec, exactly
-            # as production code does; a plugin-declared kind carries the
-            # same payload shape under its own event name.
-            log.append(_KIND.get(role, role), {"message": encode_message(message)})
-        elif "record_header" in step:
-            spec = step["record_header"]
-            tools = tuple(
-                ToolSchema(name=t["name"], description=t["description"], parameters=t["parameters"])
-                for t in spec.get("tools", ())
-            )
-            event = record_header(log, store, spec["components"], model=spec["model"], tools=tools)
-            last_header = (event, store)
-        elif "fork" in step:
-            forks += 1
-            log = fork(log, f"fork-{forks}", at=step["fork"].get("at"))
-        elif "reset" in step:
-            reset(log)
-        elif "compact" in step:
-            spec = step["compact"]
-            compact(log, summary=spec["summary"], keep=spec.get("keep", 0))
-        # "derive" is a no-op marker: derivation happens once, at the end.
+    try:
+        for step in document["steps"]:
+            if "append" in step:
+                spec = step["append"]
+                role = spec["role"]
+                message = _message(role, spec)
+                # A core role encodes through the real vocabulary codec,
+                # exactly as production code does; a plugin-declared kind
+                # carries the same payload shape under its own event name.
+                log.append(_KIND.get(role, role), {"message": encode_message(message)})
+            elif "record_header" in step:
+                spec = step["record_header"]
+                tools = tuple(
+                    ToolSchema(
+                        name=t["name"], description=t["description"], parameters=t["parameters"]
+                    )
+                    for t in spec.get("tools", ())
+                )
+                event = record_header(
+                    log, store, spec["components"], model=spec["model"], tools=tools
+                )
+                last_header = (event, store)
+            elif "fork" in step:
+                forks += 1
+                # The real Session API decides whether this boundary is
+                # valid; the runner never pre-checks it (delta finding D).
+                log = fork(log, f"fork-{forks}", at=step["fork"].get("at"))
+            elif "reset" in step:
+                reset(log)
+            elif "compact" in step:
+                spec = step["compact"]
+                compact(log, summary=spec["summary"], keep=spec.get("keep", 0))
+            # "derive" is a no-op marker: derivation happens once, at the end.
+    except Exception as exc:  # surfaced to the scenario, not raised further
+        error = exc
 
-    messages = derive_messages(log)
+    messages = () if error is not None else derive_messages(log)
     result: dict[str, Any] = {
         "messages": [{"role": _role_of(m), "text": text_of(m)} for m in messages],
         "assistant_details": [
@@ -345,6 +358,11 @@ def run_session_scenario(document: dict[str, Any]) -> dict[str, Any]:
             _tool_result_detail(m) for m in messages if isinstance(m, ToolResultMessage)
         ],
         "artifact_count": len(store),
+        # The real committed event-kind strings, in log order, read directly
+        # off the Session's own stored events -- never derived by the runner
+        # (delta finding B).
+        "event_kinds": [event.kind for event in log.events],
+        "error": None if error is None else {"type": type(error).__name__, "message": str(error)},
     }
     if last_header is not None:
         event, header_store = last_header

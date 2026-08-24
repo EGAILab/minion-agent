@@ -34,6 +34,7 @@ def _log_turn(*, with_tool: bool = False) -> SessionLog:
                     "content": [{"type": "text", "text": "ok"}],
                     "timestamp": 0,
                     "tool_call_id": "t1",
+                    "tool_name": "echo",
                     "is_error": False,
                 }
             },
@@ -135,13 +136,16 @@ def test_updates_precede_the_message_they_assemble() -> None:
     assert kinds.index(MessageUpdate) < kinds.index(MessageStart)
 
 
-def _tool_result_entry(*, call_id: str, text: str, completion_index: int) -> dict:
+def _tool_result_entry(
+    *, call_id: str, text: str, completion_index: int, tool_name: str = "echo"
+) -> dict:
     return {
         "message": {
             "role": "tool_result",
             "content": [{"type": "text", "text": text}],
             "timestamp": 0,
             "tool_call_id": call_id,
+            "tool_name": tool_name,
             "is_error": False,
         },
         "completion_index": completion_index,
@@ -161,11 +165,11 @@ def test_tool_execution_end_follows_completion_order_not_source_order() -> None:
     log.append(EventKind.TOOL_CALL, {"id": "t2", "name": "quick", "arguments": {}})
     log.append(
         EventKind.TOOL_RESULT,
-        _tool_result_entry(call_id="t1", text="slow", completion_index=1),
+        _tool_result_entry(call_id="t1", text="slow", completion_index=1, tool_name="slow"),
     )
     log.append(
         EventKind.TOOL_RESULT,
-        _tool_result_entry(call_id="t2", text="quick", completion_index=0),
+        _tool_result_entry(call_id="t2", text="quick", completion_index=0, tool_name="quick"),
     )
 
     events = project(log)
@@ -212,6 +216,7 @@ def test_a_missing_completion_index_defaults_rather_than_raising() -> None:
                 "content": [{"type": "text", "text": "ok"}],
                 "timestamp": 0,
                 "tool_call_id": "t1",
+                "tool_name": "echo",
                 "is_error": False,
             }
         },

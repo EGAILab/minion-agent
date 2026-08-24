@@ -165,8 +165,11 @@ class ToolResultMessage:
     tool_call_id: str
     content: tuple[ContentBlock, ...]
     timestamp: int
+    tool_name: str
+    """The tool that produced this result. Required -- Pi's `ToolResultMessage.toolName`
+    is non-optional (`packages/ai/src/types.ts`); the pipeline knows which tool it
+    called even when the tool itself does not (LLM-F0-delta finding A)."""
     is_error: bool = False
-    tool_name: str | None = None
     details: Any | None = None
     usage: Usage | None = None
     """Usage from the tool execution itself. Not part of main LLM context

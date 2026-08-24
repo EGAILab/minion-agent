@@ -78,7 +78,9 @@ async def execute_call(
     definition = registry.resolve(call.name, scope)
     if definition is None:
         return await _finalize(
-            text_result(call.id, f"unknown tool {call.name!r}", is_error=True), ctx, scope
+            text_result(call.id, f"unknown tool {call.name!r}", call.name, is_error=True),
+            ctx,
+            scope,
         )
 
     try:
@@ -87,7 +89,9 @@ async def execute_call(
         # Surfaced to the model, which chose these arguments and is the only
         # party that can choose better ones.
         return await _finalize(
-            text_result(call.id, f"invalid arguments: {error}", is_error=True), ctx, scope
+            text_result(call.id, f"invalid arguments: {error}", call.name, is_error=True),
+            ctx,
+            scope,
         )
 
     decision: PreExecuteDecision = await ctx.events.waterfall(
@@ -100,7 +104,9 @@ async def execute_call(
     )
     if isinstance(decision, Block):
         return await _finalize(
-            text_result(call.id, decision.reason, is_error=True, terminate=decision.terminate),
+            text_result(
+                call.id, decision.reason, call.name, is_error=True, terminate=decision.terminate
+            ),
             ctx,
             scope,
         )
@@ -117,7 +123,9 @@ async def execute_call(
         value = await outcome if inspect.isawaitable(outcome) else outcome
     except Exception as error:  # surfaced to the model, not raised
         return await _finalize(
-            text_result(call.id, f"{type(error).__name__}: {error}", is_error=True), ctx, scope
+            text_result(call.id, f"{type(error).__name__}: {error}", call.name, is_error=True),
+            ctx,
+            scope,
         )
 
     if isinstance(value, ToolResult):
@@ -126,6 +134,7 @@ async def execute_call(
             ToolResult(
                 tool_call_id=call.id,
                 content=value.content,
+                tool_name=call.name,
                 is_error=value.is_error,
                 details=value.details,
                 terminate=value.terminate,
@@ -134,4 +143,4 @@ async def execute_call(
             ctx,
             scope,
         )
-    return await _finalize(text_result(call.id, str(value)), ctx, scope)
+    return await _finalize(text_result(call.id, str(value), call.name), ctx, scope)

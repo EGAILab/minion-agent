@@ -33,7 +33,9 @@ def _tool(name: str, *, terminate: bool) -> ToolDefinition:
         name=name,
         description=name,
         parameters=None,
-        execute=lambda args: ToolResult(tool_call_id="", content=(), terminate=terminate),
+        execute=lambda args: ToolResult(
+            tool_call_id="", content=(), tool_name=name, terminate=terminate
+        ),
     )
 
 

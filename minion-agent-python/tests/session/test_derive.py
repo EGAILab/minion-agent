@@ -83,7 +83,11 @@ def test_assistant_message_round_trips_with_accounting() -> None:
 
 def test_tool_result_message_round_trips() -> None:
     message = ToolResultMessage(
-        tool_call_id="t1", content=(TextBlock(text="ok"),), timestamp=3, is_error=True
+        tool_call_id="t1",
+        content=(TextBlock(text="ok"),),
+        timestamp=3,
+        tool_name="echo",
+        is_error=True,
     )
 
     assert decode_message(encode_message(message)) == message

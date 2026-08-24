@@ -53,7 +53,12 @@ class EventKind(StrEnum):
     # --- log-only: operations that change derivation ---
     SESSION_FORKED = "session/forked"
     SESSION_RESET = "session/reset"
-    COMPACTION = "compaction"
+    COMPACTION = "session/compaction"
+    """Namespaced consistently with `session/forked`/`session/reset`
+    (delta finding B) -- confirmed the canonical spelling: no normative
+    source pinned the un-prefixed `"compaction"` this constant previously
+    held, and `session/*` is the established pattern for Session-owned
+    operation kinds."""
 
 
 CORE_SURFACE_KINDS: frozenset[EventName] = frozenset(

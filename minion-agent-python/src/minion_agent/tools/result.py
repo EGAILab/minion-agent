@@ -27,6 +27,11 @@ class ToolResult:
 
     tool_call_id: str
     content: tuple[ContentBlock, ...]
+    tool_name: str
+    """The tool that produced this result. Required, matching
+    `ToolResultMessage.tool_name` (LLM-F0-delta finding A) -- the pipeline
+    supplies it from the call it dispatched, since "tools identify their own
+    call only by accident; the pipeline knows" (`tools/execute.py`)."""
     is_error: bool = False
     details: dict[str, Any] = field(default_factory=dict)
     terminate: bool = False
@@ -38,15 +43,16 @@ class ToolResult:
         `details`/`added_tool_names` ride alongside `content` as structured
         metadata (design spec section 4) -- distinct from "must never reach
         the model" above, which is about `content`, the readable payload.
-        `tool_name`/`usage` have no source here yet: neither `ToolResult` nor
-        its callers carry a tool name or execution-usage figure through the
-        pipeline (tool execution itself is `TOOL-###` territory, not yet
-        audited) -- left at their vocabulary defaults rather than guessed.
+        `usage` has no source here yet: neither `ToolResult` nor its callers
+        carry an execution-usage figure through the pipeline (tool execution
+        itself is `TOOL-###` territory, not yet audited) -- left at its
+        vocabulary default rather than guessed.
         """
         return ToolResultMessage(
             tool_call_id=self.tool_call_id,
             content=self.content,
             timestamp=0,
+            tool_name=self.tool_name,
             is_error=self.is_error,
             details=self.details or None,
             added_tool_names=self.added_tool_names or None,
@@ -54,12 +60,13 @@ class ToolResult:
 
 
 def text_result(
-    call_id: str, text: str, *, is_error: bool = False, terminate: bool = False
+    call_id: str, text: str, tool_name: str, *, is_error: bool = False, terminate: bool = False
 ) -> ToolResult:
     """A result whose whole content is one block of text."""
     return ToolResult(
         tool_call_id=call_id,
         content=(TextBlock(text=text),),
+        tool_name=tool_name,
         is_error=is_error,
         terminate=terminate,
     )

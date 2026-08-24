@@ -77,6 +77,11 @@
       "minimum": 0,
       "description": "The shared ArtifactStore's final size. Proves content-addressed reuse: a stable component recorded across many steps costs one artifact, not one per step."
     },
+    "expect_event_kinds": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "The real committed event-kind strings, in log order, read directly from the Session's own stored events -- never derived by the runner. Directly observes Session-owned operation-kind identity (session/forked, session/reset, session/compaction, request/header, plus surface kinds), the one thing compact()/derive() using matching wrong spellings internally could not expose by themselves (delta finding B)."
+    },
     "expect_error": {
       "type": "object",
       "required": [
@@ -90,7 +95,8 @@
         "message_contains": {
           "type": "string"
         }
-      }
+      },
+      "description": "The scenario is expected to raise while executing its steps. The runner calls the real Session API and reports the real exception type/message; it never pre-checks conditions itself (delta finding D)."
     },
     "surface_kinds": {
       "type": "array",
@@ -198,6 +204,37 @@
               "then": {
                 "properties": { "usage": false }
               }
+            },
+            {
+              "if": {
+                "required": ["role"],
+                "properties": { "role": { "const": "assistant" } }
+              },
+              "then": {
+                "properties": {
+                  "content": {
+                    "items": { "properties": { "type": { "enum": ["text", "thinking", "tool_call"] } } }
+                  }
+                }
+              },
+              "else": {
+                "properties": {
+                  "content": {
+                    "items": { "properties": { "type": { "enum": ["text", "image"] } } }
+                  }
+                }
+              },
+              "description": "Role-restricted content variants, matching Pi's frozen per-role content union exactly (packages/ai/src/types.ts: UserMessage/ToolResultMessage carry TextContent|ImageContent, AssistantMessage carries TextContent|ThinkingContent|ToolCall) -- delta finding C. A user/tool_result/plugin append cannot carry a thinking or tool_call block; an assistant append cannot carry an image block."
+            },
+            {
+              "if": {
+                "required": ["role"],
+                "properties": { "role": { "const": "tool_result" } }
+              },
+              "then": {
+                "required": ["tool_name"]
+              },
+              "description": "ToolResultMessage.tool_name is required, matching Pi's non-optional toolName (packages/ai/src/types.ts) -- delta finding A."
             }
           ],
           "description": "Role-discriminated: fields outside a role's real message constructor are schema-invalid, not silently ignored (Rust review item 3)."
@@ -396,7 +433,13 @@
       "properties": {
         "content": {
           "type": "array",
-          "items": { "$ref": "#/$defs/contentBlock" }
+          "items": {
+            "allOf": [
+              { "$ref": "#/$defs/contentBlock" },
+              { "properties": { "type": { "enum": ["text", "thinking", "tool_call"] } } }
+            ]
+          },
+          "description": "AssistantMessage carries TextContent|ThinkingContent|ToolCall only (packages/ai/src/types.ts) -- delta finding C."
         },
         "stop_reason": {
           "enum": ["stop", "length", "tool_use", "error", "aborted", "deferred"]
@@ -434,11 +477,17 @@
         "tool_call_id": { "type": "string" },
         "content": {
           "type": "array",
-          "items": { "$ref": "#/$defs/contentBlock" }
+          "items": {
+            "allOf": [
+              { "$ref": "#/$defs/contentBlock" },
+              { "properties": { "type": { "enum": ["text", "image"] } } }
+            ]
+          },
+          "description": "ToolResultMessage carries TextContent|ImageContent only (packages/ai/src/types.ts) -- delta finding C."
         },
         "timestamp": { "type": "number" },
         "is_error": { "type": "boolean" },
-        "tool_name": { "type": ["string", "null"] },
+        "tool_name": { "type": "string" },
         "details": {},
         "usage": {
           "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/usage" }]

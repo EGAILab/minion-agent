@@ -63,7 +63,7 @@ async def test_a_string_return_is_normalized_into_a_result() -> None:
 async def test_a_tool_may_return_a_full_result() -> None:
     definition = _echo(
         execute=lambda args: ToolResult(
-            tool_call_id="t1", content=(), terminate=True, details={"k": 1}
+            tool_call_id="t1", content=(), tool_name="echo", terminate=True, details={"k": 1}
         )
     )
 

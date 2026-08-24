@@ -233,7 +233,7 @@ async def test_an_unknown_tool_does_not_serialize_the_batch() -> None:
 
 async def test_the_fold_needs_every_result_to_terminate() -> None:
     def terminating(args: dict[str, Any]) -> ToolResult:
-        return ToolResult(tool_call_id="", content=(), terminate=True)
+        return ToolResult(tool_call_id="", content=(), tool_name="stop", terminate=True)
 
     outcome = await execute_batch(
         (_call("t1", "stop"), _call("t2", "go")),
@@ -246,7 +246,7 @@ async def test_the_fold_needs_every_result_to_terminate() -> None:
 
 async def test_a_unanimous_batch_terminates() -> None:
     def terminating(args: dict[str, Any]) -> ToolResult:
-        return ToolResult(tool_call_id="", content=(), terminate=True)
+        return ToolResult(tool_call_id="", content=(), tool_name="stop", terminate=True)
 
     outcome = await execute_batch(
         (_call("t1", "stop"), _call("t2", "stop")),

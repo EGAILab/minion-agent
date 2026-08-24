@@ -18,6 +18,16 @@ def test_session_scenario(scenario: Path) -> None:
         pytest.xfail(f"{scenario.stem}: TO_BE_FILLED placeholder, see pi-parity-manifest.yaml")
 
     outcome = run_session_scenario(document)
+
+    expected_error = document.get("expect_error")
+    if expected_error is None:
+        assert outcome["error"] is None, outcome["error"]
+    else:
+        assert outcome["error"] is not None, "expected the scenario to raise"
+        assert outcome["error"]["type"] == expected_error["type"]
+        if "message_contains" in expected_error:
+            assert expected_error["message_contains"] in outcome["error"]["message"]
+
     assert outcome["messages"] == document["expect_messages"]
     if "expect_assistant_details" in document:
         assert outcome["assistant_details"] == document["expect_assistant_details"]
@@ -27,3 +37,5 @@ def test_session_scenario(scenario: Path) -> None:
         assert outcome["reconstructed_header"] == document["expect_reconstructed_header"]
     if "expect_artifact_count" in document:
         assert outcome["artifact_count"] == document["expect_artifact_count"]
+    if "expect_event_kinds" in document:
+        assert outcome["event_kinds"] == document["expect_event_kinds"]

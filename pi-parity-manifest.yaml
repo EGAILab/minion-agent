@@ -64,9 +64,10 @@ rows:
   phase: 2
   pi: packages/ai/src/types.ts::ToolResultMessage
   surface: tool result shape
-  rule: ToolResultMessage content/details/usage/added_tool_names/is_error
+  rule: ToolResultMessage tool_call_id/tool_name/content/details/usage/added_tool_names/is_error; tool_name is required, not optional (delta finding A -- packages/ai/src/types.ts has no `?` on toolName, and spec/llm.md already specified it required before Python's implementation was corrected to match)
   tests:
   - public-llm-vocabulary-schema
+  - rich-assistant-message-round-trip
   python: src/minion_agent/llm/messages.py (rewrite)
   rust: Phase 2 llm messages (new)
   disposition: adopted

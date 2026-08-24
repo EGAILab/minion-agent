@@ -102,7 +102,9 @@ async def test_a_unanimous_batch_of_any_size_terminates(size: int) -> None:
             name="stop",
             description="stop",
             parameters=None,
-            execute=lambda args: ToolResult(tool_call_id="", content=(), terminate=True),
+            execute=lambda args: ToolResult(
+                tool_call_id="", content=(), tool_name="stop", terminate=True
+            ),
         )
     )
 
@@ -127,7 +129,9 @@ async def test_a_mixed_batch_never_terminates(
             name="stop",
             description="stop",
             parameters=None,
-            execute=lambda args: ToolResult(tool_call_id="", content=(), terminate=True),
+            execute=lambda args: ToolResult(
+                tool_call_id="", content=(), tool_name="stop", terminate=True
+            ),
             mode=mode,
         )
     )

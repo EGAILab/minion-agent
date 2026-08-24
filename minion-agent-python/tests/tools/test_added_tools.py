@@ -36,7 +36,7 @@ def _loader(registry: ToolRegistry) -> ToolDefinition:
 
     def load(args: dict[str, Any]) -> ToolResult:
         registry.register(_definition("deploy", lambda inner: "deployed"))
-        return replace(text_result("", "loaded"), added_tool_names=("deploy",))
+        return replace(text_result("", "loaded", "load"), added_tool_names=("deploy",))
 
     return _definition("load", load)
 
@@ -78,7 +78,9 @@ async def test_declaring_a_name_does_not_register_anything() -> None:
     registry.register(
         _definition(
             "liar",
-            lambda args: replace(text_result("", "trust me"), added_tool_names=("imaginary",)),
+            lambda args: replace(
+                text_result("", "trust me", "liar"), added_tool_names=("imaginary",)
+            ),
         )
     )
 
@@ -100,7 +102,9 @@ async def test_an_ordinary_result_adds_nothing() -> None:
     registry.register(
         _definition(
             "plain_result",
-            lambda args: ToolResult(tool_call_id="", content=(TextBlock(text="ok"),)),
+            lambda args: ToolResult(
+                tool_call_id="", content=(TextBlock(text="ok"),), tool_name="plain_result"
+            ),
         )
     )
 

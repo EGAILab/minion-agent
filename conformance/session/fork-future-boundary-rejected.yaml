@@ -1,0 +1,16 @@
+name: fork-future-boundary-rejected
+description: >
+  fork(at=N) references the ancestor at a fixed boundary; the design's own
+  invariant is that later writes to either side stay private to that side.
+  A boundary greater than the ancestor's currently committed tip does not
+  name a committed point yet -- if accepted, a later ancestor append that
+  happens to land at or before that not-yet-existing seq would leak into the
+  child once appended, which is exactly what an empty-parent fork at=1
+  reproduces (delta finding D). The real Session fork API must reject the
+  boundary itself; the runner only observes the real raised error.
+steps:
+  - fork: { at: 1 }
+expect_messages: []
+expect_error:
+  type: InvalidForkBoundaryError
+  message_contains: "beyond committed tip"

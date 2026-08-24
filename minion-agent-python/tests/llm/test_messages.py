@@ -112,16 +112,19 @@ def test_assistant_message_deferred_defaults_and_is_settable() -> None:
 
 
 def test_tool_result_message_links_to_its_call() -> None:
-    message = ToolResultMessage(tool_call_id="t1", content=(TextBlock(text="ok"),), timestamp=2)
+    message = ToolResultMessage(
+        tool_call_id="t1", content=(TextBlock(text="ok"),), timestamp=2, tool_name="echo"
+    )
 
     assert message.tool_call_id == "t1"
     assert not message.is_error
 
 
 def test_tool_result_message_optional_fields_default_and_are_settable() -> None:
-    plain = ToolResultMessage(tool_call_id="t1", content=(), timestamp=2)
-    assert (plain.tool_name, plain.details, plain.usage, plain.added_tool_names) == (
-        None,
+    """`tool_name` is required (delta finding A), not one of the optional
+    fields this test covers -- it is supplied directly, not asserted to default."""
+    plain = ToolResultMessage(tool_call_id="t1", content=(), timestamp=2, tool_name="bash")
+    assert (plain.details, plain.usage, plain.added_tool_names) == (
         None,
         None,
         None,

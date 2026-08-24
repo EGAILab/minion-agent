@@ -337,6 +337,56 @@ fn injected_id_policy_receives_original_assistant_and_rewrites_matching_results(
 }
 
 #[test]
+fn normalizer_returning_empty_string_preserves_real_result_and_synthesizes_orphan() {
+    let source = vec![
+        assistant("p", "a", "m2", vec![tool_call("old-id", "lookup")]),
+        Message::ToolResult(Box::new(ToolResultMessage::new(
+            "old-id",
+            "lookup",
+            vec![ToolResultContentBlock::Text(TextBlock::new("sunny"))],
+            false,
+            2.0,
+        ))),
+    ];
+    let mut policy =
+        |_id: &str, _target: &TransformTarget, _source: &AssistantMessage| String::new();
+
+    let result = transform_messages(&source, &target("p", "a", "m1", false), Some(&mut policy));
+
+    assert_eq!(result.len(), 3);
+    let transformed_assistant = match &result[0] {
+        Message::Assistant(message) => message,
+        _ => panic!("expected transformed assistant"),
+    };
+    let transformed_call = match &transformed_assistant.content[0] {
+        AssistantContentBlock::ToolCall(call) => call,
+        _ => panic!("expected transformed tool call"),
+    };
+    assert_eq!(transformed_call.id, "");
+
+    let real_result = match &result[1] {
+        Message::ToolResult(message) => message,
+        _ => panic!("expected real tool result"),
+    };
+    assert_eq!(real_result.tool_call_id, "old-id");
+    assert!(!real_result.is_error);
+
+    let synthetic = match &result[2] {
+        Message::ToolResult(message) => message,
+        _ => panic!("expected synthetic tool result"),
+    };
+    assert_eq!(synthetic.tool_call_id, "");
+    assert_eq!(synthetic.tool_name, "lookup");
+    assert!(synthetic.is_error);
+    assert_eq!(
+        synthetic.content,
+        vec![ToolResultContentBlock::Text(TextBlock::new(
+            "No result provided"
+        ))]
+    );
+}
+
+#[test]
 fn same_model_never_invokes_the_id_policy() {
     let source = vec![
         assistant("p", "a", "m", vec![tool_call("old", "lookup")]),

@@ -123,7 +123,7 @@ fn all_layer_04_scenarios_drive_the_real_typed_rust_transformer() {
         })
         .collect::<Vec<_>>();
     scenarios.sort_by(|left, right| left.0.cmp(&right.0));
-    assert_eq!(scenarios.len(), 13);
+    assert_eq!(scenarios.len(), 14);
 
     for (path, document) in scenarios {
         let transform = document["transform"].as_object().unwrap();

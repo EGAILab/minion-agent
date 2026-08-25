@@ -1,0 +1,39 @@
+name: tool-registry-scope-disposal-withdraws
+family: agent
+authority: 2026-08-20-minion-agent-design.md
+pi_revision: b7bb00b936dbe21b8e160b3e89efdec361846699
+notes: >
+  Disposing a scope withdraws every tool registered through it (and its descendants), through the
+  real certified Runtime scope-disposal seam -- not a manual per-registration withdrawal loop. An
+  ancestor scope's own registration, and a sibling scope's registration, must survive the disposal
+  of an unrelated descendant.
+tool_registry:
+  plugins:
+    - id: root-plugin
+      tools:
+        - { name: root_tool, description: root, label: Root Tool }
+    - id: child-plugin
+      scope: child
+      scope_parent: root_scope
+      tools:
+        - { name: child_tool, description: child, label: Child Tool }
+    - id: sibling-plugin
+      scope: sibling
+      scope_parent: root_scope
+      tools:
+        - { name: sibling_tool, description: sibling, label: Sibling Tool }
+  steps:
+    - mount: root-plugin
+    - mount: child-plugin
+    - mount: sibling-plugin
+    - dispose_scope: child
+  queries:
+    - id: from_child
+      scope: child
+    - id: from_sibling
+      scope: sibling
+expect:
+  from_child:
+    names: [root_tool]
+  from_sibling:
+    names: [sibling_tool, root_tool]

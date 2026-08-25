@@ -1,0 +1,89 @@
+name: tool-registry-schema-projection
+family: agent
+authority: 2026-08-20-minion-agent-design.md
+pi_revision: b7bb00b936dbe21b8e160b3e89efdec361846699
+notes: >
+  Pins the full model-facing ToolSchema projection end to end: a real JSON Schema parameters
+  object survives unchanged; a parameterless tool still publishes an empty-object schema, not
+  nothing (a model told a tool has no schema has no defined way to call it); constrained_sampling
+  preserves all four pinned-Pi states -- absent (Tool.constrainedSampling? undefined), false,
+  json_schema{strict}, and grammar{variants} (packages/ai/src/types.ts::ConstrainedSamplingConfig,
+  TOOL-F005). Provider-specific enforcement/fallback is Real Providers (assurance Layer 11)
+  territory; this scenario proves only that the metadata survives, never that any provider acts
+  on it.
+tool_registry:
+  plugins:
+    - id: root-plugin
+      tools:
+        - name: with_schema
+          description: has a real parameter schema
+          label: With Schema
+          parameters:
+            type: object
+            properties:
+              value: { type: string }
+            required: [value]
+        - name: no_params
+          description: parameterless
+          label: No Params
+        - name: constrained_absent
+          description: no constrained-sampling preference stated
+          label: Constrained Absent
+        - name: constrained_false
+          description: explicitly disabled
+          label: Constrained False
+          constrained_sampling: false
+        - name: constrained_json_schema
+          description: json_schema variant
+          label: Constrained JSON Schema
+          constrained_sampling: { type: json_schema, strict: require }
+        - name: constrained_grammar
+          description: grammar variant
+          label: Constrained Grammar
+          constrained_sampling:
+            type: grammar
+            variants: { openai_lark: "start: WORD+" }
+  steps:
+    - mount: root-plugin
+  queries:
+    - id: from_root
+expect:
+  from_root:
+    names:
+      - with_schema
+      - no_params
+      - constrained_absent
+      - constrained_false
+      - constrained_json_schema
+      - constrained_grammar
+    schemas:
+      - name: with_schema
+        description: has a real parameter schema
+        parameters:
+          type: object
+          properties:
+            value: { type: string }
+          required: [value]
+        constrained_sampling: null
+      - name: no_params
+        description: parameterless
+        parameters: { type: object, properties: {} }
+        constrained_sampling: null
+      - name: constrained_absent
+        description: no constrained-sampling preference stated
+        parameters: { type: object, properties: {} }
+        constrained_sampling: null
+      - name: constrained_false
+        description: explicitly disabled
+        parameters: { type: object, properties: {} }
+        constrained_sampling: false
+      - name: constrained_json_schema
+        description: json_schema variant
+        parameters: { type: object, properties: {} }
+        constrained_sampling: { type: json_schema, strict: require }
+      - name: constrained_grammar
+        description: grammar variant
+        parameters: { type: object, properties: {} }
+        constrained_sampling:
+          type: grammar
+          variants: { openai_lark: "start: WORD+" }

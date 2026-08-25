@@ -16,14 +16,18 @@ def _definition(**overrides: object) -> ToolDefinition:
         "description": "repeat a value",
         "parameters": EchoParams,
         "execute": lambda args: "ok",
+        "label": "Echo",
     }
     return ToolDefinition(**{**defaults, **overrides})  # type: ignore[arg-type]
 
 
-def test_a_definition_defaults_to_parallel() -> None:
-    """Most tools are safe to overlap; sequential is the claim that needs
-    making, because one such tool serializes an entire batch."""
-    assert _definition().mode is ExecutionMode.PARALLEL
+def test_a_definition_defaults_to_no_per_tool_mode_override() -> None:
+    """`None` -- not a concrete `PARALLEL` -- is the correct default (TOOL-F004): pinned Pi's
+    `AgentTool.executionMode?` is optional, and its absence means "defer to whatever run-level
+    default applies," which is not observably the same as "this tool explicitly wants parallel."
+    Most tools are still safe to overlap in practice; sequential is the claim that carries
+    consequences, because one such tool serializes an entire batch."""
+    assert _definition().mode is None
 
 
 def test_a_definition_may_declare_itself_sequential() -> None:

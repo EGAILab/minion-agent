@@ -23,7 +23,9 @@ def _call(call_id: str, name: str, **arguments: Any) -> ToolCallBlock:
 
 
 def _tool(name: str, execute: Any, mode: ExecutionMode = ExecutionMode.PARALLEL) -> ToolDefinition:
-    return ToolDefinition(name=name, description=name, parameters=None, execute=execute, mode=mode)
+    return ToolDefinition(
+        name=name, description=name, parameters=None, execute=execute, label=name, mode=mode
+    )
 
 
 def _registry(*definitions: ToolDefinition) -> ToolRegistry:

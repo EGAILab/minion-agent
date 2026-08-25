@@ -30,9 +30,11 @@ def _validate(definition: ToolDefinition, arguments: dict[str, Any]) -> dict[str
     """Coerce `arguments` through the tool's parameter model.
 
     Defaults are filled in here rather than inside the tool, so a listener
-    inspecting the arguments sees what the tool will actually receive.
+    inspecting the arguments sees what the tool will actually receive. A raw
+    JSON Schema `dict` parameters value (`TOOL-F010`) has no Python validator
+    to run -- arguments pass through unchanged, same as the no-parameters case.
     """
-    if definition.parameters is None:
+    if definition.parameters is None or isinstance(definition.parameters, dict):
         return dict(arguments)
     return definition.parameters.model_validate(arguments).model_dump()
 

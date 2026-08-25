@@ -485,14 +485,112 @@ rows:
   disposition: adopted
 - id: TOOL-008
   phase: 4
-  pi: packages/ai/src/types.ts::Tool
+  pi: packages/ai/src/types.ts::Tool.constrainedSampling
   surface: constrained sampling metadata
-  rule: json_schema strict prefer/require; grammar variants seam
+  rule: 'absent | false | {type: json_schema, strict: prefer|require} | {type: grammar, variants}
+    -- three first-class states, not two; preserved end to end into the model-facing schema
+    (Layer 05, TOOL-F005). variants is keyed by an open grammar-format string (Pi''s own known
+    values are provider-specific, e.g. "openai_lark"/"openai_regex"), never a closed enum.
+    Provider-specific enforcement/fallback is Real Providers (assurance Layer 11) territory,
+    out of scope here. Previous tests: entry (tool-constrained-sampling-schema) was a dangling
+    reference to a scenario that was never created -- corrected this pass.'
   tests:
-  - tool-constrained-sampling-schema
-  python: src/minion_agent/tools/ (realign)
+  - tool-registry-schema-projection
+  - test_json_schema_constrained_sampling_round_trips
+  - test_grammar_constrained_sampling_round_trips
+  - test_false_constrained_sampling_is_preserved_exactly
+  - test_absent_constrained_sampling_serializes_as_null
+  python: src/minion_agent/llm/tools.py::ConstrainedSampling/ToolSchema, src/minion_agent/tools/definition.py::ToolDefinition.constrained_sampling
   rust: Phase 4 tools
   disposition: adopted
+- id: TOOL-009
+  phase: 4
+  pi: packages/agent/src/types.ts::AgentTool
+  surface: tool definition fields (label, prepareArguments, execute shape, executionMode)
+  rule: 'AgentTool extends Tool with: label (string, REQUIRED -- no `?`, TOOL-F001); prepareArguments?
+    ((args) -> Static<TParameters>), field/signature only, invocation is Layer 06 (TOOL-F002);
+    execute: (toolCallId, params, signal?, onUpdate?) -> Promise<AgentToolResult>, the target
+    capability shape -- today''s Python dispatch realizes only a (params)/(params, on_update)
+    subset, no tool_call_id or cancellation signal parameter, closing that gap is Layer 06/Layer 09
+    (cancellation) territory (TOOL-F003); executionMode? (ToolExecutionMode), absent means "no
+    per-tool preference," defers to the run-level default rather than defaulting to a concrete
+    value (TOOL-F004).'
+  tests:
+  - tests/typing/valid_tool_construction.py (permanent static-type evidence, mypy-checked only,
+    matching LLM-F012's own established pattern)
+  - test_a_definition_defaults_to_no_per_tool_mode_override
+  - test_a_definition_may_declare_itself_sequential
+  python: src/minion_agent/tools/definition.py::ToolDefinition
+  rust: Phase 4 tools
+  disposition: adopted
+- id: TOOL-010
+  phase: 4
+  pi: 'N/A -- Minion registry architecture (Pi''s own AgentState.tools is a plain mutable
+    AgentTool[] property; no registry, scoping, or shadowing concept exists in Pi at all)'
+  surface: ctx.tools registry authority and scoped visibility
+  rule: 'ctx.tools is the sole authoritative registry of executable tools and their model-facing
+    schemas; ctx.system_prompt describes tools textually but never owns/registers a schema.
+    Registration is a reversible effect (design spec section 3); visibility follows the certified
+    Runtime scope rules unmodified: nearest scope first, then ancestors outward, untagged (global)
+    last -- this order is normative and observable (TOOL-F008), not incidental.'
+  tests:
+  - tool-registry-scope-visibility
+  python: src/minion_agent/tools/registry.py::ToolRegistry, register_tool
+  rust: Phase 4 tools
+  disposition: intentional divergence
+- id: TOOL-011
+  phase: 4
+  pi: 'N/A -- Minion registry architecture, see TOOL-010'
+  surface: same-name shadowing and withdrawal fallback
+  rule: a nearer visible same-name registration shadows a farther one (distinct from Runtime
+    service registration, which prohibits duplicates with no fallback stack); withdrawing the
+    nearer registration restores the farther visible one -- the name is never left absent while
+    any visible registration for it exists.
+  tests:
+  - tool-registry-nearer-shadows-farther
+  - tool-registry-withdrawal-restores-farther
+  python: src/minion_agent/tools/registry.py::ToolRegistry.visible_from
+  rust: Phase 4 tools
+  disposition: intentional divergence
+- id: TOOL-012
+  phase: 4
+  pi: 'N/A -- Minion registry architecture, see TOOL-010'
+  surface: same-scope duplicate-name registration
+  rule: 'previously underspecified (TOOL-F009, CONTRACT_ASSURANCE_DEFECT): within one scope, the
+    earliest-registered entry for a name wins; a later same-scope, same-name registration is
+    composed but never observably visible unless the earlier one is withdrawn.'
+  tests:
+  - tool-registry-same-scope-duplicate-name
+  python: src/minion_agent/runtime/scoped_registry.py::ScopedRegistry (insertion order), src/minion_agent/tools/registry.py::ToolRegistry.visible_from (first-match composition)
+  rust: Phase 4 tools
+  disposition: intentional divergence
+- id: TOOL-013
+  phase: 4
+  pi: 'N/A -- Minion registry architecture, see TOOL-010'
+  surface: resolve() unknown-name semantics
+  rule: an unknown name has no definition -- absent (None), not an error. What a caller does with
+    that absence (e.g. a model-facing error result) is Layer 06, not certified here.
+  tests:
+  - tool-registry-resolve-unknown-is-absent
+  python: src/minion_agent/tools/registry.py::ToolRegistry.resolve
+  rust: Phase 4 tools
+  disposition: intentional divergence
+- id: TOOL-014
+  phase: 4
+  pi: 'N/A -- Minion registry architecture, see TOOL-010'
+  surface: registration lifecycle (effect-owned, plugin/scope disposal withdraws)
+  rule: 'registration is a reversible effect; unloading the owning plugin (fiber disposal) or
+    disposing the scope registration went through withdraws the tool. The withdrawal handle
+    register_tool() returns is async (ctx.effect()''s own handle, matching Fiber.effect/
+    _scoped_effect''s identical Callable[[], Awaitable[None]] shape) -- calling it synchronously
+    silently fails to withdraw (TOOL-F006, found via real integration evidence, corrected this
+    pass: register_tool()''s own type signature previously said the looser Callable[[], Any]).'
+  tests:
+  - tool-registry-plugin-disposal-withdraws
+  - tool-registry-scope-disposal-withdraws
+  python: src/minion_agent/tools/registry.py::register_tool
+  rust: Phase 4 tools
+  disposition: intentional divergence
 - id: PROV-001
   phase: 5
   pi: packages/ai/src/api/openai-responses-shared.ts::convertResponsesMessages

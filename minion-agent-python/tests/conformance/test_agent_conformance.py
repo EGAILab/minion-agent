@@ -4,7 +4,10 @@ Excludes XFORM (transform_messages()) scenarios in the same directory: those scr
 block instead of `provider_script`/`steps` and are executed by test_transform_conformance.py
 against the real transform_messages() seam directly, not through a full agent-loop turn -- see
 agent-transform-scenario.schema.json's own docstring for why a pure transformer scenario does not
-force a full run.
+force a full run. Also excludes Layer-05 tool-registry scenarios (top-level `tool_registry` key,
+tool-registry-scenario.schema.json): those exercise the real ToolRegistry/Context/scope seam
+directly, not a full agent-loop turn either, and are executed by
+test_tool_registry_conformance.py.
 """
 
 from pathlib import Path
@@ -21,7 +24,9 @@ AGENT_DIR = Path(__file__).resolve().parents[3] / "conformance" / "agent"
 
 def _is_full_loop_scenario(path: Path) -> bool:
     document = yaml.safe_load(path.read_text(encoding="utf-8"))
-    return not (isinstance(document, dict) and "transform" in document)
+    return not (
+        isinstance(document, dict) and ("transform" in document or "tool_registry" in document)
+    )
 
 
 SCENARIOS = sorted(p for p in AGENT_DIR.glob("*.yaml") if _is_full_loop_scenario(p))

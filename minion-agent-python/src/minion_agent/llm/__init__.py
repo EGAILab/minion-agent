@@ -42,7 +42,12 @@ from .stream import (
     ToolCallStart,
     collect,
 )
-from .tools import ToolSchema
+from .tools import (
+    ConstrainedSampling,
+    GrammarConstrainedSampling,
+    JsonSchemaConstrainedSampling,
+    ToolSchema,
+)
 
 __all__ = [
     "Adapter",
@@ -51,11 +56,14 @@ __all__ = [
     "AssistantMessage",
     "AssistantMessageDiagnostic",
     "AssistantStream",
+    "ConstrainedSampling",
     "ContentBlock",
     "Cost",
     "DeferredHandle",
     "DiagnosticError",
+    "GrammarConstrainedSampling",
     "ImageBlock",
+    "JsonSchemaConstrainedSampling",
     "LlmError",
     "LlmService",
     "Message",

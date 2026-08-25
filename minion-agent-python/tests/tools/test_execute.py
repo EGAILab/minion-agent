@@ -41,6 +41,7 @@ def _echo(**overrides: Any) -> ToolDefinition:
         "description": "repeat",
         "parameters": EchoParams,
         "execute": lambda args: str(args["value"]),
+        "label": "Echo",
     }
     return ToolDefinition(**{**defaults, **overrides})
 

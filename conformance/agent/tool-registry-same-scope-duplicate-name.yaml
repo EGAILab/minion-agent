@@ -1,0 +1,31 @@
+name: tool-registry-same-scope-duplicate-name
+family: agent
+authority: 2026-08-20-minion-agent-design.md
+pi_revision: b7bb00b936dbe21b8e160b3e89efdec361846699
+notes: >
+  Distinct from cross-scope shadowing (tool-registry-nearer-shadows-farther.yaml): two
+  registrations with the same name at the SAME scope. This was underspecified before this pass
+  (TOOL-F009, CONTRACT_ASSURANCE_DEFECT) -- the frozen master states nearer-shadows-farther across
+  scopes but says nothing about a same-scope collision. Pinned rule, matching the real
+  ScopedRegistry's own insertion-order/first-match behavior: the earliest-registered entry for a
+  name wins within one scope; a later same-scope, same-name registration is composed but never
+  observably visible unless the earlier one is withdrawn.
+tool_registry:
+  plugins:
+    - id: first-plugin
+      tools:
+        - { name: read, description: first, label: Read (first) }
+    - id: second-plugin
+      tools:
+        - { name: read, description: second, label: Read (second) }
+  steps:
+    - mount: first-plugin
+    - mount: second-plugin
+  queries:
+    - id: from_root
+      resolve: [read]
+expect:
+  from_root:
+    names: [read]
+    resolve:
+      read: { found: true, label: Read (first) }

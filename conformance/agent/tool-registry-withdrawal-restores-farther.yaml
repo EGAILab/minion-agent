@@ -1,0 +1,31 @@
+name: tool-registry-withdrawal-restores-farther
+family: agent
+authority: 2026-08-20-minion-agent-design.md
+pi_revision: b7bb00b936dbe21b8e160b3e89efdec361846699
+notes: >
+  The counterpart to tool-registry-nearer-shadows-farther.yaml: withdrawing the nearer same-name
+  registration must restore the farther visible one, not leave the name absent. This is a fallback
+  through the composition rule (a keyed registry "shadows by taking the first match", per
+  ScopedRegistry's own docstring), not deletion of the name from the effective registry.
+tool_registry:
+  plugins:
+    - id: root-plugin
+      tools:
+        - { name: read, description: root read, label: Read (root) }
+    - id: child-plugin
+      scope: child
+      tools:
+        - { name: read, description: child read, label: Read (child) }
+  steps:
+    - mount: root-plugin
+    - mount: child-plugin
+    - withdraw: child-plugin
+  queries:
+    - id: from_child
+      scope: child
+      resolve: [read]
+expect:
+  from_child:
+    names: [read]
+    resolve:
+      read: { found: true, label: Read (root) }

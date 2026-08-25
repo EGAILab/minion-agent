@@ -22,7 +22,9 @@ def _register(
     ran. Production registration goes through `register_tool`, which makes it
     a reversible effect."""
     loop.tools.register(
-        ToolDefinition(name=name, description=name, parameters=None, execute=fn, mode=mode)
+        ToolDefinition(
+            name=name, description=name, parameters=None, execute=fn, label=name, mode=mode
+        )
     )
 
 

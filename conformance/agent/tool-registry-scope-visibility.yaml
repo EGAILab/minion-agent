@@ -1,0 +1,57 @@
+name: tool-registry-scope-visibility
+family: agent
+authority: 2026-08-20-minion-agent-design.md
+pi_revision: b7bb00b936dbe21b8e160b3e89efdec361846699
+notes: >
+  Minion's ctx.tools registry is intentional architecture, not Pi-derived (Pi's AgentTool[]
+  carries no scoping at all -- packages/agent/src/types.ts::AgentState.tools is a plain mutable
+  array). This scenario pins the certified Runtime scope rules (section 3) as applied to tools:
+  an untagged registration is visible from every scope; a parent-scope tool is visible in the
+  parent and its descendants; a child-scope tool is not visible to its ancestor; sibling scopes
+  do not see each other's registrations. Visibility eligibility is decided entirely by the real
+  ScopedRegistry the certified Runtime already provides -- this scenario proves integration, not
+  a parallel visibility algorithm. Order is normative, not incidental: nearest-scope-first, then
+  ancestors outward, untagged (global) entries last -- pinned directly from the real
+  ScopedRegistry.visible_from() order (TOOL-F008), not sorted alphabetically or by registration
+  time across scopes.
+tool_registry:
+  plugins:
+    - id: untagged-plugin
+      tools:
+        - { name: global_tool, description: visible everywhere, label: Global Tool }
+    - id: parent-plugin
+      scope: parent
+      tools:
+        - { name: parent_tool, description: parent-scoped, label: Parent Tool }
+    - id: child-plugin
+      scope: child
+      scope_parent: parent
+      tools:
+        - { name: child_tool, description: child-scoped, label: Child Tool }
+    - id: sibling-plugin
+      scope: sibling
+      scope_parent: parent
+      tools:
+        - { name: sibling_tool, description: sibling-scoped, label: Sibling Tool }
+  steps:
+    - mount: untagged-plugin
+    - mount: parent-plugin
+    - mount: child-plugin
+    - mount: sibling-plugin
+  queries:
+    - id: from_root
+    - id: from_parent
+      scope: parent
+    - id: from_child
+      scope: child
+    - id: from_sibling
+      scope: sibling
+expect:
+  from_root:
+    names: [global_tool]
+  from_parent:
+    names: [parent_tool, global_tool]
+  from_child:
+    names: [child_tool, parent_tool, global_tool]
+  from_sibling:
+    names: [sibling_tool, parent_tool, global_tool]

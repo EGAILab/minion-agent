@@ -1,14 +1,17 @@
 """Every conformance scenario validates against its shape's JSON Schema.
 
-Three scenario shapes currently coexist during the Pi-fidelity realignment (see
+Four scenario shapes currently coexist during the Pi-fidelity realignment (see
 `minion-agent-docs/process/implementation-conformance-workflow.md` section 8.1): the legacy
 per-family shape (`provider_script`/`steps`/`expect_*`, one schema file per family), the unified
-shape (`family`/`status`/`authority`/`pi_revision`/`given`/`when`/`expect`, one shared schema), and
-the transform (XFORM) shape (`transform`/`expect`, `agent-transform-scenario.schema.json`) -- a
-second schema for `conformance/agent/`'s own directory, not a fourth canonical family, since XFORM
-scenarios exercise `transform_messages()` directly rather than a full agent-loop turn. A scenario's
-own top-level `transform` key routes to the transform schema; `family` routes to the unified schema;
-otherwise the legacy per-family schema governs.
+shape (`family`/`status`/`authority`/`pi_revision`/`given`/`when`/`expect`, one shared schema), the
+transform (XFORM) shape (`transform`/`expect`, `agent-transform-scenario.schema.json`), and the
+tool-registry (Layer 05) shape (`tool_registry`/`expect`, `tool-registry-scenario.schema.json`) --
+the second and third are both extra schemas for `conformance/agent/`'s own directory, not additional
+canonical families, since XFORM/tool-registry scenarios exercise a pure library seam
+(`transform_messages()`, the real `ToolRegistry`/`Context`/scope seam) rather than a full
+agent-loop turn. A scenario's own top-level `tool_registry` key routes to the tool-registry schema;
+`transform` routes to the transform schema; `family` routes to the unified schema; otherwise the
+legacy per-family schema governs.
 """
 
 import json
@@ -29,6 +32,7 @@ LEGACY_FAMILIES = {
 }
 UNIFIED_SCHEMA = CONFORMANCE / "schema" / "scenario.schema.json"
 TRANSFORM_SCHEMA = CONFORMANCE / "schema" / "agent-transform-scenario.schema.json"
+TOOL_REGISTRY_SCHEMA = CONFORMANCE / "schema" / "tool-registry-scenario.schema.json"
 
 # Families whose scenarios arrive in a later plan. Their schema must still exist
 # and must still be a valid JSON Schema. Empty now that every family is
@@ -41,8 +45,10 @@ def _scenarios(family: str) -> list[Path]:
 
 
 def _schema_path_for(document: dict[str, Any], family: str) -> Path:
-    """The unified shape's own `family` key and the transform shape's own `transform` key are the
-    discriminators (see module docstring)."""
+    """The unified shape's own `family` key, the transform shape's own `transform` key, and the
+    tool-registry shape's own `tool_registry` key are the discriminators (see module docstring)."""
+    if "tool_registry" in document:
+        return TOOL_REGISTRY_SCHEMA
     if "transform" in document:
         return TRANSFORM_SCHEMA
     if "family" in document:
@@ -59,7 +65,7 @@ def test_family_has_scenarios(family: str) -> None:
 
 @pytest.mark.parametrize(
     "schema_path",
-    [*LEGACY_FAMILIES.values(), UNIFIED_SCHEMA, TRANSFORM_SCHEMA],
+    [*LEGACY_FAMILIES.values(), UNIFIED_SCHEMA, TRANSFORM_SCHEMA, TOOL_REGISTRY_SCHEMA],
     ids=lambda p: p.stem,
 )
 def test_family_schema_is_wellformed(schema_path: Path) -> None:

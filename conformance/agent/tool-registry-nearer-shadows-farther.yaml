@@ -1,0 +1,31 @@
+name: tool-registry-nearer-shadows-farther
+family: agent
+authority: 2026-08-20-minion-agent-design.md
+pi_revision: b7bb00b936dbe21b8e160b3e89efdec361846699
+notes: >
+  Frozen master section 7: tools are keyed by name, and a nearer visible same-name registration
+  shadows a farther one -- an explicitly different rule from Runtime *service* registration, which
+  prohibits duplicate providers with no fallback stack. This is Minion architecture (Pi's own
+  AgentTool[] has no scoping or shadowing concept at all), not Pi-derived. Withdrawing the nearer
+  registration must restore the farther one, not leave the name absent -- fallback, not deletion.
+tool_registry:
+  plugins:
+    - id: root-plugin
+      tools:
+        - { name: read, description: root read, label: Read (root) }
+    - id: child-plugin
+      scope: child
+      tools:
+        - { name: read, description: child read, label: Read (child) }
+  steps:
+    - mount: root-plugin
+    - mount: child-plugin
+  queries:
+    - id: from_child
+      scope: child
+      resolve: [read]
+expect:
+  from_child:
+    names: [read]
+    resolve:
+      read: { found: true, label: Read (child) }

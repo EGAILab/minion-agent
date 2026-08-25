@@ -1,0 +1,25 @@
+name: tool-registry-resolve-unknown-is-absent
+family: agent
+authority: 2026-08-20-minion-agent-design.md
+pi_revision: b7bb00b936dbe21b8e160b3e89efdec361846699
+notes: >
+  resolve(name, scope) is pinned independently from Layer-06's handling of an unknown tool call
+  (TOOL-###): here, an unknown name simply has no definition -- absent, not an error. What an
+  executor does with that absence (a model-facing error ToolResult) is Layer-06 territory, not
+  certified here.
+tool_registry:
+  plugins:
+    - id: root-plugin
+      tools:
+        - { name: read, description: read, label: Read }
+  steps:
+    - mount: root-plugin
+  queries:
+    - id: from_root
+      resolve: [read, write]
+expect:
+  from_root:
+    names: [read]
+    resolve:
+      read: { found: true, label: Read }
+      write: { found: false }

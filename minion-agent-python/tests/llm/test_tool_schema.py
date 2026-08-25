@@ -1,6 +1,12 @@
 """Tool schemas are model-facing vocabulary, not a tools-package detail."""
 
-from minion_agent.llm import ModelId, Request, ToolSchema
+from minion_agent.llm import (
+    GrammarConstrainedSampling,
+    JsonSchemaConstrainedSampling,
+    ModelId,
+    Request,
+    ToolSchema,
+)
 
 
 def _schema(name: str = "echo") -> ToolSchema:
@@ -49,3 +55,41 @@ def test_the_canonical_form_is_json_safe() -> None:
     import json
 
     assert json.dumps(_schema().as_json())
+
+
+# --- constrained sampling (TOOL-F005): absent | false | json_schema | grammar ---------------
+
+
+def test_absent_constrained_sampling_serializes_as_null() -> None:
+    assert _schema().as_json()["constrained_sampling"] is None
+
+
+def test_false_constrained_sampling_is_preserved_exactly() -> None:
+    schema = ToolSchema(name="a", description="d", parameters={}, constrained_sampling=False)
+
+    assert schema.as_json()["constrained_sampling"] is False
+
+
+def test_json_schema_constrained_sampling_round_trips() -> None:
+    schema = ToolSchema(
+        name="a",
+        description="d",
+        parameters={},
+        constrained_sampling=JsonSchemaConstrainedSampling(strict="require"),
+    )
+
+    assert schema.as_json()["constrained_sampling"] == {"type": "json_schema", "strict": "require"}
+
+
+def test_grammar_constrained_sampling_round_trips() -> None:
+    schema = ToolSchema(
+        name="a",
+        description="d",
+        parameters={},
+        constrained_sampling=GrammarConstrainedSampling(variants={"openai_lark": "grammar text"}),
+    )
+
+    assert schema.as_json()["constrained_sampling"] == {
+        "type": "grammar",
+        "variants": {"openai_lark": "grammar text"},
+    }

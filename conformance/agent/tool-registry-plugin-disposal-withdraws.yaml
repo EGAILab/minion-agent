@@ -1,0 +1,30 @@
+name: tool-registry-plugin-disposal-withdraws
+family: agent
+authority: 2026-08-20-minion-agent-design.md
+pi_revision: b7bb00b936dbe21b8e160b3e89efdec361846699
+notes: >
+  "Registration is an effect, so unloading a plugin withdraws its tools" (design spec section 7),
+  proven through a real fiber unmount -- not a manual withdrawal-handle call standing in for it.
+  An untagged (fiber-owned, no scope declared) registration is torn down when its owning plugin
+  actually unmounts, and a sibling plugin's own registration is unaffected.
+tool_registry:
+  plugins:
+    - id: ephemeral-plugin
+      tools:
+        - { name: temp, description: temporary, label: Temp }
+    - id: permanent-plugin
+      tools:
+        - { name: keep, description: permanent, label: Keep }
+  steps:
+    - mount: ephemeral-plugin
+    - mount: permanent-plugin
+    - unmount: ephemeral-plugin
+  queries:
+    - id: from_root
+      resolve: [temp, keep]
+expect:
+  from_root:
+    names: [keep]
+    resolve:
+      temp: { found: false }
+      keep: { found: true, label: Keep }

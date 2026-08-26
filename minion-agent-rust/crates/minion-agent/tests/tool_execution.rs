@@ -737,6 +737,179 @@ fn parallel_completion_events_and_final_messages_have_distinct_deterministic_ord
 }
 
 #[test]
+fn parallel_preflight_settles_in_source_order_before_any_prepared_execute() {
+    run(async {
+        let runtime = Runtime::new();
+        let trace = Arc::new(parking_lot::Mutex::new(Vec::new()));
+        let plugin = PluginSpec::<Value>::new("preflight-trace", vec![], || json!({}), {
+            let trace = Arc::clone(&trace);
+            move |context, _config| {
+                let trace = Arc::clone(&trace);
+                async move {
+                    let bus = context
+                        .events()
+                        .map_err(|error| PluginInitError::new(error.to_string()))?;
+                    let starts = tool_execution_start_spec();
+                    let ends = tool_execution_end_spec();
+                    bus.declare(&starts)
+                        .map_err(|error| PluginInitError::new(error.to_string()))?;
+                    bus.declare(&ends)
+                        .map_err(|error| PluginInitError::new(error.to_string()))?;
+                    let effects = context.effect_store();
+                    bus.on_emit(&starts, &effects, context.scope(), {
+                        let trace = Arc::clone(&trace);
+                        move |event| trace.lock().push(format!("start:{}", event.tool_call_id))
+                    })
+                    .map_err(|error| PluginInitError::new(error.to_string()))?;
+                    bus.on_emit(&ends, &effects, context.scope(), {
+                        let trace = Arc::clone(&trace);
+                        move |event: &ToolExecutionEnd| {
+                            trace.lock().push(format!("end:{}", event.tool_call_id));
+                        }
+                    })
+                    .map_err(|error| PluginInitError::new(error.to_string()))?;
+                    register_before_tool_call_hook(&context, move |current| {
+                        let trace = Arc::clone(&trace);
+                        async move {
+                            trace
+                                .lock()
+                                .push(format!("before:{}", current.tool_call_id));
+                            if current.tool_call_id == "b" {
+                                Ok(BeforeToolCallAction::Block("blocked".into()))
+                            } else {
+                                Ok(BeforeToolCallAction::Proceed(None))
+                            }
+                        }
+                    })
+                    .map_err(|error| PluginInitError::new(error.to_string()))?;
+                    Ok(())
+                }
+            }
+        })
+        .erase();
+        runtime.mount(&plugin, json!({})).unwrap();
+        runtime.reconcile().await.unwrap();
+
+        for name in ["a", "b"] {
+            let trace = Arc::clone(&trace);
+            runtime
+                .tools()
+                .register_for_scope(
+                    None,
+                    ToolDefinition::new(
+                        name,
+                        name,
+                        serde_json::from_value(json!({})).unwrap(),
+                        name,
+                        move |request| {
+                            let trace = Arc::clone(&trace);
+                            Box::pin(async move {
+                                trace
+                                    .lock()
+                                    .push(format!("execute:{}", request.tool_call_id));
+                                Ok(result("done"))
+                            })
+                        },
+                    ),
+                )
+                .unwrap();
+        }
+
+        let batch = execute_tool_calls(
+            &runtime.context(),
+            &[call("a", "a", json!({})), call("b", "b", json!({}))],
+            ToolExecutionOptions::new(StopReason::ToolUse, 0.0),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(batch.messages.len(), 2);
+        assert_eq!(
+            trace.lock().as_slice(),
+            [
+                "start:a",
+                "before:a",
+                "start:b",
+                "before:b",
+                "end:b",
+                "execute:a",
+                "end:a",
+            ]
+        );
+    });
+}
+
+#[test]
+fn parallel_batch_preflights_every_valid_call_before_either_execute_begins() {
+    run(async {
+        let runtime = Runtime::new();
+        let trace = Arc::new(parking_lot::Mutex::new(Vec::new()));
+        let plugin = PluginSpec::<Value>::new("valid-preflight-trace", vec![], || json!({}), {
+            let trace = Arc::clone(&trace);
+            move |context, _config| {
+                let trace = Arc::clone(&trace);
+                async move {
+                    register_before_tool_call_hook(&context, move |current| {
+                        let trace = Arc::clone(&trace);
+                        async move {
+                            trace
+                                .lock()
+                                .push(format!("before:{}", current.tool_call_id));
+                            Ok(BeforeToolCallAction::Proceed(None))
+                        }
+                    })
+                    .map_err(|error| PluginInitError::new(error.to_string()))?;
+                    Ok(())
+                }
+            }
+        })
+        .erase();
+        runtime.mount(&plugin, json!({})).unwrap();
+        runtime.reconcile().await.unwrap();
+        for name in ["a", "b"] {
+            let trace = Arc::clone(&trace);
+            runtime
+                .tools()
+                .register_for_scope(
+                    None,
+                    ToolDefinition::new(
+                        name,
+                        name,
+                        serde_json::from_value(json!({})).unwrap(),
+                        name,
+                        move |request| {
+                            let trace = Arc::clone(&trace);
+                            Box::pin(async move {
+                                trace
+                                    .lock()
+                                    .push(format!("execute:{}", request.tool_call_id));
+                                Ok(result("done"))
+                            })
+                        },
+                    ),
+                )
+                .unwrap();
+        }
+
+        execute_tool_calls(
+            &runtime.context(),
+            &[call("a", "a", json!({})), call("b", "b", json!({}))],
+            ToolExecutionOptions::new(StopReason::ToolUse, 0.0),
+        )
+        .await
+        .unwrap();
+
+        let trace = trace.lock();
+        let before_b = trace.iter().position(|entry| entry == "before:b").unwrap();
+        let first_execute = trace
+            .iter()
+            .position(|entry| entry.starts_with("execute:"))
+            .unwrap();
+        assert!(before_b < first_execute, "trace was {trace:?}");
+    });
+}
+
+#[test]
 fn length_stop_emits_results_without_resolving_or_invoking_tools() {
     run(async {
         let runtime = Runtime::new();

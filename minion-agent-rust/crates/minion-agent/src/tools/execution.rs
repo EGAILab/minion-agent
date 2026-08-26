@@ -191,6 +191,18 @@ pub struct AfterToolCallOverride {
     terminate: Option<Option<bool>>,
 }
 
+struct PreparedToolCall {
+    index: usize,
+    call: ToolCall,
+    tool: Arc<ToolDefinition>,
+    arguments: Value,
+}
+
+enum PreflightOutcome {
+    Immediate((usize, ToolResultMessage, bool)),
+    Prepared(PreparedToolCall),
+}
+
 impl AfterToolCallOverride {
     pub fn with_content(mut self, content: Vec<ToolResultContentBlock>) -> Self {
         self.content = Some(content);
@@ -306,21 +318,10 @@ pub async fn execute_tool_calls(
     events.declare(&before_spec)?;
     events.declare(&after_spec)?;
     let scope = context.scope().cloned();
-    for call in calls {
-        events.emit(
-            &start_spec,
-            &ToolExecutionStart {
-                tool_call_id: call.id.clone(),
-                tool_name: call.name.clone(),
-                arguments: arguments_value(&call.arguments),
-            },
-            scope.as_ref(),
-        )?;
-    }
-
     if options.stop_reason == StopReason::Length {
         let mut messages = Vec::with_capacity(calls.len());
         for call in calls {
+            emit_start(&events, &start_spec, call, scope.as_ref())?;
             let message = format!(
                 "Tool call \"{}\" was not executed: the response hit the output token limit, so its arguments may be truncated. Re-issue the tool call with complete arguments.",
                 call.name
@@ -354,36 +355,68 @@ pub async fn execute_tool_calls(
             .any(|tool| tool.execution_mode() == Some(ExecutionMode::Sequential));
     let mut indexed = Vec::with_capacity(calls.len());
     if sequential {
-        for (index, (call, tool)) in calls.iter().cloned().zip(resolved).enumerate() {
-            indexed.push(
-                execute_one(
-                    index,
-                    call,
-                    tool,
-                    events.clone(),
-                    scope.clone(),
-                    after_spec.clone(),
-                    before_spec.clone(),
-                    update_spec.clone(),
-                    end_spec.clone(),
-                    options.signal.clone(),
-                    options.timestamp,
-                )
-                .await?,
-            );
+        for (index, call) in calls.iter().cloned().enumerate() {
+            emit_start(&events, &start_spec, &call, scope.as_ref())?;
+            let tool = registry.resolve(&call.name, scope.as_ref());
+            match preflight_one(
+                index,
+                call,
+                tool,
+                events.clone(),
+                scope.clone(),
+                before_spec.clone(),
+                end_spec.clone(),
+                options.timestamp,
+            )
+            .await?
+            {
+                PreflightOutcome::Immediate(outcome) => indexed.push(outcome),
+                PreflightOutcome::Prepared(prepared) => {
+                    indexed.push(
+                        execute_and_finalize_prepared(
+                            prepared,
+                            events.clone(),
+                            scope.clone(),
+                            after_spec.clone(),
+                            update_spec.clone(),
+                            end_spec.clone(),
+                            options.signal.clone(),
+                            options.timestamp,
+                        )
+                        .await?,
+                    );
+                }
+            }
         }
     } else {
+        let mut prepared = Vec::new();
+        for (index, call) in calls.iter().cloned().enumerate() {
+            emit_start(&events, &start_spec, &call, scope.as_ref())?;
+            let tool = registry.resolve(&call.name, scope.as_ref());
+            match preflight_one(
+                index,
+                call,
+                tool,
+                events.clone(),
+                scope.clone(),
+                before_spec.clone(),
+                end_spec.clone(),
+                options.timestamp,
+            )
+            .await?
+            {
+                PreflightOutcome::Immediate(outcome) => indexed.push(outcome),
+                PreflightOutcome::Prepared(call) => prepared.push(call),
+            }
+        }
         let mut running = FuturesUnordered::new();
-        for (index, (call, tool)) in calls.iter().cloned().zip(resolved).enumerate() {
+        for prepared in prepared {
             running.push(
-                execute_one(
-                    index,
-                    call,
-                    tool,
+                execute_and_finalize_prepared(
+                    prepared,
                     events.clone(),
                     scope.clone(),
                     after_spec.clone(),
-                    before_spec.clone(),
                     update_spec.clone(),
                     end_spec.clone(),
                     options.signal.clone(),
@@ -406,22 +439,19 @@ pub async fn execute_tool_calls(
 }
 
 #[allow(clippy::too_many_arguments)]
-async fn execute_one(
+async fn preflight_one(
     index: usize,
     call: ToolCall,
     tool: Option<Arc<ToolDefinition>>,
     events: EventBus,
     scope: Option<ScopeHandle>,
-    after_spec: EventSpec<AfterToolCallResult, AfterToolCallResult>,
     before_spec: EventSpec<BeforeToolCallContext, BeforeHookOutcome>,
-    update_spec: EventSpec<ToolExecutionUpdate, ()>,
     end_spec: EventSpec<ToolExecutionEnd, ()>,
-    signal: Option<Arc<dyn ToolExecutionSignal>>,
     timestamp: f64,
-) -> Result<(usize, ToolResultMessage, bool), ToolExecutionError> {
-    let executed = match tool {
+) -> Result<PreflightOutcome, ToolExecutionError> {
+    let tool = match tool {
         None => {
-            return finish_immediate(
+            return Ok(PreflightOutcome::Immediate(finish_immediate(
                 index,
                 call.clone(),
                 &format!("Tool {} not found", call.name),
@@ -429,109 +459,135 @@ async fn execute_one(
                 scope,
                 end_spec,
                 timestamp,
-            );
+            )?));
         }
-        Some(tool) => {
-            let mut params = arguments_value(&call.arguments);
-            if let Some(prepare) = tool.prepare_arguments() {
-                match prepare(params) {
-                    Ok(prepared) => params = prepared,
-                    Err(error) => {
-                        let message = error.message().to_owned();
-                        return finish_immediate(
-                            index, call, &message, events, scope, end_spec, timestamp,
-                        );
-                    }
-                }
+        Some(tool) => tool,
+    };
+    let mut params = arguments_value(&call.arguments);
+    if let Some(prepare) = tool.prepare_arguments() {
+        match prepare(params) {
+            Ok(prepared) => params = prepared,
+            Err(error) => {
+                let message = error.message().to_owned();
+                return Ok(PreflightOutcome::Immediate(finish_immediate(
+                    index, call, &message, events, scope, end_spec, timestamp,
+                )?));
             }
-            let schema = Value::from(tool.schema().parameters);
-            let validator = match jsonschema::validator_for(&schema) {
-                Ok(validator) => validator,
-                Err(error) => {
-                    return finish_immediate(
-                        index,
-                        call.clone(),
-                        &format!(
-                            "invalid arguments for tool \"{}\": invalid schema: {error}",
-                            call.name
-                        ),
-                        events,
-                        scope,
-                        end_spec,
-                        timestamp,
+        }
+    }
+    let schema = Value::from(tool.schema().parameters);
+    let validator = match jsonschema::validator_for(&schema) {
+        Ok(validator) => validator,
+        Err(error) => {
+            return Ok(PreflightOutcome::Immediate(finish_immediate(
+                index,
+                call.clone(),
+                &format!(
+                    "invalid arguments for tool \"{}\": invalid schema: {error}",
+                    call.name
+                ),
+                events,
+                scope,
+                end_spec,
+                timestamp,
+            )?));
+        }
+    };
+    if let Err(error) = validator.validate(&params) {
+        return Ok(PreflightOutcome::Immediate(finish_immediate(
+            index,
+            call.clone(),
+            &format!("invalid arguments for tool \"{}\": {error}", call.name),
+            events,
+            scope,
+            end_spec,
+            timestamp,
+        )?));
+    }
+    let before = BeforeToolCallContext {
+        tool_call_id: call.id.clone(),
+        tool_name: call.name.clone(),
+        arguments: params,
+    };
+    let before = match events
+        .waterfall(&before_spec, before, scope.as_ref())
+        .await?
+    {
+        BeforeHookOutcome::Proceed(current) => current,
+        BeforeHookOutcome::Blocked(message) | BeforeHookOutcome::Failed(message) => {
+            return Ok(PreflightOutcome::Immediate(finish_immediate(
+                index, call, &message, events, scope, end_spec, timestamp,
+            )?));
+        }
+    };
+    Ok(PreflightOutcome::Prepared(PreparedToolCall {
+        index,
+        call,
+        tool,
+        arguments: before.arguments,
+    }))
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn execute_and_finalize_prepared(
+    prepared: PreparedToolCall,
+    events: EventBus,
+    scope: Option<ScopeHandle>,
+    after_spec: EventSpec<AfterToolCallResult, AfterToolCallResult>,
+    update_spec: EventSpec<ToolExecutionUpdate, ()>,
+    end_spec: EventSpec<ToolExecutionEnd, ()>,
+    signal: Option<Arc<dyn ToolExecutionSignal>>,
+    timestamp: f64,
+) -> Result<(usize, ToolResultMessage, bool), ToolExecutionError> {
+    let PreparedToolCall {
+        index,
+        call,
+        tool,
+        arguments,
+    } = prepared;
+    let executed = {
+        let accepting_updates = Arc::new(AtomicBool::new(true));
+        let update_callback = {
+            let accepting_updates = Arc::clone(&accepting_updates);
+            let events = events.clone();
+            let update_spec = update_spec.clone();
+            let scope = scope.clone();
+            let tool_call_id = call.id.clone();
+            let tool_name = call.name.clone();
+            Arc::new(move |update: AgentToolResult| {
+                if accepting_updates.load(Ordering::Acquire) {
+                    let _ = events.emit(
+                        &update_spec,
+                        &ToolExecutionUpdate {
+                            tool_call_id: tool_call_id.clone(),
+                            tool_name: tool_name.clone(),
+                            update,
+                        },
+                        scope.as_ref(),
                     );
                 }
-            };
-            if let Err(error) = validator.validate(&params) {
-                return finish_immediate(
-                    index,
-                    call.clone(),
-                    &format!("invalid arguments for tool \"{}\": {error}", call.name),
-                    events,
-                    scope,
-                    end_spec,
-                    timestamp,
-                );
-            }
-            let before = BeforeToolCallContext {
+            })
+        };
+        let request = ToolExecutionRequest {
+            tool_call_id: call.id.clone(),
+            params: arguments,
+            signal,
+            on_update: Some(update_callback),
+        };
+        let outcome = (tool.execute())(request).await;
+        accepting_updates.store(false, Ordering::Release);
+        match outcome {
+            Ok(result) => AfterToolCallResult {
                 tool_call_id: call.id.clone(),
                 tool_name: call.name.clone(),
-                arguments: params,
-            };
-            let before = match events
-                .waterfall(&before_spec, before, scope.as_ref())
-                .await?
-            {
-                BeforeHookOutcome::Proceed(current) => current,
-                BeforeHookOutcome::Blocked(message) | BeforeHookOutcome::Failed(message) => {
-                    return finish_immediate(
-                        index, call, &message, events, scope, end_spec, timestamp,
-                    );
-                }
-            };
-            let accepting_updates = Arc::new(AtomicBool::new(true));
-            let update_callback = {
-                let accepting_updates = Arc::clone(&accepting_updates);
-                let events = events.clone();
-                let update_spec = update_spec.clone();
-                let scope = scope.clone();
-                let tool_call_id = call.id.clone();
-                let tool_name = call.name.clone();
-                Arc::new(move |update: AgentToolResult| {
-                    if accepting_updates.load(Ordering::Acquire) {
-                        let _ = events.emit(
-                            &update_spec,
-                            &ToolExecutionUpdate {
-                                tool_call_id: tool_call_id.clone(),
-                                tool_name: tool_name.clone(),
-                                update,
-                            },
-                            scope.as_ref(),
-                        );
-                    }
-                })
-            };
-            let request = ToolExecutionRequest {
-                tool_call_id: call.id.clone(),
-                params: before.arguments,
-                signal,
-                on_update: Some(update_callback),
-            };
-            let outcome = (tool.execute())(request).await;
-            accepting_updates.store(false, Ordering::Release);
-            match outcome {
-                Ok(result) => AfterToolCallResult {
-                    tool_call_id: call.id.clone(),
-                    tool_name: call.name.clone(),
-                    content: result.content,
-                    details: (result.details != Value::Null).then_some(result.details),
-                    usage: result.usage,
-                    added_tool_names: result.added_tool_names,
-                    is_error: false,
-                    terminate: result.terminate,
-                },
-                Err(error) => immediate_error(&call, error.message()),
-            }
+                content: result.content,
+                details: (result.details != Value::Null).then_some(result.details),
+                usage: result.usage,
+                added_tool_names: result.added_tool_names,
+                is_error: false,
+                terminate: result.terminate,
+            },
+            Err(error) => immediate_error(&call, error.message()),
         }
     };
     let protected = executed.clone();
@@ -557,6 +613,23 @@ async fn execute_one(
     )?;
     let terminate = finalized.terminate.unwrap_or(false);
     Ok((index, finalized.into_message(timestamp), terminate))
+}
+
+fn emit_start(
+    events: &EventBus,
+    start_spec: &EventSpec<ToolExecutionStart, ()>,
+    call: &ToolCall,
+    scope: Option<&ScopeHandle>,
+) -> Result<(), EventError> {
+    events.emit(
+        start_spec,
+        &ToolExecutionStart {
+            tool_call_id: call.id.clone(),
+            tool_name: call.name.clone(),
+            arguments: arguments_value(&call.arguments),
+        },
+        scope,
+    )
 }
 
 fn finish_immediate(

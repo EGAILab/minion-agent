@@ -431,15 +431,8 @@
         "terminate": { "type": "boolean", "default": false },
         "adds_tools": { "type": "array", "items": { "type": "string" } },
         "parameters": {
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "requires": {
-              "type": "array",
-              "items": { "type": "string" },
-              "description": "Field names for a real, dynamically-built pydantic model (each a required string) -- exercises genuine schema-validation failure (TOOL-017). Omitted: the tool gets Layer 05's normal empty-object schema, which performs no Python validation at all."
-            }
-          }
+          "$comment": "The actual Layer-05 shared ToolDefinition.parameters representation -- a plain, object-valued JSON Schema mapping -- passed straight through to the production validator, never a Python-specific shorthand (L06-R001). Omitted defaults to the explicit empty-object schema.",
+          "type": "object"
         },
         "prepare_arguments": {
           "type": "object",

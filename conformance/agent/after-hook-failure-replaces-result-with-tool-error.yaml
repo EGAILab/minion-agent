@@ -22,5 +22,5 @@ steps:
 expect_messages:
   - { role: user, text: go }
   - { role: assistant, text: "" }
-  - { role: tool_result, text: "RuntimeError: annotation service unavailable" }
+  - { role: tool_result, text: "annotation service unavailable" }
   - { role: assistant, text: done }

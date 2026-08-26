@@ -13,10 +13,7 @@ them answers a request dependent on registration order.
 from __future__ import annotations
 
 import asyncio
-from dataclasses import replace
 from typing import Any
-
-from pydantic import create_model
 
 from minion_agent.agent.envelope import ClaimPolicy
 from minion_agent.agent.identity import AgentDefinition
@@ -44,9 +41,10 @@ from minion_agent.llm.plugin import llm_plugin
 from minion_agent.runtime import Context
 from minion_agent.session import EventKind, derive_messages
 from minion_agent.session.service import session_plugin
-from minion_agent.tools.decisions import Block, Proceed
+from minion_agent.tools.decisions import AfterToolCallOverride, Block, Proceed
 from minion_agent.tools.definition import ExecutionMode, ToolDefinition
 from minion_agent.tools.events import TOOLS_POST_EXECUTE, TOOLS_PRE_EXECUTE, TOOLS_UPDATE
+from minion_agent.tools.execute import register_after_tool_call_hook
 from minion_agent.tools.plugin import tools_plugin
 from minion_agent.tools.registry import ToolRegistry
 from minion_agent.tools.result import ToolResult
@@ -141,20 +139,16 @@ def _script(document: dict[str, Any]) -> list[ScriptedResponse]:
     ]
 
 
-def _parameters(spec: dict[str, Any] | None) -> Any:
-    """A real, validated parameter schema when a scenario needs one.
-
-    `requires: [names...]` builds a pydantic model with each name as a required string field --
-    enough to exercise a genuine `ValidationError` (`schema-validation-failure-becomes-tool-error`)
-    without inventing a JSON-Schema-to-pydantic translator. Layer 05's own raw-dict `parameters`
-    representation performs no Python validation at all (`L05-R005`/`TOOL-F010`), so a scenario
-    that means to exercise real validation failure must ask for this instead.
-    """
-    required = None if spec is None else spec.get("requires")
-    if not required:
+def _parameters(spec: dict[str, Any] | None) -> dict[str, Any]:
+    """The tool's parameter schema: the actual Layer-05 shared `ToolDefinition.parameters`
+    representation -- a plain, object-valued JSON Schema mapping -- passed straight through, not
+    a Python-specific shorthand (`L06-R001`; an earlier revision built a Pydantic model from a
+    `requires: [...]` shorthand instead, exercising a Python-only validation path rather than the
+    approved cross-language schema boundary). Omitted defaults to the explicit empty-object
+    schema, matching Layer 05's own no-arguments convention."""
+    if spec is None:
         return {"type": "object", "properties": {}}
-    fields = {field_name: (str, ...) for field_name in required}
-    return create_model(f"Params_{'_'.join(required)}", **fields)  # type: ignore[call-overload]
+    return spec
 
 
 def _prepare_arguments(spec: dict[str, Any] | None) -> Any:
@@ -364,17 +358,18 @@ def _listener(spec: dict[str, Any]) -> Any:
         return pre
 
     if event == TOOLS_POST_EXECUTE:
-
-        async def post(result: ToolResult, next_: Any) -> Any:
+        # A hook of this shape must be registered via register_after_tool_call_hook, not
+        # ctx.events.on directly: it returns an AfterToolCallOverride (or None), never the whole
+        # ToolResult, which is what makes replacing execution identity/added_tool_names
+        # structurally impossible through the sanctioned API (L06-R003/L06-R006).
+        def post(result: ToolResult) -> AfterToolCallOverride | None:
             if action == "annotate_result":
                 label = spec.get("label", "seen")
-                marked = replace(
-                    result,
-                    content=(TextBlock(text=f"{text_of(result.to_message())}-{label}"),),
+                return AfterToolCallOverride(
+                    content=(TextBlock(text=f"{text_of(result.to_message())}-{label}"),)
                 )
-                return await next_(marked)
             if action == "abstain":
-                return await next_()
+                return None
             if action == "raise":
                 raise RuntimeError(spec.get("message", "after-hook failed"))
             raise ValueError(f"unhandled listener action {action!r} for event {event!r}")
@@ -410,7 +405,10 @@ async def run_agent_scenario(document: dict[str, Any]) -> dict[str, Any]:
         )
 
     for spec in document.get("listeners", []):
-        ctx.events.on(spec["event"], _listener(spec))
+        if spec["event"] == TOOLS_POST_EXECUTE:
+            register_after_tool_call_hook(ctx, _listener(spec))
+        else:
+            ctx.events.on(spec["event"], _listener(spec))
 
     seen_updates: list[tuple[str, str]] = []
     ctx.events.on(TOOLS_UPDATE, lambda call_id, partial: seen_updates.append((call_id, partial)))

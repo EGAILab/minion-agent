@@ -3,6 +3,11 @@ description: >
   Arguments that do not satisfy the tool's parameter schema fail before `execute` ever runs
   (Layer 06, TOOL-017) -- an immediate (pre-execute) failure, same taxonomy as a `prepare_arguments`
   or before-hook failure. The model chose these arguments, so it is the one told what was wrong.
+  Pinned Pi's `validateToolArguments` validates every `Tool.parameters: TSchema`, with no
+  exemption for a raw-object-schema representation (`L06-R001`) -- this scenario therefore uses a
+  plain, object-valued JSON Schema mapping (the actual Layer-05 shared `ToolDefinition.parameters`
+  representation), not a Python-specific shorthand, so it exercises the real, shared validation
+  boundary rather than a Pydantic-only convenience.
 provider_script:
   - content: [{ type: tool_call, id: t1, name: strict, arguments: {} }]
     stop_reason: tool_use
@@ -11,7 +16,11 @@ provider_script:
 tools:
   strict:
     result: { text: should never run }
-    parameters: { requires: [name] }
+    parameters:
+      type: object
+      properties:
+        name: { type: string }
+      required: [name]
 steps:
   - followup: go
   - await_idle: true

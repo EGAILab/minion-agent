@@ -448,15 +448,25 @@ rows:
   rule: 'prepareArguments and schema validation failures -> error tool result, execute skipped
     entirely. This is an "immediate" outcome (TOOL-017): the after-hook (tools/post-execute)
     never runs for it, distinguishing it from an execute() failure (TOOL-004), which does reach
-    the after-hook. A raw JSON-Schema dict parameters value performs no Python validation at all
-    (disclosed Python-only limitation, L05-R005/TOOL-F010) -- only a pydantic-model-backed tool
-    can fail this way in Python today.'
+    the after-hook. Validation applies to BOTH parameter representations with no exemption
+    (L06-R001, corrected this pass -- an earlier revision let a raw JSON-Schema dict skip
+    validation entirely, a genuine PI_PARITY_DEFECT, since pinned Pi''s validateToolArguments
+    validates every Tool.parameters: TSchema with no such exemption): a pydantic-model-backed
+    tool validates via pydantic; a raw, object-valued JSON-Schema dict validates via the
+    `jsonschema` library against the exact Layer-05-approved schema. Neither path reproduces
+    pinned Pi''s TypeBox-specific coercion algorithm byte-for-byte -- a disclosed, intentional
+    divergence, not a validation exemption. Failure text is the validator''s own clean message,
+    never a Python exception class name (L06-R002).'
   tests:
   - prepare-arguments-failure-becomes-tool-error
   - schema-validation-failure-becomes-tool-error
   - test_a_prepare_arguments_failure_produces_an_error_result
   - test_invalid_arguments_produce_an_error_result_the_model_can_act_on
-  python: src/minion_agent/tools/execute.py::_prepare, _validate, execute_call
+  - test_a_raw_object_schema_accepts_valid_arguments
+  - test_a_raw_object_schema_rejects_invalid_arguments
+  - test_prepare_arguments_repairs_raw_schema_arguments_before_validation
+  - test_prepare_arguments_can_invalidate_previously_valid_raw_schema_arguments
+  python: src/minion_agent/tools/execute.py::_prepare, _validate, ArgumentValidationError, execute_call
   rust: Phase 4 tools
   disposition: adopted
 - id: TOOL-004
@@ -469,7 +479,12 @@ rows:
     outcome (TOOL-017), execute skipped, after-hook never runs. A beforeToolCall block
     (Minion: tools/pre-execute Block) is likewise immediate. execute() itself throwing/rejecting
     is a DIFFERENT outcome class: it reached execute(), so it still flows through the after-hook
-    exactly like success would (TOOL-005).'
+    exactly like success would (TOOL-005). Failure text in every case is the raised error''s own
+    message, never a Python exception class name prefixed onto it (L06-R002, corrected this pass
+    -- an earlier revision emitted e.g. "RuntimeError: boom" instead of pinned Pi''s own
+    error.message-only convention, "boom"). This holds identically whether zero, one, or several
+    before-hook listeners are registered (L06-R006): a raised exception unwinds the whole
+    waterfall regardless of listener count.'
   tests:
   - before-hook-failure-becomes-tool-error
   - execute-failure-becomes-tool-error
@@ -487,17 +502,29 @@ rows:
   surface: after hook success-path merge and failure conversion
   rule: 'the after-hook may replace content/details/usage/terminate/is_error field-by-field --
     omitted fields keep their prior value, no deep merge (removing a key requires supplying the
-    whole replacement). added_tool_names is NOT one of the overridable fields; the after-hook
-    cannot add, remove, or replace it. If the after-hook itself throws, the ENTIRE prior result
-    -- success or failure, with whatever usage/details/terminate it carried -- is discarded and
-    replaced with a plain error result. This is a replacement, not a merge.'
+    whole replacement). tool_call_id, tool_name, and added_tool_names are NOT overridable fields
+    at all; a hook cannot add, remove, or replace them. This is enforced structurally, not merely
+    documented (L06-R003, corrected this pass -- an earlier revision let a listener return/
+    replace the entire ToolResult through the raw tools/post-execute waterfall, which could
+    observably rewrite these fields, a genuine CONTRACT_ASSURANCE_DEFECT): the only sanctioned
+    registration path, register_after_tool_call_hook, accepts a hook returning an
+    AfterToolCallOverride (exactly Pi''s five AfterToolCallResult fields) or None, a type with
+    structurally no slot for identity/added_tool_names. If the after-hook itself throws, the
+    ENTIRE prior result -- success or failure, with whatever usage/details/terminate it carried
+    -- is discarded and replaced with a plain error result (message per L06-R002, no class-name
+    prefix). This is a replacement, not a merge. With N listeners (L06-R006, an intentional
+    Minion architectural extension pinned Pi does not itself define): each sees the result
+    exactly as merged by every earlier listener; a mid-chain exception stops later listeners and
+    replaces the accumulated result the same way a single listener''s exception would.'
   tests:
   - after-hook-failure-replaces-result-with-tool-error
   - test_omitted_fields_are_unchanged
   - test_there_is_no_deep_merge
-  - test_a_listener_may_own_the_result_outright
+  - test_a_hook_cannot_override_execution_identity_or_added_tool_names
+  - test_a_hook_that_returns_none_leaves_the_result_unchanged
+  - test_a_raising_after_hook_replaces_the_entire_prior_result
   - test_registration_order_equals_application_order
-  python: src/minion_agent/tools/execute.py::_finalize, execute_call
+  python: src/minion_agent/tools/execute.py::_finalize, _merge_override, register_after_tool_call_hook, AfterToolCallOverride
   rust: Phase 4 tools
   disposition: adopted
 - id: TOOL-006
@@ -620,8 +647,14 @@ rows:
     discipline, matching XFORM). execute(tool_call_id, arguments) receives the pipeline''s own
     real call id as its first argument (closing part of the TOOL-F003 gap Layer 05 disclosed),
     plus an update callback appended when the tool declares a third parameter. signal
-    (cancellation) remains unrealized: no AbortSignal-equivalent type exists anywhere in this
-    codebase yet, in either language -- assurance Layer 09''s obligation, not Layer 06''s.'
+    (cancellation) remains behaviorally unrealized in Layer 06 -- Python has no
+    AbortSignal-equivalent abstraction yet, but certified Rust Layer 05 already reserves one
+    structurally (ToolExecutionSignal, ToolExecutionRequest.signal in
+    minion-agent-rust/crates/minion-agent/src/tools/definition.rs) without exercising
+    cancellation behavior (L06-R005, corrected this pass -- an earlier revision incorrectly
+    claimed no equivalent type exists in either language). The defer is behavioral, not
+    architectural: assurance Layer 09 owns cancellation propagation and can add it without
+    changing this row''s non-cancelled rule or requiring Rust to discard its existing seam.'
   tests:
   - test_prepare_arguments_runs_before_validation
   - test_prepare_arguments_does_not_mutate_the_original_call

@@ -1,13 +1,20 @@
-"""tools/post-execute transforms results, in registration order."""
+"""tools/post-execute transforms results, in registration order.
 
-from dataclasses import replace
+`register_after_tool_call_hook` is the only sanctioned registration path (`L06-R003`/`L06-R006`):
+a hook receives the current, already-merged `ToolResult` and may return an `AfterToolCallOverride`
+(or `None`) -- never the whole result. This is what makes replacing `tool_call_id`/`tool_name`/
+`added_tool_names` structurally impossible through the public API, unlike an earlier, uncertified
+revision that let a listener return/replace the entire `ToolResult` directly.
+"""
+
 from typing import Any
 from unittest.mock import patch
 
 from minion_agent.llm import TextBlock, text_of
 from minion_agent.runtime import Context, EventBus
+from minion_agent.tools.decisions import AfterToolCallOverride
 from minion_agent.tools.events import TOOLS_POST_EXECUTE, declare_tools_events
-from minion_agent.tools.execute import execute_call
+from minion_agent.tools.execute import execute_call, register_after_tool_call_hook
 from minion_agent.tools.result import ToolResult
 
 from .test_execute import _call, _echo, _registry
@@ -40,35 +47,51 @@ async def test_no_listener_returns_the_result_unchanged() -> None:
     assert TOOLS_POST_EXECUTE in dispatched
 
 
-async def test_a_lone_listener_transformation_survives() -> None:
-    """The case a fixed terminal loses. One listener transforms and delegates;
-    nothing follows it, so the terminal is what returns the transformed value."""
+async def test_a_lone_hook_transformation_survives() -> None:
+    """The case a fixed terminal loses. One hook overrides and the next-listener merge applies
+    it, so the terminal is what returns the transformed value."""
     ctx = _ctx()
 
-    async def audit(result: ToolResult, next_: Any) -> Any:
-        return await next_(replace(result, details={**result.details, "audited": True}))
+    def audit(result: ToolResult) -> AfterToolCallOverride:
+        return AfterToolCallOverride(details={**result.details, "audited": True})
 
-    ctx.events.on(TOOLS_POST_EXECUTE, audit)
+    register_after_tool_call_hook(ctx, audit)
 
     outcome = await execute_call(_call(value="x"), registry=_registry(_echo()), ctx=ctx)
 
     assert outcome.details == {"audited": True}
 
 
+async def test_a_hook_that_returns_none_leaves_the_result_unchanged() -> None:
+    """An after-hook that abstains (returns `None`, matching pinned Pi's own hook being
+    optional/absent) makes no change at all -- distinct from returning an override with every
+    field left at its `None` default, though both are observably identical."""
+    ctx = _ctx()
+
+    def abstain(result: ToolResult) -> None:
+        return None
+
+    register_after_tool_call_hook(ctx, abstain)
+
+    outcome = await execute_call(_call(value="unchanged"), registry=_registry(_echo()), ctx=ctx)
+
+    assert text_of(outcome.to_message()) == "unchanged"
+    assert outcome.details == {}
+
+
 async def test_registration_order_equals_application_order() -> None:
     ctx = _ctx()
 
     def tag(label: str) -> Any:
-        async def listener(result: ToolResult, next_: Any) -> Any:
-            marked = replace(
-                result, content=(TextBlock(text=f"{text_of(result.to_message())}-{label}"),)
+        def hook(result: ToolResult) -> AfterToolCallOverride:
+            return AfterToolCallOverride(
+                content=(TextBlock(text=f"{text_of(result.to_message())}-{label}"),)
             )
-            return await next_(marked)
 
-        return listener
+        return hook
 
-    ctx.events.on(TOOLS_POST_EXECUTE, tag("first"))
-    ctx.events.on(TOOLS_POST_EXECUTE, tag("second"))
+    register_after_tool_call_hook(ctx, tag("first"))
+    register_after_tool_call_hook(ctx, tag("second"))
 
     outcome = await execute_call(_call(value="base"), registry=_registry(_echo()), ctx=ctx)
 
@@ -86,10 +109,10 @@ async def test_omitted_fields_are_unchanged() -> None:
     """
     ctx = _ctx()
 
-    async def only_details(result: ToolResult, next_: Any) -> Any:
-        return await next_(replace(result, details={"seen": True}))
+    def only_details(result: ToolResult) -> AfterToolCallOverride:
+        return AfterToolCallOverride(details={"seen": True})
 
-    ctx.events.on(TOOLS_POST_EXECUTE, only_details)
+    register_after_tool_call_hook(ctx, only_details)
 
     outcome = await execute_call(_call(value="kept"), registry=_registry(_echo()), ctx=ctx)
 
@@ -99,7 +122,7 @@ async def test_omitted_fields_are_unchanged() -> None:
 
 
 async def test_there_is_no_deep_merge() -> None:
-    """A listener that supplies `details` replaces it wholesale. Deep merging
+    """A hook that supplies `details` replaces it wholesale. Deep merging
     would make it impossible to remove a key, and pi does not do it."""
     ctx = _ctx()
     definition = _echo(
@@ -108,28 +131,46 @@ async def test_there_is_no_deep_merge() -> None:
         )
     )
 
-    async def overwrite(result: ToolResult, next_: Any) -> Any:
-        return await next_(replace(result, details={"replacement": 3}))
+    def overwrite(result: ToolResult) -> AfterToolCallOverride:
+        return AfterToolCallOverride(details={"replacement": 3})
 
-    ctx.events.on(TOOLS_POST_EXECUTE, overwrite)
+    register_after_tool_call_hook(ctx, overwrite)
 
     outcome = await execute_call(_call(value="x"), registry=_registry(definition), ctx=ctx)
 
     assert outcome.details == {"replacement": 3}
 
 
-async def test_a_listener_may_own_the_result_outright() -> None:
+async def test_a_hook_cannot_override_execution_identity_or_added_tool_names() -> None:
+    """`L06-R003`: pinned Pi's `AfterToolCallResult` has no `tool_call_id`/`tool_name`/
+    `added_tool_names` slot at all -- `AfterToolCallOverride` structurally cannot carry them, so
+    no hook can replace them, even one that owns every other field. An earlier, uncertified
+    revision let a listener return/replace the entire `ToolResult` (proven by the now-removed
+    `test_a_listener_may_own_the_result_outright`), which observably could rewrite these; this
+    test pins that it no longer can."""
     ctx = _ctx()
+    definition = _echo(
+        execute=lambda tool_call_id, args: ToolResult(
+            tool_call_id="t1",
+            content=(TextBlock(text="secret"),),
+            tool_name="echo",
+            added_tool_names=("alpha",),
+        )
+    )
 
-    async def replace_all(result: ToolResult, next_: Any) -> ToolResult:
-        return replace(result, content=(TextBlock(text="redacted"),))
+    def redact(result: ToolResult) -> AfterToolCallOverride:
+        return AfterToolCallOverride(content=(TextBlock(text="redacted"),))
 
-    ctx.events.on(TOOLS_POST_EXECUTE, replace_all)
-    ctx.events.on(TOOLS_POST_EXECUTE, replace_all)
+    register_after_tool_call_hook(ctx, redact)
+    register_after_tool_call_hook(ctx, redact)
 
-    outcome = await execute_call(_call(value="secret"), registry=_registry(_echo()), ctx=ctx)
+    call = _call(value="secret")
+    outcome = await execute_call(call, registry=_registry(definition), ctx=ctx)
 
     assert text_of(outcome.to_message()) == "redacted"
+    assert outcome.tool_call_id == call.id
+    assert outcome.tool_name == "echo"
+    assert outcome.added_tool_names == ("alpha",)
 
 
 async def test_an_execute_failure_is_transformed_too() -> None:
@@ -141,10 +182,10 @@ async def test_an_execute_failure_is_transformed_too() -> None:
     def broken(tool_call_id: str, args: dict[str, Any]) -> str:
         raise RuntimeError("boom")
 
-    async def annotate(result: ToolResult, next_: Any) -> Any:
-        return await next_(replace(result, details={"failed": result.is_error}))
+    def annotate(result: ToolResult) -> AfterToolCallOverride:
+        return AfterToolCallOverride(details={"failed": result.is_error})
 
-    ctx.events.on(TOOLS_POST_EXECUTE, annotate)
+    register_after_tool_call_hook(ctx, annotate)
 
     outcome = await execute_call(
         _call(value="x"), registry=_registry(_echo(execute=broken)), ctx=ctx
@@ -161,14 +202,42 @@ async def test_an_unknown_tool_never_reaches_the_after_hook() -> None:
     ctx = _ctx()
     dispatched: list[str] = []
 
-    async def annotate(result: ToolResult, next_: Any) -> Any:
+    def annotate(result: ToolResult) -> AfterToolCallOverride:
         dispatched.append("ran")
-        return await next_(replace(result, details={"failed": result.is_error}))
+        return AfterToolCallOverride(details={"failed": result.is_error})
 
-    ctx.events.on(TOOLS_POST_EXECUTE, annotate)
+    register_after_tool_call_hook(ctx, annotate)
 
     outcome = await execute_call(_call("missing"), registry=_registry(), ctx=ctx)
 
     assert dispatched == []
     assert outcome.details == {}
     assert outcome.is_error
+
+
+async def test_a_raising_after_hook_replaces_the_entire_prior_result() -> None:
+    """Pinned Pi's `finalizeExecutedToolCall`: an after-hook exception replaces the ENTIRE prior
+    result -- content, details, usage, terminate all discarded, not merged -- with a plain error
+    result. `L06-R002`: the message is the hook's own, with no Python exception-class prefix."""
+    ctx = _ctx()
+    definition = _echo(
+        execute=lambda tool_call_id, args: ToolResult(
+            tool_call_id="t1",
+            content=(TextBlock(text="success"),),
+            tool_name="echo",
+            details={"had": "data"},
+            terminate=True,
+        )
+    )
+
+    def exploding(result: ToolResult) -> AfterToolCallOverride:
+        raise RuntimeError("annotation service down")
+
+    register_after_tool_call_hook(ctx, exploding)
+
+    outcome = await execute_call(_call(value="x"), registry=_registry(definition), ctx=ctx)
+
+    assert outcome.is_error
+    assert text_of(outcome.to_message()) == "annotation service down"
+    assert outcome.details == {}
+    assert not outcome.terminate

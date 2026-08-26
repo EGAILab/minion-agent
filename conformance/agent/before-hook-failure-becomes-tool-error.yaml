@@ -22,5 +22,5 @@ steps:
 expect_messages:
   - { role: user, text: go }
   - { role: assistant, text: "" }
-  - { role: tool_result, text: "RuntimeError: policy engine unavailable" }
+  - { role: tool_result, text: "policy engine unavailable" }
   - { role: assistant, text: done }

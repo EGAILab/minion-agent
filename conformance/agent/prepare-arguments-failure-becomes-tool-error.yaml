@@ -18,5 +18,5 @@ steps:
 expect_messages:
   - { role: user, text: go }
   - { role: assistant, text: "" }
-  - { role: tool_result, text: "RuntimeError: cannot repair these arguments" }
+  - { role: tool_result, text: "cannot repair these arguments" }
   - { role: assistant, text: done }

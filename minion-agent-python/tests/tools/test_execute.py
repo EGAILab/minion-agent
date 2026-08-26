@@ -131,6 +131,11 @@ async def test_defaults_are_filled_in_before_the_tool_runs() -> None:
 
 
 async def test_a_raising_tool_produces_an_error_result() -> None:
+    """`L06-R002`: pinned Pi surfaces `error.message`, never a runtime type name -- a JS
+    `Error("disk on fire")` becomes `disk on fire`, not `Error: disk on fire`. Asserted by exact
+    equality, not substring containment: `"disk on fire" in text` would also pass under the old,
+    incorrect `RuntimeError: disk on fire` output."""
+
     def broken(tool_call_id: str, args: dict[str, Any]) -> str:
         raise RuntimeError("disk on fire")
 
@@ -139,7 +144,7 @@ async def test_a_raising_tool_produces_an_error_result() -> None:
     )
 
     assert result.is_error
-    assert "disk on fire" in text_of(result.to_message())
+    assert text_of(result.to_message()) == "disk on fire"
 
 
 async def test_a_listener_may_block_the_call() -> None:
@@ -252,7 +257,7 @@ async def test_a_prepare_arguments_failure_produces_an_error_result() -> None:
 
     assert ran == []
     assert result.is_error
-    assert "cannot repair" in text_of(result.to_message())
+    assert text_of(result.to_message()) == "cannot repair"  # L06-R002: no class-name prefix
 
 
 async def test_a_raising_before_hook_listener_produces_an_error_result() -> None:
@@ -272,4 +277,75 @@ async def test_a_raising_before_hook_listener_produces_an_error_result() -> None
 
     assert ran == []
     assert result.is_error
-    assert "hook exploded" in text_of(result.to_message())
+    assert text_of(result.to_message()) == "hook exploded"  # L06-R002: no class-name prefix
+
+
+_RAW_SCHEMA = {"type": "object", "properties": {"x": {"type": "string"}}, "required": ["x"]}
+"""A plain, object-valued JSON Schema mapping -- the actual Layer-05 shared `ToolDefinition.
+parameters` representation, not a Pydantic model (`L06-R001`)."""
+
+
+async def test_a_raw_object_schema_accepts_valid_arguments() -> None:
+    """`L06-R001`: pinned Pi's `validateToolArguments` validates every `Tool.parameters:
+    TSchema`, with no exemption for a raw-object-schema representation -- valid arguments must
+    reach `execute` exactly as for a pydantic-backed tool."""
+    definition = _echo(
+        parameters=_RAW_SCHEMA, execute=lambda tool_call_id, args: f"got {args['x']}"
+    )
+
+    result = await execute_call(_call(x="hello"), registry=_registry(definition), ctx=_ctx())
+
+    assert not result.is_error
+    assert text_of(result.to_message()) == "got hello"
+
+
+async def test_a_raw_object_schema_rejects_invalid_arguments() -> None:
+    """`L06-R001`: an earlier, uncertified revision let a raw JSON-Schema `dict` bypass
+    validation entirely (a genuine `PI_PARITY_DEFECT`) -- arguments that violate the schema must
+    now fail before `execute` runs, same as a pydantic-backed tool. `L06-R002`: the failure text
+    is the validator's own clean message, never a Python exception class name."""
+    ran: list[str] = []
+    definition = _echo(
+        parameters=_RAW_SCHEMA, execute=lambda tool_call_id, args: ran.append("ran") or "ok"
+    )
+
+    result = await execute_call(_call(x=123), registry=_registry(definition), ctx=_ctx())
+
+    assert ran == []
+    assert result.is_error
+    message = text_of(result.to_message())
+    assert message.startswith("invalid arguments: ")
+    assert "ValidationError" not in message
+    assert "jsonschema" not in message
+
+
+async def test_prepare_arguments_repairs_raw_schema_arguments_before_validation() -> None:
+    """`L06-R001`/`TOOL-018`: `prepare_arguments` runs before validation regardless of which
+    schema representation the tool uses -- raw arguments that would fail the JSON Schema on
+    their own must still succeed once `prepare_arguments` repairs them first."""
+    definition = _echo(
+        parameters=_RAW_SCHEMA,
+        prepare_arguments=lambda raw: {**raw, "x": str(raw["x"])},
+        execute=lambda tool_call_id, args: f"got {args['x']!r}",
+    )
+
+    result = await execute_call(_call(x=123), registry=_registry(definition), ctx=_ctx())
+
+    assert not result.is_error
+    assert text_of(result.to_message()) == "got '123'"
+
+
+async def test_prepare_arguments_can_invalidate_previously_valid_raw_schema_arguments() -> None:
+    """The inverse of the above: `prepare_arguments` running before validation means it can also
+    break arguments that started out valid -- validation still sees only the prepared value."""
+    ran: list[str] = []
+    definition = _echo(
+        parameters=_RAW_SCHEMA,
+        prepare_arguments=lambda raw: {**raw, "x": 999},
+        execute=lambda tool_call_id, args: ran.append("ran") or "ok",
+    )
+
+    result = await execute_call(_call(x="valid"), registry=_registry(definition), ctx=_ctx())
+
+    assert ran == []
+    assert result.is_error

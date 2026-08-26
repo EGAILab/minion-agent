@@ -58,6 +58,13 @@ pub struct FiberInitContext {
 
 pub type Context = FiberInitContext;
 
+#[derive(Clone)]
+pub(crate) struct ContextResources {
+    pub services: ServiceRegistry,
+    pub events: EventBus,
+    pub tools: ToolRegistry,
+}
+
 pub(crate) type InitContextFactory =
     Arc<dyn Fn(Arc<EffectStore>) -> FiberInitContext + Send + Sync>;
 pub(crate) type FiberStateObserver = Arc<dyn Fn(FiberState) + Send + Sync>;
@@ -84,42 +91,36 @@ impl FiberInitContext {
 
     pub(crate) fn coordinated(
         effects: Arc<EffectStore>,
-        services: ServiceRegistry,
+        resources: ContextResources,
         owner: Arc<dyn ServiceOwner>,
         plugin: String,
         observer: Arc<dyn RuntimeObserver>,
-        events: EventBus,
         scope: Option<ScopeHandle>,
-        tools: ToolRegistry,
     ) -> Self {
         Self {
             effects,
-            services: Some(services),
+            services: Some(resources.services),
             owner: Some(owner),
             plugin: Some(plugin),
             observer: Some(observer),
-            events: Some(events),
+            events: Some(resources.events),
             scope,
-            tools: Some(tools),
+            tools: Some(resources.tools),
         }
     }
 
-    pub(crate) fn runtime_view(
-        services: ServiceRegistry,
-        events: EventBus,
-        tools: ToolRegistry,
-    ) -> Self {
+    pub(crate) fn runtime_view(resources: ContextResources) -> Self {
         let effects = Arc::new(EffectStore::new());
         effects.close();
         Self {
             effects,
-            services: Some(services),
+            services: Some(resources.services),
             owner: None,
             plugin: None,
             observer: None,
-            events: Some(events),
+            events: Some(resources.events),
             scope: None,
-            tools: Some(tools),
+            tools: Some(resources.tools),
         }
     }
 

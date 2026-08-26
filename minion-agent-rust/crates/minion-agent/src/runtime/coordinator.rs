@@ -8,7 +8,7 @@ use crate::tools::ToolRegistry;
 
 use super::{
     DynPluginSpec, EventBus, FiberError, FiberHandle, FiberInitContext, PluginConfigError,
-    ScopeTree, ServiceOwner, ServiceRegistry,
+    ScopeTree, ServiceOwner, ServiceRegistry, fiber::ContextResources,
 };
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -121,11 +121,13 @@ impl Runtime {
         let inject = spec.inject().to_vec();
         let owner = Arc::new(Mutex::new(None::<FiberHandle>));
         let context_owner = Arc::clone(&owner);
-        let context_services = self.core.services.clone();
+        let context_resources = ContextResources {
+            services: self.core.services.clone(),
+            events: self.core.events.clone(),
+            tools: self.core.tools.clone(),
+        };
         let context_observer = Arc::clone(&self.core.observer);
-        let context_events = self.core.events.clone();
         let context_scope = scope.clone();
-        let context_tools = self.core.tools.clone();
         let plugin_name = spec.name().to_owned();
         let state_observer = Arc::clone(&self.core.observer);
         let state_plugin = plugin_name.clone();
@@ -140,13 +142,11 @@ impl Runtime {
                 let owner: Arc<dyn ServiceOwner> = Arc::new(fiber);
                 FiberInitContext::coordinated(
                     effects,
-                    context_services.clone(),
+                    context_resources.clone(),
                     owner,
                     plugin_name.clone(),
                     Arc::clone(&context_observer),
-                    context_events.clone(),
                     context_scope.clone(),
-                    context_tools.clone(),
                 )
             }),
             Arc::new(move |state| {
@@ -181,11 +181,11 @@ impl Runtime {
     }
 
     pub fn context(&self) -> super::Context {
-        FiberInitContext::runtime_view(
-            self.core.services.clone(),
-            self.core.events.clone(),
-            self.core.tools.clone(),
-        )
+        FiberInitContext::runtime_view(ContextResources {
+            services: self.core.services.clone(),
+            events: self.core.events.clone(),
+            tools: self.core.tools.clone(),
+        })
     }
 
     pub async fn reconcile(&self) -> Result<(), FiberError> {

@@ -290,7 +290,7 @@ where
                     tool_call_id: current.tool_call_id,
                     tool_name: current.tool_name,
                     content: error_content(error.message()),
-                    details: None,
+                    details: empty_error_details(),
                     usage: None,
                     added_tool_names: None,
                     is_error: true,
@@ -662,12 +662,16 @@ fn immediate_error(call: &ToolCall, message: &str) -> AfterToolCallResult {
         tool_call_id: call.id.clone(),
         tool_name: call.name.clone(),
         content: error_content(message),
-        details: None,
+        details: empty_error_details(),
         usage: None,
         added_tool_names: None,
         is_error: true,
         terminate: None,
     }
+}
+
+fn empty_error_details() -> Option<Value> {
+    Some(Value::Object(serde_json::Map::new()))
 }
 
 fn restore_protected(

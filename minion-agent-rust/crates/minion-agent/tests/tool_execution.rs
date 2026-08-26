@@ -339,6 +339,143 @@ fn unknown_tool_is_an_isolated_semantic_error() {
 }
 
 #[test]
+fn every_generated_error_has_empty_object_details_and_success_preserves_its_details() {
+    run(async {
+        let runtime = Runtime::new();
+        let execute_failure_seen = Arc::new(parking_lot::Mutex::new(None));
+        let plugin = PluginSpec::<Value>::new("error-details", vec![], || json!({}), {
+            let execute_failure_seen = Arc::clone(&execute_failure_seen);
+            move |context, _config| {
+                let execute_failure_seen = Arc::clone(&execute_failure_seen);
+                async move {
+                    register_before_tool_call_hook(&context, |current| async move {
+                        if current.tool_name == "before-fails" {
+                            Err(ToolCapabilityError::new("before boom"))
+                        } else {
+                            Ok(BeforeToolCallAction::Proceed(None))
+                        }
+                    })
+                    .map_err(|error| PluginInitError::new(error.to_string()))?;
+                    register_after_tool_call_hook(&context, move |current| {
+                        let execute_failure_seen = Arc::clone(&execute_failure_seen);
+                        async move {
+                            if current.tool_name == "execute-fails" {
+                                *execute_failure_seen.lock() = Some(current.details.clone());
+                            }
+                            if current.tool_name == "after-fails" {
+                                Err(ToolCapabilityError::new("after boom"))
+                            } else {
+                                Ok(None)
+                            }
+                        }
+                    })
+                    .map_err(|error| PluginInitError::new(error.to_string()))?;
+                    Ok(())
+                }
+            }
+        })
+        .erase();
+        runtime.mount(&plugin, json!({})).unwrap();
+        runtime.reconcile().await.unwrap();
+
+        let prepare_failure = ToolDefinition::new(
+            "prepare-fails",
+            "prepare-fails",
+            serde_json::from_value(json!({})).unwrap(),
+            "prepare-fails",
+            |_request| Box::pin(async { Ok(result("unreachable")) }),
+        )
+        .with_prepare_arguments(|_raw| Err(ToolCapabilityError::new("prepare boom")));
+        let validation_failure = ToolDefinition::new(
+            "validation-fails",
+            "validation-fails",
+            serde_json::from_value(json!({"type": "string"})).unwrap(),
+            "validation-fails",
+            |_request| Box::pin(async { Ok(result("unreachable")) }),
+        );
+        let before_failure = tool("before-fails");
+        let execute_failure = ToolDefinition::new(
+            "execute-fails",
+            "execute-fails",
+            serde_json::from_value(json!({})).unwrap(),
+            "execute-fails",
+            |_request| Box::pin(async { Err(ToolCapabilityError::new("execute boom")) }),
+        );
+        let after_failure = ToolDefinition::new(
+            "after-fails",
+            "after-fails",
+            serde_json::from_value(json!({})).unwrap(),
+            "after-fails",
+            |_request| Box::pin(async { Ok(result("before after failure")) }),
+        );
+        let success = ToolDefinition::new(
+            "success",
+            "success",
+            serde_json::from_value(json!({})).unwrap(),
+            "success",
+            |_request| {
+                Box::pin(async {
+                    let mut output = result("success");
+                    output.details = json!({"source": "rust-tool"});
+                    Ok(output)
+                })
+            },
+        );
+        for definition in [
+            prepare_failure,
+            validation_failure,
+            before_failure,
+            execute_failure,
+            after_failure,
+            success,
+        ] {
+            runtime
+                .tools()
+                .register_for_scope(None, definition)
+                .unwrap();
+        }
+
+        let batch = execute_tool_calls(
+            &runtime.context(),
+            &[
+                call("unknown", "missing", json!({})),
+                call("prepare", "prepare-fails", json!({})),
+                call("validation", "validation-fails", json!({})),
+                call("before", "before-fails", json!({})),
+                call("execute", "execute-fails", json!({})),
+                call("after", "after-fails", json!({})),
+                call("success", "success", json!({})),
+            ],
+            ToolExecutionOptions::new(StopReason::ToolUse, 0.0),
+        )
+        .await
+        .unwrap();
+
+        for message in &batch.messages[..6] {
+            assert_eq!(message.details, Some(json!({})), "{}", message.tool_name);
+        }
+        assert_eq!(
+            *execute_failure_seen.lock(),
+            Some(Some(json!({}))),
+            "execute errors reach after hooks with explicit empty details"
+        );
+        assert_eq!(
+            batch.messages[6].details,
+            Some(json!({"source": "rust-tool"}))
+        );
+
+        let length = execute_tool_calls(
+            &runtime.context(),
+            &[call("length", "success", json!({}))],
+            ToolExecutionOptions::new(StopReason::Length, 0.0),
+        )
+        .await
+        .unwrap();
+        assert_eq!(length.messages[0].details, Some(json!({})));
+    });
+}
+
+#[test]
 fn prepared_arguments_are_validated_against_the_raw_json_schema() {
     run(async {
         let runtime = Runtime::new();

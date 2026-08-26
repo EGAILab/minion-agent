@@ -198,4 +198,12 @@ fn absent_execution_mode_remains_distinct_from_parallel() {
 
     assert_eq!(absent.execution_mode(), None);
     assert_eq!(parallel.execution_mode(), Some(ExecutionMode::Parallel));
+    assert_eq!(
+        serde_json::to_value(ExecutionMode::Sequential).unwrap(),
+        "sequential"
+    );
+    assert_eq!(
+        serde_json::to_value(ExecutionMode::Parallel).unwrap(),
+        "parallel"
+    );
 }

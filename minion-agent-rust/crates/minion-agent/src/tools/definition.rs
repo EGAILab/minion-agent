@@ -1,6 +1,7 @@
 use std::{fmt, sync::Arc};
 
 use futures::future::BoxFuture;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use thiserror::Error;
 
@@ -8,7 +9,8 @@ use crate::llm::{
     ConstrainedSampling, JsonSchemaObject, ToolResultContentBlock, ToolSchema, Usage,
 };
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum ExecutionMode {
     Sequential,
     Parallel,

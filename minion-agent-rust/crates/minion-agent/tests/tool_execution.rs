@@ -254,6 +254,7 @@ fn unknown_tool_is_an_isolated_semantic_error() {
         assert_eq!(batch.messages[0].tool_call_id, "missing-1");
         assert_eq!(batch.messages[0].tool_name, "missing");
         assert!(batch.messages[0].is_error);
+        assert_eq!(text(&batch.messages[0]), "Tool missing not found");
     });
 }
 

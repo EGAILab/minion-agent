@@ -419,7 +419,7 @@ async fn execute_one(
             return finish_immediate(
                 index,
                 call.clone(),
-                &format!("Tool not found: {}", call.name),
+                &format!("Tool {} not found", call.name),
                 events,
                 scope,
                 end_spec,

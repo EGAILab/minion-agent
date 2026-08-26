@@ -83,6 +83,7 @@ pub struct ToolExecutionEnd {
 pub struct ToolExecutionUpdate {
     pub tool_call_id: String,
     pub tool_name: String,
+    pub arguments: Value,
     pub update: AgentToolResult,
 }
 
@@ -554,6 +555,7 @@ async fn execute_and_finalize_prepared(
             let scope = scope.clone();
             let tool_call_id = call.id.clone();
             let tool_name = call.name.clone();
+            let original_arguments = arguments_value(&call.arguments);
             Arc::new(move |update: AgentToolResult| {
                 if accepting_updates.load(Ordering::Acquire) {
                     let _ = events.emit(
@@ -561,6 +563,7 @@ async fn execute_and_finalize_prepared(
                         &ToolExecutionUpdate {
                             tool_call_id: tool_call_id.clone(),
                             tool_name: tool_name.clone(),
+                            arguments: original_arguments.clone(),
                             update,
                         },
                         scope.as_ref(),

@@ -980,12 +980,15 @@ fn updates_are_emitted_live_and_ignored_after_execute_settles() {
         let runtime = Runtime::new();
         let updates = Arc::new(parking_lot::Mutex::new(Vec::new()));
         let saved = Arc::new(parking_lot::Mutex::new(None));
+        let executed_arguments = Arc::new(parking_lot::Mutex::new(None));
         let plugin = PluginSpec::<Value>::new("update-observer", vec![], || json!({}), {
             let updates = Arc::clone(&updates);
             let saved = Arc::clone(&saved);
+            let executed_arguments = Arc::clone(&executed_arguments);
             move |context, _config| {
                 let updates = Arc::clone(&updates);
                 let saved = Arc::clone(&saved);
+                let executed_arguments = Arc::clone(&executed_arguments);
                 async move {
                     let bus = context
                         .events()
@@ -999,7 +1002,12 @@ fn updates_are_emitted_live_and_ignored_after_execute_settles() {
                         &effects,
                         context.scope(),
                         move |event: &ToolExecutionUpdate| {
-                            updates.lock().push(event.update.content.clone());
+                            updates.lock().push((
+                                event.tool_call_id.clone(),
+                                event.tool_name.clone(),
+                                event.arguments.clone(),
+                                event.update.content.clone(),
+                            ));
                         },
                     )
                     .map_err(|error| PluginInitError::new(error.to_string()))?;
@@ -1015,14 +1023,20 @@ fn updates_are_emitted_live_and_ignored_after_execute_settles() {
                                 "chatty",
                                 move |request: ToolExecutionRequest| {
                                     let saved = Arc::clone(&saved);
+                                    let executed_arguments = Arc::clone(&executed_arguments);
                                     Box::pin(async move {
+                                        *executed_arguments.lock() = Some(request.params.clone());
                                         let update = request.on_update.unwrap();
                                         update(result("live"));
                                         *saved.lock() = Some(update);
                                         Ok(result("done"))
                                     })
                                 },
-                            ),
+                            )
+                            .with_prepare_arguments(|mut raw| {
+                                raw["prepared"] = json!(true);
+                                Ok(raw)
+                            }),
                         )
                         .map_err(|error| PluginInitError::new(error.to_string()))?;
                     Ok(())
@@ -1035,14 +1049,26 @@ fn updates_are_emitted_live_and_ignored_after_execute_settles() {
 
         execute_tool_calls(
             &runtime.context(),
-            &[call("t1", "chatty", json!({}))],
+            &[call("t1", "chatty", json!({"raw": 1}))],
             ToolExecutionOptions::new(StopReason::ToolUse, 0.0),
         )
         .await
         .unwrap();
         saved.lock().as_ref().unwrap()(result("late"));
 
-        assert_eq!(updates.lock().len(), 1);
+        assert_eq!(
+            updates.lock().as_slice(),
+            [(
+                "t1".to_owned(),
+                "chatty".to_owned(),
+                json!({"raw": 1}),
+                result("live").content,
+            )]
+        );
+        assert_eq!(
+            executed_arguments.lock().as_ref().unwrap(),
+            &json!({"raw": 1, "prepared": true})
+        );
     });
 }
 

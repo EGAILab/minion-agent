@@ -424,7 +424,7 @@ rows:
   - test_the_run_level_default_serializes_the_batch_even_without_a_sequential_tool
   - test_the_run_level_default_is_parallel_when_unspecified
   python: src/minion_agent/tools/batch.py::execute_batch, _is_sequential
-  rust: Phase 4 tools
+  rust: minion-agent-rust/crates/minion-agent/src/tools/execution.rs::execute_tool_calls; minion-agent-rust/crates/minion-agent/tests/tool_execution.rs; minion-agent-rust/crates/minion-agent/tests/tool_execution_conformance.rs
   disposition: adopted
 - id: TOOL-002
   phase: 4
@@ -439,7 +439,7 @@ rows:
   - length-stop-executes-no-tools
   - test_length_stop_executes_nothing_and_fails_every_call
   python: src/minion_agent/tools/batch.py::execute_length_stop_batch, src/minion_agent/agent_loop/driver.py (stop-reason dispatch)
-  rust: Phase 4 tools
+  rust: minion-agent-rust/crates/minion-agent/src/tools/execution.rs::execute_tool_calls; minion-agent-rust/crates/minion-agent/tests/tool_execution.rs; minion-agent-rust/crates/minion-agent/tests/tool_execution_conformance.rs
   disposition: adopted
 - id: TOOL-003
   phase: 4
@@ -471,7 +471,7 @@ rows:
   - test_prepare_arguments_repairs_raw_schema_arguments_before_validation
   - test_prepare_arguments_can_invalidate_previously_valid_raw_schema_arguments
   python: src/minion_agent/tools/execute.py::_prepare, _validate, ArgumentValidationError, execute_call
-  rust: Phase 4 tools
+  rust: minion-agent-rust/crates/minion-agent/src/tools/execution.rs::execute_tool_calls; minion-agent-rust/crates/minion-agent/tests/tool_execution.rs; minion-agent-rust/crates/minion-agent/tests/tool_execution_conformance.rs
   disposition: adopted
 - id: TOOL-004
   phase: 4
@@ -498,7 +498,7 @@ rows:
   - test_an_execute_failure_is_transformed_too
   - test_an_unknown_tool_never_reaches_the_after_hook
   python: src/minion_agent/tools/execute.py::execute_call
-  rust: Phase 4 tools
+  rust: minion-agent-rust/crates/minion-agent/src/tools/execution.rs::execute_tool_calls/register_before_tool_call_hook; minion-agent-rust/crates/minion-agent/tests/tool_execution.rs; minion-agent-rust/crates/minion-agent/tests/tool_execution_conformance.rs
   disposition: adopted
 - id: TOOL-005
   phase: 4
@@ -552,7 +552,7 @@ rows:
   - test_per_step_normalization_preserves_legitimate_accumulated_overrides
   - test_reversed_mixed_registration_order_shares_the_same_authority
   python: src/minion_agent/tools/execute.py::_finalize, _merge_override, register_after_tool_call_hook, AfterToolCallOverride; src/minion_agent/runtime/events.py::EventBus.waterfall (normalize_step)
-  rust: Phase 4 tools
+  rust: minion-agent-rust/crates/minion-agent/src/tools/execution.rs::AfterToolCallOverride/register_after_tool_call_hook; minion-agent-rust/crates/minion-agent/tests/tool_execution.rs; minion-agent-rust/crates/minion-agent/tests/tool_execution_conformance.rs
   disposition: adopted
 - id: TOOL-006
   phase: 4
@@ -572,7 +572,7 @@ rows:
   - test_parallel_tools_actually_overlap
   - test_every_call_gets_a_result_even_when_one_raises
   python: src/minion_agent/tools/batch.py::execute_batch, BatchOutcome
-  rust: Phase 4 tools
+  rust: minion-agent-rust/crates/minion-agent/src/tools/execution.rs::execute_tool_calls; minion-agent-rust/crates/minion-agent/tests/tool_execution.rs; minion-agent-rust/crates/minion-agent/tests/tool_execution_conformance.rs
   disposition: adopted
 - id: TOOL-007
   phase: 4
@@ -662,7 +662,7 @@ rows:
   - test_execute_receives_the_real_tool_call_id
   - length-stop-executes-no-tools (start/end fire even when execution never happens)
   python: src/minion_agent/tools/events.py::TOOLS_EXECUTION_START/TOOLS_EXECUTION_END, src/minion_agent/tools/execute.py::execute_call, _immediate
-  rust: Phase 4 tools
+  rust: minion-agent-rust/crates/minion-agent/src/tools/execution.rs::ToolExecutionStart/ToolExecutionUpdate/ToolExecutionEnd; minion-agent-rust/crates/minion-agent/tests/tool_execution.rs; minion-agent-rust/crates/minion-agent/tests/tool_execution_conformance.rs
   disposition: intentional divergence
 - id: TOOL-018
   phase: 4
@@ -687,7 +687,7 @@ rows:
   - test_prepare_arguments_does_not_mutate_the_original_call
   - test_execute_receives_the_real_tool_call_id
   python: src/minion_agent/tools/execute.py::_prepare, execute_call
-  rust: Phase 4 tools
+  rust: minion-agent-rust/crates/minion-agent/src/tools/execution.rs::execute_tool_calls; minion-agent-rust/crates/minion-agent/src/tools/definition.rs::ToolExecutionRequest; minion-agent-rust/crates/minion-agent/tests/tool_execution.rs
   disposition: adopted
 - id: TOOL-019
   phase: 4
@@ -703,7 +703,7 @@ rows:
   - test_a_tool_may_report_partial_output
   - test_updates_carry_the_call_id_so_a_consumer_can_route_them
   python: src/minion_agent/tools/execute.py::execute_call (accepting_updates)
-  rust: Phase 4 tools
+  rust: minion-agent-rust/crates/minion-agent/src/tools/execution.rs::ToolExecutionUpdate/execute_tool_calls; minion-agent-rust/crates/minion-agent/tests/tool_execution.rs; minion-agent-rust/crates/minion-agent/tests/tool_execution_conformance.rs
   disposition: adopted
 - id: TOOL-020
   phase: 4
@@ -719,7 +719,7 @@ rows:
   - test_the_run_level_default_is_parallel_when_unspecified
   - test_the_run_level_default_serializes_the_batch_even_without_a_sequential_tool
   python: src/minion_agent/tools/batch.py::execute_batch (default_mode parameter)
-  rust: Phase 4 tools
+  rust: minion-agent-rust/crates/minion-agent/src/tools/execution.rs::ToolExecutionOptions/execute_tool_calls; minion-agent-rust/crates/minion-agent/tests/tool_execution.rs; minion-agent-rust/crates/minion-agent/tests/tool_execution_conformance.rs
   disposition: adopted
 - id: TOOL-021
   phase: 4
@@ -738,7 +738,7 @@ rows:
   - test_declaring_a_name_does_not_register_anything
   - test_a_tool_can_introduce_another
   python: src/minion_agent/tools/execute.py::execute_call, src/minion_agent/tools/result.py::ToolResult
-  rust: Phase 4 tools
+  rust: minion-agent-rust/crates/minion-agent/src/tools/execution.rs::AfterToolCallResult/execute_tool_calls; minion-agent-rust/crates/minion-agent/tests/tool_execution.rs
   disposition: adopted
 - id: TOOL-009
   phase: 4

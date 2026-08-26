@@ -30,7 +30,7 @@ def _steps(loop: AgentLoop) -> int:
 
 async def test_a_stop_decision_ends_the_turn_early() -> None:
     loop = _loop(_tool_call(), ScriptedResponse((), StopReason.STOP))
-    _register(loop, "echo", lambda args: "done")
+    _register(loop, "echo", lambda tool_call_id, args: "done")
     loop.instance.ctx.events.on(AGENT_TURN_STOPPING, lambda *_: TurnStopping.STOP)
     loop.instance.inbox.followup(_say("go"))
 
@@ -41,7 +41,7 @@ async def test_a_stop_decision_ends_the_turn_early() -> None:
 
 async def test_no_opinion_continues() -> None:
     loop = _loop(_tool_call(), ScriptedResponse((), StopReason.STOP))
-    _register(loop, "echo", lambda args: "done")
+    _register(loop, "echo", lambda tool_call_id, args: "done")
     loop.instance.ctx.events.on(AGENT_TURN_STOPPING, lambda *_: TurnStopping.NO_OPINION)
     loop.instance.inbox.followup(_say("go"))
 
@@ -52,7 +52,7 @@ async def test_no_opinion_continues() -> None:
 
 async def test_no_listeners_continues() -> None:
     loop = _loop(_tool_call(), ScriptedResponse((), StopReason.STOP))
-    _register(loop, "echo", lambda args: "done")
+    _register(loop, "echo", lambda tool_call_id, args: "done")
     loop.instance.inbox.followup(_say("go"))
 
     await loop.run_until_idle()
@@ -62,7 +62,7 @@ async def test_no_listeners_continues() -> None:
 
 async def test_a_stopped_turn_records_why() -> None:
     loop = _loop(_tool_call(), ScriptedResponse((), StopReason.STOP))
-    _register(loop, "echo", lambda args: "done")
+    _register(loop, "echo", lambda tool_call_id, args: "done")
     loop.instance.ctx.events.on(AGENT_TURN_STOPPING, lambda *_: TurnStopping.STOP)
     loop.instance.inbox.followup(_say("go"))
 
@@ -96,7 +96,7 @@ async def test_continue_cannot_override_max_steps() -> None:
     loop.instance.definition = AgentDefinition(
         name="ada", model=loop.instance.definition.model, system="", max_steps=2
     )
-    _register(loop, "echo", lambda args: "again")
+    _register(loop, "echo", lambda tool_call_id, args: "again")
     loop.instance.ctx.events.on(AGENT_TURN_STOPPING, lambda *_: TurnStopping.CONTINUE)
     loop.instance.inbox.followup(_say("go"))
 

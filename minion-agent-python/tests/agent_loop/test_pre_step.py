@@ -201,7 +201,7 @@ async def test_a_rejection_at_a_later_boundary_ends_the_turn() -> None:
         ScriptedResponse((ToolCallBlock(id="t1", name="echo", arguments={}),), StopReason.TOOL_USE),
         ScriptedResponse((TextBlock(text="never reached"),), StopReason.STOP),
     )
-    _register(loop, "echo", lambda args: "ran")
+    _register(loop, "echo", lambda tool_call_id, args: "ran")
 
     async def veto_after_the_first(
         instance: AgentInstance,

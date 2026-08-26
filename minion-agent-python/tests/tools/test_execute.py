@@ -40,7 +40,7 @@ def _echo(**overrides: Any) -> ToolDefinition:
         "name": "echo",
         "description": "repeat",
         "parameters": EchoParams,
-        "execute": lambda args: str(args["value"]),
+        "execute": lambda tool_call_id, args: str(args["value"]),
         "label": "Echo",
     }
     return ToolDefinition(**{**defaults, **overrides})
@@ -53,6 +53,21 @@ async def test_a_tool_runs_and_returns_its_output() -> None:
     assert not result.is_error
 
 
+async def test_execute_receives_the_real_tool_call_id() -> None:
+    """Pinned Pi's `execute(toolCallId, params, ...)`: the pipeline's own call id, not one the
+    tool invents (`TOOL-017`)."""
+    seen: list[str] = []
+    definition = _echo(execute=lambda tool_call_id, args: seen.append(tool_call_id) or "ok")
+
+    await execute_call(
+        ToolCallBlock(id="unique-id-1", name="echo", arguments={"value": "x"}),
+        registry=_registry(definition),
+        ctx=_ctx(),
+    )
+
+    assert seen == ["unique-id-1"]
+
+
 async def test_a_string_return_is_normalized_into_a_result() -> None:
     """Tools may return a bare string; the pipeline needs a full result."""
     result = await execute_call(_call(value="x"), registry=_registry(_echo()), ctx=_ctx())
@@ -63,7 +78,7 @@ async def test_a_string_return_is_normalized_into_a_result() -> None:
 
 async def test_a_tool_may_return_a_full_result() -> None:
     definition = _echo(
-        execute=lambda args: ToolResult(
+        execute=lambda tool_call_id, args: ToolResult(
             tool_call_id="t1", content=(), tool_name="echo", terminate=True, details={"k": 1}
         )
     )
@@ -75,7 +90,7 @@ async def test_a_tool_may_return_a_full_result() -> None:
 
 
 async def test_an_async_tool_is_awaited() -> None:
-    async def slow(args: dict[str, Any]) -> str:
+    async def slow(tool_call_id: str, args: dict[str, Any]) -> str:
         return "async"
 
     result = await execute_call(
@@ -106,7 +121,9 @@ async def test_defaults_are_filled_in_before_the_tool_runs() -> None:
         value: str = "default"
 
     seen: list[dict[str, Any]] = []
-    definition = _echo(parameters=Params, execute=lambda args: seen.append(args) or "ok")
+    definition = _echo(
+        parameters=Params, execute=lambda tool_call_id, args: seen.append(args) or "ok"
+    )
 
     await execute_call(_call(), registry=_registry(definition), ctx=_ctx())
 
@@ -114,7 +131,12 @@ async def test_defaults_are_filled_in_before_the_tool_runs() -> None:
 
 
 async def test_a_raising_tool_produces_an_error_result() -> None:
-    def broken(args: dict[str, Any]) -> str:
+    """`L06-R002`: pinned Pi surfaces `error.message`, never a runtime type name -- a JS
+    `Error("disk on fire")` becomes `disk on fire`, not `Error: disk on fire`. Asserted by exact
+    equality, not substring containment: `"disk on fire" in text` would also pass under the old,
+    incorrect `RuntimeError: disk on fire` output."""
+
+    def broken(tool_call_id: str, args: dict[str, Any]) -> str:
         raise RuntimeError("disk on fire")
 
     result = await execute_call(
@@ -122,7 +144,7 @@ async def test_a_raising_tool_produces_an_error_result() -> None:
     )
 
     assert result.is_error
-    assert "disk on fire" in text_of(result.to_message())
+    assert text_of(result.to_message()) == "disk on fire"
 
 
 async def test_a_listener_may_block_the_call() -> None:
@@ -133,7 +155,7 @@ async def test_a_listener_may_block_the_call() -> None:
         return Block(reason="not permitted")
 
     ctx.events.on(TOOLS_PRE_EXECUTE, veto)
-    definition = _echo(execute=lambda args: ran.append("ran") or "ok")
+    definition = _echo(execute=lambda tool_call_id, args: ran.append("ran") or "ok")
 
     result = await execute_call(_call(value="x"), registry=_registry(definition), ctx=ctx)
 
@@ -150,7 +172,7 @@ async def test_a_blocked_call_may_also_terminate_the_turn() -> None:
         return Block(reason="stop now", terminate=True)
 
     ctx.events.on(TOOLS_PRE_EXECUTE, veto)
-    definition = _echo(execute=lambda args: ran.append("ran") or "ok")
+    definition = _echo(execute=lambda tool_call_id, args: ran.append("ran") or "ok")
 
     result = await execute_call(_call(value="x"), registry=_registry(definition), ctx=ctx)
 
@@ -167,7 +189,7 @@ async def test_a_listener_may_narrow_the_arguments() -> None:
         return Proceed(arguments={"value": "pinned"})
 
     ctx.events.on(TOOLS_PRE_EXECUTE, pin)
-    definition = _echo(execute=lambda args: seen.append(args) or "ok")
+    definition = _echo(execute=lambda tool_call_id, args: seen.append(args) or "ok")
 
     await execute_call(_call(value="original"), registry=_registry(definition), ctx=ctx)
 
@@ -188,3 +210,142 @@ async def test_an_abstaining_listener_leaves_the_call_alone() -> None:
 
     assert calls == ["abstained"]
     assert text_of(result.to_message()) == "through"
+
+
+async def test_prepare_arguments_runs_before_validation() -> None:
+    """Pinned Pi's `AgentTool.prepareArguments` always runs before schema validation
+    (`TOOL-017`): raw arguments that would fail validation on their own must still succeed once
+    `prepare_arguments` repairs them first."""
+    definition = _echo(prepare_arguments=lambda raw: {**raw, "value": "repaired"})
+
+    result = await execute_call(_call(), registry=_registry(definition), ctx=_ctx())
+
+    assert not result.is_error
+    assert text_of(result.to_message()) == "repaired"
+
+
+async def test_prepare_arguments_does_not_mutate_the_original_call() -> None:
+    """Nonmutation discipline (design spec section 6, matching XFORM): a shim that mutates its
+    input in place must not corrupt the source `ToolCallBlock.arguments`."""
+
+    def mutate_in_place(raw: dict[str, Any]) -> dict[str, Any]:
+        raw["value"] = "mutated"
+        return raw
+
+    call = _call(value="original")
+    definition = _echo(prepare_arguments=mutate_in_place)
+
+    await execute_call(call, registry=_registry(definition), ctx=_ctx())
+
+    assert call.arguments == {"value": "original"}
+
+
+async def test_a_prepare_arguments_failure_produces_an_error_result() -> None:
+    """`TOOL-017`: a `prepare_arguments` exception becomes an error result, same as any other
+    pre-execute-stage failure -- `execute` is skipped entirely."""
+    ran: list[str] = []
+
+    def broken_prepare(raw: dict[str, Any]) -> dict[str, Any]:
+        raise RuntimeError("cannot repair")
+
+    definition = _echo(
+        prepare_arguments=broken_prepare,
+        execute=lambda tool_call_id, args: ran.append("ran") or "ok",
+    )
+
+    result = await execute_call(_call(value="x"), registry=_registry(definition), ctx=_ctx())
+
+    assert ran == []
+    assert result.is_error
+    assert text_of(result.to_message()) == "cannot repair"  # L06-R002: no class-name prefix
+
+
+async def test_a_raising_before_hook_listener_produces_an_error_result() -> None:
+    """Pinned Pi wraps `prepareToolCallArguments` + `validateToolArguments` +
+    `config.beforeToolCall` in one try/catch: a hook that throws (rather than returning a
+    structured `Block`) collapses to the same generic error result (`TOOL-017`)."""
+    ctx = _ctx()
+    ran: list[str] = []
+
+    async def exploding(call: Any, definition: Any, arguments: Any, next_: Any) -> Any:
+        raise RuntimeError("hook exploded")
+
+    ctx.events.on(TOOLS_PRE_EXECUTE, exploding)
+    definition = _echo(execute=lambda tool_call_id, args: ran.append("ran") or "ok")
+
+    result = await execute_call(_call(value="x"), registry=_registry(definition), ctx=ctx)
+
+    assert ran == []
+    assert result.is_error
+    assert text_of(result.to_message()) == "hook exploded"  # L06-R002: no class-name prefix
+
+
+_RAW_SCHEMA = {"type": "object", "properties": {"x": {"type": "string"}}, "required": ["x"]}
+"""A plain, object-valued JSON Schema mapping -- the actual Layer-05 shared `ToolDefinition.
+parameters` representation, not a Pydantic model (`L06-R001`)."""
+
+
+async def test_a_raw_object_schema_accepts_valid_arguments() -> None:
+    """`L06-R001`: pinned Pi's `validateToolArguments` validates every `Tool.parameters:
+    TSchema`, with no exemption for a raw-object-schema representation -- valid arguments must
+    reach `execute` exactly as for a pydantic-backed tool."""
+    definition = _echo(
+        parameters=_RAW_SCHEMA, execute=lambda tool_call_id, args: f"got {args['x']}"
+    )
+
+    result = await execute_call(_call(x="hello"), registry=_registry(definition), ctx=_ctx())
+
+    assert not result.is_error
+    assert text_of(result.to_message()) == "got hello"
+
+
+async def test_a_raw_object_schema_rejects_invalid_arguments() -> None:
+    """`L06-R001`: an earlier, uncertified revision let a raw JSON-Schema `dict` bypass
+    validation entirely (a genuine `PI_PARITY_DEFECT`) -- arguments that violate the schema must
+    now fail before `execute` runs, same as a pydantic-backed tool. `L06-R002`: the failure text
+    is the validator's own clean message, never a Python exception class name."""
+    ran: list[str] = []
+    definition = _echo(
+        parameters=_RAW_SCHEMA, execute=lambda tool_call_id, args: ran.append("ran") or "ok"
+    )
+
+    result = await execute_call(_call(x=123), registry=_registry(definition), ctx=_ctx())
+
+    assert ran == []
+    assert result.is_error
+    message = text_of(result.to_message())
+    assert message.startswith("invalid arguments: ")
+    assert "ValidationError" not in message
+    assert "jsonschema" not in message
+
+
+async def test_prepare_arguments_repairs_raw_schema_arguments_before_validation() -> None:
+    """`L06-R001`/`TOOL-018`: `prepare_arguments` runs before validation regardless of which
+    schema representation the tool uses -- raw arguments that would fail the JSON Schema on
+    their own must still succeed once `prepare_arguments` repairs them first."""
+    definition = _echo(
+        parameters=_RAW_SCHEMA,
+        prepare_arguments=lambda raw: {**raw, "x": str(raw["x"])},
+        execute=lambda tool_call_id, args: f"got {args['x']!r}",
+    )
+
+    result = await execute_call(_call(x=123), registry=_registry(definition), ctx=_ctx())
+
+    assert not result.is_error
+    assert text_of(result.to_message()) == "got '123'"
+
+
+async def test_prepare_arguments_can_invalidate_previously_valid_raw_schema_arguments() -> None:
+    """The inverse of the above: `prepare_arguments` running before validation means it can also
+    break arguments that started out valid -- validation still sees only the prepared value."""
+    ran: list[str] = []
+    definition = _echo(
+        parameters=_RAW_SCHEMA,
+        prepare_arguments=lambda raw: {**raw, "x": 999},
+        execute=lambda tool_call_id, args: ran.append("ran") or "ok",
+    )
+
+    result = await execute_call(_call(x="valid"), registry=_registry(definition), ctx=_ctx())
+
+    assert ran == []
+    assert result.is_error

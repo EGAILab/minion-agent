@@ -410,64 +410,169 @@ rows:
   phase: 4
   pi: packages/agent/src/agent-loop.ts::executeToolCalls
   surface: batch execution mode contagion
-  rule: any sequential tool forces whole batch sequential; otherwise parallel
+  rule: 'the run-level default being sequential, OR any tool call in the batch resolving to a
+    tool whose own execution_mode is sequential, forces the entire batch to run one call at a
+    time in source order -- not merely that one exclusive call, and not partial grouping around
+    it (config.toolExecution === "sequential" || hasSequentialToolCall). An unresolvable name is
+    never exclusive: it never runs, so it has no exclusivity to spread.'
   tests:
   - tool-batch-sequential-contagion
   - tool-batch-parallel
-  python: src/minion_agent/tools/ + agent_loop (rewrite)
-  rust: Phase 4 tools
+  - test_one_sequential_tool_serializes_the_whole_batch
+  - test_a_sequential_tool_serializes_the_batch_from_any_position
+  - test_an_unknown_tool_does_not_serialize_the_batch
+  - test_the_run_level_default_serializes_the_batch_even_without_a_sequential_tool
+  - test_the_run_level_default_is_parallel_when_unspecified
+  python: src/minion_agent/tools/batch.py::execute_batch, _is_sequential
+  rust: minion-agent-rust/crates/minion-agent/src/tools/execution.rs::execute_tool_calls; minion-agent-rust/crates/minion-agent/tests/tool_execution.rs; minion-agent-rust/crates/minion-agent/tests/tool_execution_conformance.rs
   disposition: adopted
 - id: TOOL-002
   phase: 4
   pi: packages/agent/src/agent-loop.ts::failToolCallsFromTruncatedMessage
   surface: length-stop tool safety
-  rule: length stop executes zero tool calls; every call becomes error result
+  rule: 'a length stop reason means the assistant output may carry truncated tool-call
+    arguments; no call in the batch is resolved, prepared, validated, or executed -- not even an
+    unknown-tool lookup runs. Each call becomes the identical error result in source order;
+    tool_execution_start/tool_execution_end still fire for each; terminate is unconditionally
+    False for this batch (never folded through the terminate rule at all).'
   tests:
   - length-stop-executes-no-tools
-  python: src/minion_agent/agent_loop/driver.py (rewrite)
-  rust: Phase 4 tools
+  - test_length_stop_executes_nothing_and_fails_every_call
+  python: src/minion_agent/tools/batch.py::execute_length_stop_batch, src/minion_agent/agent_loop/driver.py (stop-reason dispatch)
+  rust: minion-agent-rust/crates/minion-agent/src/tools/execution.rs::execute_tool_calls; minion-agent-rust/crates/minion-agent/tests/tool_execution.rs; minion-agent-rust/crates/minion-agent/tests/tool_execution_conformance.rs
   disposition: adopted
 - id: TOOL-003
   phase: 4
   pi: packages/agent/src/agent-loop.ts::prepareToolCall
   surface: prepare/validate failure conversion
-  rule: prepareArguments and schema validation failures -> error tool result
+  rule: 'prepareArguments and schema validation failures -> error tool result, execute skipped
+    entirely. This is an "immediate" outcome (TOOL-017): the after-hook (tools/post-execute)
+    never runs for it, distinguishing it from an execute() failure (TOOL-004), which does reach
+    the after-hook. Validation applies to BOTH parameter representations with no exemption
+    (L06-R001, corrected this pass -- an earlier revision let a raw JSON-Schema dict skip
+    validation entirely, a genuine PI_PARITY_DEFECT, since pinned Pi''s validateToolArguments
+    validates every Tool.parameters: TSchema with no such exemption): a pydantic-model-backed
+    tool validates via pydantic; a raw, object-valued JSON-Schema dict validates via the
+    `jsonschema` library against the exact Layer-05-approved schema. Neither path reproduces
+    pinned Pi''s TypeBox-specific coercion algorithm byte-for-byte -- a disclosed, intentional
+    divergence, not a validation exemption. Failure text is the validator''s own clean message,
+    never a Python exception class name (L06-R002). ToolDefinition.parameters'' own docstring
+    (definition.py) previously still said a raw dict was "not Python-validated" even after this
+    row''s runtime fix landed -- a genuine CONTRACT_ASSURANCE_DEFECT (L06-R001, second closure):
+    public documentation must agree with the actual production validator, not merely the
+    manifest/spec. Corrected this pass; no further runtime change.'
   tests:
   - prepare-arguments-failure-becomes-tool-error
   - schema-validation-failure-becomes-tool-error
-  python: src/minion_agent/tools/ (rewrite)
-  rust: Phase 4 tools
+  - test_a_prepare_arguments_failure_produces_an_error_result
+  - test_invalid_arguments_produce_an_error_result_the_model_can_act_on
+  - test_a_raw_object_schema_accepts_valid_arguments
+  - test_a_raw_object_schema_rejects_invalid_arguments
+  - test_prepare_arguments_repairs_raw_schema_arguments_before_validation
+  - test_prepare_arguments_can_invalidate_previously_valid_raw_schema_arguments
+  python: src/minion_agent/tools/execute.py::_prepare, _validate, ArgumentValidationError, execute_call
+  rust: minion-agent-rust/crates/minion-agent/src/tools/execution.rs::execute_tool_calls; minion-agent-rust/crates/minion-agent/tests/tool_execution.rs; minion-agent-rust/crates/minion-agent/tests/tool_execution_conformance.rs
   disposition: adopted
 - id: TOOL-004
   phase: 4
-  pi: packages/agent/src/agent-loop.ts::executePreparedToolCall
+  pi: packages/agent/src/agent-loop.ts::prepareToolCall (before-hook), executePreparedToolCall (execute)
   surface: before hook + execution failure conversion
-  rule: beforeToolCall and execute failures -> error tool result
+  rule: 'pinned Pi wraps prepareArguments + validateToolArguments + beforeToolCall in ONE
+    try/catch: a before-hook listener that throws (rather than returning a structured block)
+    collapses to the same generic error result as a prepare/validation failure -- an "immediate"
+    outcome (TOOL-017), execute skipped, after-hook never runs. A beforeToolCall block
+    (Minion: tools/pre-execute Block) is likewise immediate. execute() itself throwing/rejecting
+    is a DIFFERENT outcome class: it reached execute(), so it still flows through the after-hook
+    exactly like success would (TOOL-005). Failure text in every case is the raised error''s own
+    message, never a Python exception class name prefixed onto it (L06-R002, corrected this pass
+    -- an earlier revision emitted e.g. "RuntimeError: boom" instead of pinned Pi''s own
+    error.message-only convention, "boom"). This holds identically whether zero, one, or several
+    before-hook listeners are registered (L06-R006): a raised exception unwinds the whole
+    waterfall regardless of listener count.'
   tests:
   - before-hook-failure-becomes-tool-error
   - execute-failure-becomes-tool-error
-  python: src/minion_agent/tools/ (rewrite)
-  rust: Phase 4 tools
+  - test_a_raising_before_hook_listener_produces_an_error_result
+  - test_a_listener_may_block_the_call
+  - test_a_raising_tool_produces_an_error_result
+  - test_an_execute_failure_is_transformed_too
+  - test_an_unknown_tool_never_reaches_the_after_hook
+  python: src/minion_agent/tools/execute.py::execute_call
+  rust: minion-agent-rust/crates/minion-agent/src/tools/execution.rs::execute_tool_calls/register_before_tool_call_hook; minion-agent-rust/crates/minion-agent/tests/tool_execution.rs; minion-agent-rust/crates/minion-agent/tests/tool_execution_conformance.rs
   disposition: adopted
 - id: TOOL-005
   phase: 4
   pi: packages/agent/src/agent-loop.ts::finalizeExecutedToolCall
-  surface: after hook failure conversion
-  rule: afterToolCall failure replaces prior result with error result
+  surface: after hook success-path merge and failure conversion
+  rule: 'the after-hook may replace content/details/usage/terminate/is_error field-by-field --
+    omitted fields keep their prior value, no deep merge (removing a key requires supplying the
+    whole replacement). tool_call_id, tool_name, and added_tool_names are NOT overridable fields
+    at all; a hook cannot add, remove, or replace them. This is enforced structurally at the
+    production dispatch boundary (_finalize), not merely by a constrained registration helper
+    (L06-R003, corrected a THIRD time this pass): register_after_tool_call_hook accepts a hook
+    returning an AfterToolCallOverride (exactly Pi''s five AfterToolCallResult fields) or None, a
+    type with structurally no slot for identity/added_tool_names -- but tools/post-execute remains
+    a public Runtime event, so a raw ctx.events.on(TOOLS_POST_EXECUTE, ...) registration could
+    still return/replace the entire ToolResult and observably rewrite those fields even after the
+    first repair (a genuine PI_PARITY_DEFECT the independent Rust re-review caught: the helper
+    alone is convention, not enforcement). A second repair had _finalize unconditionally restore
+    tool_call_id/tool_name/added_tool_names after the ENTIRE tools/post-execute waterfall
+    completed -- correct for the final result, but the Rust final-closure review proved a listener
+    could still delegate a forged replacement to a LATER listener via next(...), which observed
+    the forgery before the end-of-waterfall restoration ever ran, and could copy it into an
+    allowed field such as details. The actual rule -- and the third repair -- is per-step, not
+    final-only: EventBus.waterfall''s normalize_step parameter (an additive, opt-in per-dispatch
+    hook, not a change to any other event''s default behavior) now restores identity/
+    added_tool_names on every listener-to-listener handoff, so no listener anywhere in the chain,
+    helper-registered or raw, ever observes a predecessor''s unauthorized replacement -- only a
+    listener that short-circuits without delegating skips normalize_step, and that value is still
+    covered by the (retained) end-of-waterfall restoration since there is no next listener to
+    protect from. If the after-hook itself throws, the ENTIRE prior result -- success or failure,
+    with whatever usage/details/terminate it carried -- is discarded and replaced with a plain
+    error result (message per L06-R002, no class-name prefix). This is a replacement, not a merge.
+    With N listeners (L06-R006, an intentional Minion architectural extension pinned Pi does not
+    itself define): each sees the result exactly as merged AND normalized by every earlier
+    listener; a mid-chain exception stops later listeners and replaces the accumulated result the
+    same way a single listener''s exception would -- true for a mix of helper-registered and raw
+    listeners alike, in either registration order.'
   tests:
   - after-hook-failure-replaces-result-with-tool-error
-  python: src/minion_agent/tools/ (rewrite)
-  rust: Phase 4 tools
+  - test_omitted_fields_are_unchanged
+  - test_there_is_no_deep_merge
+  - test_a_hook_cannot_override_execution_identity_or_added_tool_names
+  - test_a_hook_that_returns_none_leaves_the_result_unchanged
+  - test_a_raising_after_hook_replaces_the_entire_prior_result
+  - test_registration_order_equals_application_order
+  - test_a_raw_event_listener_cannot_replace_execution_identity
+  - test_a_raw_event_listener_may_still_change_allowed_fields
+  - test_in_place_mutation_of_the_result_is_structurally_impossible
+  - test_mixed_raw_and_helper_listeners_share_the_same_authority
+  - test_middle_listener_failure_skips_later_listeners_with_a_raw_listener_present
+  - test_a_downstream_listener_cannot_observe_a_predecessors_forged_identity
+  - test_per_step_normalization_preserves_legitimate_accumulated_overrides
+  - test_reversed_mixed_registration_order_shares_the_same_authority
+  python: src/minion_agent/tools/execute.py::_finalize, _merge_override, register_after_tool_call_hook, AfterToolCallOverride; src/minion_agent/runtime/events.py::EventBus.waterfall (normalize_step)
+  rust: minion-agent-rust/crates/minion-agent/src/tools/execution.rs::AfterToolCallOverride/register_after_tool_call_hook; minion-agent-rust/crates/minion-agent/tests/tool_execution.rs; minion-agent-rust/crates/minion-agent/tests/tool_execution_conformance.rs
   disposition: adopted
 - id: TOOL-006
   phase: 4
-  pi: packages/agent/src/agent-loop.ts::executeToolCalls*
+  pi: packages/agent/src/agent-loop.ts::executeToolCallsParallel
   surface: result/event ordering
-  rule: execution-end follows completion order; tool-result messages preserve assistant source order
+  rule: 'two orders are normative and different, stated directly in pinned Pi''s own
+    ToolExecutionMode docstring: tool_execution_end fires in actual completion order; the final
+    ToolResultMessage sequence preserves source ToolCall order regardless of completion order.
+    Both true simultaneously in one parallel batch -- neither is sorted from the other after the
+    fact (Python: asyncio.gather preserves input-array order in its resolved output, the same
+    structural guarantee as JS Promise.all -- not a manual sort). Per-call failure is isolated:
+    one call erroring does not cancel or delay its siblings.'
   tests:
   - parallel-tool-completion-vs-message-order
-  python: src/minion_agent/tools/ + agent_loop
-  rust: Phase 4 tools
+  - test_results_come_back_in_assistant_source_order
+  - test_completion_order_is_recorded_separately
+  - test_parallel_tools_actually_overlap
+  - test_every_call_gets_a_result_even_when_one_raises
+  python: src/minion_agent/tools/batch.py::execute_batch, BatchOutcome
+  rust: minion-agent-rust/crates/minion-agent/src/tools/execution.rs::execute_tool_calls; minion-agent-rust/crates/minion-agent/tests/tool_execution.rs; minion-agent-rust/crates/minion-agent/tests/tool_execution_conformance.rs
   disposition: adopted
 - id: TOOL-007
   phase: 4
@@ -541,6 +646,99 @@ rows:
     non-object-instance and top-level-combinator regression cases)
   python: src/minion_agent/tools/definition.py::ToolDefinition.parameters, ToolDefinition.__post_init__
   rust: minion-agent-rust/crates/minion-agent/src/llm/vocabulary.rs::JsonSchemaObject/ToolSchema; tests/tool_model.rs; tests/tool_registry_conformance.rs
+  disposition: adopted
+- id: TOOL-017
+  phase: 4
+  pi: packages/agent/src/types.ts::AgentEvent (tool_execution_start/tool_execution_end)
+  surface: tool execution event bracketing
+  rule: 'tool_execution_start fires for every tool call in source order, before resolution,
+    regardless of the eventual outcome (unknown tool, immediate failure, or execution).
+    tool_execution_end fires for every call exactly once, after the after-hook has run (when it
+    runs at all) -- in parallel execution this is actual completion order, independent of source
+    order. Minion realizes these as tools/execution-start and tools/execution-end (EMIT-mode
+    Runtime events carrying the real ToolResult object, not a decomposed JSON payload) --
+    matching Pi''s live AgentEvent stream architecturally, not the exact wire payload shape.'
+  tests:
+  - test_execute_receives_the_real_tool_call_id
+  - length-stop-executes-no-tools (start/end fire even when execution never happens)
+  python: src/minion_agent/tools/events.py::TOOLS_EXECUTION_START/TOOLS_EXECUTION_END, src/minion_agent/tools/execute.py::execute_call, _immediate
+  rust: minion-agent-rust/crates/minion-agent/src/tools/execution.rs::ToolExecutionStart/ToolExecutionUpdate/ToolExecutionEnd; minion-agent-rust/crates/minion-agent/tests/tool_execution.rs; minion-agent-rust/crates/minion-agent/tests/tool_execution_conformance.rs
+  disposition: intentional divergence
+- id: TOOL-018
+  phase: 4
+  pi: packages/agent/src/types.ts::AgentTool.prepareArguments/execute
+  surface: prepare_arguments invocation ordering and execute capability shape
+  rule: 'prepare_arguments always runs before schema validation, never after -- reordering this
+    is a PI_PARITY_DEFECT, not a stylistic choice. It receives a fresh copy of the arguments so
+    an in-place-mutating shim cannot corrupt the source ToolCall.arguments (nonmutation
+    discipline, matching XFORM). execute(tool_call_id, arguments) receives the pipeline''s own
+    real call id as its first argument (closing part of the TOOL-F003 gap Layer 05 disclosed),
+    plus an update callback appended when the tool declares a third parameter. signal
+    (cancellation) remains behaviorally unrealized in Layer 06 -- Python has no
+    AbortSignal-equivalent abstraction yet, but certified Rust Layer 05 already reserves one
+    structurally (ToolExecutionSignal, ToolExecutionRequest.signal in
+    minion-agent-rust/crates/minion-agent/src/tools/definition.rs) without exercising
+    cancellation behavior (L06-R005, corrected this pass -- an earlier revision incorrectly
+    claimed no equivalent type exists in either language). The defer is behavioral, not
+    architectural: assurance Layer 09 owns cancellation propagation and can add it without
+    changing this row''s non-cancelled rule or requiring Rust to discard its existing seam.'
+  tests:
+  - test_prepare_arguments_runs_before_validation
+  - test_prepare_arguments_does_not_mutate_the_original_call
+  - test_execute_receives_the_real_tool_call_id
+  python: src/minion_agent/tools/execute.py::_prepare, execute_call
+  rust: minion-agent-rust/crates/minion-agent/src/tools/execution.rs::execute_tool_calls; minion-agent-rust/crates/minion-agent/src/tools/definition.rs::ToolExecutionRequest; minion-agent-rust/crates/minion-agent/tests/tool_execution.rs
+  disposition: adopted
+- id: TOOL-019
+  phase: 4
+  pi: packages/agent/src/types.ts::AgentToolUpdateCallback
+  surface: live update / late-update suppression
+  rule: '"Calls made after the tool promise settles are ignored" -- update(partial) is silently
+    dropped once execute()''s own call has settled (succeeded or failed), whether that call
+    stashed the callback and invoked it later or scheduled it via a background task. No error,
+    no queued delivery, no observable effect.'
+  tests:
+  - late-tool-update-ignored
+  - test_a_late_update_after_the_tool_settles_is_ignored
+  - test_a_tool_may_report_partial_output
+  - test_updates_carry_the_call_id_so_a_consumer_can_route_them
+  python: src/minion_agent/tools/execute.py::execute_call (accepting_updates)
+  rust: minion-agent-rust/crates/minion-agent/src/tools/execution.rs::ToolExecutionUpdate/execute_tool_calls; minion-agent-rust/crates/minion-agent/tests/tool_execution.rs; minion-agent-rust/crates/minion-agent/tests/tool_execution_conformance.rs
+  disposition: adopted
+- id: TOOL-020
+  phase: 4
+  pi: packages/agent/src/types.ts::AgentLoopConfig.toolExecution
+  surface: run-level default execution-mode ownership
+  rule: 'the effective execution-mode default belongs to execution, not to ToolDefinition itself
+    -- Layer 05''s execution_mode: None deliberately means "no per-tool preference," never
+    "parallel" (TOOL-F004); only the batch decides what None falls back to. Pinned Pi''s own
+    default is "parallel" (AgentLoopConfig.toolExecution?, "Default: parallel"); omitting the
+    run-level default at the Python call site must not accidentally serialize a batch with no
+    per-tool override.'
+  tests:
+  - test_the_run_level_default_is_parallel_when_unspecified
+  - test_the_run_level_default_serializes_the_batch_even_without_a_sequential_tool
+  python: src/minion_agent/tools/batch.py::execute_batch (default_mode parameter)
+  rust: minion-agent-rust/crates/minion-agent/src/tools/execution.rs::ToolExecutionOptions/execute_tool_calls; minion-agent-rust/crates/minion-agent/tests/tool_execution.rs; minion-agent-rust/crates/minion-agent/tests/tool_execution_conformance.rs
+  disposition: adopted
+- id: TOOL-021
+  phase: 4
+  pi: packages/agent/src/types.ts::AgentToolResult.usage/addedToolNames, packages/ai/src/types.ts::ToolCall.namespace
+  surface: execution-result metadata pass-through
+  rule: 'usage on a tool result is preserved end to end into ToolResultMessage.usage and is
+    never folded into main LLM context token accounting (already-certified Layer-02 rule).
+    added_tool_names and details are pass-through metadata Layer 06 neither interprets nor
+    requires -- a result declaring added_tool_names reports what it registered itself, through
+    the real ToolRegistry, in the same call; the field is evidence, not an instruction the
+    pipeline acts on. namespace, if present on a ToolCall, is not consulted for resolution
+    (lookup is by name only) and is not echoed into any Layer-06 event or result.'
+  tests:
+  - test_an_ordinary_result_adds_nothing
+  - test_the_result_declares_what_it_added
+  - test_declaring_a_name_does_not_register_anything
+  - test_a_tool_can_introduce_another
+  python: src/minion_agent/tools/execute.py::execute_call, src/minion_agent/tools/result.py::ToolResult
+  rust: minion-agent-rust/crates/minion-agent/src/tools/execution.rs::AfterToolCallResult/execute_tool_calls; minion-agent-rust/crates/minion-agent/tests/tool_execution.rs
   disposition: adopted
 - id: TOOL-009
   phase: 4

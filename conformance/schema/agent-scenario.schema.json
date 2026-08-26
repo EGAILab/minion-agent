@@ -113,6 +113,16 @@
       "items": { "type": "array", "items": { "type": "string" } },
       "description": "Tool names offered to the model, per request in order. Pins what registration and withdrawal actually change."
     },
+    "expect_updates": {
+      "type": "array",
+      "items": {
+        "type": "array",
+        "items": { "type": "string" },
+        "minItems": 2,
+        "maxItems": 2
+      },
+      "description": "[tool_call_id, partial] pairs in emission order (TOOL-017) -- a late update (after the tool settles) must never appear here."
+    },
     "expect_error": {
       "type": "object",
       "required": [
@@ -140,7 +150,11 @@
       "properties": {
         "event": { "enum": ["tools/pre-execute", "tools/post-execute"] },
         "action": {
-          "enum": ["block", "narrow_arguments", "annotate_result", "abstain"]
+          "enum": ["block", "narrow_arguments", "annotate_result", "abstain", "raise"]
+        },
+        "message": {
+          "type": "string",
+          "description": "Exception message for the `raise` action (TOOL-017)."
         },
         "reason": { "type": "string" },
         "terminate": { "type": "boolean", "default": false },
@@ -415,7 +429,34 @@
           "minimum": 0
         },
         "terminate": { "type": "boolean", "default": false },
-        "adds_tools": { "type": "array", "items": { "type": "string" } }
+        "adds_tools": { "type": "array", "items": { "type": "string" } },
+        "parameters": {
+          "$comment": "The actual Layer-05 shared ToolDefinition.parameters representation -- a plain, object-valued JSON Schema mapping -- passed straight through to the production validator, never a Python-specific shorthand (L06-R001). Omitted defaults to the explicit empty-object schema.",
+          "type": "object"
+        },
+        "prepare_arguments": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "raises": {
+              "type": "string",
+              "description": "prepare_arguments throws this message instead of running (TOOL-017)."
+            },
+            "set": {
+              "type": "object",
+              "description": "Keys to overwrite/add on the arguments before validation."
+            }
+          }
+        },
+        "emits_updates": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Partial-output values the tool reports, in order, before returning (TOOL-017)."
+        },
+        "late_update": {
+          "type": "string",
+          "description": "A partial-output value the tool reports one cooperative scheduler tick AFTER it has already returned -- must be silently ignored (TOOL-017)."
+        }
       }
     },
     "step": {

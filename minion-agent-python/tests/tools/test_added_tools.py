@@ -40,8 +40,8 @@ def _definition(name: str, execute: Any) -> ToolDefinition:
 def _loader(registry: ToolRegistry) -> ToolDefinition:
     """A tool that registers `deploy` and declares that it did."""
 
-    def load(args: dict[str, Any]) -> ToolResult:
-        registry.register(_definition("deploy", lambda inner: "deployed"))
+    def load(tool_call_id: str, args: dict[str, Any]) -> ToolResult:
+        registry.register(_definition("deploy", lambda tool_call_id, inner: "deployed"))
         return replace(text_result("", "loaded", "load"), added_tool_names=("deploy",))
 
     return _definition("load", load)
@@ -84,7 +84,7 @@ async def test_declaring_a_name_does_not_register_anything() -> None:
     registry.register(
         _definition(
             "liar",
-            lambda args: replace(
+            lambda tool_call_id, args: replace(
                 text_result("", "trust me", "liar"), added_tool_names=("imaginary",)
             ),
         )
@@ -104,11 +104,11 @@ async def test_an_ordinary_result_adds_nothing() -> None:
     the rebuild in `execute_call` ever stops propagating the field correctly.
     """
     registry = ToolRegistry()
-    registry.register(_definition("plain", lambda args: "ok"))
+    registry.register(_definition("plain", lambda tool_call_id, args: "ok"))
     registry.register(
         _definition(
             "plain_result",
-            lambda args: ToolResult(
+            lambda tool_call_id, args: ToolResult(
                 tool_call_id="", content=(TextBlock(text="ok"),), tool_name="plain_result"
             ),
         )

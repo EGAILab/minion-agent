@@ -5,7 +5,7 @@ from typing import Any
 
 from minion_agent.llm import ToolCallBlock, text_of
 from minion_agent.runtime import Context
-from minion_agent.tools.batch import execute_batch
+from minion_agent.tools.batch import execute_batch, execute_length_stop_batch
 from minion_agent.tools.definition import ExecutionMode, ToolDefinition
 from minion_agent.tools.events import declare_tools_events
 from minion_agent.tools.registry import ToolRegistry
@@ -54,11 +54,11 @@ async def test_results_come_back_in_assistant_source_order() -> None:
     order the tools happened to finish in."""
     gate = asyncio.Event()
 
-    async def slow(args: dict[str, Any]) -> str:
+    async def slow(tool_call_id: str, args: dict[str, Any]) -> str:
         await gate.wait()
         return "slow"
 
-    async def fast(args: dict[str, Any]) -> str:
+    async def fast(tool_call_id: str, args: dict[str, Any]) -> str:
         gate.set()
         return "fast"
 
@@ -80,11 +80,11 @@ async def test_completion_order_is_recorded_separately() -> None:
     One log carries both, so the batch has to report both."""
     gate = asyncio.Event()
 
-    async def slow(args: dict[str, Any]) -> str:
+    async def slow(tool_call_id: str, args: dict[str, Any]) -> str:
         await gate.wait()
         return "slow"
 
-    async def fast(args: dict[str, Any]) -> str:
+    async def fast(tool_call_id: str, args: dict[str, Any]) -> str:
         gate.set()
         return "fast"
 
@@ -105,11 +105,11 @@ async def test_parallel_tools_actually_overlap() -> None:
     """Otherwise 'parallel' is a label rather than a behavior."""
     started = asyncio.Event()
 
-    async def first(args: dict[str, Any]) -> str:
+    async def first(tool_call_id: str, args: dict[str, Any]) -> str:
         started.set()
         return "first"
 
-    async def second(args: dict[str, Any]) -> str:
+    async def second(tool_call_id: str, args: dict[str, Any]) -> str:
         await asyncio.wait_for(started.wait(), timeout=1)
         return "second"
 
@@ -139,8 +139,12 @@ async def test_one_sequential_tool_serializes_the_whole_batch() -> None:
     outcome = await execute_batch(
         (_call("t1", "exclusive"), _call("t2", "shared")),
         registry=_registry(
-            _tool("exclusive", lambda args: record("exclusive"), ExecutionMode.SEQUENTIAL),
-            _tool("shared", lambda args: record("shared")),
+            _tool(
+                "exclusive",
+                lambda tool_call_id, args: record("exclusive"),
+                ExecutionMode.SEQUENTIAL,
+            ),
+            _tool("shared", lambda tool_call_id, args: record("shared")),
         ),
         ctx=_ctx(),
     )
@@ -170,8 +174,12 @@ async def test_a_sequential_tool_serializes_the_batch_from_any_position() -> Non
     outcome = await execute_batch(
         (_call("t1", "shared"), _call("t2", "exclusive")),
         registry=_registry(
-            _tool("shared", lambda args: record("shared")),
-            _tool("exclusive", lambda args: record("exclusive"), ExecutionMode.SEQUENTIAL),
+            _tool("shared", lambda tool_call_id, args: record("shared")),
+            _tool(
+                "exclusive",
+                lambda tool_call_id, args: record("exclusive"),
+                ExecutionMode.SEQUENTIAL,
+            ),
         ),
         ctx=_ctx(),
     )
@@ -187,8 +195,8 @@ async def test_a_sequential_batch_completes_in_source_order() -> None:
     outcome = await execute_batch(
         (_call("t1", "a"), _call("t2", "b")),
         registry=_registry(
-            _tool("a", lambda args: "a", ExecutionMode.SEQUENTIAL),
-            _tool("b", lambda args: "b"),
+            _tool("a", lambda tool_call_id, args: "a", ExecutionMode.SEQUENTIAL),
+            _tool("b", lambda tool_call_id, args: "b"),
         ),
         ctx=_ctx(),
     )
@@ -209,11 +217,11 @@ async def test_an_unknown_tool_does_not_serialize_the_batch() -> None:
     """
     started = asyncio.Event()
 
-    async def first(args: dict[str, Any]) -> str:
+    async def first(tool_call_id: str, args: dict[str, Any]) -> str:
         started.set()
         return "first"
 
-    async def second(args: dict[str, Any]) -> str:
+    async def second(tool_call_id: str, args: dict[str, Any]) -> str:
         await asyncio.wait_for(started.wait(), timeout=1)
         return "second"
 
@@ -239,12 +247,14 @@ async def test_an_unknown_tool_does_not_serialize_the_batch() -> None:
 
 
 async def test_the_fold_needs_every_result_to_terminate() -> None:
-    def terminating(args: dict[str, Any]) -> ToolResult:
+    def terminating(tool_call_id: str, args: dict[str, Any]) -> ToolResult:
         return ToolResult(tool_call_id="", content=(), tool_name="stop", terminate=True)
 
     outcome = await execute_batch(
         (_call("t1", "stop"), _call("t2", "go")),
-        registry=_registry(_tool("stop", terminating), _tool("go", lambda args: "go")),
+        registry=_registry(
+            _tool("stop", terminating), _tool("go", lambda tool_call_id, args: "go")
+        ),
         ctx=_ctx(),
     )
 
@@ -252,7 +262,7 @@ async def test_the_fold_needs_every_result_to_terminate() -> None:
 
 
 async def test_a_unanimous_batch_terminates() -> None:
-    def terminating(args: dict[str, Any]) -> ToolResult:
+    def terminating(tool_call_id: str, args: dict[str, Any]) -> ToolResult:
         return ToolResult(tool_call_id="", content=(), tool_name="stop", terminate=True)
 
     outcome = await execute_batch(
@@ -265,15 +275,79 @@ async def test_a_unanimous_batch_terminates() -> None:
 
 
 async def test_every_call_gets_a_result_even_when_one_raises() -> None:
-    def broken(args: dict[str, Any]) -> str:
+    def broken(tool_call_id: str, args: dict[str, Any]) -> str:
         raise RuntimeError("boom")
 
     outcome = await execute_batch(
         (_call("t1", "ok"), _call("t2", "broken"), _call("t3", "ok")),
-        registry=_registry(_tool("ok", lambda args: "ok"), _tool("broken", broken)),
+        registry=_registry(_tool("ok", lambda tool_call_id, args: "ok"), _tool("broken", broken)),
         ctx=_ctx(),
     )
 
     assert len(outcome.results) == 3
     assert [r.tool_call_id for r in outcome.results] == ["t1", "t2", "t3"]
     assert outcome.results[1].is_error
+
+
+async def test_the_run_level_default_serializes_the_batch_even_without_a_sequential_tool() -> None:
+    """Pinned Pi's `config.toolExecution === "sequential" || hasSequentialToolCall`
+    (`packages/agent/src/agent-loop.ts::executeToolCalls`) -- the run-level default alone can
+    force sequential scheduling, independent of any per-tool `execution_mode` (`TOOL-017`)."""
+    live: list[str] = []
+    peak = 0
+
+    async def record(tool_call_id: str, args: dict[str, Any]) -> str:
+        nonlocal peak
+        live.append(tool_call_id)
+        peak = max(peak, len(live))
+        await asyncio.sleep(0)
+        live.remove(tool_call_id)
+        return tool_call_id
+
+    outcome = await execute_batch(
+        (_call("t1", "a"), _call("t2", "b")),
+        registry=_registry(_tool("a", record), _tool("b", record)),
+        ctx=_ctx(),
+        default_mode=ExecutionMode.SEQUENTIAL,
+    )
+
+    assert peak == 1
+    assert outcome.completion_order == ("t1", "t2")
+
+
+async def test_the_run_level_default_is_parallel_when_unspecified() -> None:
+    """Matches pinned Pi's own default ("Default: parallel",
+    `AgentLoopConfig.toolExecution?`) -- omitting `default_mode` must not accidentally
+    serialize a batch with no per-tool override."""
+    started = asyncio.Event()
+
+    async def first(tool_call_id: str, args: dict[str, Any]) -> str:
+        started.set()
+        return "first"
+
+    async def second(tool_call_id: str, args: dict[str, Any]) -> str:
+        await asyncio.wait_for(started.wait(), timeout=1)
+        return "second"
+
+    outcome = await execute_batch(
+        (_call("t1", "second"), _call("t2", "first")),
+        registry=_registry(_tool("second", second), _tool("first", first)),
+        ctx=_ctx(),
+    )
+
+    assert [text_of(r.to_message()) for r in outcome.results] == ["second", "first"]
+
+
+async def test_length_stop_executes_nothing_and_fails_every_call() -> None:
+    """Pinned Pi's `failToolCallsFromTruncatedMessage`: zero execution, every call becomes the
+    same error result, in source order, `terminate` always `False` (`TOOL-017`). No registry is
+    even consulted -- not even an unknown-tool lookup happens for these calls."""
+    outcome = await execute_length_stop_batch(
+        (_call("t1", "a"), _call("t2", "unknown-entirely")), ctx=_ctx()
+    )
+
+    assert len(outcome.results) == 2
+    assert [r.tool_call_id for r in outcome.results] == ["t1", "t2"]
+    assert all(r.is_error for r in outcome.results)
+    assert all("output token limit" in text_of(r.to_message()) for r in outcome.results)
+    assert not outcome.terminate

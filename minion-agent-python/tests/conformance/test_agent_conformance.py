@@ -53,7 +53,17 @@ async def test_agent_scenario(scenario: Path) -> None:
         assert outcome["events"] == document["expect_events"]
 
     if "expect_messages" in document:
-        assert outcome["messages"] == document["expect_messages"]
+        expected_messages = document["expect_messages"]
+        assert len(outcome["messages"]) == len(expected_messages)
+        for actual, expected in zip(outcome["messages"], expected_messages, strict=True):
+            assert actual["role"] == expected["role"]
+            if "text_contains" in expected:
+                # Host-library-specific error text (e.g. pydantic's own validation-error
+                # formatting) is not a stable cross-language contract (TOOL-017) -- only the
+                # Minion-authored prefix/substring is asserted, never the whole message.
+                assert expected["text_contains"] in actual["text"]
+            else:
+                assert actual["text"] == expected["text"]
 
     if "expect_causes" in document:
         observed = [[cause["origin"] for cause in turn] for turn in outcome["causes"]]
@@ -70,3 +80,6 @@ async def test_agent_scenario(scenario: Path) -> None:
 
     if "expect_request_tools" in document:
         assert outcome["request_tools"] == document["expect_request_tools"]
+
+    if "expect_updates" in document:
+        assert outcome["updates"] == [list(entry) for entry in document["expect_updates"]]

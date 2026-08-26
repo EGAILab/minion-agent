@@ -1,11 +1,26 @@
 name: before-hook-failure-becomes-tool-error
-family: agent
-status: canonical-baseline
-authority: 2026-08-20-minion-agent-design.md
-pi_revision: b7bb00b936dbe21b8e160b3e89efdec361846699
-given:
-  fixture: TO_BE_FILLED_FROM_PINNED_PI_BEHAVIOR
-when:
-  op: TO_BE_BOUND_TO_REAL_PUBLIC_API
-expect:
-  observable: TO_BE_PINNED_EXACTLY
+description: >
+  Pinned Pi wraps `prepareToolCallArguments` + `validateToolArguments` + `config.beforeToolCall`
+  in one try/catch (`packages/agent/src/agent-loop.ts::prepareToolCall`, Layer 06, TOOL-017): a
+  before-hook that throws -- rather than returning a structured `{block: true}` -- collapses to
+  the same generic error result as any other pre-execute-stage failure. `execute` is skipped
+  entirely; the tool never runs.
+provider_script:
+  - content: [{ type: tool_call, id: t1, name: guarded, arguments: {} }]
+    stop_reason: tool_use
+  - content: [{ type: text, text: done }]
+    stop_reason: stop
+tools:
+  guarded: { result: { text: should never run } }
+listeners:
+  - event: tools/pre-execute
+    action: raise
+    message: policy engine unavailable
+steps:
+  - followup: go
+  - await_idle: true
+expect_messages:
+  - { role: user, text: go }
+  - { role: assistant, text: "" }
+  - { role: tool_result, text: "policy engine unavailable" }
+  - { role: assistant, text: done }

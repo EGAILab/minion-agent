@@ -59,6 +59,11 @@ impl ToolCapabilityError {
             message: message.into(),
         }
     }
+
+    /// Returns the semantic capability error message without a Rust error-type prefix.
+    pub fn message(&self) -> &str {
+        &self.message
+    }
 }
 
 #[derive(Clone)]

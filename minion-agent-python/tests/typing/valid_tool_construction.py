@@ -99,3 +99,20 @@ _top_level_combinator: ToolDefinition = ToolDefinition(
     execute=lambda args: "ok",
     label="H",
 )
+
+# Layer 06's real calling convention: `execute(tool_call_id, arguments)`, with `update`
+# appended when the tool declares a third parameter (`TOOL-017`).
+_with_tool_call_id: ToolDefinition = ToolDefinition(
+    name="i",
+    description="i",
+    parameters=_EMPTY_SCHEMA,
+    execute=lambda tool_call_id, args: tool_call_id,
+    label="I",
+)
+_with_tool_call_id_and_update: ToolDefinition = ToolDefinition(
+    name="j",
+    description="j",
+    parameters=_EMPTY_SCHEMA,
+    execute=lambda tool_call_id, args, update: update(tool_call_id) or "ok",
+    label="J",
+)

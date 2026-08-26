@@ -1,11 +1,27 @@
 name: parallel-tool-completion-vs-message-order
-family: agent
-status: canonical-baseline
-authority: 2026-08-20-minion-agent-design.md
-pi_revision: b7bb00b936dbe21b8e160b3e89efdec361846699
-given:
-  fixture: TO_BE_FILLED_FROM_PINNED_PI_BEHAVIOR
-when:
-  op: TO_BE_BOUND_TO_REAL_PUBLIC_API
-expect:
-  observable: TO_BE_PINNED_EXACTLY
+description: >
+  Pinned Pi's own distinction, stated directly in `ToolExecutionMode`'s docstring
+  (`packages/agent/src/types.ts`, Layer 06, TOOL-017): "`tool_execution_end` is emitted in tool
+  completion order... while tool-result message artifacts are emitted later in assistant source
+  order." A call listed first but finishing second must still appear first in the final
+  tool-result messages, while the completion-order record shows the true finish order.
+provider_script:
+  - content:
+      - { type: tool_call, id: t1, name: slow, arguments: {} }
+      - { type: tool_call, id: t2, name: fast, arguments: {} }
+    stop_reason: tool_use
+  - content: [{ type: text, text: done }]
+    stop_reason: stop
+tools:
+  slow: { result: { text: slow finished }, delay_ticks: 1 }
+  fast: { result: { text: fast finished } }
+steps:
+  - followup: go
+  - await_idle: true
+expect_tool_completion_order: [t2, t1]
+expect_messages:
+  - { role: user, text: go }
+  - { role: assistant, text: "" }
+  - { role: tool_result, text: slow finished }
+  - { role: tool_result, text: fast finished }
+  - { role: assistant, text: done }

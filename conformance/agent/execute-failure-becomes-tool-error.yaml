@@ -1,11 +1,25 @@
 name: execute-failure-becomes-tool-error
-family: agent
-status: canonical-baseline
-authority: 2026-08-20-minion-agent-design.md
-pi_revision: b7bb00b936dbe21b8e160b3e89efdec361846699
-given:
-  fixture: TO_BE_FILLED_FROM_PINNED_PI_BEHAVIOR
-when:
-  op: TO_BE_BOUND_TO_REAL_PUBLIC_API
-expect:
-  observable: TO_BE_PINNED_EXACTLY
+description: >
+  Pinned Pi's `executePreparedToolCall` catches a throwing/rejecting `execute()` and converts it
+  to a normal error `AgentToolResult` (`packages/agent/src/agent-loop.ts`, Layer 06, TOOL-017) --
+  distinct from an "immediate" (pre-execute) failure: this outcome DID reach `execute()`, so it
+  still flows through the after-hook (`tools/post-execute`) exactly like a success would.
+provider_script:
+  - content: [{ type: tool_call, id: t1, name: flaky, arguments: {} }]
+    stop_reason: tool_use
+  - content: [{ type: text, text: done }]
+    stop_reason: stop
+tools:
+  flaky: { raises: disk on fire }
+listeners:
+  - event: tools/post-execute
+    action: annotate_result
+    label: annotated
+steps:
+  - followup: go
+  - await_idle: true
+expect_messages:
+  - { role: user, text: go }
+  - { role: assistant, text: "" }
+  - { role: tool_result, text: "disk on fire-annotated" }
+  - { role: assistant, text: done }

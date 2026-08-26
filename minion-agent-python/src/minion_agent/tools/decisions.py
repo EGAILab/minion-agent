@@ -1,4 +1,4 @@
-"""Closed decision union for `tools/pre-execute`.
+"""Closed decision/override types for `tools/pre-execute` and `tools/post-execute`.
 
 Identical in shape to `agent/pre-step` (design spec section 6): a listener with
 no opinion delegates, a listener that owns the decision returns one without
@@ -13,6 +13,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any
+
+from ..llm import ToolResultContentBlock, Usage
 
 
 @dataclass(frozen=True, slots=True)
@@ -41,3 +43,24 @@ class Proceed:
 
 
 type PreExecuteDecision = Block | Proceed
+
+
+@dataclass(frozen=True, slots=True)
+class AfterToolCallOverride:
+    """Pinned Pi's `AfterToolCallResult` (`packages/agent/src/types.ts`) -- the ONLY fields an
+    after-hook may override, exactly five, field-by-field: an omitted (`None`) field keeps the
+    current value; a supplied field replaces it wholesale (no deep merge). `tool_call_id`,
+    `tool_name`, and `added_tool_names` are execution identity/metadata, not part of Pi's
+    override surface at all -- this type structurally cannot carry them, so a hook cannot
+    replace them by construction, not merely by convention (`L06-R003`).
+
+    An earlier, uncertified revision of this pipeline let an after-hook listener return/replace
+    the entire `ToolResult`, which could observably rewrite identity fields Pi never allows a
+    hook to touch -- a genuine `CONTRACT_ASSURANCE_DEFECT`. This type is the repair.
+    """
+
+    content: tuple[ToolResultContentBlock, ...] | None = None
+    details: dict[str, Any] | None = None
+    is_error: bool | None = None
+    usage: Usage | None = None
+    terminate: bool | None = None

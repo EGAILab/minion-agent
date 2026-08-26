@@ -406,9 +406,37 @@ impl EventBus {
     {
         let (callbacks, terminal) =
             self.snapshot::<P, R, WaterfallCallback<P, R>>(spec, DispatchMode::Waterfall, scope)?;
-        run_waterfall(callbacks.into(), terminal, 0, payload)
+        run_waterfall(callbacks.into(), terminal, 0, payload, None)
             .await
             .map_err(EventError::from)
+    }
+
+    /// Runs a waterfall while normalizing every delegated replacement before
+    /// the next listener observes it. Ordinary [`Self::waterfall`] dispatch is
+    /// unchanged; this opt-in seam is for contracts with per-listener authority.
+    pub async fn waterfall_normalized<P, R, F>(
+        &self,
+        spec: &EventSpec<P, R>,
+        payload: P,
+        scope: Option<&ScopeHandle>,
+        normalize_step: F,
+    ) -> Result<R, EventError>
+    where
+        P: Clone + Send + 'static,
+        R: Send + 'static,
+        F: Fn(P) -> P + Send + Sync + 'static,
+    {
+        let (callbacks, terminal) =
+            self.snapshot::<P, R, WaterfallCallback<P, R>>(spec, DispatchMode::Waterfall, scope)?;
+        run_waterfall(
+            callbacks.into(),
+            terminal,
+            0,
+            payload,
+            Some(Arc::new(normalize_step)),
+        )
+        .await
+        .map_err(EventError::from)
     }
 
     fn register_callback<P, R, C>(
@@ -736,6 +764,7 @@ fn run_waterfall<P, R>(
     terminal: Arc<Terminal<P, R>>,
     mut index: usize,
     mut payload: P,
+    normalize_step: Option<Arc<dyn Fn(P) -> P + Send + Sync>>,
 ) -> BoxFuture<'static, Result<R, WaterfallError>>
 where
     P: Clone + Send + 'static,
@@ -761,7 +790,11 @@ where
                         listener,
                         response: request.response,
                     });
-                    payload = request.payload;
+                    payload = normalize_step
+                        .as_ref()
+                        .map_or(request.payload.clone(), |normalize| {
+                            normalize(request.payload)
+                        });
                     index += 1;
                 }
                 Either::Right((Err(_), listener)) => break listener.await,

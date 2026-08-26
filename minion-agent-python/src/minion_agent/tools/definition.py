@@ -7,9 +7,11 @@ first-class (`TOOL-F010`): the model-facing contract is the JSON Schema
 itself, not any one host language's schema-authoring library, and canonical
 conformance evidence must be able to construct a real `ToolDefinition` from a
 language-neutral schema value without inventing a Pydantic model dynamically.
-A `dict`-parameters tool bypasses Python-side argument validation in
-`execute.py` (Layer 06 territory, not certified here) -- it is a legitimate
-representation of the model-facing schema, not a substitute for validation.
+This module only *stores* the schema (Layer 05); Layer 06's `execute.py`
+*validates* execution arguments against it -- for a raw `dict` via the general
+`jsonschema` library, for a pydantic model via pydantic itself (`L06-R001`; an
+earlier revision of this docstring said a raw-dict tool "bypasses Python-side
+argument validation," which stopped being true once Layer 06 closed that gap).
 """
 
 from __future__ import annotations
@@ -28,15 +30,16 @@ type ToolUpdate = Callable[[str], None]
 """Report a partial result. Live only -- partial output never reaches a model."""
 
 type ToolFn = Callable[..., Awaitable[ToolResult | str] | ToolResult | str]
-"""Called with the validated arguments, and with an `update` callback when the
-tool declares a second parameter (arity-detected, see `execute.py::_wants_update`).
+"""Called with `(tool_call_id, validated_arguments)`, and with an `update` callback appended when
+the tool declares a third parameter (arity-detected, see `execute.py::_wants_update`).
 
 Target capability shape, matching pinned Pi's `AgentTool.execute` (`packages/agent/src/types.ts`):
 `(tool_call_id, params, signal?, on_update?) -> AgentToolResult`. Layer 05 owns only this shape's
-existence and its association with a registered tool -- today's dispatch (`execute.py`) realizes
-only the `(params)`/`(params, on_update)` subset (no `tool_call_id`, no cancellation `signal`
-parameter); closing that gap is a Layer-06/Layer-09 (cancellation) obligation, not implemented or
-certified here (`TOOL-F003`)."""
+existence and its association with a registered tool. Layer 06 (`TOOL-017`) closes the
+`tool_call_id` half of the gap `TOOL-F003` disclosed: every call now receives its own real
+`tool_call_id` as the first positional argument. The `signal` (cancellation) parameter remains
+unrealized -- no `AbortSignal`-equivalent type exists anywhere in this codebase yet, in either
+language; that gap is assurance Layer 09's, not Layer 06's, to close."""
 
 type PrepareArguments = Callable[[dict[str, Any]], dict[str, Any]]
 """Pi's optional `AgentTool.prepareArguments?: (args: unknown) => Static<TParameters>` --
@@ -63,8 +66,13 @@ class ToolDefinition:
     name: str
     description: str
     parameters: type[BaseModel] | dict[str, Any]
-    """A pydantic model class (validated in `execute.py`) or a raw, object-valued JSON Schema
-    dict (not Python-validated -- `TOOL-F010`). Required: missing/`None` is not a shorthand for
+    """The required object-valued JSON Schema representation (`TOOL-F010`): a pydantic model
+    class, or a raw, language-neutral JSON Schema `dict`. Layer 05 only stores this value; Layer
+    06's `execute.py` validates execution arguments against it before `execute` runs -- via
+    pydantic for a model class, via the general `jsonschema` library for a raw `dict` (`L06-R001`;
+    an earlier revision of this docstring said a raw `dict` was "not Python-validated," which
+    stopped being true once Layer 06 closed that gap -- construction here never validates
+    anything itself, regardless of representation). Required: missing/`None` is not a shorthand for
     "no parameters" (`L05-R005`) -- a tool that takes nothing still supplies the explicit empty
     schema `{"type": "object", "properties": {}}`. "Object-valued" describes the JSON
     *representation* of the schema itself (the value is a mapping) -- it does not require the

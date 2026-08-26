@@ -1,11 +1,32 @@
 name: schema-validation-failure-becomes-tool-error
-family: agent
-status: canonical-baseline
-authority: 2026-08-20-minion-agent-design.md
-pi_revision: b7bb00b936dbe21b8e160b3e89efdec361846699
-given:
-  fixture: TO_BE_FILLED_FROM_PINNED_PI_BEHAVIOR
-when:
-  op: TO_BE_BOUND_TO_REAL_PUBLIC_API
-expect:
-  observable: TO_BE_PINNED_EXACTLY
+description: >
+  Arguments that do not satisfy the tool's parameter schema fail before `execute` ever runs
+  (Layer 06, TOOL-017) -- an immediate (pre-execute) failure, same taxonomy as a `prepare_arguments`
+  or before-hook failure. The model chose these arguments, so it is the one told what was wrong.
+  Pinned Pi's `validateToolArguments` validates every `Tool.parameters: TSchema`, with no
+  exemption for a raw-object-schema representation (`L06-R001`) -- this scenario therefore uses a
+  plain, object-valued JSON Schema mapping (the actual Layer-05 shared `ToolDefinition.parameters`
+  representation), not a Python-specific shorthand, so it exercises the real, shared validation
+  boundary rather than a Pydantic-only convenience.
+provider_script:
+  - content: [{ type: tool_call, id: t1, name: strict, arguments: {} }]
+    stop_reason: tool_use
+  - content: [{ type: text, text: done }]
+    stop_reason: stop
+tools:
+  strict:
+    result: { text: should never run }
+    parameters:
+      type: object
+      properties:
+        name: { type: string }
+      required: [name]
+steps:
+  - followup: go
+  - await_idle: true
+expect_messages:
+  - { role: user, text: go }
+  - { role: assistant, text: "" }
+  - role: tool_result
+    text_contains: "invalid arguments"
+  - { role: assistant, text: done }

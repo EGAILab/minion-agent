@@ -835,29 +835,44 @@ rows:
     (lookup is by name only) and is not echoed into any Layer-06 event or result. details is
     pass-through WITHOUT collapsing the empty-but-present state (IR-L06-004, PI_PARITY_DEFECT,
     resolved this pass): pinned Pi''s AgentToolResult.details: T is REQUIRED, not optional, and
-    createToolResultMessage copies it verbatim with no conditional logic at all; createErrorToolResult
-    sets it to {} (an empty object, not absent), and that {} survives unchanged all the way to
-    ToolResultMessage.details for every unknown-tool/prepare/validate/before-hook/after-hook error
-    result. An earlier revision''s to_message() wrote `details=self.details or None`, which
-    collapsed the empty-dict default every non-annotating result already carries (ToolResult.details
-    defaults to {}) into None -- observably different from Pi for every error result and every tool
-    that never sets details. added_tool_names is the opposite case and is unaffected by this fix:
-    Pi''s own createToolResultMessage conditionally omits that key entirely when the array is empty
+    createToolResultMessage copies it verbatim with no conditional logic at all. This has two
+    distinct halves (CA-L06-007, CONTRACT_ASSURANCE_DEFECT, PASS 2.5 -- a prior revision of this
+    row conflated them, wrongly implying Layer 06 itself derives {} for an undeclared SUCCESSFUL
+    result): createErrorToolResult -- Layer 06''s OWN synthesized error-result helper, used for
+    every unknown-tool/prepare/validate/before-hook/after-hook/length-stop outcome -- sets
+    details: {} (an empty object, not absent) unconditionally, and that {} survives unchanged all
+    the way to ToolResultMessage.details for every one of those outcomes; a SUCCESSFUL result''s
+    details is whatever the tool itself returned, preserved verbatim, and Layer 06 never
+    synthesizes or defaults a value for one that declares none -- pinned Pi''s own execution code
+    does not do this either. An earlier revision''s to_message() wrote `details=self.details or
+    None`, which collapsed the empty-dict Python default every ToolResult already carries
+    (ToolResult.details defaults to {}, a host API choice, not a Pi-derived rule) into None --
+    observably different from Pi specifically for every GENERATED ERROR result, since Pi''s own
+    createErrorToolResult always supplies {} there; that collapse-to-None bug is what this row''s
+    fix actually closed, not a claim that undeclared SUCCESSFUL details canonically become {}.
+    added_tool_names is the opposite case and is unaffected by this fix: Pi''s own
+    createToolResultMessage conditionally omits that key entirely when the array is empty
     (`addedToolNames?.length ? {...} : {}`), which Minion''s `self.added_tool_names or None` already
-    matched and still does. Language-neutral canonical evidence (PASS 1B): the conformance schema
-    gained a `details` key on `expect_messages` entries (asserted only when a scenario opts in);
-    an-unknown-tool-does-not-serialize-a-batch now asserts `details: {}` on all three of its tool
-    results -- the unresolvable call''s error result and two ordinary successes -- proving the
-    empty-but-present state survives identically for both error and success paths, runnable
-    identically once Rust implements the same scenario.'
+    matched and still does. Language-neutral canonical evidence (PASS 1B, corrected PASS 2.5):
+    the conformance schema gained a `details` key on `expect_messages` entries (asserted only when
+    a scenario opts in -- an omitted key is "not part of this fixture''s assertion", never treated
+    as an implicit {} or null expectation). an-unknown-tool-does-not-serialize-a-batch asserts
+    `details: {}` ONLY on the unresolvable call''s generated error; a PASS-1B revision incorrectly
+    also asserted `details: {}` on its two ordinary successful results, whose fixtures declare no
+    details at all -- the independent PASS-2 Rust review caught this exactly (CA-L06-007): nothing
+    in the fixture or in Pi justified that assertion, and a runner satisfying it would have had to
+    invent a host default and pass it off as shared semantics. Removed; the scenario now asserts
+    details only where the fixture -- or Pi''s own error helper -- actually supplies a value.'
   tests:
   - test_an_ordinary_result_adds_nothing
+  - test_generated_error_details_and_tool_supplied_details_are_distinct (CA-L06-007)
   - test_the_result_declares_what_it_added
   - test_declaring_a_name_does_not_register_anything
   - test_a_tool_can_introduce_another
   - test_a_result_with_no_details_carries_the_empty_dict_on_the_message (IR-L06-004)
-  - an-unknown-tool-does-not-serialize-a-batch (IR-L06-004, language-neutral details={} evidence,
-    PASS 1B)
+  - an-unknown-tool-does-not-serialize-a-batch (IR-L06-004, language-neutral generated-error
+    details={} evidence, corrected PASS 2.5 to assert details only on the generated error, not
+    on the two undeclared-details successes)
   python: src/minion_agent/tools/execute.py::execute_call, src/minion_agent/tools/result.py::ToolResult
   rust: minion-agent-rust/crates/minion-agent/src/tools/execution.rs::AfterToolCallResult/execute_tool_calls; minion-agent-rust/crates/minion-agent/tests/tool_execution.rs
   disposition: adopted

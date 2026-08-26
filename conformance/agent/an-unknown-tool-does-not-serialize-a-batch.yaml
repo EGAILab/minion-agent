@@ -12,6 +12,18 @@ description: >
   `details: {}` (an empty object, never absent), which survives unchanged into the model-visible
   `ToolResultMessage.details`. Both are asserted below by exact equality, not substring
   containment, and must hold identically in Python and (once implemented) Rust.
+
+  `CA-L06-007`, `CONTRACT_ASSURANCE_DEFECT` (independent PASS-2 Rust review): the `details: {}`
+  assertion belongs ONLY to the generated error -- `createErrorToolResult` is the one Pi source
+  that supplies it. `slow`/`quick` are ordinary successful results whose fixtures declare only
+  `result.text`; pinned Pi's `AgentToolResult<T>.details: T` is required but never defaulted by
+  the pipeline itself for a successful outcome -- a real tool that returns no details of its own
+  is not something Pi's own execution code ever synthesizes a value for. A prior revision of this
+  scenario asserted `details: {}` on both successful results too, which nothing in the fixture (or
+  Pi) actually justified -- the corrected canonical schema has no `details` member on `toolStub`
+  at all, so a runner satisfying that assertion would have had to invent a host default and pass
+  it off as shared semantics. Removed; `details` is asserted only where the fixture -- or Pi's own
+  error helper -- actually supplies a value.
 provider_script:
   - content:
       - { type: tool_call, id: t1, name: slow, arguments: {} }
@@ -30,7 +42,7 @@ expect_tool_completion_order: [t2, t3, t1]
 expect_messages:
   - { role: user, text: go }
   - { role: assistant, text: "" }
-  - { role: tool_result, text: slow, details: {} }
+  - { role: tool_result, text: slow }
   - { role: tool_result, text: "Tool nonexistent not found", details: {} }
-  - { role: tool_result, text: quick, details: {} }
+  - { role: tool_result, text: quick }
   - { role: assistant, text: done }

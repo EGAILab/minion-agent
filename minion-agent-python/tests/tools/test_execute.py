@@ -110,6 +110,28 @@ async def test_an_unknown_tool_produces_an_error_result() -> None:
     assert result.tool_call_id == "t1"
 
 
+async def test_generated_error_details_and_tool_supplied_details_are_distinct() -> None:
+    """`CA-L06-007`: pinned Pi's error helper (`createErrorToolResult`) always supplies
+    `details: {}` -- but a SUCCESSFUL result's `details` is whatever the tool itself returned.
+    Layer 06 does not synthesize a `details` value for an undeclared successful result as a
+    shared, Pi-parity rule; `{}` only appears there as an unrelated Python `ToolResult` default,
+    never something pinned Pi requires. Proven through the real pipeline: an unknown-tool call (a
+    generated error) carries `{}`, and a tool that explicitly returns its own `details` carries
+    that value unchanged, not merged with or replaced by any host default."""
+    unknown = await execute_call(_call("missing"), registry=_registry(), ctx=_ctx())
+    assert unknown.is_error
+    assert unknown.to_message().details == {}
+
+    definition = _echo(
+        execute=lambda tool_call_id, args: ToolResult(
+            tool_call_id=tool_call_id, content=(), tool_name="echo", details={"source": "tool"}
+        )
+    )
+    successful = await execute_call(_call(value="x"), registry=_registry(definition), ctx=_ctx())
+    assert not successful.is_error
+    assert successful.to_message().details == {"source": "tool"}
+
+
 async def test_invalid_arguments_produce_an_error_result_the_model_can_act_on() -> None:
     """The model chose the arguments, so it is the one that must be told."""
     result = await execute_call(_call(wrong="field"), registry=_registry(_echo()), ctx=_ctx())

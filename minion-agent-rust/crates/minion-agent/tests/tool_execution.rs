@@ -586,6 +586,72 @@ fn malformed_schema_is_an_isolated_validation_error_instead_of_a_panic() {
 }
 
 #[test]
+fn raw_after_listener_failure_replaces_one_result_without_aborting_siblings() {
+    run(async {
+        let runtime = Runtime::new();
+        runtime
+            .tools()
+            .register_for_scope(None, tool("raw-fails"))
+            .unwrap();
+        runtime
+            .tools()
+            .register_for_scope(None, tool("healthy-sibling"))
+            .unwrap();
+        let plugin = PluginSpec::<Value>::new(
+            "raw-failure",
+            vec![],
+            || json!({}),
+            |context, _config| async move {
+                let spec = after_tool_call_spec();
+                let events = context
+                    .events()
+                    .map_err(|error| PluginInitError::new(error.to_string()))?;
+                events
+                    .declare(&spec)
+                    .map_err(|error| PluginInitError::new(error.to_string()))?;
+                let effects = context.effect_store();
+                events
+                    .on_waterfall(
+                        &spec,
+                        &effects,
+                        context.scope(),
+                        |current, next| async move {
+                            let first = next.call(None).await?;
+                            if current.tool_name == "raw-fails" {
+                                next.call(None).await
+                            } else {
+                                Ok(first)
+                            }
+                        },
+                    )
+                    .map_err(|error| PluginInitError::new(error.to_string()))?;
+                Ok(())
+            },
+        )
+        .erase();
+        runtime.mount(&plugin, json!({})).unwrap();
+        runtime.reconcile().await.unwrap();
+
+        let batch = execute_tool_calls(
+            &runtime.context(),
+            &[
+                call("bad", "raw-fails", json!({})),
+                call("good", "healthy-sibling", json!({})),
+            ],
+            ToolExecutionOptions::new(StopReason::ToolUse, 0.0),
+        )
+        .await
+        .unwrap();
+
+        assert!(batch.messages[0].is_error);
+        assert!(text(&batch.messages[0]).contains("next"));
+        assert_eq!(batch.messages[0].tool_call_id, "bad");
+        assert!(!batch.messages[1].is_error);
+        assert_eq!(batch.messages[1].tool_call_id, "good");
+    });
+}
+
+#[test]
 fn parallel_completion_events_and_final_messages_have_distinct_deterministic_orders() {
     run(async {
         let runtime = Runtime::new();

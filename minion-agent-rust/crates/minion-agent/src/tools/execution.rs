@@ -536,12 +536,16 @@ async fn execute_one(
     };
     let protected = executed.clone();
     let normalization = protected.clone();
-    let finalized = events
+    let finalized = match events
         .waterfall_normalized(&after_spec, executed, scope.as_ref(), move |candidate| {
             restore_protected(candidate, &normalization)
         })
-        .await?;
-    let finalized = restore_protected(finalized, &protected);
+        .await
+    {
+        Ok(finalized) => restore_protected(finalized, &protected),
+        Err(EventError::Waterfall(error)) => immediate_error(&call, &error.to_string()),
+        Err(error) => return Err(error.into()),
+    };
     events.emit(
         &end_spec,
         &ToolExecutionEnd {

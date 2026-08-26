@@ -5,8 +5,17 @@ description: >
   update, then returns, then reports a second update one cooperative scheduler tick later must
   produce exactly one observable `tools/update` -- the late one is silently dropped, not queued,
   not delivered, not an error.
+
+  Also carries `IR-L06-005`'s payload evidence: pinned Pi's `tool_execution_update` AgentEvent
+  carries `toolCallId`/`toolName`/`args`/`partialResult`, and `args` is the call's ORIGINAL
+  arguments -- `PreparedToolCall.toolCall.arguments`, confirmed by direct Pi source inspection to
+  be the untouched call `prepareToolCall` was given, never the `prepareArguments`-shimmed or
+  schema-validated value `execute()` actually runs with. `chatty`'s `prepare_arguments.set` adds a
+  `prepared: true` key that only exists after preparation, so `expect_updates.arguments` proves
+  the update event reports the call's ORIGINAL `{raw: 1}` -- without `prepared` -- even though
+  `execute()` itself receives the prepared, merged arguments.
 provider_script:
-  - content: [{ type: tool_call, id: t1, name: chatty, arguments: {} }]
+  - content: [{ type: tool_call, id: t1, name: chatty, arguments: { raw: 1 } }]
     stop_reason: tool_use
   - content: [{ type: text, text: done }]
     stop_reason: stop
@@ -15,11 +24,16 @@ tools:
     result: { text: finished }
     emits_updates: [live]
     late_update: late
+    prepare_arguments:
+      set: { prepared: true }
 steps:
   - followup: go
   - await_idle: true
 expect_updates:
-  - [t1, live]
+  - tool_call_id: t1
+    tool_name: chatty
+    arguments: { raw: 1 }
+    partial: live
 expect_messages:
   - { role: user, text: go }
   - { role: assistant, text: "" }

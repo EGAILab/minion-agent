@@ -64,6 +64,11 @@ async def test_agent_scenario(scenario: Path) -> None:
                 assert expected["text_contains"] in actual["text"]
             else:
                 assert actual["text"] == expected["text"]
+            if "details" in expected:
+                # IR-L06-004: structured details pass through without collapsing the
+                # empty-but-present {} state -- checked only when a scenario opts in, so
+                # scenarios unrelated to this finding need not assert it.
+                assert actual["details"] == expected["details"]
 
     if "expect_causes" in document:
         observed = [[cause["origin"] for cause in turn] for turn in outcome["causes"]]
@@ -82,4 +87,12 @@ async def test_agent_scenario(scenario: Path) -> None:
         assert outcome["request_tools"] == document["expect_request_tools"]
 
     if "expect_updates" in document:
-        assert outcome["updates"] == [list(entry) for entry in document["expect_updates"]]
+        # IR-L06-005: tools/update's adopted-Pi payload (tool_call_id/tool_name/arguments/partial)
+        # is asserted exactly, field by field -- not merely the (call_id, partial) pair a prior
+        # revision's narrower event carried.
+        assert outcome["updates"] == document["expect_updates"]
+
+    if "expect_tool_trace" in document:
+        # IR-L06-001: language-neutral execution-order evidence for the sequential-preflight-
+        # then-concurrent-execute barrier, observed directly against the real production executor.
+        assert outcome["tool_trace"] == [list(entry) for entry in document["expect_tool_trace"]]

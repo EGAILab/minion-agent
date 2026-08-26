@@ -5,6 +5,13 @@ description: >
   parallel batch -- a performance cliff with no semantic justification.
 
   The unknown call still receives a result, as every call must.
+
+  Also carries `IR-L06-003`/`IR-L06-004`'s cross-language canonical evidence: pinned Pi's
+  unresolvable-tool text is exactly `` `Tool ${toolCall.name} not found` `` -- for `nonexistent`,
+  exactly "Tool nonexistent not found" -- and pinned Pi's `createErrorToolResult` sets
+  `details: {}` (an empty object, never absent), which survives unchanged into the model-visible
+  `ToolResultMessage.details`. Both are asserted below by exact equality, not substring
+  containment, and must hold identically in Python and (once implemented) Rust.
 provider_script:
   - content:
       - { type: tool_call, id: t1, name: slow, arguments: {} }
@@ -20,3 +27,10 @@ steps:
   - followup: go
   - await_idle: true
 expect_tool_completion_order: [t2, t3, t1]
+expect_messages:
+  - { role: user, text: go }
+  - { role: assistant, text: "" }
+  - { role: tool_result, text: slow, details: {} }
+  - { role: tool_result, text: "Tool nonexistent not found", details: {} }
+  - { role: tool_result, text: quick, details: {} }
+  - { role: assistant, text: done }

@@ -622,10 +622,24 @@ rows:
     illustrating why prior certification is evidence, not semantic authority: agreement between
     implementations does not establish agreement with Pi. This barrier applies only within
     PARALLEL mode; TOOL-001''s sequential-serialization case trivially satisfies it already, since
-    every call''s pipeline there completes fully before the next call''s preflight even begins.'
+    every call''s pipeline there completes fully before the next call''s preflight even begins.
+    Language-neutral canonical evidence (PASS 1B, closing the shared-assurance half a first pass
+    left open): parallel-preflight-settles-sequentially-before-execute needs no timing/sleep
+    primitive -- a second call whose before-hook unconditionally blocks it produces an immediate
+    outcome pinned Pi finalizes strictly before the first (executable) call may begin execute(),
+    which a per-call-gather implementation cannot reproduce even without any artificial delay: the
+    conformance schema gained expect_tool_trace (an ordered [stage, tool_call_id] execution trace
+    -- start/before/execute/end -- observed directly against the real production executor, never
+    constructed by the runner) to make this externally, cross-language observable. Confirmed
+    directly to fail against the pre-fix candidate (temporarily restored the pre-fix execute.py/
+    batch.py and re-ran this scenario alone: produced execute(t1)/end(t1) before before(t2)/
+    end(t2)) and to pass after the fix. tool-batch-parallel remains, unchanged, the evidence that
+    phase 2 (execute/finalize once every call has survived preflight) stays genuinely concurrent.'
   tests:
   - test_preflight_is_sequential_and_settles_before_any_execute_begins
   - test_an_immediate_preflight_failure_does_not_block_a_later_calls_preflight
+  - parallel-preflight-settles-sequentially-before-execute (language-neutral canonical, PASS 1B)
+  - tool-batch-parallel (unchanged; proves phase 2 remains concurrent)
   python: src/minion_agent/tools/execute.py::_preflight, _execute_and_finalize, _Prepared; src/minion_agent/tools/batch.py::execute_batch
   rust: PENDING (IR-L06-001) -- Rust Layer 06 still uses FuturesUnordered<execute_one(...)> where execute_one performs preflight and execution together; not yet reopened this pass, see assurance/layers/05-06-independent-review-remediation.md
   disposition: adopted
@@ -718,11 +732,16 @@ rows:
     (packages/agent/src/agent-loop.ts::prepareToolCall) -- e.g. for a call naming "foo", the text
     is exactly "Tool foo not found". An earlier revision used "unknown tool ''foo''" (Python
     repr-quoting, lowercase, different wording entirely), asserted only by substring containment,
-    which never caught the divergence; the corrected text is asserted by exact equality.'
+    which never caught the divergence; the corrected text is asserted by exact equality. Language-
+    neutral canonical evidence (PASS 1B): an-unknown-tool-does-not-serialize-a-batch''s
+    expect_messages now asserts the exact text "Tool nonexistent not found" for its unresolvable
+    call, runnable identically once Rust implements the same scenario.'
   tests:
   - test_execute_receives_the_real_tool_call_id
   - length-stop-executes-no-tools (start/end fire even when execution never happens)
   - test_an_unknown_tool_produces_an_error_result (IR-L06-003, exact-equality text)
+  - an-unknown-tool-does-not-serialize-a-batch (IR-L06-003, language-neutral exact-equality text,
+    PASS 1B)
   python: src/minion_agent/tools/events.py::TOOLS_EXECUTION_START/TOOLS_EXECUTION_END, src/minion_agent/tools/execute.py::execute_call, _immediate
   rust: minion-agent-rust/crates/minion-agent/src/tools/execution.rs::ToolExecutionStart/ToolExecutionUpdate/ToolExecutionEnd; minion-agent-rust/crates/minion-agent/tests/tool_execution.rs; minion-agent-rust/crates/minion-agent/tests/tool_execution_conformance.rs
   disposition: intentional divergence
@@ -768,9 +787,18 @@ rows:
     partial); `arguments` is the ORIGINAL, pre-prepare_arguments/validation arguments -- pinned
     Pi''s own PreparedToolCall.toolCall.arguments, confirmed by direct source inspection to be the
     untouched call prepareToolCall was given, not preparedToolCall (the prepareArguments-shimmed
-    value) or validatedArgs (the schema-validated value execute() actually runs with).'
+    value) or validatedArgs (the schema-validated value execute() actually runs with). Language-
+    neutral canonical evidence (PASS 1B, closing the shared-assurance half a first pass left open):
+    late-tool-update-ignored''s tool now declares prepare_arguments.set to add a `prepared` key
+    that exists only after preparation, and expect_updates asserts the full
+    {tool_call_id, tool_name, arguments, partial} shape with `arguments` equal to the call''s
+    ORIGINAL `{raw: 1}` -- without `prepared` -- proving the update event reports pre-preparation
+    arguments even though execute() itself receives the prepared, merged value. The conformance
+    schema''s expect_updates item shape changed from a bare [tool_call_id, partial] pair to this
+    object, since the pair could not express tool_name/arguments at all.'
   tests:
-  - late-tool-update-ignored
+  - late-tool-update-ignored (IR-L06-005, language-neutral payload + raw-vs-prepared-arguments
+    evidence, PASS 1B)
   - test_a_late_update_after_the_tool_settles_is_ignored
   - test_a_tool_may_report_partial_output
   - test_updates_carry_the_call_id_so_a_consumer_can_route_them
@@ -816,13 +844,20 @@ rows:
     that never sets details. added_tool_names is the opposite case and is unaffected by this fix:
     Pi''s own createToolResultMessage conditionally omits that key entirely when the array is empty
     (`addedToolNames?.length ? {...} : {}`), which Minion''s `self.added_tool_names or None` already
-    matched and still does.'
+    matched and still does. Language-neutral canonical evidence (PASS 1B): the conformance schema
+    gained a `details` key on `expect_messages` entries (asserted only when a scenario opts in);
+    an-unknown-tool-does-not-serialize-a-batch now asserts `details: {}` on all three of its tool
+    results -- the unresolvable call''s error result and two ordinary successes -- proving the
+    empty-but-present state survives identically for both error and success paths, runnable
+    identically once Rust implements the same scenario.'
   tests:
   - test_an_ordinary_result_adds_nothing
   - test_the_result_declares_what_it_added
   - test_declaring_a_name_does_not_register_anything
   - test_a_tool_can_introduce_another
   - test_a_result_with_no_details_carries_the_empty_dict_on_the_message (IR-L06-004)
+  - an-unknown-tool-does-not-serialize-a-batch (IR-L06-004, language-neutral details={} evidence,
+    PASS 1B)
   python: src/minion_agent/tools/execute.py::execute_call, src/minion_agent/tools/result.py::ToolResult
   rust: minion-agent-rust/crates/minion-agent/src/tools/execution.rs::AfterToolCallResult/execute_tool_calls; minion-agent-rust/crates/minion-agent/tests/tool_execution.rs
   disposition: adopted
@@ -833,11 +868,17 @@ rows:
   rule: 'AgentTool extends Tool with: label (string, REQUIRED -- no `?`, TOOL-F001); prepareArguments?
     ((args) -> Static<TParameters>), field/signature only, invocation is Layer 06 (TOOL-F002);
     execute: (toolCallId, params, signal?, onUpdate?) -> Promise<AgentToolResult>, the target
-    capability shape -- today''s Python dispatch realizes only a (params)/(params, on_update)
-    subset, no tool_call_id or cancellation signal parameter, closing that gap is Layer 06/Layer 09
-    (cancellation) territory (TOOL-F003); executionMode? (ToolExecutionMode), absent means "no
-    per-tool preference," defers to the run-level default rather than defaulting to a concrete
-    value (TOOL-F004).'
+    capability shape (TOOL-F003). Historical note, corrected for present tense (IR-L05/06-006):
+    at THIS row''s own Layer-05 certification, Python dispatch realized only a (params)/(params,
+    on_update) subset -- no tool_call_id, no cancellation signal. That is no longer the current
+    state: Layer 06 subsequently closed the tool_call_id half (TOOL-018, TOOL-017) -- every call
+    now receives its own real tool_call_id as execute''s first argument, and on_update is realized
+    too. Only the cancellation-signal half remains open, and asymmetrically: Python has no
+    AbortSignal-equivalent abstraction at all yet; certified Rust Layer 05 already reserves one
+    structurally (ToolExecutionSignal, ToolExecutionRequest.signal), unexercised. Closing that
+    remaining half, in either language, is assurance Layer 09''s territory, not Layer 06''s.
+    executionMode? (ToolExecutionMode), absent means "no per-tool preference," defers to the
+    run-level default rather than defaulting to a concrete value (TOOL-F004).'
   tests:
   - tests/typing/valid_tool_construction.py (permanent static-type evidence, mypy-checked only,
     matching LLM-F012's own established pattern)

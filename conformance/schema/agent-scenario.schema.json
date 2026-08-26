@@ -115,13 +115,13 @@
     },
     "expect_updates": {
       "type": "array",
-      "items": {
-        "type": "array",
-        "items": { "type": "string" },
-        "minItems": 2,
-        "maxItems": 2
-      },
-      "description": "[tool_call_id, partial] pairs in emission order (TOOL-017) -- a late update (after the tool settles) must never appear here."
+      "items": { "$ref": "#/$defs/toolUpdate" },
+      "description": "Live tool_execution_update observations, in emission order (TOOL-017, IR-L06-005) -- a late update (after the tool settles) must never appear here. `arguments` is the ORIGINAL tool-call arguments (before prepare_arguments/validation), matching pinned Pi's own tool_execution_update payload exactly."
+    },
+    "expect_tool_trace": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/traceEntry" },
+      "description": "Language-neutral execution-order evidence (IR-L06-001): each entry names a stage (`start`/`before`/`execute`/`end`) and the tool_call_id it belongs to, in the exact order production actually emitted them. `start`/`end` correspond to tool_execution_start/tool_execution_end; `before` marks the moment a call's before-hook waterfall has fully settled (Proceed or Block), regardless of registered listeners; `execute` marks the moment a prepared call's execute() body begins running. Proves the sequential-preflight-then-concurrent-execute barrier directly against the real production executor -- the runner does not construct this ordering, only observes it."
     },
     "expect_error": {
       "type": "object",
@@ -143,6 +143,30 @@
     }
   },
   "$defs": {
+    "toolUpdate": {
+      "type": "object",
+      "required": ["tool_call_id", "tool_name", "arguments", "partial"],
+      "additionalProperties": false,
+      "properties": {
+        "tool_call_id": { "type": "string" },
+        "tool_name": { "type": "string" },
+        "arguments": {
+          "type": "object",
+          "description": "The original tool-call arguments -- before prepare_arguments/validation -- matching pinned Pi's own PreparedToolCall.toolCall.arguments, not the value execute() actually runs with."
+        },
+        "partial": { "type": "string" }
+      }
+    },
+    "traceEntry": {
+      "type": "array",
+      "prefixItems": [
+        { "enum": ["start", "before", "execute", "end"] },
+        { "type": "string" }
+      ],
+      "items": false,
+      "minItems": 2,
+      "maxItems": 2
+    },
     "listener": {
       "type": "object",
       "required": ["event", "action"],

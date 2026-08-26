@@ -1,0 +1,60 @@
+name: parallel-preflight-settles-sequentially-before-execute
+description: >
+  `IR-L06-001`, `CONTRACT_ASSURANCE_DEFECT` + `PI_PARITY_DEFECT` -- discovered by independent
+  review against a candidate both Python and Rust had already certified, proving that prior
+  cross-language agreement is evidence of implementation agreement, never semantic authority.
+
+  Pinned Pi's `executeToolCallsParallel` (`packages/agent/src/agent-loop.ts`) preflights
+  (resolve/`prepare_arguments`/validate/before-hook) every call strictly sequentially, in source
+  order, and starts `execute()`/the after-hook concurrently only once EVERY call in the batch has
+  survived preflight. "Parallel" does not mean "every call's complete pipeline begins
+  concurrently."
+
+  This scenario needs no artificial timing/sleep primitive: `t2`'s before-hook unconditionally
+  blocks it, an immediate outcome pinned Pi finalizes -- and emits `tool_execution_end` for --
+  right there in the sequential preflight phase, before `t1` (a genuinely executable call) is
+  ever allowed to reach `execute()`. A prior candidate wrapped each call's ENTIRE pipeline in one
+  concurrency primitive (`asyncio.gather` over `resolve` through the after-hook), which preflights
+  every call concurrently too -- under that implementation, `t1`'s whole pipeline (having nothing
+  to await) runs to completion in a single scheduler step before `t2` is even given a turn,
+  producing `execute(t1)` and `end(t1)` BEFORE `before(t2)`/`end(t2)` -- the exact violation this
+  scenario's `expect_tool_trace` catches. The runner does not create this ordering: it only
+  records `tools/execution-start`, the before-hook waterfall's own settlement (via a listener that
+  wraps the entire chain and records only after delegating through it), `execute()`'s own body
+  starting, and `tools/execution-end`, exactly as the real production executor emits them.
+
+  Companion evidence, deliberately not re-proven here: `tool-batch-parallel` already proves phase
+  2 (execute/finalize once every call has survived preflight) remains genuinely concurrent, not
+  serialized by this fix.
+provider_script:
+  - content:
+      - { type: tool_call, id: t1, name: a, arguments: {} }
+      - { type: tool_call, id: t2, name: b, arguments: {} }
+    stop_reason: tool_use
+  - content: [{ type: text, text: done }]
+    stop_reason: stop
+tools:
+  a: { result: { text: a done } }
+  b: { result: { text: b done } }
+listeners:
+  - event: tools/pre-execute
+    action: block
+    reason: blocked
+    only_tool: b
+steps:
+  - followup: go
+  - await_idle: true
+expect_tool_trace:
+  - [start, t1]
+  - [before, t1]
+  - [start, t2]
+  - [before, t2]
+  - [end, t2]
+  - [execute, t1]
+  - [end, t1]
+expect_messages:
+  - { role: user, text: go }
+  - { role: assistant, text: "" }
+  - { role: tool_result, text: "a done" }
+  - { role: tool_result, text: blocked }
+  - { role: assistant, text: done }

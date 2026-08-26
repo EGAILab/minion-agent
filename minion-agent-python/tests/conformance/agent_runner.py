@@ -43,7 +43,13 @@ from minion_agent.session import EventKind, derive_messages
 from minion_agent.session.service import session_plugin
 from minion_agent.tools.decisions import AfterToolCallOverride, Block, Proceed
 from minion_agent.tools.definition import ExecutionMode, ToolDefinition
-from minion_agent.tools.events import TOOLS_POST_EXECUTE, TOOLS_PRE_EXECUTE, TOOLS_UPDATE
+from minion_agent.tools.events import (
+    TOOLS_EXECUTION_END,
+    TOOLS_EXECUTION_START,
+    TOOLS_POST_EXECUTE,
+    TOOLS_PRE_EXECUTE,
+    TOOLS_UPDATE,
+)
 from minion_agent.tools.execute import register_after_tool_call_hook
 from minion_agent.tools.plugin import tools_plugin
 from minion_agent.tools.registry import ToolRegistry
@@ -167,7 +173,11 @@ def _prepare_arguments(spec: dict[str, Any] | None) -> Any:
 
 
 def _stub(
-    spec: dict[str, Any], registry: ToolRegistry, name: str, late_updates: list[asyncio.Task[None]]
+    spec: dict[str, Any],
+    registry: ToolRegistry,
+    name: str,
+    late_updates: list[asyncio.Task[None]],
+    trace: list[list[str]],
 ) -> Any:
     """Build a tool body from a declarative stub.
 
@@ -175,6 +185,10 @@ def _stub(
     yield after the tool itself has already returned -- deterministic (no wall-clock timing), and
     `run_agent_scenario` drains it after the scenario's own steps finish, so a "late update
     ignored" assertion is never a race.
+
+    `trace` records an `["execute", tool_call_id]` entry the moment this body starts running --
+    the `IR-L06-001` execution-trace observation's own record of when a prepared call's `execute()`
+    actually began, independent of anything the runner itself decides.
     """
     text = spec.get("result", {}).get("text", "")
     ticks = spec.get("delay_ticks", 0)
@@ -185,6 +199,7 @@ def _stub(
     late_update = spec.get("late_update")
 
     async def run(tool_call_id: str, args: dict[str, Any], update: Any) -> ToolResult:
+        trace.append(["execute", tool_call_id])
         for _ in range(ticks):
             # A scheduler yield, not wall-clock time: deterministic, and
             # reproducible in any language with a cooperative scheduler.
@@ -391,18 +406,37 @@ async def run_agent_scenario(document: dict[str, Any]) -> dict[str, Any]:
     ctx.llm.register(adapter)
 
     late_updates: list[asyncio.Task[None]] = []
+    trace: list[list[str]] = []
     for name, stub in document.get("tools", {}).items():
         ctx.tools.register(
             ToolDefinition(
                 name=name,
                 description=name,
                 parameters=_parameters(stub.get("parameters")),
-                execute=_stub(stub, ctx.tools, name, late_updates),
+                execute=_stub(stub, ctx.tools, name, late_updates, trace),
                 prepare_arguments=_prepare_arguments(stub.get("prepare_arguments")),
                 label=name,
                 mode=ExecutionMode(stub.get("execution_mode", "parallel")),
             )
         )
+
+    # IR-L06-001 execution-trace observation: start/end are unconditional, EMIT-mode listeners --
+    # trivial. `before` must be a waterfall listener that wraps the ENTIRE tools/pre-execute chain
+    # (prepended, so it always runs first and delegates to whatever the scenario itself
+    # registered) and records its marker only AFTER `next_()` settles, so it fires exactly once a
+    # call's before-hook stage has fully resolved (Proceed or Block), regardless of registered
+    # listeners -- never simulating or reordering that resolution, only observing it.
+    ctx.events.on(
+        TOOLS_EXECUTION_START, lambda call_id, name, args: trace.append(["start", call_id])
+    )
+    ctx.events.on(TOOLS_EXECUTION_END, lambda call_id, name, result: trace.append(["end", call_id]))
+
+    async def _trace_before(call: Any, definition: Any, arguments: Any, next_: Any) -> Any:
+        decision = await next_()
+        trace.append(["before", call.id])
+        return decision
+
+    ctx.events.on(TOOLS_PRE_EXECUTE, _trace_before, prepend=True)
 
     for spec in document.get("listeners", []):
         if spec["event"] == TOOLS_POST_EXECUTE:
@@ -410,10 +444,17 @@ async def run_agent_scenario(document: dict[str, Any]) -> dict[str, Any]:
         else:
             ctx.events.on(spec["event"], _listener(spec))
 
-    seen_updates: list[tuple[str, str]] = []
+    seen_updates: list[dict[str, Any]] = []
     ctx.events.on(
         TOOLS_UPDATE,
-        lambda call_id, tool_name, arguments, partial: seen_updates.append((call_id, partial)),
+        lambda call_id, tool_name, arguments, partial: seen_updates.append(
+            {
+                "tool_call_id": call_id,
+                "tool_name": tool_name,
+                "arguments": arguments,
+                "partial": partial,
+            }
+        ),
     )
 
     config = document.get("config", {})
@@ -455,7 +496,16 @@ async def run_agent_scenario(document: dict[str, Any]) -> dict[str, Any]:
     messages = derive_messages(handle.instance.log)
     return {
         "events": event_names(events),
-        "messages": [{"role": _ROLE[type(m)], "text": text_of(m)} for m in messages],
+        "messages": [
+            {
+                "role": _ROLE[type(m)],
+                "text": text_of(m),
+                # IR-L06-004: exposed only for ToolResultMessage, the shape the finding is about --
+                # never invented for a message type that carries no such field.
+                **({"details": m.details} if isinstance(m, ToolResultMessage) else {}),
+            }
+            for m in messages
+        ],
         "causes": [list(event.causes) for event in events if isinstance(event, TurnEnd)],
         "assistant_stop_reasons": [
             m.stop_reason.value for m in messages if isinstance(m, AssistantMessage)
@@ -471,6 +521,7 @@ async def run_agent_scenario(document: dict[str, Any]) -> dict[str, Any]:
             )
         ],
         "request_tools": [[tool.name for tool in request.tools] for request in adapter.requests],
-        "updates": [list(entry) for entry in seen_updates],
+        "updates": seen_updates,
+        "tool_trace": trace,
         "error": None if error is None else {"type": type(error).__name__, "message": str(error)},
     }

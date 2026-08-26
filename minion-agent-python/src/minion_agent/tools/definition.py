@@ -37,9 +37,18 @@ Target capability shape, matching pinned Pi's `AgentTool.execute` (`packages/age
 `(tool_call_id, params, signal?, on_update?) -> AgentToolResult`. Layer 05 owns only this shape's
 existence and its association with a registered tool. Layer 06 (`TOOL-017`) closes the
 `tool_call_id` half of the gap `TOOL-F003` disclosed: every call now receives its own real
-`tool_call_id` as the first positional argument. The `signal` (cancellation) parameter remains
-unrealized -- no `AbortSignal`-equivalent type exists anywhere in this codebase yet, in either
-language; that gap is assurance Layer 09's, not Layer 06's, to close."""
+`tool_call_id` as the first positional argument, and `on_update` is realized too (arity-detected,
+above). The `signal` (cancellation) parameter remains behaviorally unrealized in Python -- but the
+cross-language state is asymmetric, not uniformly absent (`IR-L05/06-006`, corrected here; an
+earlier revision of this docstring said "no `AbortSignal`-equivalent type exists anywhere in this
+codebase yet, in either language," which was already false for Rust when it was written): certified
+Rust Layer 05 already reserves a structural signal seam (`ToolExecutionSignal`,
+`ToolExecutionRequest.signal` in `minion-agent-rust/crates/minion-agent/src/tools/definition.rs`)
+without exercising cancellation behavior. Python has no `AbortSignal`-equivalent abstraction at
+all yet; Rust has one, unused. Layer 06 certifies **non-cancelled** execution semantics only in
+both languages; assurance Layer 09 owns cancellation/abort propagation, timing, and result
+semantics, and can add that behavior without requiring Rust to discard or redesign its existing
+signal-bearing capability seam."""
 
 type PrepareArguments = Callable[[dict[str, Any]], dict[str, Any]]
 """Pi's optional `AgentTool.prepareArguments?: (args: unknown) => Static<TParameters>` --

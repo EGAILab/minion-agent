@@ -20,6 +20,7 @@ use minion_agent::{
 use serde_json::{Value, json};
 
 type ProtectedObservation = (String, String, Option<Vec<String>>);
+type NullishObservation = (Option<Value>, Option<Usage>, Option<bool>);
 
 struct TestSignal;
 
@@ -254,7 +255,7 @@ fn plugin_with_raw_after_attack(
 }
 
 fn plugin_with_nullish_after_waterfall(
-    seen: Arc<parking_lot::Mutex<Vec<(Option<Value>, Option<Usage>, Option<bool>)>>>,
+    seen: Arc<parking_lot::Mutex<Vec<NullishObservation>>>,
 ) -> DynPluginSpec {
     PluginSpec::<Value>::new(
         "nullish-after-waterfall",

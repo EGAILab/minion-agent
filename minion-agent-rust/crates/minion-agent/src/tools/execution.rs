@@ -315,7 +315,7 @@ pub async fn execute_tool_calls(
     if options.stop_reason == StopReason::Length {
         let mut messages = Vec::with_capacity(calls.len());
         for call in calls {
-            emit_start(&events, &start_spec, call, scope.as_ref())?;
+            emit_start(events, &start_spec, call, scope.as_ref())?;
             let message = format!(
                 "Tool call \"{}\" was not executed: the response hit the output token limit, so its arguments may be truncated. Re-issue the tool call with complete arguments.",
                 call.name
@@ -350,7 +350,7 @@ pub async fn execute_tool_calls(
     let mut indexed = Vec::with_capacity(calls.len());
     if sequential {
         for (index, call) in calls.iter().cloned().enumerate() {
-            emit_start(&events, &start_spec, &call, scope.as_ref())?;
+            emit_start(events, &start_spec, &call, scope.as_ref())?;
             let tool = registry.resolve(&call.name, scope.as_ref());
             match preflight_one(
                 index,
@@ -385,7 +385,7 @@ pub async fn execute_tool_calls(
     } else {
         let mut prepared = Vec::new();
         for (index, call) in calls.iter().cloned().enumerate() {
-            emit_start(&events, &start_spec, &call, scope.as_ref())?;
+            emit_start(events, &start_spec, &call, scope.as_ref())?;
             let tool = registry.resolve(&call.name, scope.as_ref());
             match preflight_one(
                 index,

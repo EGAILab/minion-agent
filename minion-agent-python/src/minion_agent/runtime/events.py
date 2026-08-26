@@ -162,6 +162,7 @@ class EventBus:
         *args: Any,
         terminal: Any = None,
         scope: ScopeKey | None = None,
+        normalize_step: Callable[[tuple[Any, ...]], tuple[Any, ...]] | None = None,
     ) -> Any:
         """Invoke listeners as around-middleware.
 
@@ -183,6 +184,20 @@ class EventBus:
         `next` may be called at most once; a second call raises. Memoizing it
         instead would be incoherent, since a second call may carry different
         replacement arguments.
+
+        `normalize_step`, when given, runs on the arguments a listener passed
+        to `next` before the next listener receives them -- an event-specific
+        authority boundary a caller opts into per dispatch, not a change to
+        this generic method's own default (unset) behavior. `tools/post-execute`
+        needs this: some fields of its payload are not any listener's to
+        replace, and a listener that only ever returns via `next` (never
+        short-circuiting) must not be able to hand a later listener a
+        replacement carrying one anyway (`L06-R003`). A listener that
+        short-circuits instead of calling `next` has no next listener to
+        protect, so its return value passes through unnormalized here --
+        whatever authority a final return value needs is the caller's own
+        responsibility once `waterfall` returns, exactly as before this
+        parameter existed.
         """
         self._require_mode(name, DispatchMode.WATERFALL)
         callbacks = self._chain(name, scope)
@@ -212,7 +227,10 @@ class EventBus:
                         f"(event {name!r}, listener index {index})"
                     )
                 used = True
-                return await step(index + 1, replacement or current)
+                forwarded = replacement or current
+                if normalize_step is not None:
+                    forwarded = normalize_step(forwarded)
+                return await step(index + 1, forwarded)
 
             return await self._call(callbacks[index], *current, next_)
 

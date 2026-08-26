@@ -146,10 +146,11 @@ def register_after_tool_call_hook(
     This helper's own constraint is a convenience, not the authoritative boundary:
     `tools/post-execute` remains a public Runtime event, so a caller may also register a raw
     listener directly via `ctx.events.on(TOOLS_POST_EXECUTE, ...)` and return a whole,
-    differently-identified `ToolResult`. `_finalize`'s unconditional restoration of
-    `tool_call_id`/`tool_name`/`added_tool_names` after every dispatch (`L06-R003`) is what
-    actually makes identity/`added_tool_names` replacement impossible, regardless of which
-    registration path produced the waterfall's output.
+    differently-identified `ToolResult`. `_finalize`'s restoration of `tool_call_id`/`tool_name`/
+    `added_tool_names` -- at every listener-to-listener handoff, not only once the whole chain
+    finishes (`L06-R003`) -- is what actually makes identity/`added_tool_names` replacement
+    impossible, regardless of which registration path produced a given listener's output, and
+    regardless of whether another listener runs afterward to observe it.
 
     Returns the same disposer `EventBus.on` returns.
     """
@@ -175,27 +176,53 @@ async def _finalize(result: ToolResult, ctx: Context, scope: ScopeKey | None) ->
     Called only for an outcome that reached `execute()` -- see `execute_call`.
 
     Execution identity (`tool_call_id`, `tool_name`) and `added_tool_names` are restored from
-    `result` -- the pristine, pre-hook value -- unconditionally, after the waterfall runs
-    (`L06-R003`). This is the actual authoritative boundary, not a convention: pinned Pi's
-    `AfterToolCallResult` gives a hook no way to touch these fields at all, and
-    `register_after_tool_call_hook`'s own constrained merge already preserves them for a
-    cooperative listener -- but `tools/post-execute` is a public Runtime event, and nothing
-    stops a caller from registering a listener directly via `ctx.events.on(TOOLS_POST_EXECUTE,
-    ...)` that returns (or short-circuits with) a whole, differently-identified `ToolResult`. A
-    prior revision left that path able to observably rewrite these fields, a genuine
-    `PI_PARITY_DEFECT`; restoring them here, at the one place every `tools/post-execute`
-    dispatch necessarily passes through, closes it regardless of how a listener was registered.
-    `ToolResult` is itself frozen, so in-place mutation of the passed-in object is already
-    impossible independent of this restoration.
+    `result` -- the pristine, pre-hook value -- at **every** listener-to-listener handoff, not only
+    once the whole waterfall completes (`L06-R003`, second closure). A first fix restored them only
+    after `ctx.events.waterfall` returned: correct for the *final* result, but a listener that
+    delegates via `next(replacement)` with a forged `replacement` still handed that forgery,
+    unrestored, to whichever listener ran next -- observable (and provably exploitable: a later
+    listener can read the forged fields and copy them into an allowed field like `details`) even
+    though the finally-returned result looked clean. `waterfall`'s `normalize_step` (see
+    `EventBus.waterfall`) closes that gap generically: it runs on whatever a listener passes to
+    `next` before the *next* listener ever sees it, so no listener -- helper-registered or raw,
+    anywhere in the chain -- can ever observe a predecessor's unauthorized replacement. A listener
+    that short-circuits instead of delegating has no next listener to protect from, so its direct
+    return is not run through `normalize_step`; the restoration below still covers that value
+    (and every other final value) once the waterfall as a whole returns. `ToolResult` is itself
+    frozen, so in-place mutation of the passed-in object remains structurally impossible,
+    independent of either restoration point.
     """
     tool_call_id = result.tool_call_id
     tool_name = result.tool_name
     added_tool_names = result.added_tool_names
+
+    def _restore(current: tuple[Any, ...]) -> tuple[Any, ...]:
+        (candidate,) = current
+        if (
+            candidate.tool_call_id == tool_call_id
+            and candidate.tool_name == tool_name
+            and candidate.added_tool_names == added_tool_names
+        ):
+            return current
+        return (
+            ToolResult(
+                tool_call_id=tool_call_id,
+                tool_name=tool_name,
+                added_tool_names=added_tool_names,
+                content=candidate.content,
+                details=candidate.details,
+                is_error=candidate.is_error,
+                usage=candidate.usage,
+                terminate=candidate.terminate,
+            ),
+        )
+
     transformed: ToolResult = await ctx.events.waterfall(
         TOOLS_POST_EXECUTE,
         result,
         terminal=lambda current, *_: current,
         scope=scope,
+        normalize_step=_restore,
     )
     return ToolResult(
         tool_call_id=tool_call_id,

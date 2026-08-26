@@ -507,7 +507,7 @@ rows:
   - test_false_constrained_sampling_is_preserved_exactly
   - test_absent_constrained_sampling_serializes_as_null
   python: src/minion_agent/llm/tools.py::ConstrainedSampling/ToolSchema, src/minion_agent/tools/definition.py::ToolDefinition.constrained_sampling
-  rust: Phase 4 tools
+  rust: minion-agent-rust/crates/minion-agent/src/llm/vocabulary.rs::ConstrainedSampling/GrammarVariants/ToolSchema; tests/tool_model.rs; tests/tool_registry_conformance.rs
   disposition: adopted
 - id: TOOL-016
   phase: 4
@@ -540,7 +540,7 @@ rows:
   - test_tool_registry_parameters_domain (canonical-schema domain matrix, including the
     non-object-instance and top-level-combinator regression cases)
   python: src/minion_agent/tools/definition.py::ToolDefinition.parameters, ToolDefinition.__post_init__
-  rust: Phase 4 tools
+  rust: minion-agent-rust/crates/minion-agent/src/llm/vocabulary.rs::JsonSchemaObject/ToolSchema; tests/tool_model.rs; tests/tool_registry_conformance.rs
   disposition: adopted
 - id: TOOL-009
   phase: 4
@@ -560,7 +560,7 @@ rows:
   - test_a_definition_defaults_to_no_per_tool_mode_override
   - test_a_definition_may_declare_itself_sequential
   python: src/minion_agent/tools/definition.py::ToolDefinition
-  rust: Phase 4 tools
+  rust: minion-agent-rust/crates/minion-agent/src/tools/definition.rs::ToolDefinition/ExecutionMode/PrepareArguments/ExecuteTool; tests/tool_model.rs
   disposition: adopted
 - id: TOOL-010
   phase: 4
@@ -576,7 +576,7 @@ rows:
   tests:
   - tool-registry-scope-visibility
   python: src/minion_agent/tools/registry.py::ToolRegistry, register_tool
-  rust: Phase 4 tools
+  rust: minion-agent-rust/crates/minion-agent/src/tools/registry.rs::ToolRegistry; runtime/coordinator.rs::Runtime.tools; runtime/fiber.rs::FiberInitContext.tools; tests/tool_registry.rs; tests/tool_registry_conformance.rs
   disposition: intentional divergence
 - id: TOOL-015
   phase: 4
@@ -597,7 +597,7 @@ rows:
   tests:
   - tool-registry-scope-disposal-withdraws
   python: src/minion_agent/tools/registry.py::ToolRegistry.visible_from/resolve/schemas
-  rust: Phase 4 tools
+  rust: minion-agent-rust/crates/minion-agent/src/tools/registry.rs::ToolRegistry.visible/resolve/schemas; tests/tool_registry.rs; tests/tool_registry_conformance.rs
   disposition: intentional divergence
 - id: TOOL-011
   phase: 4
@@ -611,7 +611,7 @@ rows:
   - tool-registry-nearer-shadows-farther
   - tool-registry-withdrawal-restores-farther
   python: src/minion_agent/tools/registry.py::ToolRegistry.visible_from
-  rust: Phase 4 tools
+  rust: minion-agent-rust/crates/minion-agent/src/tools/registry.rs::ToolRegistry.visible; tests/tool_registry.rs; tests/tool_registry_conformance.rs
   disposition: intentional divergence
 - id: TOOL-012
   phase: 4
@@ -623,7 +623,7 @@ rows:
   tests:
   - tool-registry-same-scope-duplicate-name
   python: src/minion_agent/runtime/scoped_registry.py::ScopedRegistry (insertion order), src/minion_agent/tools/registry.py::ToolRegistry.visible_from (first-match composition)
-  rust: Phase 4 tools
+  rust: minion-agent-rust/crates/minion-agent/src/tools/registry.rs::ToolRegistry.visible; runtime/scoped_registry.rs::ScopedRegistry; tests/tool_registry.rs; tests/tool_registry_conformance.rs
   disposition: intentional divergence
 - id: TOOL-013
   phase: 4
@@ -634,7 +634,7 @@ rows:
   tests:
   - tool-registry-resolve-unknown-is-absent
   python: src/minion_agent/tools/registry.py::ToolRegistry.resolve
-  rust: Phase 4 tools
+  rust: minion-agent-rust/crates/minion-agent/src/tools/registry.rs::ToolRegistry.resolve; tests/tool_registry.rs; tests/tool_registry_conformance.rs
   disposition: intentional divergence
 - id: TOOL-014
   phase: 4
@@ -658,7 +658,7 @@ rows:
   - tool-registry-scope-disposal-withdraws
   - tool-registry-scoped-registration-survives-plugin-unmount
   python: src/minion_agent/tools/registry.py::register_tool
-  rust: Phase 4 tools
+  rust: minion-agent-rust/crates/minion-agent/src/tools/registry.rs::ToolRegistry.register; runtime/scoped_registry.rs::RegistrationHandle; tests/tool_registry_lifecycle.rs; tests/tool_registry_conformance.rs
   disposition: intentional divergence
 - id: PROV-001
   phase: 5

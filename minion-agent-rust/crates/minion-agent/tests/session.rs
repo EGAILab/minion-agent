@@ -256,7 +256,8 @@ fn artifacts_are_content_addressed_and_headers_reconstruct_real_state() {
     let tools = vec![ToolDefinition {
         name: "lookup".into(),
         description: "look up".into(),
-        parameters: serde_json::json!({"type": "object"}),
+        parameters: serde_json::from_value(serde_json::json!({"type": "object"})).unwrap(),
+        constrained_sampling: None,
     }];
     let header = session
         .record_header(components.clone(), "mock-1", tools.clone())

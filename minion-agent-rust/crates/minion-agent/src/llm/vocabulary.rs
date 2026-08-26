@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 
 use serde::{Deserialize, Deserializer, Serialize};
-use serde_json::Value;
+use serde_json::{Map, Value};
 use thiserror::Error;
 
 use super::ModelIdentity;
@@ -436,12 +436,143 @@ pub enum Message {
     ToolResult(Box<ToolResultMessage>),
 }
 
+/// An owned JSON object containing a tool's parameter schema.
+///
+/// Object-valued describes the schema representation, not the instance type
+/// described by the schema. A top-level `type: string` or `oneOf` is valid.
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
-pub struct ToolDefinition {
+#[serde(transparent)]
+pub struct JsonSchemaObject(Map<String, Value>);
+
+impl JsonSchemaObject {
+    pub fn new(values: Map<String, Value>) -> Self {
+        Self(values)
+    }
+
+    pub fn as_map(&self) -> &Map<String, Value> {
+        &self.0
+    }
+
+    pub fn into_map(self) -> Map<String, Value> {
+        self.0
+    }
+}
+
+impl TryFrom<Value> for JsonSchemaObject {
+    type Error = Value;
+
+    fn try_from(value: Value) -> Result<Self, Self::Error> {
+        match value {
+            Value::Object(values) => Ok(Self(values)),
+            other => Err(other),
+        }
+    }
+}
+
+impl From<JsonSchemaObject> for Value {
+    fn from(schema: JsonSchemaObject) -> Self {
+        Self::Object(schema.into_map())
+    }
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum JsonSchemaStrictness {
+    Prefer,
+    Require,
+}
+
+/// Pi's closed grammar format map. Both keys are independently optional,
+/// including the empty map at the model boundary.
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct GrammarVariants {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub openai_lark: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub openai_regex: Option<String>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ConstrainedSampling {
+    Disabled,
+    JsonSchema { strict: JsonSchemaStrictness },
+    Grammar { variants: GrammarVariants },
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+enum ConstrainedSamplingConfig {
+    JsonSchema { strict: JsonSchemaStrictness },
+    Grammar { variants: GrammarVariants },
+}
+
+impl Serialize for ConstrainedSampling {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        match self {
+            Self::Disabled => false.serialize(serializer),
+            Self::JsonSchema { strict } => ConstrainedSamplingConfig::JsonSchema {
+                strict: *strict,
+            }
+            .serialize(serializer),
+            Self::Grammar { variants } => ConstrainedSamplingConfig::Grammar {
+                variants: variants.clone(),
+            }
+            .serialize(serializer),
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for ConstrainedSampling {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let value = Value::deserialize(deserializer)?;
+        if value == Value::Bool(false) {
+            return Ok(Self::Disabled);
+        }
+        if value == Value::Bool(true) {
+            return Err(serde::de::Error::custom(
+                "constrained_sampling accepts false, never true",
+            ));
+        }
+        match serde_json::from_value::<ConstrainedSamplingConfig>(value)
+            .map_err(serde::de::Error::custom)?
+        {
+            ConstrainedSamplingConfig::JsonSchema { strict } => Ok(Self::JsonSchema { strict }),
+            ConstrainedSamplingConfig::Grammar { variants } => Ok(Self::Grammar { variants }),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct ToolSchema {
     pub name: String,
     pub description: String,
-    pub parameters: Value,
+    pub parameters: JsonSchemaObject,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub constrained_sampling: Option<ConstrainedSampling>,
 }
+
+impl ToolSchema {
+    /// Canonical model-facing observation, which writes optional absence as
+    /// explicit null while semantic input continues to use omission.
+    pub fn as_json(&self) -> Value {
+        let mut value = serde_json::to_value(self).expect("ToolSchema serialization is infallible");
+        value
+            .as_object_mut()
+            .expect("ToolSchema serializes as an object")
+            .entry("constrained_sampling")
+            .or_insert(Value::Null);
+        value
+    }
+}
+
+pub type ToolDefinition = ToolSchema;
 
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
 pub struct LlmContext {
@@ -449,7 +580,7 @@ pub struct LlmContext {
     pub system_prompt: Option<String>,
     pub messages: Vec<Message>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub tools: Option<Vec<ToolDefinition>>,
+    pub tools: Option<Vec<ToolSchema>>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]

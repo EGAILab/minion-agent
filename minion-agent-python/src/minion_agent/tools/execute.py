@@ -133,16 +133,23 @@ variance; `_finalize` awaits the result only when it actually is one."""
 def register_after_tool_call_hook(
     ctx: Context, hook: AfterToolCallHook, *, scope: ScopeKey | None = None
 ) -> Any:
-    """The only sanctioned way to extend `tools/post-execute` (`L06-R003`/`L06-R006`).
+    """The recommended way to extend `tools/post-execute` (`L06-R003`/`L06-R006`).
 
     `hook` receives the current, already-merged `ToolResult` (read-only) and may return an
-    `AfterToolCallOverride` (or `None`/nothing for no change) -- never the whole result. This
-    makes replacing execution identity (`tool_call_id`/`tool_name`) or `added_tool_names`
-    structurally impossible through this API, matching pinned Pi's `AfterToolCallResult` field
-    set exactly. Multiple hooks compose as a deterministic, registration-ordered fold
-    (`TOOL-022`): each sees the result exactly as merged by every earlier hook, mirroring pinned
+    `AfterToolCallOverride` (or `None`/nothing for no change) -- never the whole result, so a
+    hook written against this API cannot even attempt to replace execution identity or
+    `added_tool_names`. Multiple hooks compose as a deterministic, registration-ordered fold
+    (`TOOL-005`): each sees the result exactly as merged by every earlier hook, mirroring pinned
     Pi's own single-callback semantics for the zero/one-hook cases and extending it, for N hooks,
     as an intentional Minion architectural divergence -- not something pinned Pi itself defines.
+
+    This helper's own constraint is a convenience, not the authoritative boundary:
+    `tools/post-execute` remains a public Runtime event, so a caller may also register a raw
+    listener directly via `ctx.events.on(TOOLS_POST_EXECUTE, ...)` and return a whole,
+    differently-identified `ToolResult`. `_finalize`'s unconditional restoration of
+    `tool_call_id`/`tool_name`/`added_tool_names` after every dispatch (`L06-R003`) is what
+    actually makes identity/`added_tool_names` replacement impossible, regardless of which
+    registration path produced the waterfall's output.
 
     Returns the same disposer `EventBus.on` returns.
     """
@@ -166,14 +173,40 @@ async def _finalize(result: ToolResult, ctx: Context, scope: ScopeKey | None) ->
     failure the terminal rule exists to prevent.
 
     Called only for an outcome that reached `execute()` -- see `execute_call`.
+
+    Execution identity (`tool_call_id`, `tool_name`) and `added_tool_names` are restored from
+    `result` -- the pristine, pre-hook value -- unconditionally, after the waterfall runs
+    (`L06-R003`). This is the actual authoritative boundary, not a convention: pinned Pi's
+    `AfterToolCallResult` gives a hook no way to touch these fields at all, and
+    `register_after_tool_call_hook`'s own constrained merge already preserves them for a
+    cooperative listener -- but `tools/post-execute` is a public Runtime event, and nothing
+    stops a caller from registering a listener directly via `ctx.events.on(TOOLS_POST_EXECUTE,
+    ...)` that returns (or short-circuits with) a whole, differently-identified `ToolResult`. A
+    prior revision left that path able to observably rewrite these fields, a genuine
+    `PI_PARITY_DEFECT`; restoring them here, at the one place every `tools/post-execute`
+    dispatch necessarily passes through, closes it regardless of how a listener was registered.
+    `ToolResult` is itself frozen, so in-place mutation of the passed-in object is already
+    impossible independent of this restoration.
     """
+    tool_call_id = result.tool_call_id
+    tool_name = result.tool_name
+    added_tool_names = result.added_tool_names
     transformed: ToolResult = await ctx.events.waterfall(
         TOOLS_POST_EXECUTE,
         result,
         terminal=lambda current, *_: current,
         scope=scope,
     )
-    return transformed
+    return ToolResult(
+        tool_call_id=tool_call_id,
+        tool_name=tool_name,
+        added_tool_names=added_tool_names,
+        content=transformed.content,
+        details=transformed.details,
+        is_error=transformed.is_error,
+        usage=transformed.usage,
+        terminate=transformed.terminate,
+    )
 
 
 def _immediate(

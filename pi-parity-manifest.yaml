@@ -456,7 +456,11 @@ rows:
     `jsonschema` library against the exact Layer-05-approved schema. Neither path reproduces
     pinned Pi''s TypeBox-specific coercion algorithm byte-for-byte -- a disclosed, intentional
     divergence, not a validation exemption. Failure text is the validator''s own clean message,
-    never a Python exception class name (L06-R002).'
+    never a Python exception class name (L06-R002). ToolDefinition.parameters'' own docstring
+    (definition.py) previously still said a raw dict was "not Python-validated" even after this
+    row''s runtime fix landed -- a genuine CONTRACT_ASSURANCE_DEFECT (L06-R001, second closure):
+    public documentation must agree with the actual production validator, not merely the
+    manifest/spec. Corrected this pass; no further runtime change.'
   tests:
   - prepare-arguments-failure-becomes-tool-error
   - schema-validation-failure-becomes-tool-error
@@ -503,19 +507,24 @@ rows:
   rule: 'the after-hook may replace content/details/usage/terminate/is_error field-by-field --
     omitted fields keep their prior value, no deep merge (removing a key requires supplying the
     whole replacement). tool_call_id, tool_name, and added_tool_names are NOT overridable fields
-    at all; a hook cannot add, remove, or replace them. This is enforced structurally, not merely
-    documented (L06-R003, corrected this pass -- an earlier revision let a listener return/
-    replace the entire ToolResult through the raw tools/post-execute waterfall, which could
-    observably rewrite these fields, a genuine CONTRACT_ASSURANCE_DEFECT): the only sanctioned
-    registration path, register_after_tool_call_hook, accepts a hook returning an
-    AfterToolCallOverride (exactly Pi''s five AfterToolCallResult fields) or None, a type with
-    structurally no slot for identity/added_tool_names. If the after-hook itself throws, the
-    ENTIRE prior result -- success or failure, with whatever usage/details/terminate it carried
-    -- is discarded and replaced with a plain error result (message per L06-R002, no class-name
-    prefix). This is a replacement, not a merge. With N listeners (L06-R006, an intentional
-    Minion architectural extension pinned Pi does not itself define): each sees the result
-    exactly as merged by every earlier listener; a mid-chain exception stops later listeners and
-    replaces the accumulated result the same way a single listener''s exception would.'
+    at all; a hook cannot add, remove, or replace them. This is enforced structurally at the
+    production dispatch boundary (_finalize), not merely by a constrained registration helper
+    (L06-R003, corrected TWICE this pass): register_after_tool_call_hook accepts a hook returning
+    an AfterToolCallOverride (exactly Pi''s five AfterToolCallResult fields) or None, a type with
+    structurally no slot for identity/added_tool_names -- but tools/post-execute remains a public
+    Runtime event, so a raw ctx.events.on(TOOLS_POST_EXECUTE, ...) registration could still
+    return/replace the entire ToolResult and observably rewrite those fields even after the first
+    repair (a genuine PI_PARITY_DEFECT the independent Rust re-review caught: the helper alone is
+    convention, not enforcement). _finalize itself now unconditionally restores tool_call_id/
+    tool_name/added_tool_names from the pre-hook result after every tools/post-execute dispatch,
+    regardless of registration path -- the real authoritative boundary. If the after-hook itself
+    throws, the ENTIRE prior result -- success or failure, with whatever usage/details/terminate
+    it carried -- is discarded and replaced with a plain error result (message per L06-R002, no
+    class-name prefix). This is a replacement, not a merge. With N listeners (L06-R006, an
+    intentional Minion architectural extension pinned Pi does not itself define): each sees the
+    result exactly as merged by every earlier listener; a mid-chain exception stops later
+    listeners and replaces the accumulated result the same way a single listener''s exception
+    would -- true for a mix of helper-registered and raw listeners alike.'
   tests:
   - after-hook-failure-replaces-result-with-tool-error
   - test_omitted_fields_are_unchanged
@@ -524,6 +533,11 @@ rows:
   - test_a_hook_that_returns_none_leaves_the_result_unchanged
   - test_a_raising_after_hook_replaces_the_entire_prior_result
   - test_registration_order_equals_application_order
+  - test_a_raw_event_listener_cannot_replace_execution_identity
+  - test_a_raw_event_listener_may_still_change_allowed_fields
+  - test_in_place_mutation_of_the_result_is_structurally_impossible
+  - test_mixed_raw_and_helper_listeners_share_the_same_authority
+  - test_middle_listener_failure_skips_later_listeners_with_a_raw_listener_present
   python: src/minion_agent/tools/execute.py::_finalize, _merge_override, register_after_tool_call_hook, AfterToolCallOverride
   rust: Phase 4 tools
   disposition: adopted

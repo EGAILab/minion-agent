@@ -7,9 +7,11 @@ first-class (`TOOL-F010`): the model-facing contract is the JSON Schema
 itself, not any one host language's schema-authoring library, and canonical
 conformance evidence must be able to construct a real `ToolDefinition` from a
 language-neutral schema value without inventing a Pydantic model dynamically.
-A `dict`-parameters tool bypasses Python-side argument validation in
-`execute.py` (Layer 06 territory, not certified here) -- it is a legitimate
-representation of the model-facing schema, not a substitute for validation.
+This module only *stores* the schema (Layer 05); Layer 06's `execute.py`
+*validates* execution arguments against it -- for a raw `dict` via the general
+`jsonschema` library, for a pydantic model via pydantic itself (`L06-R001`; an
+earlier revision of this docstring said a raw-dict tool "bypasses Python-side
+argument validation," which stopped being true once Layer 06 closed that gap).
 """
 
 from __future__ import annotations
@@ -64,8 +66,13 @@ class ToolDefinition:
     name: str
     description: str
     parameters: type[BaseModel] | dict[str, Any]
-    """A pydantic model class (validated in `execute.py`) or a raw, object-valued JSON Schema
-    dict (not Python-validated -- `TOOL-F010`). Required: missing/`None` is not a shorthand for
+    """The required object-valued JSON Schema representation (`TOOL-F010`): a pydantic model
+    class, or a raw, language-neutral JSON Schema `dict`. Layer 05 only stores this value; Layer
+    06's `execute.py` validates execution arguments against it before `execute` runs -- via
+    pydantic for a model class, via the general `jsonschema` library for a raw `dict` (`L06-R001`;
+    an earlier revision of this docstring said a raw `dict` was "not Python-validated," which
+    stopped being true once Layer 06 closed that gap -- construction here never validates
+    anything itself, regardless of representation). Required: missing/`None` is not a shorthand for
     "no parameters" (`L05-R005`) -- a tool that takes nothing still supplies the explicit empty
     schema `{"type": "object", "properties": {}}`. "Object-valued" describes the JSON
     *representation* of the schema itself (the value is a mapping) -- it does not require the

@@ -94,9 +94,71 @@ class _ScopeTable:
         return self.live[name]
 
 
+def _validate_references(spec_doc: dict[str, Any]) -> None:
+    """Reject malformed declarative references before any Runtime object is constructed
+    (`L05-R004`): a plugin's `apply()` raising during `reconcile()` is recorded as a fiber
+    failure and reconciliation continues, so a `scope_parent`/query `scope` naming a
+    never-declared scope previously surfaced only as an incidental `KeyError` later, not the
+    direct rejection this boundary promises. This validates the scenario description itself
+    (structural fixture integrity), not registry lookup/shadowing semantics -- it never decides
+    visibility, ancestry, or ordering; the real `ToolRegistry`/`Context`/`Scope` seam still owns
+    all of that once construction begins.
+    """
+    plugin_ids = {entry["id"] for entry in spec_doc["plugins"]}
+    scope_parents: dict[str, str | None] = {
+        entry["scope"]: entry.get("scope_parent")
+        for entry in spec_doc["plugins"]
+        if entry.get("scope") is not None
+    }
+
+    for scope_name, parent_name in scope_parents.items():
+        if parent_name is None:
+            continue
+        if parent_name == scope_name:
+            raise ValueError(f"scope {scope_name!r} declares itself as its own scope_parent")
+        if parent_name not in scope_parents:
+            raise ValueError(
+                f"scope {scope_name!r} declares scope_parent {parent_name!r}, which no "
+                "plugins[] entry declares as its own scope -- malformed canonical input"
+            )
+
+    for scope_name in scope_parents:
+        seen = {scope_name}
+        current = scope_parents[scope_name]
+        while current is not None:
+            if current in seen:
+                raise ValueError(
+                    f"scope {scope_name!r}'s scope_parent chain contains a cycle at {current!r}"
+                )
+            seen.add(current)
+            current = scope_parents[current]
+
+    for step in spec_doc["steps"]:
+        for key in ("mount", "unmount", "withdraw"):
+            if key in step and step[key] not in plugin_ids:
+                raise ValueError(
+                    f"step {key!r} references plugin {step[key]!r}, which no plugins[] entry "
+                    "declares -- malformed canonical input"
+                )
+        if "dispose_scope" in step and step["dispose_scope"] not in scope_parents:
+            raise ValueError(
+                f"step dispose_scope references scope {step['dispose_scope']!r}, which no "
+                "plugins[] entry declares -- malformed canonical input"
+            )
+
+    for query in spec_doc["queries"]:
+        scope_name = query.get("scope")
+        if scope_name is not None and scope_name not in scope_parents:
+            raise ValueError(
+                f"query {query['id']!r} references scope {scope_name!r}, which no plugins[] "
+                "entry declares -- malformed canonical input"
+            )
+
+
 async def run_tool_registry_scenario(document: dict[str, Any]) -> dict[str, Any]:
     """Run one `tool_registry` scenario and return `{query_id: {...}}` observations."""
     spec_doc = document["tool_registry"]
+    _validate_references(spec_doc)
     root = Context()
     root.plugins.mount(spec_of(tools_plugin), None, root)
     await root.plugins.reconcile()

@@ -489,11 +489,17 @@ rows:
   surface: constrained sampling metadata
   rule: 'absent | false | {type: json_schema, strict: prefer|require} | {type: grammar, variants}
     -- three first-class states, not two; preserved end to end into the model-facing schema
-    (Layer 05, TOOL-F005). variants is keyed by an open grammar-format string (Pi''s own known
-    values are provider-specific, e.g. "openai_lark"/"openai_regex"), never a closed enum.
-    Provider-specific enforcement/fallback is Real Providers (assurance Layer 11) territory,
-    out of scope here. Previous tests: entry (tool-constrained-sampling-schema) was a dangling
-    reference to a scenario that was never created -- corrected this pass.'
+    (Layer 05, TOOL-F005). Grammar variants are closed to pinned Pi''s own two-value
+    GrammarFormat = "openai_lark" | "openai_regex" union, i.e. GrammarVariants =
+    Partial<Record<GrammarFormat, string>> -- never an open string-keyed map (L05-R001; an
+    earlier revision of this row incorrectly said "open ... never a closed enum," the opposite
+    of pinned Pi''s actual type). Each of the two formats is independently optional, including
+    both absent at once: Pi''s type statically permits {}, and Layer 05 accepts it -- Pi''s own
+    runtime rejection of a grammar config with no variant selected happens at provider
+    request-construction time (packages/ai/src/api/constrained-sampling.ts::
+    resolveGrammarConstrainedSampling), which is Real Providers (assurance Layer 11) territory,
+    out of scope here. Explicit null is not a state of this field (L05-R006): the canonical
+    absent state omits the key entirely.'
   tests:
   - tool-registry-schema-projection
   - test_json_schema_constrained_sampling_round_trips
@@ -501,6 +507,27 @@ rows:
   - test_false_constrained_sampling_is_preserved_exactly
   - test_absent_constrained_sampling_serializes_as_null
   python: src/minion_agent/llm/tools.py::ConstrainedSampling/ToolSchema, src/minion_agent/tools/definition.py::ToolDefinition.constrained_sampling
+  rust: Phase 4 tools
+  disposition: adopted
+- id: TOOL-016
+  phase: 4
+  pi: packages/ai/src/types.ts::Tool
+  surface: base tool definition fields (name, description, parameters)
+  rule: 'name/description are plain required strings. parameters is a required, object-valued
+    JSON Schema representation (Tool<TParameters extends TSchema>; TypeBox''s TSchema is always
+    object-shaped at this position, never the bare JSON-Schema-spec boolean shorthand)
+    (L05-R005, previously untraced at the base-field level -- TOOL-008/TOOL-009 cover
+    constrainedSampling and the AgentTool extension fields respectively, neither covers the base
+    Tool interface). Missing and null are not aliases for "no parameters"; a no-argument tool
+    supplies the explicit empty-object schema {type: object, properties: {}}. Enforced at the
+    public ToolDefinition boundary itself (not only by typing or canonical-schema convenience).'
+  tests:
+  - tests/typing/valid_tool_construction.py (positive: object-valued schema and pydantic model
+    class; negative: missing, None)
+  - test_a_tool_without_parameters_gets_an_empty_object_schema
+  - test_a_tool_with_none_parameters_is_rejected
+  - test_tool_registry_parameters_domain (canonical-schema domain matrix)
+  python: src/minion_agent/tools/definition.py::ToolDefinition.parameters, ToolDefinition.__post_init__
   rust: Phase 4 tools
   disposition: adopted
 - id: TOOL-009
@@ -532,10 +559,32 @@ rows:
     schemas; ctx.system_prompt describes tools textually but never owns/registers a schema.
     Registration is a reversible effect (design spec section 3); visibility follows the certified
     Runtime scope rules unmodified: nearest scope first, then ancestors outward, untagged (global)
-    last -- this order is normative and observable (TOOL-F008), not incidental.'
+    last -- this order is normative and observable (TOOL-F008), not incidental. See TOOL-015 for
+    the separate, previously-untraced disposed-requesting-scope observation rule (L05-R002).'
   tests:
   - tool-registry-scope-visibility
   python: src/minion_agent/tools/registry.py::ToolRegistry, register_tool
+  rust: Phase 4 tools
+  disposition: intentional divergence
+- id: TOOL-015
+  phase: 4
+  pi: 'N/A -- Minion registry architecture, see TOOL-010'
+  surface: disposed requesting-scope observation
+  rule: 'previously untraced (L05-R002, CONTRACT_ASSURANCE_DEFECT): a disposed/inactive requesting
+    scope is not a valid ToolRegistry observation point. visible_from()/resolve()/schemas() given
+    a disposed Scope return no visible tools at all, regardless of ancestor or untagged/global
+    registrations that would otherwise be eligible from a live scope at the same position in the
+    chain. A live descendant scope is unaffected by an unrelated disposed scope elsewhere in the
+    tree (e.g. a disposed sibling or disposed child) and still observes its own eligible
+    ancestor/global registrations normally. This reuses the already-certified Scope.disposed
+    property (Layer 01, unmodified) at the query boundary; ScopedRegistry/ScopeTree''s own
+    key-chain-only visibility algorithm has no liveness concept and is not changed. The query
+    APIs accept ScopeKey | Scope | None: a bare ScopeKey carries no liveness information and
+    preserves the prior key-chain-only behavior (internal/advanced use); passing the live Scope
+    itself is what enables this rule to engage.'
+  tests:
+  - tool-registry-scope-disposal-withdraws
+  python: src/minion_agent/tools/registry.py::ToolRegistry.visible_from/resolve/schemas
   rust: Phase 4 tools
   disposition: intentional divergence
 - id: TOOL-011

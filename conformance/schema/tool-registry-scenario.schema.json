@@ -68,8 +68,8 @@
       }
     },
     "constrainedSamplingInput": {
+      "$comment": "The four Pi-defined states are exactly: field omitted (absent), false, json_schema config, grammar config. Explicit null is not a fifth alias for absent (L05-R006) -- a scenario that means \"absent\" omits this key entirely; if present, it must be one of the three non-null variants below.",
       "oneOf": [
-        { "type": "null" },
         { "const": false },
         {
           "type": "object",
@@ -87,9 +87,8 @@
           "properties": {
             "type": { "const": "grammar" },
             "variants": {
-              "$comment": "Closed to pinned Pi's own GrammarFormat = \"openai_lark\" | \"openai_regex\" (L05-R001) -- not an open string-keyed map.",
+              "$comment": "Closed to pinned Pi's own GrammarFormat = \"openai_lark\" | \"openai_regex\" (L05-R001) -- not an open string-keyed map. No minProperties: pinned Pi's GrammarVariants = Partial<Record<GrammarFormat, string>> statically permits {} at the Tool-model boundary; Pi's own runtime rejection of an empty grammar selection happens at provider request-construction time (packages/ai/src/api/constrained-sampling.ts::resolveGrammarConstrainedSampling), which is Real Providers/assurance Layer 11 territory, not Layer 05.",
               "type": "object",
-              "minProperties": 1,
               "additionalProperties": false,
               "properties": {
                 "openai_lark": { "type": "string" },
@@ -152,8 +151,40 @@
         "name": { "type": "string" },
         "description": { "type": "string" },
         "parameters": { "type": "object" },
-        "constrained_sampling": { "$ref": "#/$defs/constrainedSamplingInput" }
+        "constrained_sampling": { "$ref": "#/$defs/constrainedSamplingOutput" }
       }
+    },
+    "constrainedSamplingOutput": {
+      "$comment": "The observed ToolSchema.as_json() projection, not canonical toolInput -- these are different positions (L05-R006). Here 'absent' is the required key's explicit null value, matching the project's established optional-field convention (as_json()'s own docstring, e.g. response_model in spec/llm.md): the projected field is always present, null when there is no constrained-sampling preference. This is distinct from toolInput's own absent state, which OMITS the key entirely and, per L05-R006, does not accept an explicit null as an alias.",
+      "oneOf": [
+        { "type": "null" },
+        { "const": false },
+        {
+          "type": "object",
+          "required": ["type", "strict"],
+          "additionalProperties": false,
+          "properties": {
+            "type": { "const": "json_schema" },
+            "strict": { "enum": ["prefer", "require"] }
+          }
+        },
+        {
+          "type": "object",
+          "required": ["type", "variants"],
+          "additionalProperties": false,
+          "properties": {
+            "type": { "const": "grammar" },
+            "variants": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "openai_lark": { "type": "string" },
+                "openai_regex": { "type": "string" }
+              }
+            }
+          }
+        }
+      ]
     },
     "expectedResolve": {
       "oneOf": [

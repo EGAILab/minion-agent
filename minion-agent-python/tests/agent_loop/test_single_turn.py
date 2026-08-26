@@ -23,7 +23,12 @@ def _register(
     a reversible effect."""
     loop.tools.register(
         ToolDefinition(
-            name=name, description=name, parameters=None, execute=fn, label=name, mode=mode
+            name=name,
+            description=name,
+            parameters={"type": "object", "properties": {}},
+            execute=fn,
+            label=name,
+            mode=mode,
         )
     )
 

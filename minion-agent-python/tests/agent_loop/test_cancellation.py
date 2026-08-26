@@ -106,7 +106,11 @@ async def test_a_blocked_agent_does_not_stall_another() -> None:
 
     blocked_tools.register(
         ToolDefinition(
-            name="echo", description="echo", parameters=None, execute=wait_for_release, label="Echo"
+            name="echo",
+            description="echo",
+            parameters={"type": "object", "properties": {}},
+            execute=wait_for_release,
+            label="Echo",
         )
     )
 

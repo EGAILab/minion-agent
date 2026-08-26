@@ -29,7 +29,13 @@ def _ctx() -> Context:
 def _streaming(execute: Any) -> ToolRegistry:
     registry = ToolRegistry()
     registry.register(
-        ToolDefinition(name="echo", description="d", parameters=None, execute=execute, label="Echo")
+        ToolDefinition(
+            name="echo",
+            description="d",
+            parameters={"type": "object", "properties": {}},
+            execute=execute,
+            label="Echo",
+        )
     )
     return registry
 

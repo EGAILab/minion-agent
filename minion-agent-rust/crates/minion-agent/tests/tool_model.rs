@@ -2,6 +2,12 @@ use minion_agent::llm::{
     ConstrainedSampling, GrammarVariants, JsonSchemaObject, JsonSchemaStrictness, ToolSchema,
 };
 use serde_json::{Value, json};
+use std::sync::{
+    Arc,
+    atomic::{AtomicUsize, Ordering},
+};
+
+use minion_agent::tools::{ExecutionMode, ToolDefinition, ToolExecutionRequest};
 
 #[test]
 fn parameters_accept_and_preserve_every_object_valued_schema_shape() {
@@ -133,4 +139,63 @@ fn constrained_sampling_rejects_true_while_projection_null_round_trips_absence()
     }))
     .unwrap();
     assert_eq!(projected.constrained_sampling, None);
+}
+
+#[test]
+fn agent_tool_definition_projects_metadata_without_invoking_capabilities() {
+    let prepares = Arc::new(AtomicUsize::new(0));
+    let executes = Arc::new(AtomicUsize::new(0));
+    let prepare_count = Arc::clone(&prepares);
+    let execute_count = Arc::clone(&executes);
+    let parameters: JsonSchemaObject = serde_json::from_value(json!({"type": "string"})).unwrap();
+    let tool = ToolDefinition::new(
+        "lookup",
+        "look up",
+        parameters.clone(),
+        "Lookup",
+        move |_request: ToolExecutionRequest| {
+            execute_count.fetch_add(1, Ordering::SeqCst);
+            Box::pin(async { unreachable!("Layer 05 never executes tools") })
+        },
+    )
+    .with_prepare_arguments(move |arguments| {
+        prepare_count.fetch_add(1, Ordering::SeqCst);
+        Ok(arguments)
+    })
+    .with_constrained_sampling(ConstrainedSampling::Disabled)
+    .with_execution_mode(ExecutionMode::Parallel);
+
+    let schema = tool.schema();
+    assert_eq!(schema.name, "lookup");
+    assert_eq!(schema.description, "look up");
+    assert_eq!(schema.parameters, parameters);
+    assert_eq!(
+        schema.constrained_sampling,
+        Some(ConstrainedSampling::Disabled)
+    );
+    assert_eq!(tool.label(), "Lookup");
+    assert_eq!(tool.execution_mode(), Some(ExecutionMode::Parallel));
+    assert!(tool.prepare_arguments().is_some());
+    assert_eq!(prepares.load(Ordering::SeqCst), 0);
+    assert_eq!(executes.load(Ordering::SeqCst), 0);
+}
+
+#[test]
+fn absent_execution_mode_remains_distinct_from_parallel() {
+    let parameters: JsonSchemaObject = serde_json::from_value(json!({})).unwrap();
+    let absent = ToolDefinition::new(
+        "absent",
+        "absent",
+        parameters.clone(),
+        "Absent",
+        |_request| Box::pin(async { unreachable!() }),
+    );
+    let parallel =
+        ToolDefinition::new("parallel", "parallel", parameters, "Parallel", |_request| {
+            Box::pin(async { unreachable!() })
+        })
+        .with_execution_mode(ExecutionMode::Parallel);
+
+    assert_eq!(absent.execution_mode(), None);
+    assert_eq!(parallel.execution_mode(), Some(ExecutionMode::Parallel));
 }

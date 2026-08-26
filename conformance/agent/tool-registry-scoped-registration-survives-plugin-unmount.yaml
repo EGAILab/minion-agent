@@ -1,0 +1,37 @@
+name: tool-registry-scoped-registration-survives-plugin-unmount
+family: agent
+authority: 2026-08-20-minion-agent-design.md
+pi_revision: b7bb00b936dbe21b8e160b3e89efdec361846699
+notes: >
+  `L05-R003`: a scoped registration's lifetime is the intersection of NEITHER plugin-only nor
+  scope-only ownership as two independent triggers -- it is scope-owned once registered through a
+  scope. Verified directly against the certified Runtime (`Context.effect()`: "owned by the
+  nearest scope OR the fiber" -- nearest scope wins when both are present, `_scoped_effect` routes
+  to the scope's own disposables, never the fiber's), and confirmed to match certified Rust's
+  independent `FiberInitContext::effect` routing exactly (both route a scoped effect to the scope
+  effect store; fiber/plugin unmount disposes only the fiber generation store, never the scope
+  store). This scenario proves the previously-unevidenced half of that rule: a scoped tool
+  registration survives its OWNING PLUGIN's unmount -- unmounting the registering plugin alone is
+  not sufficient to withdraw it. `tool-registry-plugin-disposal-withdraws.yaml` already covers the
+  UNSCOPED (fiber-owned) case, and `tool-registry-scope-disposal-withdraws.yaml` already covers
+  scope-disposal withdrawing a scope-owned registration; this scenario is the missing third leg
+  (survival across plugin unmount specifically), not a duplicate of either. It stops at a single
+  post-unmount query rather than also disposing the scope afterward, because this runner evaluates
+  all `queries` only after every `steps` entry has run (no interleaving) -- a later disposal step
+  would make every query observe the post-disposal state, which is already what the other
+  scenario proves.
+tool_registry:
+  plugins:
+    - id: scoped-plugin
+      scope: shared
+      tools:
+        - { name: scoped_tool, description: registered through a scope, label: Scoped Tool, parameters: { type: object, properties: {} } }
+  steps:
+    - mount: scoped-plugin
+    - unmount: scoped-plugin
+  queries:
+    - id: after_plugin_unmount_scope_still_live
+      scope: shared
+expect:
+  after_plugin_unmount_scope_still_live:
+    names: [scoped_tool]

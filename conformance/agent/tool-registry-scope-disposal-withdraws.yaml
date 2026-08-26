@@ -3,37 +3,52 @@ family: agent
 authority: 2026-08-20-minion-agent-design.md
 pi_revision: b7bb00b936dbe21b8e160b3e89efdec361846699
 notes: >
-  Disposing a scope withdraws every tool registered through it (and its descendants), through the
-  real certified Runtime scope-disposal seam -- not a manual per-registration withdrawal loop. An
-  ancestor scope's own registration, and a sibling scope's registration, must survive the disposal
-  of an unrelated descendant.
+  Disposing a scope withdraws every tool registered through it, through the real certified
+  Runtime scope-disposal seam -- not a manual per-registration withdrawal loop. An ancestor
+  scope's own registration, and a sibling scope's registration, must survive the disposal of an
+  unrelated descendant, observed by querying from those still-live scopes (not from the disposed
+  one). `root_scope` is constructed by its own real plugin/registration below, not merely named
+  as a `scope_parent` reference with nothing behind it (`L05-R004` -- an earlier revision of this
+  fixture declared `scope_parent: root_scope` with no corresponding scope/plugin, so the runner's
+  then-permissive missing-parent handling silently created `child`/`sibling` as parentless
+  scopes, and the fixture passed without actually proving the hierarchy or ancestor survival it
+  claimed). Separately, querying `visible_from` **the disposed scope itself** now correctly
+  returns nothing at all, not even ancestor/global entries (`L05-R002`): a disposed/inactive
+  scope is never a valid observation point, matching certified Rust's
+  `ScopeTree::active_ancestor_chain` behavior exactly -- this scenario proves that directly too,
+  rather than the reverse (previously-incorrect) expectation.
 tool_registry:
   plugins:
-    - id: root-plugin
+    - id: root-scope-plugin
+      scope: root_scope
       tools:
-        - { name: root_tool, description: root, label: Root Tool }
+        - { name: root_tool, description: root, label: Root Tool, parameters: { type: object, properties: {} } }
     - id: child-plugin
       scope: child
       scope_parent: root_scope
       tools:
-        - { name: child_tool, description: child, label: Child Tool }
+        - { name: child_tool, description: child, label: Child Tool, parameters: { type: object, properties: {} } }
     - id: sibling-plugin
       scope: sibling
       scope_parent: root_scope
       tools:
-        - { name: sibling_tool, description: sibling, label: Sibling Tool }
+        - { name: sibling_tool, description: sibling, label: Sibling Tool, parameters: { type: object, properties: {} } }
   steps:
-    - mount: root-plugin
+    - mount: root-scope-plugin
     - mount: child-plugin
     - mount: sibling-plugin
     - dispose_scope: child
   queries:
-    - id: from_child
-      scope: child
+    - id: from_root_scope
+      scope: root_scope
     - id: from_sibling
       scope: sibling
+    - id: from_disposed_child
+      scope: child
 expect:
-  from_child:
+  from_root_scope:
     names: [root_tool]
   from_sibling:
     names: [sibling_tool, root_tool]
+  from_disposed_child:
+    names: []

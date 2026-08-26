@@ -62,7 +62,7 @@ _constrained_grammar: ToolDefinition = ToolDefinition(
     parameters=None,
     execute=lambda args: "ok",
     label="E",
-    constrained_sampling=GrammarConstrainedSampling(variants={"openai_lark": "start: WORD+"}),
+    constrained_sampling=GrammarConstrainedSampling(openai_lark="start: WORD+"),
 )
 
 # `prepare_arguments` -- field/signature only (TOOL-F002); Layer 05 does not certify invocation.

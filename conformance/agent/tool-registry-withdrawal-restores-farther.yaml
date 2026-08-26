@@ -11,11 +11,11 @@ tool_registry:
   plugins:
     - id: root-plugin
       tools:
-        - { name: read, description: root read, label: Read (root) }
+        - { name: read, description: root read, label: Read (root), parameters: { type: object, properties: {} } }
     - id: child-plugin
       scope: child
       tools:
-        - { name: read, description: child read, label: Read (child) }
+        - { name: read, description: child read, label: Read (child), parameters: { type: object, properties: {} } }
   steps:
     - mount: root-plugin
     - mount: child-plugin

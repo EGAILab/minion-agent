@@ -11,7 +11,7 @@ tool_registry:
   plugins:
     - id: root-plugin
       tools:
-        - { name: read, description: read, label: Read }
+        - { name: read, description: read, label: Read, parameters: { type: object, properties: {} } }
   steps:
     - mount: root-plugin
   queries:

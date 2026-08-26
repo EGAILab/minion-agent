@@ -578,16 +578,24 @@ rows:
 - id: TOOL-014
   phase: 4
   pi: 'N/A -- Minion registry architecture, see TOOL-010'
-  surface: registration lifecycle (effect-owned, plugin/scope disposal withdraws)
-  rule: 'registration is a reversible effect; unloading the owning plugin (fiber disposal) or
-    disposing the scope registration went through withdraws the tool. The withdrawal handle
-    register_tool() returns is async (ctx.effect()''s own handle, matching Fiber.effect/
-    _scoped_effect''s identical Callable[[], Awaitable[None]] shape) -- calling it synchronously
-    silently fails to withdraw (TOOL-F006, found via real integration evidence, corrected this
-    pass: register_tool()''s own type signature previously said the looser Callable[[], Any]).'
+  surface: registration lifecycle (effect-owned; ownership, not first-of-plugin-or-scope, decides withdrawal)
+  rule: 'registration is a reversible effect owned by whichever context performed it. An unscoped
+    registration is fiber-owned: unloading the registering plugin withdraws it. A scoped
+    registration (via ctx.scope(key)) is owned by that scope from registration onward: only that
+    scope''s own disposal or an explicit handle withdrawal withdraws it -- unloading the
+    registering plugin alone does not (L05-R003, previously underspecified this pass as an
+    either/or; verified empirically against the certified Runtime''s Context.effect() routing,
+    which sends scoped effects to the scope''s own disposables regardless of which plugin/fiber is
+    executing -- this registry inherits that behavior unmodified, it is not a Layer-05 policy
+    choice). The withdrawal handle register_tool() returns is async (ctx.effect()''s own handle,
+    matching Fiber.effect/_scoped_effect''s identical Callable[[], Awaitable[None]] shape) --
+    calling it synchronously silently fails to withdraw (TOOL-F006, found via real integration
+    evidence, corrected this pass: register_tool()''s own type signature previously said the
+    looser Callable[[], Any]).'
   tests:
   - tool-registry-plugin-disposal-withdraws
   - tool-registry-scope-disposal-withdraws
+  - tool-registry-scoped-registration-survives-plugin-unmount
   python: src/minion_agent/tools/registry.py::register_tool
   rust: Phase 4 tools
   disposition: intentional divergence

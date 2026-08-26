@@ -54,14 +54,15 @@
     },
     "toolInput": {
       "type": "object",
-      "required": ["name", "description", "label"],
+      "required": ["name", "description", "label", "parameters"],
       "additionalProperties": false,
       "properties": {
         "name": { "type": "string", "minLength": 1 },
         "description": { "type": "string" },
         "label": { "type": "string", "minLength": 1 },
         "parameters": {
-          "oneOf": [{ "type": "object" }, { "type": "null" }]
+          "$comment": "Object-valued JSON Schema only (L05-R005) -- pinned Pi's Tool.parameters is required, never null/omitted; a parameterless tool must write the empty-object schema explicitly ({type: object, properties: {}}), not rely on a missing/null shorthand.",
+          "type": "object"
         },
         "constrained_sampling": { "$ref": "#/$defs/constrainedSamplingInput" }
       }
@@ -86,8 +87,14 @@
           "properties": {
             "type": { "const": "grammar" },
             "variants": {
+              "$comment": "Closed to pinned Pi's own GrammarFormat = \"openai_lark\" | \"openai_regex\" (L05-R001) -- not an open string-keyed map.",
               "type": "object",
-              "additionalProperties": { "type": "string" }
+              "minProperties": 1,
+              "additionalProperties": false,
+              "properties": {
+                "openai_lark": { "type": "string" },
+                "openai_regex": { "type": "string" }
+              }
             }
           }
         }

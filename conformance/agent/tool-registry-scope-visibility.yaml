@@ -18,21 +18,21 @@ tool_registry:
   plugins:
     - id: untagged-plugin
       tools:
-        - { name: global_tool, description: visible everywhere, label: Global Tool }
+        - { name: global_tool, description: visible everywhere, label: Global Tool, parameters: { type: object, properties: {} } }
     - id: parent-plugin
       scope: parent
       tools:
-        - { name: parent_tool, description: parent-scoped, label: Parent Tool }
+        - { name: parent_tool, description: parent-scoped, label: Parent Tool, parameters: { type: object, properties: {} } }
     - id: child-plugin
       scope: child
       scope_parent: parent
       tools:
-        - { name: child_tool, description: child-scoped, label: Child Tool }
+        - { name: child_tool, description: child-scoped, label: Child Tool, parameters: { type: object, properties: {} } }
     - id: sibling-plugin
       scope: sibling
       scope_parent: parent
       tools:
-        - { name: sibling_tool, description: sibling-scoped, label: Sibling Tool }
+        - { name: sibling_tool, description: sibling-scoped, label: Sibling Tool, parameters: { type: object, properties: {} } }
   steps:
     - mount: untagged-plugin
     - mount: parent-plugin

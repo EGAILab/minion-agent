@@ -19,7 +19,7 @@ from ..llm import ToolCallBlock
 from ..runtime import Context, Scope, ScopeKey
 from .definition import ExecutionMode
 from .events import TOOLS_EXECUTION_END, TOOLS_EXECUTION_START
-from .execute import execute_call
+from .execute import _execute_and_finalize, _preflight, _Prepared, execute_call
 from .registry import ToolRegistry
 from .result import ToolResult, text_result
 
@@ -83,18 +83,49 @@ async def execute_batch(
     `AgentLoopConfig.toolExecution?`, "Default: parallel") -- the effective default belongs to
     execution, not to `ToolDefinition` itself (`execution_mode: None` on a tool means "no
     per-tool preference," never "parallel"; only the batch decides what `None` falls back to).
+
+    Parallel mode is NOT "preflight every call concurrently too" (`IR-L06-001`): pinned Pi's
+    `executeToolCallsParallel` resolves/prepares/validates/before-hooks every call strictly
+    sequentially, in source order -- `tool_execution_start` for call 2 never fires before call 1's
+    entire preflight has settled -- and only starts `execute()`/the after-hook concurrently once
+    *every* call in the batch has survived preflight. An immediate outcome (unknown tool, prepare/
+    validate/before-hook failure or block) finalizes right there in the sequential phase, before
+    any prepared call's `execute()` begins; only calls that survive preflight run concurrently
+    afterward. `_preflight`/`_execute_and_finalize` (`execute.py`) are the same two functions
+    `execute_call` itself is built from -- no stage's rules are duplicated here.
     """
     completion: list[str] = []
-
-    async def run(call: ToolCallBlock) -> ToolResult:
-        result = await execute_call(call, registry=registry, ctx=ctx, scope=scope)
-        completion.append(call.id)
-        return result
+    scope_key = scope.key if isinstance(scope, Scope) else scope
 
     if _is_sequential(calls, registry, scope, default_mode):
+
+        async def run(call: ToolCallBlock) -> ToolResult:
+            result = await execute_call(call, registry=registry, ctx=ctx, scope=scope)
+            completion.append(result.tool_call_id)
+            return result
+
         results = [await run(call) for call in calls]
     else:
-        results = list(await asyncio.gather(*(run(call) for call in calls)))
+        outcomes: list[_Prepared | ToolResult] = []
+        for call in calls:
+            outcome = await _preflight(call, registry=registry, ctx=ctx, scope=scope_key)
+            # An immediate outcome already produced its final result -- and emitted
+            # tools/execution-end -- during preflight, strictly before the barrier below, so its
+            # completion is recorded here, not deferred into the concurrent phase.
+            if isinstance(outcome, ToolResult):
+                completion.append(outcome.tool_call_id)
+            outcomes.append(outcome)
+
+        async def resolve(outcome: _Prepared | ToolResult) -> ToolResult:
+            if isinstance(outcome, ToolResult):
+                return outcome
+            result = await _execute_and_finalize(outcome, ctx=ctx, scope=scope_key)
+            completion.append(result.tool_call_id)
+            return result
+
+        # The barrier: every call above has already finished preflight before any of these
+        # execute()+after-hook stages starts.
+        results = list(await asyncio.gather(*(resolve(outcome) for outcome in outcomes)))
 
     return BatchOutcome(
         results=tuple(results),

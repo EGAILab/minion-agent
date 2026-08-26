@@ -411,7 +411,10 @@ async def run_agent_scenario(document: dict[str, Any]) -> dict[str, Any]:
             ctx.events.on(spec["event"], _listener(spec))
 
     seen_updates: list[tuple[str, str]] = []
-    ctx.events.on(TOOLS_UPDATE, lambda call_id, partial: seen_updates.append((call_id, partial)))
+    ctx.events.on(
+        TOOLS_UPDATE,
+        lambda call_id, tool_name, arguments, partial: seen_updates.append((call_id, partial)),
+    )
 
     config = document.get("config", {})
     handle = ctx.agents.create(

@@ -5,6 +5,17 @@ Stages, matching pinned Pi's `prepareToolCall` + `executePreparedToolCall` +
 
     resolve -> prepare -> validate -> before-hook -> execute (+ live updates) -> after-hook
 
+The first four (`_preflight`) and the last two (`_execute_and_finalize`) are deliberately split
+into two functions (`IR-L06-001`): pinned Pi's `executeToolCallsParallel` runs preflight for every
+call in a batch strictly sequentially, in source order, and only starts `execute()`/the after-hook
+concurrently once *every* call in the batch has finished preflight -- a barrier a single
+`asyncio.gather` over the whole per-call pipeline cannot express, since that would preflight every
+call concurrently too. `execute_call` (single call) and `execute_batch`'s sequential path both
+still call `_preflight` then `_execute_and_finalize` in a tight sequence -- the same two functions,
+not a duplicated copy of either stage's rules -- while the parallel batch path calls `_preflight`
+for every call first, then `_execute_and_finalize` concurrently only for the calls that survived
+it. See `batch.py::execute_batch` for the barrier itself.
+
 An outcome decided before `execute()` runs (unknown tool, a prepare/validate/before-hook
 exception, or an explicit before-hook block) is "immediate" and never reaches `execute()` or the
 after-hook (`tools/post-execute`) at all -- pinned Pi's `finalizeExecutedToolCall` (the after-hook)
@@ -18,6 +29,7 @@ asked to continue from a conversation that does not make sense.
 from __future__ import annotations
 
 import inspect
+from dataclasses import dataclass
 from typing import Any
 
 from jsonschema import Draft202012Validator
@@ -245,18 +257,33 @@ def _immediate(
     return result
 
 
-async def execute_call(
-    call: ToolCallBlock,
-    *,
-    registry: ToolRegistry,
-    ctx: Context,
-    scope: ScopeKey | Scope | None = None,
-) -> ToolResult:
-    """Run `call` and return its result, whatever happens."""
-    # Events want a bare ScopeKey (design spec section 3), not a live Scope --
-    # normalize once; the registry lookup below already used the richer value
-    # for its own disposed-scope check (L05-R002).
-    scope = scope.key if isinstance(scope, Scope) else scope
+@dataclass(frozen=True, slots=True)
+class _Prepared:
+    """A call that survived preflight: resolved, prepared, validated, and passed the before-hook.
+
+    `arguments` is the before-hook waterfall's own terminal value (`decision.arguments`) -- the
+    validated arguments, possibly further replaced by a cooperative `tools/pre-execute` listener
+    (`Proceed(arguments=...)`) -- matching what pinned Pi's `PreparedToolCall.args` carries into
+    `executePreparedToolCall`.
+    """
+
+    call: ToolCallBlock
+    definition: ToolDefinition
+    arguments: dict[str, Any]
+
+
+async def _preflight(
+    call: ToolCallBlock, *, registry: ToolRegistry, ctx: Context, scope: ScopeKey | None
+) -> _Prepared | ToolResult:
+    """Resolve, `prepare_arguments`, validate, and run the before-hook waterfall -- everything
+    pinned Pi's `prepareToolCall` does before a call is eligible to run `execute()` (`IR-L06-001`).
+
+    Returns a `_Prepared` for a call that may proceed, or the call's already-final `ToolResult`
+    for an "immediate" outcome (unknown tool, a prepare/validate/before-hook exception, or an
+    explicit before-hook block) -- which has already had `tools/execution-end` emitted, since none
+    of those reach `execute()`/the after-hook at all. `scope` must already be a bare `ScopeKey`
+    (see `execute_call`'s own normalization); this function does not accept a live `Scope`.
+    """
     ctx.events.emit(TOOLS_EXECUTION_START, call.id, call.name, call.arguments, scope=scope)
 
     definition = registry.resolve(call.name, scope)
@@ -265,7 +292,7 @@ async def execute_call(
             call,
             ctx,
             scope,
-            text_result(call.id, f"unknown tool {call.name!r}", call.name, is_error=True),
+            text_result(call.id, f"Tool {call.name} not found", call.name, is_error=True),
         )
 
     try:
@@ -304,6 +331,21 @@ async def execute_call(
             ),
         )
 
+    return _Prepared(call=call, definition=definition, arguments=decision.arguments)
+
+
+async def _execute_and_finalize(
+    prepared: _Prepared, *, ctx: Context, scope: ScopeKey | None
+) -> ToolResult:
+    """Run `execute()` (+ live updates) and the after-hook for a call that survived preflight --
+    pinned Pi's `executePreparedToolCall` + `finalizeExecutedToolCall`. Always ends by emitting
+    `tools/execution-end`. In a parallel batch, this runs concurrently for every prepared call,
+    only after every call in the batch has finished `_preflight` (`IR-L06-001`).
+    """
+    call = prepared.call
+    definition = prepared.definition
+    arguments = prepared.arguments
+
     # From here the call has reached "prepared": execute() will run, and whatever it
     # produces -- success or failure -- goes through the after-hook (pinned Pi's
     # finalizeExecutedToolCall is invoked uniformly for both).
@@ -315,13 +357,19 @@ async def execute_call(
         # promise-drain queue to manage -- the flag alone decides late vs. live.
         if not accepting_updates:
             return
-        ctx.events.emit(TOOLS_UPDATE, call.id, partial, scope=scope)
+        # `call.arguments` -- the original, pre-prepare/validate arguments -- not `arguments`
+        # (`IR-L06-005`): pinned Pi's own `tool_execution_update` payload
+        # (`toolCallId`/`toolName`/`args`/`partialResult`) carries
+        # `prepared.toolCall.arguments`, and `PreparedToolCall.toolCall` is the untouched
+        # original call `prepareToolCall` was given, not the `prepareArguments`-shimmed or
+        # validated one.
+        ctx.events.emit(TOOLS_UPDATE, call.id, call.name, call.arguments, partial, scope=scope)
 
     try:
         outcome = (
-            definition.execute(call.id, decision.arguments, update)
+            definition.execute(call.id, arguments, update)
             if _wants_update(definition.execute)
-            else definition.execute(call.id, decision.arguments)
+            else definition.execute(call.id, arguments)
         )
         value = await outcome if inspect.isawaitable(outcome) else outcome
     except Exception as error:  # surfaced to the model, not raised
@@ -353,3 +401,28 @@ async def execute_call(
         finalized = text_result(call.id, str(error), call.name, is_error=True)
     ctx.events.emit(TOOLS_EXECUTION_END, call.id, call.name, finalized, scope=scope)
     return finalized
+
+
+async def execute_call(
+    call: ToolCallBlock,
+    *,
+    registry: ToolRegistry,
+    ctx: Context,
+    scope: ScopeKey | Scope | None = None,
+) -> ToolResult:
+    """Run `call` and return its result, whatever happens.
+
+    Preflights, then -- for a call that survives -- executes and finalizes, in that order, with no
+    concurrency of its own: a single call has no siblings for a barrier to separate it from. See
+    `batch.py::execute_batch` for the parallel-batch case, which calls `_preflight` and
+    `_execute_and_finalize` directly rather than this wrapper, so it can interpose the sequential
+    preflight barrier pinned Pi requires (`IR-L06-001`).
+    """
+    # Events want a bare ScopeKey (design spec section 3), not a live Scope --
+    # normalize once; the registry lookup below already used the richer value
+    # for its own disposed-scope check (L05-R002).
+    scope = scope.key if isinstance(scope, Scope) else scope
+    outcome = await _preflight(call, registry=registry, ctx=ctx, scope=scope)
+    if isinstance(outcome, ToolResult):
+        return outcome
+    return await _execute_and_finalize(outcome, ctx=ctx, scope=scope)

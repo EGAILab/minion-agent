@@ -6,8 +6,9 @@ from typing import Any
 from minion_agent.llm import ToolCallBlock, text_of
 from minion_agent.runtime import Context
 from minion_agent.tools.batch import execute_batch, execute_length_stop_batch
+from minion_agent.tools.decisions import Proceed
 from minion_agent.tools.definition import ExecutionMode, ToolDefinition
-from minion_agent.tools.events import declare_tools_events
+from minion_agent.tools.events import TOOLS_EXECUTION_START, TOOLS_PRE_EXECUTE, declare_tools_events
 from minion_agent.tools.registry import ToolRegistry
 from minion_agent.tools.result import ToolResult
 
@@ -120,6 +121,78 @@ async def test_parallel_tools_actually_overlap() -> None:
     )
 
     assert [text_of(r.to_message()) for r in outcome.results] == ["second", "first"]
+
+
+async def test_preflight_is_sequential_and_settles_before_any_execute_begins() -> None:
+    """`IR-L06-001`: pinned Pi's `executeToolCallsParallel` preflights (resolve/prepare/validate/
+    before-hook) every call strictly sequentially, in source order, and starts `execute()`
+    concurrently only once every call in the batch has survived preflight -- a barrier a single
+    `asyncio.gather` over the whole per-call pipeline cannot express, since that preflights every
+    call concurrently too. This test distinguishes the two: `A`'s before-hook awaits a real
+    scheduler tick, giving a naive concurrent-preflight implementation a chance to run `B`'s entire
+    pipeline -- start through execute -- while `A` is still suspended in preflight. Under the
+    correct barrier, `B`'s preflight cannot even begin until `A`'s has fully settled, so
+    `tool_execution_start` and the before-hook must interleave as `start_A, before_A, start_B,
+    before_B` -- never `start_A, start_B, ...` -- and neither `execute_A` nor `execute_B` may
+    appear before both before-hooks have completed.
+    """
+    ctx = _ctx()
+    events: list[str] = []
+
+    ctx.events.on(TOOLS_EXECUTION_START, lambda call_id, name, args: events.append(f"start_{name}"))
+
+    async def traced_before(call: Any, definition: Any, arguments: Any, next_: Any) -> Proceed:
+        if call.name == "a":
+            await asyncio.sleep(0)
+        events.append(f"before_{call.name}")
+        return Proceed(arguments=arguments)
+
+    ctx.events.on(TOOLS_PRE_EXECUTE, traced_before)
+
+    def traced_execute(name: str) -> Any:
+        def execute(tool_call_id: str, args: dict[str, Any]) -> str:
+            events.append(f"execute_{name}")
+            return name
+
+        return execute
+
+    outcome = await execute_batch(
+        (_call("t1", "a"), _call("t2", "b")),
+        registry=_registry(_tool("a", traced_execute("a")), _tool("b", traced_execute("b"))),
+        ctx=ctx,
+    )
+
+    assert events[:4] == ["start_a", "before_a", "start_b", "before_b"]
+    assert sorted(events[4:]) == ["execute_a", "execute_b"]
+    assert [text_of(r.to_message()) for r in outcome.results] == ["a", "b"]
+
+
+async def test_an_immediate_preflight_failure_does_not_block_a_later_calls_preflight() -> None:
+    """`IR-L06-001` scenario C: an immediate outcome (here, invalid arguments) finalizes right
+    there in the sequential preflight phase -- it must not prevent, delay, or serialize behind it
+    the NEXT call's own preflight, which pinned Pi still runs (and, once survived, executes)
+    exactly as if the failure had not happened."""
+    ctx = _ctx()
+    events: list[str] = []
+    ctx.events.on(TOOLS_EXECUTION_START, lambda call_id, name, args: events.append(f"start_{name}"))
+
+    async def traced_before(call: Any, definition: Any, arguments: Any, next_: Any) -> Proceed:
+        events.append(f"before_{call.name}")
+        return Proceed(arguments=arguments)
+
+    ctx.events.on(TOOLS_PRE_EXECUTE, traced_before)
+
+    outcome = await execute_batch(
+        (_call("t1", "missing"), _call("t2", "b")),
+        registry=_registry(_tool("b", lambda tool_call_id, args: "b")),
+        ctx=ctx,
+    )
+
+    # "missing" never resolves, so its before-hook never runs at all -- but "b"'s
+    # start/preflight/execute must still happen, unblocked by "missing"'s immediate failure.
+    assert events == ["start_missing", "start_b", "before_b"]
+    assert outcome.results[0].is_error
+    assert text_of(outcome.results[1].to_message()) == "b"
 
 
 async def test_one_sequential_tool_serializes_the_whole_batch() -> None:

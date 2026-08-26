@@ -39,10 +39,14 @@ def test_details_do_not_reach_the_model() -> None:
     assert message.details == {"audited": True}
 
 
-def test_a_result_with_no_details_carries_none_on_the_message() -> None:
-    """The default empty dict maps to the vocabulary's "not present" state,
-    not an empty-but-present dict, matching the optional field's meaning."""
-    assert text_result("t1", "done", "echo").to_message().details is None
+def test_a_result_with_no_details_carries_the_empty_dict_on_the_message() -> None:
+    """`IR-L06-004`: pinned Pi's `AgentToolResult.details: T` is REQUIRED, and
+    `createToolResultMessage` copies it verbatim -- no collapsing. `ToolResult.details` defaults
+    to `{}`, and that `{}` must survive unchanged into the model-visible message, exactly like
+    `createErrorToolResult`'s own `details: {}`. An earlier revision collapsed the empty-but-present
+    default into `None` at this exact projection boundary, which was itself the defect this test
+    now pins the fix for."""
+    assert text_result("t1", "done", "echo").to_message().details == {}
 
 
 def test_terminate_does_not_reach_the_model_either() -> None:

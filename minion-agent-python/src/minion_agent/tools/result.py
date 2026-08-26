@@ -63,7 +63,17 @@ class ToolResult:
             timestamp=_now_ms(),
             tool_name=self.tool_name,
             is_error=self.is_error,
-            details=self.details or None,
+            # Pass through unchanged (IR-L06-004): pinned Pi's `AgentToolResult.details: T` is
+            # REQUIRED, and `createToolResultMessage` copies it verbatim -- `createErrorToolResult`
+            # sets it to `{}`, not absent, and that `{}` survives all the way to
+            # `ToolResultMessage.details`. An earlier revision wrote `self.details or None`, which
+            # collapsed the empty-dict default every non-annotating result already carries into
+            # `None` -- observably different from Pi for every error result and every tool that
+            # never sets details. `added_tool_names` is the opposite case and is unaffected: Pi's
+            # own `createToolResultMessage` conditionally omits that key entirely when the array is
+            # empty (`addedToolNames?.length ? {...} : {}`), which `self.added_tool_names or None`
+            # already matches.
+            details=self.details,
             usage=self.usage,
             added_tool_names=self.added_tool_names or None,
         )

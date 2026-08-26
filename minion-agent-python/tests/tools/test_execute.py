@@ -101,10 +101,12 @@ async def test_an_async_tool_is_awaited() -> None:
 
 
 async def test_an_unknown_tool_produces_an_error_result() -> None:
+    """`IR-L06-003`: pinned Pi's `prepareToolCall` text is exact --
+    `` `Tool ${toolCall.name} not found` `` -- not a host-specific rewording."""
     result = await execute_call(_call("missing"), registry=_registry(), ctx=_ctx())
 
     assert result.is_error
-    assert "missing" in text_of(result.to_message())
+    assert text_of(result.to_message()) == "Tool missing not found"
     assert result.tool_call_id == "t1"
 
 

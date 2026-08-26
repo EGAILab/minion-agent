@@ -43,7 +43,10 @@ def _streaming(execute: Any) -> ToolRegistry:
 async def test_a_tool_may_report_partial_output() -> None:
     ctx = _ctx()
     seen: list[tuple[str, str]] = []
-    ctx.events.on(TOOLS_UPDATE, lambda call_id, partial: seen.append((call_id, partial)))
+    ctx.events.on(
+        TOOLS_UPDATE,
+        lambda call_id, tool_name, arguments, partial: seen.append((call_id, partial)),
+    )
 
     def chatty(tool_call_id: str, args: dict[str, Any], update: Any) -> str:
         update("half")
@@ -82,7 +85,9 @@ async def test_a_tool_without_an_update_parameter_is_called_with_two_arguments()
 async def test_updates_carry_the_call_id_so_a_consumer_can_route_them() -> None:
     ctx = _ctx()
     seen: list[str] = []
-    ctx.events.on(TOOLS_UPDATE, lambda call_id, partial: seen.append(call_id))
+    ctx.events.on(
+        TOOLS_UPDATE, lambda call_id, tool_name, arguments, partial: seen.append(call_id)
+    )
 
     def chatty(tool_call_id: str, args: dict[str, Any], update: Any) -> str:
         update("x")
@@ -91,6 +96,29 @@ async def test_updates_carry_the_call_id_so_a_consumer_can_route_them() -> None:
     await execute_call(_call(), registry=_streaming(chatty), ctx=ctx)
 
     assert seen == ["t1"]
+
+
+async def test_updates_carry_the_tool_name_and_original_arguments() -> None:
+    """`IR-L06-005`: pinned Pi's `tool_execution_update` event carries `toolCallId`/`toolName`/
+    `args`/`partialResult` -- Minion's earlier payload carried only the first and last, exposing
+    strictly less than Pi's own live event stream for no stated architectural reason. `args` is
+    the ORIGINAL, pre-`prepare_arguments`/validation arguments (pinned Pi's own
+    `PreparedToolCall.toolCall.arguments`, not the validated ones `execute()` actually runs
+    with)."""
+    ctx = _ctx()
+    seen: list[tuple[str, dict[str, Any]]] = []
+    ctx.events.on(
+        TOOLS_UPDATE,
+        lambda call_id, tool_name, arguments, partial: seen.append((tool_name, arguments)),
+    )
+
+    def chatty(tool_call_id: str, args: dict[str, Any], update: Any) -> str:
+        update("x")
+        return "done"
+
+    await execute_call(_call(note="original"), registry=_streaming(chatty), ctx=ctx)
+
+    assert seen == [("echo", {"note": "original"})]
 
 
 async def test_no_listener_makes_updates_harmless(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -120,7 +148,7 @@ async def test_no_listener_makes_updates_harmless(monkeypatch: pytest.MonkeyPatc
     result = await execute_call(_call(), registry=_streaming(chatty), ctx=ctx)
 
     update_emissions = [entry for entry in emitted if entry[0] == TOOLS_UPDATE]
-    assert update_emissions == [(TOOLS_UPDATE, ("t1", "nobody is listening"))]
+    assert update_emissions == [(TOOLS_UPDATE, ("t1", "echo", {}, "nobody is listening"))]
     assert not result.is_error
 
 
@@ -130,7 +158,9 @@ async def test_a_late_update_after_the_tool_settles_is_ignored() -> None:
     has already returned must not produce a second `tools/update` emission (`TOOL-017`)."""
     ctx = _ctx()
     seen: list[str] = []
-    ctx.events.on(TOOLS_UPDATE, lambda call_id, partial: seen.append(partial))
+    ctx.events.on(
+        TOOLS_UPDATE, lambda call_id, tool_name, arguments, partial: seen.append(partial)
+    )
     stashed: list[Any] = []
 
     def stash_then_settle(tool_call_id: str, args: dict[str, Any], update: Any) -> str:

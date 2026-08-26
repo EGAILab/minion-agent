@@ -414,7 +414,12 @@ rows:
     tool whose own execution_mode is sequential, forces the entire batch to run one call at a
     time in source order -- not merely that one exclusive call, and not partial grouping around
     it (config.toolExecution === "sequential" || hasSequentialToolCall). An unresolvable name is
-    never exclusive: it never runs, so it has no exclusivity to spread.'
+    never exclusive: it never runs, so it has no exclusivity to spread. This row decides WHICH
+    mode a batch runs in; what "parallel" mode itself does once chosen -- specifically, that it is
+    not "preflight every call concurrently too" -- is TOOL-023''s rule, not this one''s
+    (IR-L06-001; the two are related but distinct, and the sequential-serialization case this row
+    owns already trivially satisfies TOOL-023''s barrier, since every call''s entire pipeline
+    completes, one at a time, before the next call''s preflight even starts).'
   tests:
   - tool-batch-sequential-contagion
   - tool-batch-parallel
@@ -534,7 +539,21 @@ rows:
     itself define): each sees the result exactly as merged AND normalized by every earlier
     listener; a mid-chain exception stops later listeners and replaces the accumulated result the
     same way a single listener''s exception would -- true for a mix of helper-registered and raw
-    listeners alike, in either registration order.'
+    listeners alike, in either registration order. Omitted vs. explicit override (IR-L06-002,
+    PI_PARITY_DEFECT, Rust-only, OPEN): re-audited directly against pinned Pi''s
+    AfterToolCallResult -- every field is a single-level optional (e.g. details?: unknown), merged
+    by nullish-coalescing; Pi has no way to distinguish "the hook explicitly cleared this field" from
+    "the hook omitted it" -- both are the same absent/undefined value. Python''s AfterToolCallOverride
+    (decisions.py) mirrors this exactly: flat `X | None` fields with no second Optional layer, so
+    Python is structurally incapable of representing the extra "clear" state Pi lacks -- already
+    conformant, proven by test_omitted_fields_are_unchanged/test_there_is_no_deep_merge, no Python
+    change needed. Independent review found Rust''s AfterToolCallOverride instead uses a doubly-
+    nested Option (Option<Option<Value>> for details, Option<Option<Usage>> for usage), which DOES
+    expose that extra, Pi-incompatible "explicitly clear" state at the public API boundary -- a
+    genuine language-specific defect, not a shared-contract gap: this row''s RULE already states
+    the correct nullish semantics precisely enough for a conforming Rust type; the Rust API itself
+    still needs repair (assurance/layers/05-06-independent-review-remediation.md), out of scope for
+    this shared/Python-only pass.'
   tests:
   - after-hook-failure-replaces-result-with-tool-error
   - test_omitted_fields_are_unchanged
@@ -564,7 +583,11 @@ rows:
     Both true simultaneously in one parallel batch -- neither is sorted from the other after the
     fact (Python: asyncio.gather preserves input-array order in its resolved output, the same
     structural guarantee as JS Promise.all -- not a manual sort). Per-call failure is isolated:
-    one call erroring does not cancel or delay its siblings.'
+    one call erroring does not cancel or delay its siblings. This row is about ORDERING of the
+    concurrently-executed calls'' own end events and result messages; it presumes those calls have
+    already survived the sequential preflight barrier TOOL-023 owns -- an immediate outcome''s
+    tool_execution_end (see TOOL-023) is not part of the "completion order" this row''s tests
+    exercise for genuinely concurrent execute()/after-hook work.'
   tests:
   - parallel-tool-completion-vs-message-order
   - test_results_come_back_in_assistant_source_order
@@ -573,6 +596,38 @@ rows:
   - test_every_call_gets_a_result_even_when_one_raises
   python: src/minion_agent/tools/batch.py::execute_batch, BatchOutcome
   rust: minion-agent-rust/crates/minion-agent/src/tools/execution.rs::execute_tool_calls; minion-agent-rust/crates/minion-agent/tests/tool_execution.rs; minion-agent-rust/crates/minion-agent/tests/tool_execution_conformance.rs
+  disposition: adopted
+- id: TOOL-023
+  phase: 4
+  pi: packages/agent/src/agent-loop.ts::executeToolCallsParallel, prepareToolCall
+  surface: sequential preflight barrier within a parallel batch
+  rule: 'IR-L06-001, CONTRACT_ASSURANCE_DEFECT + PI_PARITY_DEFECT, found by independent review
+    against a candidate both Python and Rust had already certified: "parallel" execution mode does
+    NOT mean every call''s complete pipeline begins concurrently. Pinned Pi''s
+    executeToolCallsParallel resolves/prepares/validates/before-hooks (prepareToolCall) every call
+    STRICTLY SEQUENTIALLY, in source order -- tool_execution_start for call N+1 never fires until
+    call N''s entire preflight has settled -- and starts execute()/the after-hook concurrently only
+    once EVERY call in the batch has survived preflight (confirmed directly: prepareToolCall
+    results are pushed into an array across a plain sequential for-loop; only entries of kind
+    "prepared" become deferred closures, invoked together via a single Promise.all AFTER that loop
+    completes). An immediate outcome (unknown tool, prepare/validate/before-hook exception, or an
+    explicit before-hook block) finalizes -- and emits tool_execution_end -- right there in the
+    sequential phase, before the barrier; it does not enter the concurrent phase, and does not
+    block or delay any later call''s own preflight. A single asyncio.gather (or Promise.all) over
+    each call''s WHOLE pipeline cannot express this: it preflights every call concurrently too,
+    which is observably different from pinned Pi whenever a before-hook (or, in principle, prepare/
+    validate) is slow, asynchronous, or order-sensitive across calls. The prior candidate did
+    exactly that (batch.py::execute_batch wrapped execute_call -- resolve through after-hook -- in
+    one asyncio.gather), which both Python and Rust had certified in agreement with each other,
+    illustrating why prior certification is evidence, not semantic authority: agreement between
+    implementations does not establish agreement with Pi. This barrier applies only within
+    PARALLEL mode; TOOL-001''s sequential-serialization case trivially satisfies it already, since
+    every call''s pipeline there completes fully before the next call''s preflight even begins.'
+  tests:
+  - test_preflight_is_sequential_and_settles_before_any_execute_begins
+  - test_an_immediate_preflight_failure_does_not_block_a_later_calls_preflight
+  python: src/minion_agent/tools/execute.py::_preflight, _execute_and_finalize, _Prepared; src/minion_agent/tools/batch.py::execute_batch
+  rust: PENDING (IR-L06-001) -- Rust Layer 06 still uses FuturesUnordered<execute_one(...)> where execute_one performs preflight and execution together; not yet reopened this pass, see assurance/layers/05-06-independent-review-remediation.md
   disposition: adopted
 - id: TOOL-007
   phase: 4
@@ -657,10 +712,17 @@ rows:
     runs at all) -- in parallel execution this is actual completion order, independent of source
     order. Minion realizes these as tools/execution-start and tools/execution-end (EMIT-mode
     Runtime events carrying the real ToolResult object, not a decomposed JSON payload) --
-    matching Pi''s live AgentEvent stream architecturally, not the exact wire payload shape.'
+    matching Pi''s live AgentEvent stream architecturally, not the exact wire payload shape. An
+    unresolvable tool name''s model-visible text is pinned Pi''s own exact string, not a
+    host-specific rewording (IR-L06-003, PI_PARITY_DEFECT): `` `Tool ${toolCall.name} not found` ``
+    (packages/agent/src/agent-loop.ts::prepareToolCall) -- e.g. for a call naming "foo", the text
+    is exactly "Tool foo not found". An earlier revision used "unknown tool ''foo''" (Python
+    repr-quoting, lowercase, different wording entirely), asserted only by substring containment,
+    which never caught the divergence; the corrected text is asserted by exact equality.'
   tests:
   - test_execute_receives_the_real_tool_call_id
   - length-stop-executes-no-tools (start/end fire even when execution never happens)
+  - test_an_unknown_tool_produces_an_error_result (IR-L06-003, exact-equality text)
   python: src/minion_agent/tools/events.py::TOOLS_EXECUTION_START/TOOLS_EXECUTION_END, src/minion_agent/tools/execute.py::execute_call, _immediate
   rust: minion-agent-rust/crates/minion-agent/src/tools/execution.rs::ToolExecutionStart/ToolExecutionUpdate/ToolExecutionEnd; minion-agent-rust/crates/minion-agent/tests/tool_execution.rs; minion-agent-rust/crates/minion-agent/tests/tool_execution_conformance.rs
   disposition: intentional divergence
@@ -696,12 +758,23 @@ rows:
   rule: '"Calls made after the tool promise settles are ignored" -- update(partial) is silently
     dropped once execute()''s own call has settled (succeeded or failed), whether that call
     stashed the callback and invoked it later or scheduled it via a background task. No error,
-    no queued delivery, no observable effect.'
+    no queued delivery, no observable effect. Payload (IR-L06-005, CONTRACT_ASSURANCE_DEFECT,
+    resolved this pass): pinned Pi''s tool_execution_update AgentEvent carries toolCallId/
+    toolName/args/partialResult (packages/agent/src/types.ts::AgentEvent); an earlier Minion
+    revision emitted only (call_id, partial), exposing strictly less than Pi''s own live event
+    stream for no stated architectural reason. Decision: ADOPT Pi''s payload (Option A -- these
+    fields are cheap to preserve and useful to observers; no concrete Minion architectural reason
+    favored the narrower shape). tools/update now carries (tool_call_id, tool_name, arguments,
+    partial); `arguments` is the ORIGINAL, pre-prepare_arguments/validation arguments -- pinned
+    Pi''s own PreparedToolCall.toolCall.arguments, confirmed by direct source inspection to be the
+    untouched call prepareToolCall was given, not preparedToolCall (the prepareArguments-shimmed
+    value) or validatedArgs (the schema-validated value execute() actually runs with).'
   tests:
   - late-tool-update-ignored
   - test_a_late_update_after_the_tool_settles_is_ignored
   - test_a_tool_may_report_partial_output
   - test_updates_carry_the_call_id_so_a_consumer_can_route_them
+  - test_updates_carry_the_tool_name_and_original_arguments
   python: src/minion_agent/tools/execute.py::execute_call (accepting_updates)
   rust: minion-agent-rust/crates/minion-agent/src/tools/execution.rs::ToolExecutionUpdate/execute_tool_calls; minion-agent-rust/crates/minion-agent/tests/tool_execution.rs; minion-agent-rust/crates/minion-agent/tests/tool_execution_conformance.rs
   disposition: adopted
@@ -731,12 +804,25 @@ rows:
     requires -- a result declaring added_tool_names reports what it registered itself, through
     the real ToolRegistry, in the same call; the field is evidence, not an instruction the
     pipeline acts on. namespace, if present on a ToolCall, is not consulted for resolution
-    (lookup is by name only) and is not echoed into any Layer-06 event or result.'
+    (lookup is by name only) and is not echoed into any Layer-06 event or result. details is
+    pass-through WITHOUT collapsing the empty-but-present state (IR-L06-004, PI_PARITY_DEFECT,
+    resolved this pass): pinned Pi''s AgentToolResult.details: T is REQUIRED, not optional, and
+    createToolResultMessage copies it verbatim with no conditional logic at all; createErrorToolResult
+    sets it to {} (an empty object, not absent), and that {} survives unchanged all the way to
+    ToolResultMessage.details for every unknown-tool/prepare/validate/before-hook/after-hook error
+    result. An earlier revision''s to_message() wrote `details=self.details or None`, which
+    collapsed the empty-dict default every non-annotating result already carries (ToolResult.details
+    defaults to {}) into None -- observably different from Pi for every error result and every tool
+    that never sets details. added_tool_names is the opposite case and is unaffected by this fix:
+    Pi''s own createToolResultMessage conditionally omits that key entirely when the array is empty
+    (`addedToolNames?.length ? {...} : {}`), which Minion''s `self.added_tool_names or None` already
+    matched and still does.'
   tests:
   - test_an_ordinary_result_adds_nothing
   - test_the_result_declares_what_it_added
   - test_declaring_a_name_does_not_register_anything
   - test_a_tool_can_introduce_another
+  - test_a_result_with_no_details_carries_the_empty_dict_on_the_message (IR-L06-004)
   python: src/minion_agent/tools/execute.py::execute_call, src/minion_agent/tools/result.py::ToolResult
   rust: minion-agent-rust/crates/minion-agent/src/tools/execution.rs::AfterToolCallResult/execute_tool_calls; minion-agent-rust/crates/minion-agent/tests/tool_execution.rs
   disposition: adopted

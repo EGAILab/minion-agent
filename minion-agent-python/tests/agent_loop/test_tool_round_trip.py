@@ -73,7 +73,7 @@ async def test_an_unknown_tool_still_closes_the_loop() -> None:
     await loop.run_until_idle()
 
     derived = derive_messages(loop.instance.log)
-    assert "unknown tool" in text_of(derived[2])
+    assert text_of(derived[2]) == "Tool missing not found"
     assert text_of(derived[-1]) == "ok"
 
 

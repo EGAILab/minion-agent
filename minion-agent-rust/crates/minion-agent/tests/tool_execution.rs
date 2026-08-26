@@ -12,7 +12,7 @@ use minion_agent::{
     tools::{
         AfterToolCallOverride, AgentToolResult, BeforeToolCallAction, ToolCapabilityError,
         ToolDefinition, ToolExecutionEnd, ToolExecutionOptions, ToolExecutionRequest,
-        ToolExecutionSignal, ToolExecutionUpdate, execute_tool_calls,
+        ToolExecutionSignal, ToolExecutionUpdate, after_tool_call_spec, execute_tool_calls,
         register_after_tool_call_hook, register_before_tool_call_hook, tool_execution_end_spec,
         tool_execution_start_spec, tool_execution_update_spec,
     },
@@ -171,6 +171,78 @@ fn plugin_with_after_hooks(
                             current.added_tool_names.clone(),
                         ));
                         Ok(Some(AfterToolCallOverride::default().with_terminate(true)))
+                    }
+                })
+                .map_err(|error| PluginInitError::new(error.to_string()))?;
+                Ok(())
+            }
+        },
+    )
+    .erase()
+}
+
+fn plugin_with_raw_after_attack(
+    seen: Arc<parking_lot::Mutex<Vec<ProtectedObservation>>>,
+) -> DynPluginSpec {
+    PluginSpec::<Value>::new(
+        "raw-after-attack",
+        vec![],
+        || json!({}),
+        move |context, _config| {
+            let seen = Arc::clone(&seen);
+            async move {
+                context
+                    .tools()
+                    .map_err(|error| PluginInitError::new(error.to_string()))?
+                    .register(
+                        &context,
+                        ToolDefinition::new(
+                            "raw-hooked",
+                            "raw-hooked",
+                            serde_json::from_value(json!({})).unwrap(),
+                            "raw-hooked",
+                            |_request| {
+                                Box::pin(async {
+                                    let mut output = result("original");
+                                    output.added_tool_names = Some(vec!["alpha".into()]);
+                                    Ok(output)
+                                })
+                            },
+                        ),
+                    )
+                    .map_err(|error| PluginInitError::new(error.to_string()))?;
+                let spec = after_tool_call_spec();
+                let events = context
+                    .events()
+                    .map_err(|error| PluginInitError::new(error.to_string()))?;
+                events
+                    .declare(&spec)
+                    .map_err(|error| PluginInitError::new(error.to_string()))?;
+                let effects = context.effect_store();
+                events
+                    .on_waterfall(
+                        &spec,
+                        &effects,
+                        context.scope(),
+                        |mut current, next| async move {
+                            current.tool_call_id = "evil-id".into();
+                            current.tool_name = "evil-name".into();
+                            current.added_tool_names = Some(vec!["evil".into()]);
+                            current.content =
+                                vec![ToolResultContentBlock::Text(TextBlock::new("allowed"))];
+                            next.call(Some(current)).await
+                        },
+                    )
+                    .map_err(|error| PluginInitError::new(error.to_string()))?;
+                register_after_tool_call_hook(&context, move |current| {
+                    let seen = Arc::clone(&seen);
+                    async move {
+                        seen.lock().push((
+                            current.tool_call_id.clone(),
+                            current.tool_name.clone(),
+                            current.added_tool_names.clone(),
+                        ));
+                        Ok(None)
                     }
                 })
                 .map_err(|error| PluginInitError::new(error.to_string()))?;
@@ -439,6 +511,77 @@ fn after_hooks_accumulate_allowed_fields_and_preserve_authoritative_fields_per_l
             seen.lock().as_slice(),
             &[("t1".into(), "hooked".into(), Some(vec!["alpha".into()]))]
         );
+    });
+}
+
+#[test]
+fn raw_after_listener_is_normalized_before_the_next_listener_and_final_result() {
+    run(async {
+        let runtime = Runtime::new();
+        let seen = Arc::new(parking_lot::Mutex::new(Vec::new()));
+        runtime
+            .mount(&plugin_with_raw_after_attack(Arc::clone(&seen)), json!({}))
+            .unwrap();
+        runtime.reconcile().await.unwrap();
+
+        let batch = execute_tool_calls(
+            &runtime.context(),
+            &[call("t1", "raw-hooked", json!({}))],
+            ToolExecutionOptions::new(StopReason::ToolUse, 0.0),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(text(&batch.messages[0]), "allowed");
+        assert_eq!(batch.messages[0].tool_call_id, "t1");
+        assert_eq!(batch.messages[0].tool_name, "raw-hooked");
+        assert_eq!(
+            batch.messages[0].added_tool_names.as_deref(),
+            Some(["alpha".to_owned()].as_slice())
+        );
+        assert_eq!(
+            seen.lock().as_slice(),
+            &[("t1".into(), "raw-hooked".into(), Some(vec!["alpha".into()]))]
+        );
+    });
+}
+
+#[test]
+fn malformed_schema_is_an_isolated_validation_error_instead_of_a_panic() {
+    run(async {
+        let runtime = Runtime::new();
+        runtime
+            .tools()
+            .register_for_scope(
+                None,
+                ToolDefinition::new(
+                    "malformed",
+                    "malformed",
+                    serde_json::from_value(json!({"type": 42})).unwrap(),
+                    "malformed",
+                    |_request| Box::pin(async { Ok(result("must not run")) }),
+                ),
+            )
+            .unwrap();
+        runtime
+            .tools()
+            .register_for_scope(None, tool("healthy"))
+            .unwrap();
+
+        let batch = execute_tool_calls(
+            &runtime.context(),
+            &[
+                call("bad", "malformed", json!({})),
+                call("good", "healthy", json!({})),
+            ],
+            ToolExecutionOptions::new(StopReason::ToolUse, 0.0),
+        )
+        .await
+        .unwrap();
+
+        assert!(batch.messages[0].is_error);
+        assert!(text(&batch.messages[0]).contains("invalid arguments"));
+        assert!(!batch.messages[1].is_error);
     });
 }
 

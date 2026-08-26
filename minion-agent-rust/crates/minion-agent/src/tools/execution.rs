@@ -237,17 +237,13 @@ impl AfterToolCallOverride {
     }
 }
 
-#[derive(Clone)]
-enum AfterHookOutcome {
-    Result(Box<AfterToolCallResult>),
-    Failed(String),
-}
-
-fn after_tool_call_spec() -> EventSpec<AfterToolCallResult, AfterHookOutcome> {
+/// Public Runtime waterfall event for post-execute listeners. Raw listeners
+/// may return a whole result; production dispatch constrains every handoff.
+pub fn after_tool_call_spec() -> EventSpec<AfterToolCallResult, AfterToolCallResult> {
     EventSpec::new(
         EventName::new("tools/post-execute").expect("normative event name is valid"),
         DispatchMode::Waterfall,
-        |current: &AfterToolCallResult| AfterHookOutcome::Result(Box::new(current.clone())),
+        |current: &AfterToolCallResult| current.clone(),
     )
 }
 
@@ -277,7 +273,16 @@ where
                     };
                     next.call(Some(replacement)).await
                 }
-                Err(error) => Ok(AfterHookOutcome::Failed(error.message().to_owned())),
+                Err(error) => Ok(AfterToolCallResult {
+                    tool_call_id: current.tool_call_id,
+                    tool_name: current.tool_name,
+                    content: error_content(error.message()),
+                    details: None,
+                    usage: None,
+                    added_tool_names: None,
+                    is_error: true,
+                    terminate: None,
+                }),
             }
         }
     })
@@ -407,7 +412,7 @@ async fn execute_one(
     tool: Option<Arc<ToolDefinition>>,
     events: EventBus,
     scope: Option<ScopeHandle>,
-    after_spec: EventSpec<AfterToolCallResult, AfterHookOutcome>,
+    after_spec: EventSpec<AfterToolCallResult, AfterToolCallResult>,
     before_spec: EventSpec<BeforeToolCallContext, BeforeHookOutcome>,
     update_spec: EventSpec<ToolExecutionUpdate, ()>,
     end_spec: EventSpec<ToolExecutionEnd, ()>,
@@ -440,8 +445,23 @@ async fn execute_one(
                 }
             }
             let schema = Value::from(tool.schema().parameters);
-            let validator = jsonschema::validator_for(&schema)
-                .expect("ToolDefinition contains a schema accepted at the shared model boundary");
+            let validator = match jsonschema::validator_for(&schema) {
+                Ok(validator) => validator,
+                Err(error) => {
+                    return finish_immediate(
+                        index,
+                        call.clone(),
+                        &format!(
+                            "invalid arguments for tool \"{}\": invalid schema: {error}",
+                            call.name
+                        ),
+                        events,
+                        scope,
+                        end_spec,
+                        timestamp,
+                    );
+                }
+            };
             if let Err(error) = validator.validate(&params) {
                 return finish_immediate(
                     index,
@@ -514,13 +534,14 @@ async fn execute_one(
             }
         }
     };
-    let finalized = match events
-        .waterfall(&after_spec, executed, scope.as_ref())
-        .await?
-    {
-        AfterHookOutcome::Result(result) => *result,
-        AfterHookOutcome::Failed(message) => immediate_error(&call, &message),
-    };
+    let protected = executed.clone();
+    let normalization = protected.clone();
+    let finalized = events
+        .waterfall_normalized(&after_spec, executed, scope.as_ref(), move |candidate| {
+            restore_protected(candidate, &normalization)
+        })
+        .await?;
+    let finalized = restore_protected(finalized, &protected);
     events.emit(
         &end_spec,
         &ToolExecutionEnd {
@@ -567,6 +588,20 @@ fn immediate_error(call: &ToolCall, message: &str) -> AfterToolCallResult {
         is_error: true,
         terminate: None,
     }
+}
+
+fn restore_protected(
+    mut candidate: AfterToolCallResult,
+    authoritative: &AfterToolCallResult,
+) -> AfterToolCallResult {
+    candidate
+        .tool_call_id
+        .clone_from(&authoritative.tool_call_id);
+    candidate.tool_name.clone_from(&authoritative.tool_name);
+    candidate
+        .added_tool_names
+        .clone_from(&authoritative.added_tool_names);
+    candidate
 }
 
 fn arguments_value(arguments: &BTreeMap<String, Value>) -> Value {

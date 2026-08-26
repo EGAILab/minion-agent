@@ -101,7 +101,19 @@ class AgentInstance:
         getter parity requires (the independent review's `L07-R005` tools
         sub-finding: the projection existed by construction elsewhere, but nothing
         on `AgentInstance` itself actually answered "what tools does this agent
-        see" the way Pi's `Agent.state.tools` does)."""
+        see" the way Pi's `Agent.state.tools` does).
+
+        Empty, not an error, when no `tools` service is mounted at all (`L07-R007`,
+        third independent Rust review): pinned Pi's own `AgentState.tools` starts as
+        an observable empty array regardless of whether an application has wired up
+        any tool source yet, and a valid, freshly constructed `AgentInstance` must be
+        just as total -- reading a field that simply has nothing in it yet is not the
+        same failure as asking for a service that was never provided. Checking
+        `ctx.registry.has("tools")` first mirrors `AgentLoopFactory._telemetry()`'s
+        own established idiom for exactly this "optional service, empty default when
+        absent" shape (`agent_loop/__init__.py`), not a new resolution pattern."""
+        if not self._ctx.registry.has("tools"):
+            return ()
         registry: ToolRegistry = self._ctx.tools
         return registry.visible_from(self.scope.key)
 

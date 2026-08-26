@@ -215,6 +215,39 @@ def test_tools_reflects_registrations_made_after_construction() -> None:
     assert instance.tools == (definition,)
 
 
+def test_tools_is_empty_when_no_tools_service_is_mounted() -> None:
+    """`L07-R007` (third independent Rust review): a valid, freshly constructed
+    `AgentInstance` must be total for this field -- pinned Pi's own `AgentState.tools`
+    starts as an observable empty array regardless of whether an application has
+    wired up a tool source yet, so reading `.tools` on a bare `Context()` (no `tools`
+    service provided at all) must return `()`, not raise `ServiceNotFoundError`."""
+    instance = _instance(Context())
+
+    assert instance.tools == ()
+
+
+def test_reset_does_not_disturb_the_tools_relationship() -> None:
+    """The tool/scope relationship survives reset unchanged, exactly like the
+    already-covered `system_prompt`/`model`/`thinking_level`/`definition` --
+    `.tools` is a live projection, so this also confirms reset does not detach
+    the instance from its own scope."""
+    context = Context()
+    registry = _with_tools(context)
+    definition = ToolDefinition(
+        name="echo",
+        description="d",
+        parameters={"type": "object", "properties": {}},
+        execute=lambda args: "ok",
+        label="echo",
+    )
+    instance = _instance(context)
+    registry.register(definition, scope=instance.scope.key)
+
+    instance.reset()
+
+    assert instance.tools == (definition,)
+
+
 # -- AG-016: in-place reset ---------------------------------------------------
 
 

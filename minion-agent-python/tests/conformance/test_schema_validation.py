@@ -412,3 +412,47 @@ def test_agent_inbox_action_accepts_observe_on_claim_or_pending_operations(
     schema = json.loads(AGENT_INBOX_SCHEMA.read_text(encoding="utf-8"))
     errors = list(Draft202012Validator(schema).iter_errors(_agent_inbox_document(action)))
     assert not errors, [error.message for error in errors]
+
+
+@pytest.mark.parametrize(
+    "action",
+    [
+        pytest.param(
+            {
+                "steer": {"text": "A"},
+                "claim": {"queue": "steering", "mode": "all"},
+                "observe": "x",
+            },
+            id="steer+claim+observe",
+        ),
+        pytest.param(
+            {
+                "follow_up": {"text": "A"},
+                "claim": {"queue": "steering", "mode": "all"},
+                "observe": "x",
+            },
+            id="follow_up+claim+observe",
+        ),
+        pytest.param(
+            {"clear": {"queue": "all"}, "has_queued_messages": {}, "observe": "x"},
+            id="clear+has_queued_messages+observe",
+        ),
+        pytest.param(
+            {"steer": {"text": "A"}, "claim": {"queue": "steering", "mode": "all"}},
+            id="steer+claim-no-observe",
+        ),
+    ],
+)
+def test_agent_inbox_action_rejects_a_second_operation_alongside_claim_or_pending(
+    action: dict[str, Any],
+) -> None:
+    """`L07-R004` (third independent Rust review): a `oneOf` keyed only on `required`
+    presence does not by itself forbid a second operation key -- `{"steer": ...,
+    "claim": ..., "observe": "x"}` matched the `claim` branch alone (that branch placed
+    no restriction on any other key), so the uninspected `steer` key rode along
+    unrejected even though exclusivity and the `observe` constraint were each
+    individually enforced. Every branch must name every OTHER operation key in its own
+    `not`, not just check its own required key and (for four of the six) `observe`."""
+    schema = json.loads(AGENT_INBOX_SCHEMA.read_text(encoding="utf-8"))
+    errors = list(Draft202012Validator(schema).iter_errors(_agent_inbox_document(action)))
+    assert errors, f"expected this action to be rejected: {action}"

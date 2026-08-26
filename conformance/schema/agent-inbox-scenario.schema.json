@@ -30,15 +30,85 @@
   },
   "$defs": {
     "action": {
-      "$comment": "L07-R004 (second independent Rust review): `minProperties: 1` alone let an action carry more than one operation key at once (e.g. both `steer` and `follow_up`), which no runner semantics defines an order for. `oneOf` on `required` makes exactly one operation key mandatory -- a document naming two operation keys matches more than one branch and is rejected; a document naming zero matches none and is also rejected. `observe` is additionally constrained to the two operations that actually have a pinned-Pi return value to observe (`claim`/`has_queued_messages`): the four enqueue/clear branches also forbid `observe` via `not: {required: [\"observe\"]}`, so an action combining e.g. `steer` with `observe` matches zero branches and is rejected, not silently accepted the way the `properties` list alone (which only names it as a valid key somewhere) would allow.",
+      "$comment": "L07-R004 (third independent Rust review): a `oneOf` keyed only on `required` presence does not forbid a SECOND operation key from also being present -- `{\"steer\": ..., \"claim\": ..., \"observe\": \"x\"}` matched exactly the `claim` branch alone (that branch places no restriction on any other key), so the second, uninspected `steer` key rode along unrejected. Each branch below now also carries `not: {anyOf: [...]}` naming every OTHER operation key explicitly, so a second operation key of any kind -- not just a same-shaped one -- disqualifies every branch and the action is rejected (zero matches), not silently accepted through a branch that happened not to look. `observe` remains constrained to the two operations with an actual pinned-Pi return value (`claim`/`has_queued_messages`): the other four branches' own `not` list also names `observe`.",
       "type": "object",
       "oneOf": [
-        { "required": ["steer"], "not": { "required": ["observe"] } },
-        { "required": ["follow_up"], "not": { "required": ["observe"] } },
-        { "required": ["inject"], "not": { "required": ["observe"] } },
-        { "required": ["clear"], "not": { "required": ["observe"] } },
-        { "required": ["claim"] },
-        { "required": ["has_queued_messages"] }
+        {
+          "required": ["steer"],
+          "not": {
+            "anyOf": [
+              { "required": ["follow_up"] },
+              { "required": ["inject"] },
+              { "required": ["claim"] },
+              { "required": ["clear"] },
+              { "required": ["has_queued_messages"] },
+              { "required": ["observe"] }
+            ]
+          }
+        },
+        {
+          "required": ["follow_up"],
+          "not": {
+            "anyOf": [
+              { "required": ["steer"] },
+              { "required": ["inject"] },
+              { "required": ["claim"] },
+              { "required": ["clear"] },
+              { "required": ["has_queued_messages"] },
+              { "required": ["observe"] }
+            ]
+          }
+        },
+        {
+          "required": ["inject"],
+          "not": {
+            "anyOf": [
+              { "required": ["steer"] },
+              { "required": ["follow_up"] },
+              { "required": ["claim"] },
+              { "required": ["clear"] },
+              { "required": ["has_queued_messages"] },
+              { "required": ["observe"] }
+            ]
+          }
+        },
+        {
+          "required": ["clear"],
+          "not": {
+            "anyOf": [
+              { "required": ["steer"] },
+              { "required": ["follow_up"] },
+              { "required": ["inject"] },
+              { "required": ["claim"] },
+              { "required": ["has_queued_messages"] },
+              { "required": ["observe"] }
+            ]
+          }
+        },
+        {
+          "required": ["claim"],
+          "not": {
+            "anyOf": [
+              { "required": ["steer"] },
+              { "required": ["follow_up"] },
+              { "required": ["inject"] },
+              { "required": ["clear"] },
+              { "required": ["has_queued_messages"] }
+            ]
+          }
+        },
+        {
+          "required": ["has_queued_messages"],
+          "not": {
+            "anyOf": [
+              { "required": ["steer"] },
+              { "required": ["follow_up"] },
+              { "required": ["inject"] },
+              { "required": ["claim"] },
+              { "required": ["clear"] }
+            ]
+          }
+        }
       ],
       "properties": {
         "steer": { "$ref": "#/$defs/enqueueInput" },

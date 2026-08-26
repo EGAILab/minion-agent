@@ -522,7 +522,10 @@ rows:
     was simply missing, not merely undocumented). Clearing does not touch the independent wake/
     settle signal a host driver (Layer 08) uses to decide when to poll a target -- an orthogonal
     concern pinned Pi has no analogue for at all (`wake_requested`/`take_wake` are an intentional
-    Minion architectural extension with no Pi counterpart, not Pi parity -- see AG-014''s note),
+    Minion architectural extension with no Pi counterpart, not Pi parity -- see AG-019, which owns
+    wake''s own disposition; an earlier revision of this cross-reference pointed at AG-014 instead,
+    stale since the manifest split that created AG-019 -- flagged by the third independent Rust
+    review as a nonblocking traceability issue and corrected here),
     so this row does not constrain it either way beyond noting the two are intentionally decoupled.
     This row is scoped to clearing/pending ONLY; pinned Pi''s `reset()` is a separate, broader
     operation with its own requirement (`AG-016`) -- an earlier revision of this row also described
@@ -636,12 +639,26 @@ rows:
     equivalent remains registering/withdrawing tools through the certified `ToolRegistry` API, an
     already-settled Layer-05 divergence this pass does not revisit or duplicate -- this is why the
     field as a whole is `intentional divergence`, not `adopted`, even though a read accessor now
-    exists.'
+    exists.
+
+    `tools` totality (`L07-R007`, third independent Rust review, resolved this pass): the first
+    version of `AgentInstance.tools` raised `ServiceNotFoundError` on a valid, freshly constructed
+    instance whose context had no `tools` service mounted at all -- not a defect in `ToolRegistry`
+    itself, but in this property treating "no service provided yet" the same as "the read failed,"
+    when pinned Pi''s own `AgentState.tools` starts as an observable empty array unconditionally.
+    Fixed by checking `ctx.registry.has("tools")` first and returning `()` when absent, mirroring
+    `AgentLoopFactory._telemetry()`''s own established idiom for exactly this shape (optional
+    service, empty/`None` default when absent) rather than inventing a new resolution pattern
+    (test_tools_is_empty_when_no_tools_service_is_mounted). The tool/scope relationship, once a
+    registry is mounted, also survives `reset()` unchanged
+    (test_reset_does_not_disturb_the_tools_relationship).'
   tests:
   - test_messages_projects_the_session_log
   - test_messages_reflects_events_actually_appended_to_the_log
   - test_tools_projects_the_tool_registry_visible_from_this_instances_scope
   - test_tools_reflects_registrations_made_after_construction
+  - test_tools_is_empty_when_no_tools_service_is_mounted
+  - test_reset_does_not_disturb_the_tools_relationship
   python: src/minion_agent/agent/instance.py::AgentInstance.messages/tools, src/minion_agent/tools/registry.py::ToolRegistry.visible_from
   rust: PENDING -- Layer 07 not yet implemented in Rust
   disposition: intentional divergence

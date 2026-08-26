@@ -85,3 +85,17 @@ _with_prepare_arguments: ToolDefinition = ToolDefinition(
     label="F",
     prepare_arguments=lambda args: dict(args),
 )
+
+# "Object-valued" is the schema's own JSON representation (a mapping), not a requirement that the
+# schema describe an object instance (`L05-R005`) -- pinned Pi's `Tool<TParameters extends
+# TSchema>` is generic over TypeBox's whole `TSchema` domain, not narrowed to `TObject`.
+_non_object_instance: ToolDefinition = ToolDefinition(
+    name="g", description="g", parameters={"type": "string"}, execute=lambda args: "ok", label="G"
+)
+_top_level_combinator: ToolDefinition = ToolDefinition(
+    name="h",
+    description="h",
+    parameters={"oneOf": [{"type": "string"}, {"type": "number"}]},
+    execute=lambda args: "ok",
+    label="H",
+)

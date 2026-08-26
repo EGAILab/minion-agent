@@ -514,19 +514,31 @@ rows:
   pi: packages/ai/src/types.ts::Tool
   surface: base tool definition fields (name, description, parameters)
   rule: 'name/description are plain required strings. parameters is a required, object-valued
-    JSON Schema representation (Tool<TParameters extends TSchema>; TypeBox''s TSchema is always
-    object-shaped at this position, never the bare JSON-Schema-spec boolean shorthand)
-    (L05-R005, previously untraced at the base-field level -- TOOL-008/TOOL-009 cover
-    constrainedSampling and the AgentTool extension fields respectively, neither covers the base
-    Tool interface). Missing and null are not aliases for "no parameters"; a no-argument tool
-    supplies the explicit empty-object schema {type: object, properties: {}}. Enforced at the
-    public ToolDefinition boundary itself (not only by typing or canonical-schema convenience).'
+    JSON Schema representation (Tool<TParameters extends TSchema>). "Object-valued" describes the
+    schema''s own JSON representation as a mapping/dict value -- never the bare JSON-Schema-spec
+    boolean shorthand (true/false) or any other non-mapping value -- and does NOT mean the schema
+    must describe an object instance via a top-level "type": "object" keyword: TypeBox''s TSchema
+    (Pi''s TParameters bound) is generic over its whole schema domain, not narrowed to TObject, so
+    {"type": "string"} and a top-level {"oneOf": [...]} are equally valid tool parameter schemas
+    (L05-R005 round 2: a first repair mistakenly required parameters["type"] == "object" at the
+    public Python boundary, rejecting both of those and contradicting the shared/canonical
+    contract, which never required it). Round 1 of this requirement, previously untraced at the
+    base-field level -- TOOL-008/TOOL-009 cover constrainedSampling and the AgentTool extension
+    fields respectively, neither covers the base Tool interface. Missing and null are not aliases
+    for "no parameters"; a no-argument tool supplies the explicit empty-object schema {type:
+    object, properties: {}}. Enforced at the public ToolDefinition boundary itself (not only by
+    typing or canonical-schema convenience) -- the boundary rejects only non-mapping values
+    (missing, None, booleans, arrays, strings, numbers), never a particular JSON Schema keyword.'
   tests:
-  - tests/typing/valid_tool_construction.py (positive: object-valued schema and pydantic model
-    class; negative: missing, None)
+  - 'tests/typing/valid_tool_construction.py (positive: object-valued schema including a
+    non-object-instance schema and a top-level combinator, and a pydantic model class; negative:
+    missing, None)'
   - test_a_tool_without_parameters_gets_an_empty_object_schema
   - test_a_tool_with_none_parameters_is_rejected
-  - test_tool_registry_parameters_domain (canonical-schema domain matrix)
+  - test_a_tool_with_a_non_mapping_parameters_value_is_rejected
+  - test_a_tool_accepts_any_object_valued_schema_representation
+  - test_tool_registry_parameters_domain (canonical-schema domain matrix, including the
+    non-object-instance and top-level-combinator regression cases)
   python: src/minion_agent/tools/definition.py::ToolDefinition.parameters, ToolDefinition.__post_init__
   rust: Phase 4 tools
   disposition: adopted

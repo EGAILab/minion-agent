@@ -247,6 +247,12 @@ def _tool_registry_document(
             True,
             id="explicit-object-schema",
         ),
+        pytest.param({"parameters": {"type": "string"}}, True, id="non-object-instance-schema"),
+        pytest.param(
+            {"parameters": {"oneOf": [{"type": "string"}, {"type": "number"}]}},
+            True,
+            id="top-level-combinator-schema",
+        ),
         pytest.param({"omit_parameters": True}, False, id="missing"),
         pytest.param({"parameters": None}, False, id="null"),
         pytest.param({"parameters": True}, False, id="boolean-true"),
@@ -254,9 +260,15 @@ def _tool_registry_document(
     ],
 )
 def test_tool_registry_parameters_domain(kwargs: dict[str, Any], expect_valid: bool) -> None:
-    """`L05-R005`: `parameters` is required and object-valued; missing, explicit null, and the
-    JSON-Schema-spec boolean-shorthand forms are all outside the domain, matching pinned Pi's
-    `Tool.parameters` (required `TSchema`, never a bare boolean at this position)."""
+    """`L05-R005`: `parameters` is required and object-valued -- the JSON *representation* is a
+    mapping, matching pinned Pi's `Tool<TParameters extends TSchema>` (generic over TypeBox's
+    whole `TSchema` domain, not narrowed to `TObject`). A non-object-instance schema
+    (`{"type": "string"}`) and a top-level combinator (`oneOf`) are therefore valid, same as an
+    object-instance schema; only missing, explicit null, and the JSON-Schema-spec
+    boolean-shorthand forms are outside the domain. This canonical schema itself already admitted
+    the non-object-instance/combinator cases correctly (its own `"type": "object"` constrains the
+    *value* to be a mapping, not a nested keyword) -- the regression this pins was in the Python
+    public constructor, not here."""
     schema = json.loads(TOOL_REGISTRY_SCHEMA.read_text(encoding="utf-8"))
     document = _tool_registry_document(**kwargs)
     errors = list(Draft202012Validator(schema).iter_errors(document))

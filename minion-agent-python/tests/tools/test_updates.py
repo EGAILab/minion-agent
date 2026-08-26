@@ -45,7 +45,7 @@ async def test_a_tool_may_report_partial_output() -> None:
     seen: list[tuple[str, str]] = []
     ctx.events.on(TOOLS_UPDATE, lambda call_id, partial: seen.append((call_id, partial)))
 
-    def chatty(args: dict[str, Any], update: Any) -> str:
+    def chatty(tool_call_id: str, args: dict[str, Any], update: Any) -> str:
         update("half")
         update("most")
         return "all"
@@ -56,20 +56,20 @@ async def test_a_tool_may_report_partial_output() -> None:
     assert result.content
 
 
-async def test_a_tool_without_an_update_parameter_is_called_with_one_argument() -> None:
+async def test_a_tool_without_an_update_parameter_is_called_with_two_arguments() -> None:
     """Declaring the callback is opt-in; most tools have nothing to stream.
 
-    `quiet` accepts only one parameter. If `_wants_update` mistakenly decided
+    `quiet` accepts only `(tool_call_id, args)`. If `_wants_update` mistakenly decided
     to pass the callback anyway, the call would raise a `TypeError` that
     `execute_call` converts into an error result -- `quiet` would never run,
     `seen` would stay empty, and the result would report an error. Both
-    assertions below fail in that scenario, so this pins the one-argument
+    assertions below fail in that scenario, so this pins the two-argument
     call shape rather than merely that the tool ran.
     """
     ctx = _ctx()
     seen: list[int] = []
 
-    def quiet(args: dict[str, Any]) -> str:
+    def quiet(tool_call_id: str, args: dict[str, Any]) -> str:
         seen.append(1)
         return "done"
 
@@ -84,7 +84,7 @@ async def test_updates_carry_the_call_id_so_a_consumer_can_route_them() -> None:
     seen: list[str] = []
     ctx.events.on(TOOLS_UPDATE, lambda call_id, partial: seen.append(call_id))
 
-    def chatty(args: dict[str, Any], update: Any) -> str:
+    def chatty(tool_call_id: str, args: dict[str, Any], update: Any) -> str:
         update("x")
         return "done"
 
@@ -113,11 +113,33 @@ async def test_no_listener_makes_updates_harmless(monkeypatch: pytest.MonkeyPatc
 
     monkeypatch.setattr(EventBus, "emit", spy_emit)
 
-    def chatty(args: dict[str, Any], update: Any) -> str:
+    def chatty(tool_call_id: str, args: dict[str, Any], update: Any) -> str:
         update("nobody is listening")
         return "done"
 
     result = await execute_call(_call(), registry=_streaming(chatty), ctx=ctx)
 
-    assert emitted == [(TOOLS_UPDATE, ("t1", "nobody is listening"))]
+    update_emissions = [entry for entry in emitted if entry[0] == TOOLS_UPDATE]
+    assert update_emissions == [(TOOLS_UPDATE, ("t1", "nobody is listening"))]
+    assert not result.is_error
+
+
+async def test_a_late_update_after_the_tool_settles_is_ignored() -> None:
+    """Pinned Pi's `AgentToolUpdateCallback`: "Calls made after the tool promise settles are
+    ignored." A tool that stashes its own `update` callback and calls it again after `execute()`
+    has already returned must not produce a second `tools/update` emission (`TOOL-017`)."""
+    ctx = _ctx()
+    seen: list[str] = []
+    ctx.events.on(TOOLS_UPDATE, lambda call_id, partial: seen.append(partial))
+    stashed: list[Any] = []
+
+    def stash_then_settle(tool_call_id: str, args: dict[str, Any], update: Any) -> str:
+        update("live")
+        stashed.append(update)
+        return "done"
+
+    result = await execute_call(_call(), registry=_streaming(stash_then_settle), ctx=ctx)
+    stashed[0]("late")
+
+    assert seen == ["live"]
     assert not result.is_error

@@ -1,11 +1,26 @@
 name: tool-batch-parallel
-family: agent
-status: canonical-baseline
-authority: 2026-08-20-minion-agent-design.md
-pi_revision: b7bb00b936dbe21b8e160b3e89efdec361846699
-given:
-  fixture: TO_BE_FILLED_FROM_PINNED_PI_BEHAVIOR
-when:
-  op: TO_BE_BOUND_TO_REAL_PUBLIC_API
-expect:
-  observable: TO_BE_PINNED_EXACTLY
+description: >
+  Pinned Pi's default execution mode is "parallel" (`AgentLoopConfig.toolExecution?`,
+  `packages/agent/src/types.ts`, Layer 06, TOOL-017): with no per-tool `execution_mode` override,
+  a batch's tools genuinely overlap rather than serializing -- a call listed first that waits on
+  one still registered after a call listed second which resolves immediately.
+provider_script:
+  - content:
+      - { type: tool_call, id: t1, name: waits, arguments: {} }
+      - { type: tool_call, id: t2, name: releases, arguments: {} }
+    stop_reason: tool_use
+  - content: [{ type: text, text: done }]
+    stop_reason: stop
+tools:
+  waits: { result: { text: waited }, delay_ticks: 1 }
+  releases: { result: { text: released } }
+steps:
+  - followup: go
+  - await_idle: true
+expect_tool_completion_order: [t2, t1]
+expect_messages:
+  - { role: user, text: go }
+  - { role: assistant, text: "" }
+  - { role: tool_result, text: waited }
+  - { role: tool_result, text: released }
+  - { role: assistant, text: done }

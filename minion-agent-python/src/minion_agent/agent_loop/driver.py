@@ -25,6 +25,7 @@ from ..agent.instance import AgentInstance
 from ..llm import (
     LlmService,
     Request,
+    StopReason,
     StreamChunk,
     TextDelta,
     ThinkingDelta,
@@ -42,7 +43,7 @@ from ..session import (
     record_header,
 )
 from ..telemetry import Span, SpanKind, TelemetryService
-from ..tools.batch import BatchOutcome, execute_batch
+from ..tools.batch import BatchOutcome, execute_batch, execute_length_stop_batch
 from ..tools.registry import ToolRegistry
 
 
@@ -281,12 +282,21 @@ class AgentLoop:
                 {"id": call.id, "name": call.name, "arguments": call.arguments},
             )
 
-        outcome = await execute_batch(
-            calls,
-            registry=self.tools,
-            ctx=self.instance.ctx,
-            scope=self.instance.scope,
-        )
+        if reply.stop_reason is StopReason.LENGTH and calls:
+            # A length stop means the output was cut off by the token limit, so every
+            # tool call the message carries may itself have truncated arguments. Pinned
+            # Pi fails them all instead of executing potentially-truncated calls
+            # (`failToolCallsFromTruncatedMessage`, TOOL-017) -- none reach the registry.
+            outcome = await execute_length_stop_batch(
+                calls, ctx=self.instance.ctx, scope=self.instance.scope
+            )
+        else:
+            outcome = await execute_batch(
+                calls,
+                registry=self.tools,
+                ctx=self.instance.ctx,
+                scope=self.instance.scope,
+            )
         for result in outcome.results:
             log.append(
                 EventKind.TOOL_RESULT,

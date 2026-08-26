@@ -29,7 +29,7 @@ def _tool_call() -> ScriptedResponse:
 
 
 def _cancelling_tool(loop: AgentLoop, output: str = "done") -> Any:
-    def run(args: dict[str, Any]) -> str:
+    def run(tool_call_id: str, args: dict[str, Any]) -> str:
         loop.cancel()
         return output
 
@@ -100,7 +100,7 @@ async def test_a_blocked_agent_does_not_stall_another() -> None:
     released = asyncio.Event()
     blocked_tools = ToolRegistry()
 
-    async def wait_for_release(args: dict[str, Any]) -> str:
+    async def wait_for_release(tool_call_id: str, args: dict[str, Any]) -> str:
         await released.wait()
         return "released"
 

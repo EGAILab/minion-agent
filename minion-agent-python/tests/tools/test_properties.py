@@ -25,11 +25,14 @@ def _ctx() -> Context:
 
 
 def _registry(mode: ExecutionMode) -> ToolRegistry:
-    def broken(args: dict[str, Any]) -> str:
+    def broken(tool_call_id: str, args: dict[str, Any]) -> str:
         raise RuntimeError("boom")
 
     registry = ToolRegistry()
-    for name, execute in (("ok", lambda args: "ok"), ("slow", lambda args: "slow")):
+    for name, execute in (
+        ("ok", lambda tool_call_id, args: "ok"),
+        ("slow", lambda tool_call_id, args: "slow"),
+    ):
         registry.register(
             ToolDefinition(
                 name=name,
@@ -115,7 +118,7 @@ async def test_a_unanimous_batch_of_any_size_terminates(size: int) -> None:
             name="stop",
             description="stop",
             parameters={"type": "object", "properties": {}},
-            execute=lambda args: ToolResult(
+            execute=lambda tool_call_id, args: ToolResult(
                 tool_call_id="", content=(), tool_name="stop", terminate=True
             ),
             label="stop",
@@ -143,7 +146,7 @@ async def test_a_mixed_batch_never_terminates(
             name="stop",
             description="stop",
             parameters={"type": "object", "properties": {}},
-            execute=lambda args: ToolResult(
+            execute=lambda tool_call_id, args: ToolResult(
                 tool_call_id="", content=(), tool_name="stop", terminate=True
             ),
             label="stop",
@@ -155,7 +158,7 @@ async def test_a_mixed_batch_never_terminates(
             name="go",
             description="go",
             parameters={"type": "object", "properties": {}},
-            execute=lambda args: "go",
+            execute=lambda tool_call_id, args: "go",
             label="go",
             mode=mode,
         )

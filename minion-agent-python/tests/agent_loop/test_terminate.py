@@ -33,7 +33,7 @@ def _tool(name: str, *, terminate: bool) -> ToolDefinition:
         name=name,
         description=name,
         parameters={"type": "object", "properties": {}},
-        execute=lambda args: ToolResult(
+        execute=lambda tool_call_id, args: ToolResult(
             tool_call_id="", content=(), tool_name=name, terminate=terminate
         ),
         label=name,

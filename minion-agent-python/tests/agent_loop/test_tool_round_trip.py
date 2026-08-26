@@ -25,7 +25,7 @@ async def test_a_tool_call_is_executed_and_answered() -> None:
         _tool_call(value="pong"),
         ScriptedResponse((TextBlock(text="all done"),), StopReason.STOP),
     )
-    _register(loop, "echo", lambda args: str(args["value"]))
+    _register(loop, "echo", lambda tool_call_id, args: str(args["value"]))
     loop.instance.inbox.followup(_say("ping"))
 
     await loop.run_until_idle()
@@ -43,7 +43,7 @@ async def test_the_model_is_asked_again_after_the_result() -> None:
         _tool_call(value="pong"),
         ScriptedResponse((TextBlock(text="done"),), StopReason.STOP),
     )
-    _register(loop, "echo", lambda args: str(args["value"]))
+    _register(loop, "echo", lambda tool_call_id, args: str(args["value"]))
     loop.instance.inbox.followup(_say("ping"))
 
     await loop.run_until_idle()
@@ -54,7 +54,7 @@ async def test_the_model_is_asked_again_after_the_result() -> None:
 
 async def test_the_call_and_its_result_are_both_logged() -> None:
     loop = _loop(_tool_call(value="pong"), ScriptedResponse((), StopReason.STOP))
-    _register(loop, "echo", lambda args: str(args["value"]))
+    _register(loop, "echo", lambda tool_call_id, args: str(args["value"]))
     loop.instance.inbox.followup(_say("ping"))
 
     await loop.run_until_idle()
@@ -88,7 +88,7 @@ async def test_several_calls_in_one_message_each_get_a_result() -> None:
         ),
         ScriptedResponse((), StopReason.STOP),
     )
-    _register(loop, "echo", lambda args: str(args["value"]))
+    _register(loop, "echo", lambda tool_call_id, args: str(args["value"]))
     loop.instance.inbox.followup(_say("ping"))
 
     await loop.run_until_idle()
@@ -106,7 +106,7 @@ async def test_max_steps_bounds_a_runaway_tool_loop() -> None:
         system="",
         max_steps=3,
     )
-    _register(loop, "echo", lambda args: "again")
+    _register(loop, "echo", lambda tool_call_id, args: "again")
     loop.instance.inbox.followup(_say("ping"))
 
     await loop.run_until_idle()

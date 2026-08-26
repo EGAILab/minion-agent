@@ -1,11 +1,22 @@
 name: prepare-arguments-failure-becomes-tool-error
-family: agent
-status: canonical-baseline
-authority: 2026-08-20-minion-agent-design.md
-pi_revision: b7bb00b936dbe21b8e160b3e89efdec361846699
-given:
-  fixture: TO_BE_FILLED_FROM_PINNED_PI_BEHAVIOR
-when:
-  op: TO_BE_BOUND_TO_REAL_PUBLIC_API
-expect:
-  observable: TO_BE_PINNED_EXACTLY
+description: >
+  `TOOL-017`: `prepare_arguments` always runs before schema validation (pinned Pi's
+  `AgentTool.prepareArguments`). A `prepare_arguments` exception is an immediate (pre-execute)
+  failure, same taxonomy as a validation or before-hook failure -- `execute` is never invoked.
+provider_script:
+  - content: [{ type: tool_call, id: t1, name: finicky, arguments: {} }]
+    stop_reason: tool_use
+  - content: [{ type: text, text: done }]
+    stop_reason: stop
+tools:
+  finicky:
+    result: { text: should never run }
+    prepare_arguments: { raises: cannot repair these arguments }
+steps:
+  - followup: go
+  - await_idle: true
+expect_messages:
+  - { role: user, text: go }
+  - { role: assistant, text: "" }
+  - { role: tool_result, text: "RuntimeError: cannot repair these arguments" }
+  - { role: assistant, text: done }

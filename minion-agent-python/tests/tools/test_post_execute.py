@@ -103,7 +103,7 @@ async def test_there_is_no_deep_merge() -> None:
     would make it impossible to remove a key, and pi does not do it."""
     ctx = _ctx()
     definition = _echo(
-        execute=lambda args: ToolResult(
+        execute=lambda tool_call_id, args: ToolResult(
             tool_call_id="t1", content=(), tool_name="echo", details={"original": 1, "keep": 2}
         )
     )
@@ -132,15 +132,43 @@ async def test_a_listener_may_own_the_result_outright() -> None:
     assert text_of(outcome.to_message()) == "redacted"
 
 
-async def test_an_error_result_is_transformed_too() -> None:
-    """Failures are the results most worth annotating."""
+async def test_an_execute_failure_is_transformed_too() -> None:
+    """An outcome that reached `execute()` -- success or failure -- always goes through the
+    after-hook (pinned Pi's `finalizeExecutedToolCall` runs uniformly for both; `TOOL-017`).
+    Failures are the results most worth annotating."""
     ctx = _ctx()
+
+    def broken(tool_call_id: str, args: dict[str, Any]) -> str:
+        raise RuntimeError("boom")
 
     async def annotate(result: ToolResult, next_: Any) -> Any:
         return await next_(replace(result, details={"failed": result.is_error}))
 
     ctx.events.on(TOOLS_POST_EXECUTE, annotate)
 
-    outcome = await execute_call(_call("missing"), registry=_registry(), ctx=ctx)
+    outcome = await execute_call(
+        _call(value="x"), registry=_registry(_echo(execute=broken)), ctx=ctx
+    )
 
     assert outcome.details == {"failed": True}
+
+
+async def test_an_unknown_tool_never_reaches_the_after_hook() -> None:
+    """Pinned Pi's `finalizeExecutedToolCall` (the after-hook) is invoked only for an outcome
+    that actually reached `execute()` -- an unknown-tool lookup never does (`TOOL-017`;
+    previously this pipeline ran the after-hook uniformly on every outcome, including this one,
+    a genuine `PI_PARITY_DEFECT` this test now pins the fix for)."""
+    ctx = _ctx()
+    dispatched: list[str] = []
+
+    async def annotate(result: ToolResult, next_: Any) -> Any:
+        dispatched.append("ran")
+        return await next_(replace(result, details={"failed": result.is_error}))
+
+    ctx.events.on(TOOLS_POST_EXECUTE, annotate)
+
+    outcome = await execute_call(_call("missing"), registry=_registry(), ctx=ctx)
+
+    assert dispatched == []
+    assert outcome.details == {}
+    assert outcome.is_error

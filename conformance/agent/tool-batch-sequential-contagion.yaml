@@ -1,11 +1,26 @@
 name: tool-batch-sequential-contagion
-family: agent
-status: canonical-baseline
-authority: 2026-08-20-minion-agent-design.md
-pi_revision: b7bb00b936dbe21b8e160b3e89efdec361846699
-given:
-  fixture: TO_BE_FILLED_FROM_PINNED_PI_BEHAVIOR
-when:
-  op: TO_BE_BOUND_TO_REAL_PUBLIC_API
-expect:
-  observable: TO_BE_PINNED_EXACTLY
+description: >
+  Pinned Pi's contagion rule (`hasSequentialToolCall`, `packages/agent/src/agent-loop.ts
+  ::executeToolCalls`, Layer 06, TOOL-017): one tool call in the batch resolving to a tool whose
+  own `executionMode` is "sequential" forces the WHOLE batch to run one call at a time, in source
+  order -- not merely that one exclusive tool, and not a partial-overlap grouping around it.
+provider_script:
+  - content:
+      - { type: tool_call, id: t1, name: shared, arguments: {} }
+      - { type: tool_call, id: t2, name: exclusive, arguments: {} }
+    stop_reason: tool_use
+  - content: [{ type: text, text: done }]
+    stop_reason: stop
+tools:
+  shared: { result: { text: shared ran } }
+  exclusive: { result: { text: exclusive ran }, execution_mode: sequential }
+steps:
+  - followup: go
+  - await_idle: true
+expect_tool_completion_order: [t1, t2]
+expect_messages:
+  - { role: user, text: go }
+  - { role: assistant, text: "" }
+  - { role: tool_result, text: shared ran }
+  - { role: tool_result, text: exclusive ran }
+  - { role: assistant, text: done }

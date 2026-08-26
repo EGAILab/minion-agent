@@ -16,6 +16,8 @@ import asyncio
 from dataclasses import replace
 from typing import Any
 
+from pydantic import create_model
+
 from minion_agent.agent.envelope import ClaimPolicy
 from minion_agent.agent.identity import AgentDefinition
 from minion_agent.agent.plugin import agents_plugin
@@ -44,7 +46,7 @@ from minion_agent.session import EventKind, derive_messages
 from minion_agent.session.service import session_plugin
 from minion_agent.tools.decisions import Block, Proceed
 from minion_agent.tools.definition import ExecutionMode, ToolDefinition
-from minion_agent.tools.events import TOOLS_POST_EXECUTE, TOOLS_PRE_EXECUTE
+from minion_agent.tools.events import TOOLS_POST_EXECUTE, TOOLS_PRE_EXECUTE, TOOLS_UPDATE
 from minion_agent.tools.plugin import tools_plugin
 from minion_agent.tools.registry import ToolRegistry
 from minion_agent.tools.result import ToolResult
@@ -139,28 +141,78 @@ def _script(document: dict[str, Any]) -> list[ScriptedResponse]:
     ]
 
 
-def _stub(spec: dict[str, Any], registry: ToolRegistry, name: str) -> Any:
-    """Build a tool body from a declarative stub."""
+def _parameters(spec: dict[str, Any] | None) -> Any:
+    """A real, validated parameter schema when a scenario needs one.
+
+    `requires: [names...]` builds a pydantic model with each name as a required string field --
+    enough to exercise a genuine `ValidationError` (`schema-validation-failure-becomes-tool-error`)
+    without inventing a JSON-Schema-to-pydantic translator. Layer 05's own raw-dict `parameters`
+    representation performs no Python validation at all (`L05-R005`/`TOOL-F010`), so a scenario
+    that means to exercise real validation failure must ask for this instead.
+    """
+    required = None if spec is None else spec.get("requires")
+    if not required:
+        return {"type": "object", "properties": {}}
+    fields = {field_name: (str, ...) for field_name in required}
+    return create_model(f"Params_{'_'.join(required)}", **fields)  # type: ignore[call-overload]
+
+
+def _prepare_arguments(spec: dict[str, Any] | None) -> Any:
+    """A declarative `prepare_arguments` shim: `raises` throws, `set` overwrites/adds keys."""
+    if spec is None:
+        return None
+    raises = spec.get("raises")
+    set_fields = spec.get("set", {})
+
+    def prepare(args: dict[str, Any]) -> dict[str, Any]:
+        if raises:
+            raise RuntimeError(raises)
+        return {**args, **set_fields}
+
+    return prepare
+
+
+def _stub(
+    spec: dict[str, Any], registry: ToolRegistry, name: str, late_updates: list[asyncio.Task[None]]
+) -> Any:
+    """Build a tool body from a declarative stub.
+
+    `late_updates` collects fire-and-forget tasks that call `update()` one cooperative scheduler
+    yield after the tool itself has already returned -- deterministic (no wall-clock timing), and
+    `run_agent_scenario` drains it after the scenario's own steps finish, so a "late update
+    ignored" assertion is never a race.
+    """
     text = spec.get("result", {}).get("text", "")
     ticks = spec.get("delay_ticks", 0)
     raises = spec.get("raises")
     terminate = spec.get("terminate", False)
     adds = tuple(spec.get("adds_tools", ()))
+    updates = tuple(spec.get("emits_updates", ()))
+    late_update = spec.get("late_update")
 
-    async def run(args: dict[str, Any]) -> ToolResult:
+    async def run(tool_call_id: str, args: dict[str, Any], update: Any) -> ToolResult:
         for _ in range(ticks):
             # A scheduler yield, not wall-clock time: deterministic, and
             # reproducible in any language with a cooperative scheduler.
             await asyncio.sleep(0)
         if raises:
             raise RuntimeError(raises)
+        for partial in updates:
+            update(partial)
+        if late_update is not None:
+
+            async def _fire_late(partial: str = late_update) -> None:
+                await asyncio.sleep(0)
+                update(partial)
+
+            late_updates.append(asyncio.ensure_future(_fire_late()))
         for added_name in adds:
             registry.register(
                 ToolDefinition(
                     name=added_name,
                     description=added_name,
                     parameters={"type": "object", "properties": {}},
-                    execute=lambda inner: "added",
+                    execute=lambda inner_id, inner: "added",
                     label=added_name,
                 )
             )
@@ -305,6 +357,8 @@ def _listener(spec: dict[str, Any]) -> Any:
                 return Proceed(arguments=spec.get("arguments", {}))
             if action == "abstain":
                 return await next_()
+            if action == "raise":
+                raise RuntimeError(spec.get("message", "before-hook failed"))
             raise ValueError(f"unhandled listener action {action!r} for event {event!r}")
 
         return pre
@@ -321,6 +375,8 @@ def _listener(spec: dict[str, Any]) -> Any:
                 return await next_(marked)
             if action == "abstain":
                 return await next_()
+            if action == "raise":
+                raise RuntimeError(spec.get("message", "after-hook failed"))
             raise ValueError(f"unhandled listener action {action!r} for event {event!r}")
 
         return post
@@ -339,13 +395,15 @@ async def run_agent_scenario(document: dict[str, Any]) -> dict[str, Any]:
     adapter = MockAdapter(_script(document))
     ctx.llm.register(adapter)
 
+    late_updates: list[asyncio.Task[None]] = []
     for name, stub in document.get("tools", {}).items():
         ctx.tools.register(
             ToolDefinition(
                 name=name,
                 description=name,
-                parameters={"type": "object", "properties": {}},
-                execute=_stub(stub, ctx.tools, name),
+                parameters=_parameters(stub.get("parameters")),
+                execute=_stub(stub, ctx.tools, name, late_updates),
+                prepare_arguments=_prepare_arguments(stub.get("prepare_arguments")),
                 label=name,
                 mode=ExecutionMode(stub.get("execution_mode", "parallel")),
             )
@@ -353,6 +411,9 @@ async def run_agent_scenario(document: dict[str, Any]) -> dict[str, Any]:
 
     for spec in document.get("listeners", []):
         ctx.events.on(spec["event"], _listener(spec))
+
+    seen_updates: list[tuple[str, str]] = []
+    ctx.events.on(TOOLS_UPDATE, lambda call_id, partial: seen_updates.append((call_id, partial)))
 
     config = document.get("config", {})
     handle = ctx.agents.create(
@@ -384,6 +445,11 @@ async def run_agent_scenario(document: dict[str, Any]) -> dict[str, Any]:
                 error = raised
                 break
 
+    if late_updates:
+        # Drain deterministically before observing the final state, so a "late update
+        # ignored" assertion is never a race against a still-pending background task.
+        await asyncio.gather(*late_updates)
+
     events = project(handle.instance.log)
     messages = derive_messages(handle.instance.log)
     return {
@@ -404,5 +470,6 @@ async def run_agent_scenario(document: dict[str, Any]) -> dict[str, Any]:
             )
         ],
         "request_tools": [[tool.name for tool in request.tools] for request in adapter.requests],
+        "updates": [list(entry) for entry in seen_updates],
         "error": None if error is None else {"type": type(error).__name__, "message": str(error)},
     }

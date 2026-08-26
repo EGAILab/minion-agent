@@ -18,7 +18,7 @@ def _echo() -> ToolDefinition:
         name="echo",
         description="repeat",
         parameters={"type": "object", "properties": {}},
-        execute=lambda args: "ok",
+        execute=lambda tool_call_id, args: "ok",
         label="Echo",
     )
 

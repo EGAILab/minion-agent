@@ -28,15 +28,16 @@ type ToolUpdate = Callable[[str], None]
 """Report a partial result. Live only -- partial output never reaches a model."""
 
 type ToolFn = Callable[..., Awaitable[ToolResult | str] | ToolResult | str]
-"""Called with the validated arguments, and with an `update` callback when the
-tool declares a second parameter (arity-detected, see `execute.py::_wants_update`).
+"""Called with `(tool_call_id, validated_arguments)`, and with an `update` callback appended when
+the tool declares a third parameter (arity-detected, see `execute.py::_wants_update`).
 
 Target capability shape, matching pinned Pi's `AgentTool.execute` (`packages/agent/src/types.ts`):
 `(tool_call_id, params, signal?, on_update?) -> AgentToolResult`. Layer 05 owns only this shape's
-existence and its association with a registered tool -- today's dispatch (`execute.py`) realizes
-only the `(params)`/`(params, on_update)` subset (no `tool_call_id`, no cancellation `signal`
-parameter); closing that gap is a Layer-06/Layer-09 (cancellation) obligation, not implemented or
-certified here (`TOOL-F003`)."""
+existence and its association with a registered tool. Layer 06 (`TOOL-017`) closes the
+`tool_call_id` half of the gap `TOOL-F003` disclosed: every call now receives its own real
+`tool_call_id` as the first positional argument. The `signal` (cancellation) parameter remains
+unrealized -- no `AbortSignal`-equivalent type exists anywhere in this codebase yet, in either
+language; that gap is assurance Layer 09's, not Layer 06's, to close."""
 
 type PrepareArguments = Callable[[dict[str, Any]], dict[str, Any]]
 """Pi's optional `AgentTool.prepareArguments?: (args: unknown) => Static<TParameters>` --

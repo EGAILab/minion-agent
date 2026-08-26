@@ -1,6 +1,11 @@
 #![cfg(feature = "conformance")]
 
-use std::{collections::BTreeMap, fs, path::PathBuf, sync::Arc};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    fs,
+    path::PathBuf,
+    sync::Arc,
+};
 
 use minion_agent::{
     DynPluginSpec, PluginInitError, PluginSpec, Runtime,
@@ -10,23 +15,14 @@ use minion_agent::{
         ToolCapabilityError, ToolDefinition, ToolExecutionEnd, ToolExecutionOptions,
         ToolExecutionRequest, ToolExecutionUpdate, execute_tool_calls,
         register_after_tool_call_hook, register_before_tool_call_hook, tool_execution_end_spec,
-        tool_execution_update_spec,
+        tool_execution_start_spec, tool_execution_update_spec,
     },
 };
 use parking_lot::Mutex;
 use serde_json::{Value, json};
 
-const SCENARIOS: [&str; 10] = [
-    "after-hook-failure-replaces-result-with-tool-error",
-    "before-hook-failure-becomes-tool-error",
-    "execute-failure-becomes-tool-error",
-    "late-tool-update-ignored",
-    "length-stop-executes-no-tools",
-    "parallel-tool-completion-vs-message-order",
-    "prepare-arguments-failure-becomes-tool-error",
-    "schema-validation-failure-becomes-tool-error",
-    "tool-batch-parallel",
-    "tool-batch-sequential-contagion",
+const LAYER_06_REQUIREMENTS: [&str; 8] = [
+    "TOOL-001", "TOOL-002", "TOOL-003", "TOOL-004", "TOOL-005", "TOOL-006", "TOOL-019", "TOOL-023",
 ];
 
 fn root() -> PathBuf {
@@ -74,7 +70,11 @@ fn parse_calls(document: &Value) -> (Vec<ToolCall>, StopReason) {
     (calls, stop_reason)
 }
 
-fn scripted_tool(name: &str, script: &Value) -> ToolDefinition {
+fn scripted_tool(
+    name: &str,
+    script: &Value,
+    trace: Arc<Mutex<Vec<(String, String)>>>,
+) -> ToolDefinition {
     let parameters = serde_json::from_value(
         script
             .get("parameters")
@@ -119,7 +119,11 @@ fn scripted_tool(name: &str, script: &Value) -> ToolDefinition {
             let raises = raises.clone();
             let updates = updates.clone();
             let late = late.clone();
+            let trace = Arc::clone(&trace);
             Box::pin(async move {
+                trace
+                    .lock()
+                    .push(("execute".into(), request.tool_call_id.clone()));
                 for _ in 0..delay_ticks {
                     tokio::task::yield_now().await;
                 }
@@ -172,7 +176,8 @@ fn scripted_tool(name: &str, script: &Value) -> ToolDefinition {
 fn observation_plugin(
     listeners: Vec<Value>,
     completions: Arc<Mutex<Vec<String>>>,
-    updates: Arc<Mutex<Vec<(String, String)>>>,
+    updates: Arc<Mutex<Vec<Value>>>,
+    trace: Arc<Mutex<Vec<(String, String)>>>,
 ) -> DynPluginSpec {
     PluginSpec::<Value>::new(
         "layer-06-observer",
@@ -182,12 +187,17 @@ fn observation_plugin(
             let listeners = listeners.clone();
             let completions = Arc::clone(&completions);
             let updates = Arc::clone(&updates);
+            let trace = Arc::clone(&trace);
             async move {
                 let events = context
                     .events()
                     .map_err(|error| PluginInitError::new(error.to_string()))?;
                 let end_spec = tool_execution_end_spec();
+                let start_spec = tool_execution_start_spec();
                 let update_spec = tool_execution_update_spec();
+                events
+                    .declare(&start_spec)
+                    .map_err(|error| PluginInitError::new(error.to_string()))?;
                 events
                     .declare(&end_spec)
                     .map_err(|error| PluginInitError::new(error.to_string()))?;
@@ -195,6 +205,15 @@ fn observation_plugin(
                     .declare(&update_spec)
                     .map_err(|error| PluginInitError::new(error.to_string()))?;
                 let effects = context.effect_store();
+                let start_trace = Arc::clone(&trace);
+                events
+                    .on_emit(&start_spec, &effects, context.scope(), move |event| {
+                        start_trace
+                            .lock()
+                            .push(("start".into(), event.tool_call_id.clone()));
+                    })
+                    .map_err(|error| PluginInitError::new(error.to_string()))?;
+                let end_trace = Arc::clone(&trace);
                 events
                     .on_emit(
                         &end_spec,
@@ -202,6 +221,9 @@ fn observation_plugin(
                         context.scope(),
                         move |event: &ToolExecutionEnd| {
                             completions.lock().push(event.tool_call_id.clone());
+                            end_trace
+                                .lock()
+                                .push(("end".into(), event.tool_call_id.clone()));
                         },
                     )
                     .map_err(|error| PluginInitError::new(error.to_string()))?;
@@ -211,10 +233,12 @@ fn observation_plugin(
                         &effects,
                         context.scope(),
                         move |event: &ToolExecutionUpdate| {
-                            updates.lock().push((
-                                event.tool_call_id.clone(),
-                                content_text(&event.update.content).to_owned(),
-                            ));
+                            updates.lock().push(json!({
+                                "tool_call_id": event.tool_call_id,
+                                "tool_name": event.tool_name,
+                                "arguments": event.arguments,
+                                "partial": content_text(&event.update.content),
+                            }));
                         },
                     )
                     .map_err(|error| PluginInitError::new(error.to_string()))?;
@@ -226,19 +250,41 @@ fn observation_plugin(
                         .and_then(Value::as_str)
                         .unwrap_or_default()
                         .to_owned();
+                    let reason = listener
+                        .get("reason")
+                        .and_then(Value::as_str)
+                        .unwrap_or(&message)
+                        .to_owned();
+                    let only_tool = listener
+                        .get("only_tool")
+                        .and_then(Value::as_str)
+                        .map(str::to_owned);
                     let label = listener
                         .get("label")
                         .and_then(Value::as_str)
                         .unwrap_or_default()
                         .to_owned();
                     if event == "tools/pre-execute" {
-                        register_before_tool_call_hook(&context, move |_current| {
+                        let before_trace = Arc::clone(&trace);
+                        register_before_tool_call_hook(&context, move |current| {
                             let action = action.clone();
                             let message = message.clone();
+                            let reason = reason.clone();
+                            let only_tool = only_tool.clone();
+                            let before_trace = Arc::clone(&before_trace);
                             async move {
+                                before_trace
+                                    .lock()
+                                    .push(("before".into(), current.tool_call_id.clone()));
+                                if only_tool
+                                    .as_deref()
+                                    .is_some_and(|name| name != current.tool_name)
+                                {
+                                    return Ok(BeforeToolCallAction::Proceed(None));
+                                }
                                 match action.as_str() {
                                     "raise" => Err(ToolCapabilityError::new(message)),
-                                    "block" => Ok(BeforeToolCallAction::Block(message)),
+                                    "block" => Ok(BeforeToolCallAction::Block(reason)),
                                     _ => Ok(BeforeToolCallAction::Proceed(None)),
                                 }
                             }
@@ -276,10 +322,11 @@ fn observation_plugin(
 
 fn run_scenario(document: &Value) {
     let runtime = Runtime::new();
+    let trace = Arc::new(Mutex::new(Vec::new()));
     for (name, script) in document["tools"].as_object().into_iter().flatten() {
         runtime
             .tools()
-            .register_for_scope(None, scripted_tool(name, script))
+            .register_for_scope(None, scripted_tool(name, script, Arc::clone(&trace)))
             .unwrap();
     }
     let completions = Arc::new(Mutex::new(Vec::new()));
@@ -288,7 +335,12 @@ fn run_scenario(document: &Value) {
         .as_array()
         .cloned()
         .unwrap_or_default();
-    let plugin = observation_plugin(listeners, Arc::clone(&completions), Arc::clone(&updates));
+    let plugin = observation_plugin(
+        listeners,
+        Arc::clone(&completions),
+        Arc::clone(&updates),
+        Arc::clone(&trace),
+    );
     runtime.mount(&plugin, json!({})).unwrap();
     let (calls, stop_reason) = parse_calls(document);
     let tokio = tokio::runtime::Builder::new_multi_thread()
@@ -313,15 +365,18 @@ fn run_scenario(document: &Value) {
         .collect::<Vec<_>>();
     assert_eq!(batch.messages.len(), expected_results.len());
     for (actual, expected) in batch.messages.iter().zip(expected_results) {
-        let actual = content_text(&actual.content);
+        let actual_text = content_text(&actual.content);
         if let Some(exact) = expected.get("text").and_then(Value::as_str) {
-            assert_eq!(actual, exact);
+            assert_eq!(actual_text, exact);
         }
         if let Some(fragment) = expected.get("text_contains").and_then(Value::as_str) {
             assert!(
-                actual.contains(fragment),
-                "{actual:?} does not contain {fragment:?}"
+                actual_text.contains(fragment),
+                "{actual_text:?} does not contain {fragment:?}"
             );
+        }
+        if let Some(details) = expected.get("details") {
+            assert_eq!(actual.details.as_ref(), Some(details));
         }
     }
     if let Some(expected) = document.get("expect_tool_completion_order") {
@@ -336,27 +391,63 @@ fn run_scenario(document: &Value) {
             *expected
         );
     }
+    if let Some(expected) = document.get("expect_tool_trace") {
+        assert_eq!(
+            serde_json::to_value(trace.lock().clone()).unwrap(),
+            *expected
+        );
+    }
+}
+
+fn layer_06_scenarios() -> Vec<PathBuf> {
+    let manifest: Value =
+        serde_yaml::from_str(&fs::read_to_string(root().join("pi-parity-manifest.yaml")).unwrap())
+            .unwrap();
+    let requirement_ids = LAYER_06_REQUIREMENTS.into_iter().collect::<BTreeSet<_>>();
+    let directory = root().join("conformance/agent");
+    let mut paths = BTreeSet::new();
+    for row in manifest["rows"].as_array().into_iter().flatten() {
+        let Some(id) = row["id"].as_str() else {
+            continue;
+        };
+        if !requirement_ids.contains(id) {
+            continue;
+        }
+        for evidence in row["tests"].as_array().into_iter().flatten() {
+            let Some(candidate) = evidence
+                .as_str()
+                .and_then(|value| value.split_whitespace().next())
+            else {
+                continue;
+            };
+            let path = directory.join(format!("{candidate}.yaml"));
+            if path.is_file() {
+                paths.insert(path);
+            }
+        }
+    }
+    paths.into_iter().collect()
 }
 
 #[test]
 fn all_layer_06_scenarios_drive_the_real_rust_tool_executor() {
-    let directory = root().join("conformance/agent");
-    let mut scenarios = fs::read_dir(directory)
-        .unwrap()
-        .map(|entry| entry.unwrap().path())
-        .filter(|path| {
-            path.extension()
-                .is_some_and(|extension| extension == "yaml")
-        })
-        .filter_map(|path| {
-            let stem = path.file_stem()?.to_str()?;
-            SCENARIOS.contains(&stem).then_some(path)
-        })
-        .collect::<Vec<_>>();
-    scenarios.sort();
-    assert_eq!(scenarios.len(), SCENARIOS.len());
+    let scenarios = layer_06_scenarios();
+    assert!(!scenarios.is_empty());
+    eprintln!("Layer-06 canonical: {} discovered", scenarios.len());
+    for path in &scenarios {
+        eprintln!("  {}", path.file_stem().unwrap().to_string_lossy());
+    }
     for path in scenarios {
         let document: Value = serde_yaml::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
         run_scenario(&document);
     }
+}
+
+#[test]
+fn corrected_unknown_tool_cross_layer_evidence_uses_the_real_rust_tool_executor() {
+    let path = root()
+        .join("conformance/agent")
+        .join("an-unknown-tool-does-not-serialize-a-batch.yaml");
+    let document: Value = serde_yaml::from_str(&fs::read_to_string(path).unwrap()).unwrap();
+    run_scenario(&document);
 }

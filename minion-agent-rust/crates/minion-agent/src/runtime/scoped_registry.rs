@@ -145,8 +145,12 @@ impl From<&ScopeTree> for ScopeTree {
 }
 
 impl RegistrationHandle {
-    pub async fn dispose(&self) -> Result<(), DisposeError> {
+    pub fn withdraw(&self) {
         self.remove();
+    }
+
+    pub async fn dispose(&self) -> Result<(), DisposeError> {
+        self.withdraw();
         Ok(())
     }
 

@@ -12,6 +12,8 @@ use parking_lot::Mutex;
 use thiserror::Error;
 use tokio::sync::{Mutex as AsyncMutex, watch};
 
+use crate::tools::ToolRegistry;
+
 use super::{
     DisposeError, DisposeErrors, EffectHandle, EffectStore, EventBus, RuntimeError,
     RuntimeObservation, RuntimeObserver, ScopeHandle, Service, ServiceCheck, ServiceName,
@@ -51,6 +53,7 @@ pub struct FiberInitContext {
     observer: Option<Arc<dyn RuntimeObserver>>,
     events: Option<EventBus>,
     scope: Option<ScopeHandle>,
+    tools: Option<ToolRegistry>,
 }
 
 pub type Context = FiberInitContext;
@@ -75,6 +78,7 @@ impl FiberInitContext {
             observer: None,
             events: None,
             scope: None,
+            tools: None,
         }
     }
 
@@ -86,6 +90,7 @@ impl FiberInitContext {
         observer: Arc<dyn RuntimeObserver>,
         events: EventBus,
         scope: Option<ScopeHandle>,
+        tools: ToolRegistry,
     ) -> Self {
         Self {
             effects,
@@ -95,10 +100,15 @@ impl FiberInitContext {
             observer: Some(observer),
             events: Some(events),
             scope,
+            tools: Some(tools),
         }
     }
 
-    pub(crate) fn runtime_view(services: ServiceRegistry, events: EventBus) -> Self {
+    pub(crate) fn runtime_view(
+        services: ServiceRegistry,
+        events: EventBus,
+        tools: ToolRegistry,
+    ) -> Self {
         let effects = Arc::new(EffectStore::new());
         effects.close();
         Self {
@@ -109,6 +119,7 @@ impl FiberInitContext {
             observer: None,
             events: Some(events),
             scope: None,
+            tools: Some(tools),
         }
     }
 
@@ -165,6 +176,12 @@ impl FiberInitContext {
 
     pub fn scope(&self) -> Option<&ScopeHandle> {
         self.scope.as_ref()
+    }
+
+    pub fn tools(&self) -> Result<&ToolRegistry, RuntimeError> {
+        self.tools
+            .as_ref()
+            .ok_or(RuntimeError::UncoordinatedContext)
     }
 
     pub fn provide<S>(

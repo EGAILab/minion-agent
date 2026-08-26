@@ -4,6 +4,8 @@ use futures::FutureExt;
 use parking_lot::Mutex;
 use serde_json::Value;
 
+use crate::tools::ToolRegistry;
+
 use super::{
     DynPluginSpec, EventBus, FiberError, FiberHandle, FiberInitContext, PluginConfigError,
     ScopeTree, ServiceOwner, ServiceRegistry,
@@ -55,6 +57,7 @@ struct RuntimeCore {
     services: ServiceRegistry,
     events: EventBus,
     scopes: ScopeTree,
+    tools: ToolRegistry,
     fibers: Mutex<Vec<FiberHandle>>,
     pending_revocations: Mutex<Vec<super::ServiceName>>,
     observer: Arc<dyn RuntimeObserver>,
@@ -68,10 +71,12 @@ impl Runtime {
     pub fn with_observer(observer: Arc<dyn RuntimeObserver>) -> Self {
         let scopes = ScopeTree::new();
         let services = ServiceRegistry::new();
+        let tools = ToolRegistry::new(scopes.clone());
         let core = Arc::new(RuntimeCore {
             services: services.clone(),
             events: EventBus::new(scopes.clone()),
             scopes,
+            tools,
             fibers: Mutex::new(Vec::new()),
             pending_revocations: Mutex::new(Vec::new()),
             observer,
@@ -120,6 +125,7 @@ impl Runtime {
         let context_observer = Arc::clone(&self.core.observer);
         let context_events = self.core.events.clone();
         let context_scope = scope.clone();
+        let context_tools = self.core.tools.clone();
         let plugin_name = spec.name().to_owned();
         let state_observer = Arc::clone(&self.core.observer);
         let state_plugin = plugin_name.clone();
@@ -140,6 +146,7 @@ impl Runtime {
                     Arc::clone(&context_observer),
                     context_events.clone(),
                     context_scope.clone(),
+                    context_tools.clone(),
                 )
             }),
             Arc::new(move |state| {
@@ -174,7 +181,11 @@ impl Runtime {
     }
 
     pub fn context(&self) -> super::Context {
-        FiberInitContext::runtime_view(self.core.services.clone(), self.core.events.clone())
+        FiberInitContext::runtime_view(
+            self.core.services.clone(),
+            self.core.events.clone(),
+            self.core.tools.clone(),
+        )
     }
 
     pub async fn reconcile(&self) -> Result<(), FiberError> {
@@ -219,6 +230,10 @@ impl Runtime {
 
     pub fn scopes(&self) -> &ScopeTree {
         &self.core.scopes
+    }
+
+    pub fn tools(&self) -> &ToolRegistry {
+        &self.core.tools
     }
 }
 

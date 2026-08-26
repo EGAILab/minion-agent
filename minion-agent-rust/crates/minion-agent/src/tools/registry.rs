@@ -1,7 +1,8 @@
 use std::{collections::HashSet, sync::Arc};
 
 use crate::{
-    RegistrationHandle, RuntimeError, ScopeHandle, ScopeTree, ScopedRegistry, llm::ToolSchema,
+    Context, RegistrationHandle, RuntimeError, ScopeHandle, ScopeTree, ScopedRegistry,
+    llm::ToolSchema,
 };
 
 use super::ToolDefinition;
@@ -29,6 +30,24 @@ impl ToolRegistry {
         tool: ToolDefinition,
     ) -> Result<RegistrationHandle, RuntimeError> {
         self.entries.register(owner, tool)
+    }
+
+    pub fn register(
+        &self,
+        context: &Context,
+        tool: ToolDefinition,
+    ) -> Result<RegistrationHandle, RuntimeError> {
+        let registration = self.register_for_scope(context.scope(), tool)?;
+        if context.scope().is_none() {
+            let owned = registration.clone();
+            if let Err(error) = context.effect("tool registry registration", move || {
+                Box::pin(async move { owned.dispose().await })
+            }) {
+                registration.withdraw();
+                return Err(error);
+            }
+        }
+        Ok(registration)
     }
 
     pub fn visible(&self, request: Option<&ScopeHandle>) -> Vec<Arc<ToolDefinition>> {

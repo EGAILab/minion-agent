@@ -571,7 +571,7 @@ rows:
   - test_per_step_normalization_preserves_legitimate_accumulated_overrides
   - test_reversed_mixed_registration_order_shares_the_same_authority
   python: src/minion_agent/tools/execute.py::_finalize, _merge_override, register_after_tool_call_hook, AfterToolCallOverride; src/minion_agent/runtime/events.py::EventBus.waterfall (normalize_step)
-  rust: minion-agent-rust/crates/minion-agent/src/tools/execution.rs::AfterToolCallOverride/register_after_tool_call_hook; minion-agent-rust/crates/minion-agent/tests/tool_execution.rs; minion-agent-rust/crates/minion-agent/tests/tool_execution_conformance.rs
+  rust: minion-agent-rust/crates/minion-agent/src/tools/execution.rs::AfterToolCallOverride/register_after_tool_call_hook/normalize_successful_after_result; minion-agent-rust/crates/minion-agent/tests/tool_execution.rs::raw_nullish_after_replacements_preserve_accumulated_values_between_listeners; minion-agent-rust/crates/minion-agent/tests/tool_execution_conformance.rs
   disposition: adopted
 - id: TOOL-006
   phase: 4
@@ -641,7 +641,7 @@ rows:
   - parallel-preflight-settles-sequentially-before-execute (language-neutral canonical, PASS 1B)
   - tool-batch-parallel (unchanged; proves phase 2 remains concurrent)
   python: src/minion_agent/tools/execute.py::_preflight, _execute_and_finalize, _Prepared; src/minion_agent/tools/batch.py::execute_batch
-  rust: PENDING (IR-L06-001) -- Rust Layer 06 still uses FuturesUnordered<execute_one(...)> where execute_one performs preflight and execution together; not yet reopened this pass, see assurance/layers/05-06-independent-review-remediation.md
+  rust: minion-agent-rust/crates/minion-agent/src/tools/execution.rs::preflight_one/execute_and_finalize_prepared/execute_tool_calls; minion-agent-rust/crates/minion-agent/tests/tool_execution.rs::parallel_preflight_settles_in_source_order_before_any_prepared_execute/parallel_batch_preflights_every_valid_call_before_either_execute_begins; minion-agent-rust/crates/minion-agent/tests/tool_execution_conformance.rs::all_layer_06_scenarios_drive_the_real_rust_tool_executor
   disposition: adopted
 - id: TOOL-007
   phase: 4
@@ -804,7 +804,7 @@ rows:
   - test_updates_carry_the_call_id_so_a_consumer_can_route_them
   - test_updates_carry_the_tool_name_and_original_arguments
   python: src/minion_agent/tools/execute.py::execute_call (accepting_updates)
-  rust: minion-agent-rust/crates/minion-agent/src/tools/execution.rs::ToolExecutionUpdate/execute_tool_calls; minion-agent-rust/crates/minion-agent/tests/tool_execution.rs; minion-agent-rust/crates/minion-agent/tests/tool_execution_conformance.rs
+  rust: minion-agent-rust/crates/minion-agent/src/tools/execution.rs::ToolExecutionUpdate/execute_and_finalize_prepared; minion-agent-rust/crates/minion-agent/tests/tool_execution.rs::updates_are_emitted_live_and_ignored_after_execute_settles; minion-agent-rust/crates/minion-agent/tests/tool_execution_conformance.rs
   disposition: adopted
 - id: TOOL-020
   phase: 4
@@ -874,7 +874,7 @@ rows:
     details={} evidence, corrected PASS 2.5 to assert details only on the generated error, not
     on the two undeclared-details successes)
   python: src/minion_agent/tools/execute.py::execute_call, src/minion_agent/tools/result.py::ToolResult
-  rust: minion-agent-rust/crates/minion-agent/src/tools/execution.rs::AfterToolCallResult/execute_tool_calls; minion-agent-rust/crates/minion-agent/tests/tool_execution.rs
+  rust: minion-agent-rust/crates/minion-agent/src/tools/execution.rs::AfterToolCallResult/immediate_error/execute_and_finalize_prepared; minion-agent-rust/crates/minion-agent/tests/tool_execution.rs::every_generated_error_has_empty_object_details_and_success_preserves_its_details; minion-agent-rust/crates/minion-agent/tests/tool_execution_conformance.rs::corrected_unknown_tool_cross_layer_evidence_uses_the_real_rust_tool_executor
   disposition: adopted
 - id: TOOL-009
   phase: 4

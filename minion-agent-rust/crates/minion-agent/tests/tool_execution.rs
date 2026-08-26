@@ -8,18 +8,26 @@ use std::{
 
 use minion_agent::{
     DynPluginSpec, PluginInitError, PluginSpec, Runtime,
-    llm::{StopReason, TextBlock, ToolCall, ToolResultContentBlock},
+    llm::{StopReason, TextBlock, ToolCall, ToolResultContentBlock, Usage},
     tools::{
         AfterToolCallOverride, AgentToolResult, BeforeToolCallAction, ToolCapabilityError,
         ToolDefinition, ToolExecutionEnd, ToolExecutionOptions, ToolExecutionRequest,
-        ToolExecutionUpdate, execute_tool_calls, register_after_tool_call_hook,
-        register_before_tool_call_hook, tool_execution_end_spec, tool_execution_start_spec,
-        tool_execution_update_spec,
+        ToolExecutionSignal, ToolExecutionUpdate, execute_tool_calls,
+        register_after_tool_call_hook, register_before_tool_call_hook, tool_execution_end_spec,
+        tool_execution_start_spec, tool_execution_update_spec,
     },
 };
 use serde_json::{Value, json};
 
 type ProtectedObservation = (String, String, Option<Vec<String>>);
+
+struct TestSignal;
+
+impl ToolExecutionSignal for TestSignal {
+    fn is_cancelled(&self) -> bool {
+        false
+    }
+}
 
 fn run(future: impl Future<Output = ()>) {
     tokio::runtime::Builder::new_multi_thread()
@@ -793,5 +801,52 @@ fn one_sequential_tool_makes_the_entire_batch_sequential() {
         .unwrap();
 
         assert_eq!(maximum.load(Ordering::SeqCst), 1);
+    });
+}
+
+#[test]
+fn signal_and_execution_metadata_pass_through_without_namespace_lookup_semantics() {
+    run(async {
+        let runtime = Runtime::new();
+        runtime
+            .tools()
+            .register_for_scope(
+                None,
+                ToolDefinition::new(
+                    "meta",
+                    "meta",
+                    serde_json::from_value(json!({})).unwrap(),
+                    "meta",
+                    |request: ToolExecutionRequest| {
+                        Box::pin(async move {
+                            assert!(!request.signal.unwrap().is_cancelled());
+                            let mut output = result("done");
+                            output.details = json!({"trace": 1});
+                            output.usage = Some(Usage::default());
+                            output.added_tool_names = Some(vec!["alpha".into()]);
+                            output.terminate = Some(true);
+                            Ok(output)
+                        })
+                    },
+                ),
+            )
+            .unwrap();
+        let call = call("t1", "meta", json!({})).with_namespace("ignored");
+
+        let batch = execute_tool_calls(
+            &runtime.context(),
+            &[call],
+            ToolExecutionOptions::new(StopReason::ToolUse, 0.0).with_signal(Arc::new(TestSignal)),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(batch.messages[0].details, Some(json!({"trace": 1})));
+        assert_eq!(batch.messages[0].usage, Some(Usage::default()));
+        assert_eq!(
+            batch.messages[0].added_tool_names.as_deref(),
+            Some(["alpha".to_owned()].as_slice())
+        );
+        assert!(batch.terminate);
     });
 }

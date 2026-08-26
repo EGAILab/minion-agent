@@ -18,6 +18,7 @@ struct RegistryEntry<T> {
     value: Arc<T>,
 }
 
+#[derive(Clone)]
 pub struct RegistrationHandle {
     removal: Arc<RegistrationRemoval>,
 }
@@ -115,6 +116,25 @@ impl<T> ScopedRegistry<T> {
                 .map(|entry| Arc::clone(&entry.value)),
         );
         visible
+    }
+
+    pub fn visible_from_scope(&self, request: Option<&ScopeHandle>) -> Vec<Arc<T>> {
+        match request {
+            Some(request) if request.belongs_to(&self.tree) => self.visible_from(request.id()),
+            Some(_) => Vec::new(),
+            None => self.visible_untagged(),
+        }
+    }
+
+    fn visible_untagged(&self) -> Vec<Arc<T>> {
+        self.state
+            .lock()
+            .entries
+            .iter()
+            .filter_map(|entry| entry.as_ref())
+            .filter(|entry| entry.owner.is_none())
+            .map(|entry| Arc::clone(&entry.value))
+            .collect()
     }
 }
 

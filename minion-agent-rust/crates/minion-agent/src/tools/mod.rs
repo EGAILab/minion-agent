@@ -4,5 +4,7 @@
 //! preparation or execution; invocation belongs to Layer 06.
 
 mod definition;
+mod registry;
 
 pub use definition::*;
+pub use registry::ToolRegistry;

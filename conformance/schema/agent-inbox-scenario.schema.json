@@ -1,0 +1,88 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$comment": "Layer 07 (Agent public state + inbox/queues) direct-primitive canonical shape, discriminated by a top-level `agent_inbox` key -- a fourth schema for conformance/agent/'s own directory (alongside the unified, transform, and tool_registry shapes), not a fifth canonical family: scenarios here exercise the real Inbox primitive directly (steer/follow_up/inject/claim/clear/has_queued_messages), not a full agent-loop turn. No provider, no tool, no run-loop timing.",
+  "type": "object",
+  "required": ["name", "family", "authority", "pi_revision", "agent_inbox", "expect"],
+  "additionalProperties": false,
+  "properties": {
+    "name": { "type": "string", "minLength": 1 },
+    "family": { "const": "agent" },
+    "authority": { "type": "string", "minLength": 1 },
+    "pi_revision": { "type": "string", "minLength": 1 },
+    "notes": { "type": "string" },
+    "agent_inbox": {
+      "type": "object",
+      "required": ["actions"],
+      "additionalProperties": false,
+      "properties": {
+        "actions": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/action" }
+        }
+      }
+    },
+    "expect": {
+      "$comment": "Maps each action's own `observe` name to its expected value. Every `observe` name used in `actions` must have exactly one entry here, and vice versa -- checked by the runner, not merely by convention.",
+      "type": "object",
+      "additionalProperties": { "$ref": "#/$defs/observedValue" }
+    }
+  },
+  "$defs": {
+    "action": {
+      "type": "object",
+      "minProperties": 1,
+      "properties": {
+        "steer": { "$ref": "#/$defs/enqueueInput" },
+        "follow_up": { "$ref": "#/$defs/enqueueInput" },
+        "inject": { "$ref": "#/$defs/enqueueInput" },
+        "claim": { "$ref": "#/$defs/claimInput" },
+        "clear": { "$ref": "#/$defs/clearInput" },
+        "has_queued_messages": { "type": "object", "additionalProperties": false },
+        "observe": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Names this action's own observable result for the `expect` map. Only meaningful on `claim`/`has_queued_messages`; enqueue/clear actions never carry one, since they have no pinned-Pi return value to observe."
+        }
+      },
+      "additionalProperties": false
+    },
+    "enqueueInput": {
+      "type": "object",
+      "required": ["text"],
+      "additionalProperties": false,
+      "properties": {
+        "text": {
+          "type": "string",
+          "description": "A plain UserMessage(text) is sufficient to prove ordering/independence; the accepted-message-domain rule itself (AG-011) is proven by Python/Rust language tests, not this schema, to avoid encoding host-specific message-variant tagging here."
+        }
+      }
+    },
+    "claimInput": {
+      "type": "object",
+      "required": ["queue", "mode"],
+      "additionalProperties": false,
+      "properties": {
+        "queue": { "enum": ["steering", "follow_up"] },
+        "mode": {
+          "enum": ["all", "one-at-a-time"],
+          "description": "Pinned Pi's QueueMode, verbatim."
+        }
+      }
+    },
+    "clearInput": {
+      "type": "object",
+      "required": ["queue"],
+      "additionalProperties": false,
+      "properties": {
+        "queue": { "enum": ["steering", "follow_up", "all"] }
+      }
+    },
+    "observedValue": {
+      "oneOf": [
+        { "type": "array", "items": { "type": "string" } },
+        { "type": "boolean" }
+      ]
+    }
+  }
+}

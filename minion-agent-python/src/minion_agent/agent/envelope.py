@@ -11,7 +11,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import StrEnum
 
-from ..llm import UserMessage
+from ..llm import Message
 
 type JsonValue = str | int | float | bool | list["JsonValue"] | dict[str, "JsonValue"] | None
 
@@ -46,5 +46,8 @@ class InputEnvelope:
     """
 
     id: str
-    message: UserMessage
+    message: Message
+    """Pinned Pi's `AgentMessage` domain (`AG-011`) -- `CustomAgentMessages` is
+    empty in pinned Pi itself, so the actual domain is exactly `Message`, the
+    already-certified Layer-02 union."""
     origin: JsonValue = None

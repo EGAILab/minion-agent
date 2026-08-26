@@ -12,7 +12,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from enum import StrEnum
 
-from ..llm import UserMessage
+from ..llm import Message
 
 
 @dataclass(frozen=True, slots=True)
@@ -28,9 +28,14 @@ class Enter:
 
     `system_override` and `history_window` apply to this step alone, which is
     how pi's per-call `system_suffix` and `max_history_turns` are expressed.
+
+    `messages` is typed as the full `Message` union, not `UserMessage` alone
+    (`AG-011`, `L07-R002`): claimed inbox input can now be any pinned-Pi
+    `AgentMessage` variant. This is a type-signature widening only -- no step/
+    turn timing or decision logic changed.
     """
 
-    messages: tuple[UserMessage, ...]
+    messages: tuple[Message, ...]
     system_override: str | None = None
     history_window: int | None = None
 

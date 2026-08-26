@@ -7,7 +7,9 @@ agent-transform-scenario.schema.json's own docstring for why a pure transformer 
 force a full run. Also excludes Layer-05 tool-registry scenarios (top-level `tool_registry` key,
 tool-registry-scenario.schema.json): those exercise the real ToolRegistry/Context/scope seam
 directly, not a full agent-loop turn either, and are executed by
-test_tool_registry_conformance.py.
+test_tool_registry_conformance.py. Also excludes Layer-07 inbox scenarios (top-level `agent_inbox`
+key, agent-inbox-scenario.schema.json): those exercise the real Inbox primitive directly, with no
+provider/tool/turn at all, and are executed by test_agent_inbox_conformance.py.
 """
 
 from pathlib import Path
@@ -25,7 +27,8 @@ AGENT_DIR = Path(__file__).resolve().parents[3] / "conformance" / "agent"
 def _is_full_loop_scenario(path: Path) -> bool:
     document = yaml.safe_load(path.read_text(encoding="utf-8"))
     return not (
-        isinstance(document, dict) and ("transform" in document or "tool_registry" in document)
+        isinstance(document, dict)
+        and ("transform" in document or "tool_registry" in document or "agent_inbox" in document)
     )
 
 

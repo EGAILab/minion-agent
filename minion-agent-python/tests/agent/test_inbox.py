@@ -4,7 +4,7 @@ import pytest
 
 from minion_agent.agent.envelope import ClaimPolicy, InboxTarget
 from minion_agent.agent.inbox import Inbox, NotJsonSafeOriginError
-from minion_agent.llm import TextBlock, UserMessage
+from minion_agent.llm import AssistantMessage, TextBlock, ToolResultMessage, UserMessage
 
 
 def _message(text: str) -> UserMessage:
@@ -142,6 +142,73 @@ def test_a_non_string_mapping_key_is_rejected() -> None:
 
     with pytest.raises(NotJsonSafeOriginError, match="keys must be strings"):
         inbox.followup(_message("bad"), origin={1: "one"})  # type: ignore[dict-item]
+
+
+# -- AG-011 (L07-R002): the accepted domain is pinned Pi's whole `Message`
+# union (`UserMessage | AssistantMessage | ToolResultMessage`), not `UserMessage`
+# alone. `CustomAgentMessages` is empty in pinned Pi itself, so `Message` -- the
+# already-certified Layer-02 vocabulary -- is the actual, complete domain.
+
+
+def _assistant_message(text: str) -> AssistantMessage:
+    from minion_agent.llm import StopReason, Usage
+
+    return AssistantMessage(
+        content=(TextBlock(text=text),),
+        stop_reason=StopReason.STOP,
+        usage=Usage(),
+        model="mock-1",
+        provider="mock",
+        timestamp=1,
+    )
+
+
+def _tool_result_message(text: str) -> ToolResultMessage:
+    return ToolResultMessage(
+        tool_call_id="t1",
+        content=(TextBlock(text=text),),
+        timestamp=1,
+        tool_name="tool",
+    )
+
+
+def test_steer_accepts_an_assistant_message() -> None:
+    inbox = Inbox()
+
+    inbox.steer(_assistant_message("assistant steering"))
+
+    assert len(inbox.pending(InboxTarget.NEXT_STEP)) == 1
+
+
+def test_followup_accepts_an_assistant_message() -> None:
+    inbox = Inbox()
+
+    inbox.followup(_assistant_message("assistant follow-up"))
+
+    assert len(inbox.pending(InboxTarget.NEXT_TURN)) == 1
+
+
+def test_steer_accepts_a_tool_result_message() -> None:
+    inbox = Inbox()
+
+    inbox.steer(_tool_result_message("tool output"))
+
+    assert len(inbox.pending(InboxTarget.NEXT_STEP)) == 1
+
+
+def test_claim_returns_mixed_message_variants_in_fifo_order() -> None:
+    inbox = Inbox()
+    inbox.followup(_message("user"))
+    inbox.followup(_assistant_message("assistant"))
+    inbox.followup(_tool_result_message("tool"))
+
+    claimed = inbox.claim(InboxTarget.NEXT_TURN, ClaimPolicy.ALL)
+
+    assert [envelope.message for envelope in claimed] == [
+        _message("user"),
+        _assistant_message("assistant"),
+        _tool_result_message("tool"),
+    ]
 
 
 def test_has_pending_is_false_for_an_empty_inbox() -> None:

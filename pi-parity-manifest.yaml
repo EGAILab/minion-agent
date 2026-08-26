@@ -409,26 +409,47 @@ rows:
 - id: AG-011
   phase: 3
   pi: packages/agent/src/agent.ts::PendingMessageQueue, Agent.steer, Agent.followUp
-  surface: steering/follow-up queue identity, storage, and ordering (assurance Layer 07)
+  surface: steering/follow-up queue identity, storage, ordering, and accepted message domain (assurance Layer 07)
   rule: 'pinned Pi keeps exactly two per-instance queues -- steering and follow-up -- each an
     independent FIFO of enqueued messages, never interpreted, normalized, or reordered at enqueue.
     Minion generalizes both under one storage primitive addressed by a two-valued target (design
     spec section 6): the step-boundary target realizes pinned Pi''s steering queue; the turn-
     boundary target realizes pinned Pi''s follow-up queue. `steer()`/`follow-up()` are pinned Pi''s
-    two enqueue operations under this vocabulary. A third operation, silent injection (enqueues to
-    the step-boundary target without requesting a wake), is an intentional Minion architectural
-    extension pinned Pi does not define -- proven never to request a wake on its own
-    (test_injection_alone_never_requests_a_wake). Claiming one target never observes or disturbs
-    the other (test_the_two_queues_are_independent, test_the_two_queues_never_leak_into_each_other
-    -- property-based, arbitrary interleavings). Enqueue order is preserved exactly
-    (test_one_at_a_time_preserves_send_order -- property-based) and every sent message is claimed
-    exactly once across however many claims it takes to drain it
+    two enqueue operations under this vocabulary, exposed at the Agent-instance level
+    (`AgentInstance.steer`/`.follow_up`, not only `Inbox.steer`/`.followup` -- the independent Rust
+    review correctly flagged that pinned Pi''s own public surface is `Agent.steer()`, not an
+    internal queue''s method). A third operation, silent injection (enqueues to the step-boundary
+    target without requesting a wake), is an intentional Minion architectural extension pinned Pi
+    does not define -- proven never to request a wake on its own
+    (test_injection_alone_never_requests_a_wake).
+
+    Accepted message domain (`L07-R002`, `PI_PARITY_DEFECT`, resolved this pass): pinned Pi''s
+    `steer`/`followUp` each accept the whole `AgentMessage` union
+    (`Message | CustomAgentMessages[keyof CustomAgentMessages]`). `CustomAgentMessages` is an empty
+    interface in pinned Pi itself (apps extend it via TypeScript declaration merging; nothing in
+    pinned Pi populates it), so the actual, complete domain is exactly `Message` --
+    `UserMessage | AssistantMessage | ToolResultMessage`, the already-certified Layer-02 vocabulary
+    -- adopted here verbatim. An earlier revision of this row narrowed the accepted type to
+    `UserMessage` only, with the assurance narrative calling the narrowing intentional while this
+    row''s own disposition stayed `adopted` -- an incoherent pairing the independent review caught
+    exactly: no architectural reason for the narrowing was ever established, so the domain is
+    corrected rather than the narrowing re-labeled. `Inbox.send`/`steer`/`followup`/`inject`, the
+    Agent-level wrappers, and `InputEnvelope.message` are all typed `Message`, and are proven to
+    accept and correctly order a `UserMessage`, an `AssistantMessage`, and a `ToolResultMessage`
+    together in one claim.
+
+    Claiming one target never observes or disturbs the other (test_the_two_queues_are_independent,
+    test_the_two_queues_never_leak_into_each_other -- property-based, arbitrary interleavings).
+    Enqueue order is preserved exactly (test_one_at_a_time_preserves_send_order -- property-based)
+    and every sent message is claimed exactly once across however many claims it takes to drain it
     (test_every_sent_message_is_claimed_exactly_once, test_claiming_never_invents_input --
     property-based). Each queued input carries an opaque, JSON-safe provenance value the runtime
     never inspects, matched, or interprets (design spec section 6) -- an intentional Minion
     addition with no Pi equivalent, required because Minion''s claim-time boundary (see AG-012)
     can merge several enqueued inputs into one claimed batch, which a single `turn.origin` could
-    not represent.'
+    not represent. Language-neutral canonical evidence (`L07-R004`):
+    agent-inbox-queue-mode-fifo.yaml and agent-inbox-queue-independence-and-clearing.yaml exercise
+    the real `Inbox` primitive directly, with no provider/tool/run-loop timing.'
   tests:
   - test_followup_queues_for_the_next_turn_and_wakes
   - test_steer_queues_for_the_next_step_and_wakes
@@ -445,7 +466,15 @@ rows:
   - test_one_at_a_time_preserves_send_order
   - test_claiming_never_invents_input
   - test_injection_alone_never_requests_a_wake
-  python: src/minion_agent/agent/inbox.py::Inbox, src/minion_agent/agent/envelope.py::InboxTarget/InputEnvelope
+  - test_steer_accepts_an_assistant_message
+  - test_followup_accepts_an_assistant_message
+  - test_steer_accepts_a_tool_result_message
+  - test_claim_returns_mixed_message_variants_in_fifo_order
+  - test_steer_and_follow_up_delegate_to_the_inbox_at_the_agent_surface
+  - test_inject_delegates_to_the_inbox_without_waking
+  - agent-inbox-queue-mode-fifo (L07-R004, language-neutral canonical)
+  - agent-inbox-queue-independence-and-clearing (L07-R004, language-neutral canonical)
+  python: src/minion_agent/agent/inbox.py::Inbox, src/minion_agent/agent/envelope.py::InboxTarget/InputEnvelope, src/minion_agent/agent/instance.py::AgentInstance.steer/follow_up/inject
   rust: PENDING -- Layer 07 not yet implemented in Rust
   disposition: adopted
 - id: AG-012
@@ -460,16 +489,19 @@ rows:
     (ALL / ONE_AT_A_TIME) reproduces this exactly -- verified directly against pinned Pi''s own
     `drain()` implementation, not inferred from ordinary queue conventions. Claiming an empty
     target returns nothing and is not an error. A drained inbox stays drained across repeated
-    claims with no further enqueues (test_a_drained_inbox_stays_drained -- property-based).
-    *When* a claim happens and which
-    policy governs a given boundary at runtime is Layer 08''s decision; this row certifies only
-    the primitive''s own behavior for either policy, independent of when or how often Layer 08
-    invokes it.'
+    claims with no further enqueues (test_a_drained_inbox_stays_drained -- property-based). *When*
+    a claim happens and which policy governs a given boundary at runtime is Layer 08''s decision;
+    this row certifies only the primitive''s own behavior for either policy, independent of when or
+    how often Layer 08 invokes it. Language-neutral canonical evidence (`L07-R004`, resolved this
+    pass -- the independent review rejected the prior zero-canonical decision):
+    agent-inbox-queue-mode-fifo.yaml exercises both policies, an empty claim, and enqueue-after-
+    claim through the real `Inbox`, with no provider/tool/run-loop timing.'
   tests:
   - test_one_at_a_time_claims_only_the_oldest
   - test_all_claims_everything_queued
   - test_claiming_removes_what_it_claimed
   - test_a_drained_inbox_stays_drained
+  - agent-inbox-queue-mode-fifo (L07-R004, language-neutral canonical)
   python: src/minion_agent/agent/inbox.py::Inbox.claim, src/minion_agent/agent/envelope.py::ClaimPolicy
   rust: PENDING -- Layer 07 not yet implemented in Rust
   disposition: adopted
@@ -481,17 +513,25 @@ rows:
     their own queue, leaving the other untouched; clearAllQueues() discards both. hasQueuedMessages()
     is true exactly when the steering OR the follow-up queue still holds unclaimed input. Clearing
     an already-empty target is a harmless no-op. Minion''s Inbox.clear(target)/clear_all()/
-    has_pending() reproduce this exactly. This is new Python implementation added this pass --
-    the corresponding Pi operations had no Minion equivalent at all before it (`CONTRACT_ASSURANCE_
-    DEFECT`, resolved this pass: a genuine Pi-visible public operation was simply missing, not
-    merely undocumented). Clearing does not touch the independent wake/settle signal a host driver
-    (Layer 08) uses to decide when to poll a target -- an orthogonal concern pinned Pi has no
-    analogue for at all, so this row does not constrain it either way beyond noting the two are
-    intentionally decoupled. Pinned Pi''s own `reset()` additionally clears the transcript and
-    mid-run state fields alongside both queues; Minion does not reproduce an in-place reset
-    (Session''s log is append-only, an already-certified Layer-03 property) -- creating a fresh
-    instance through the agent registry is the Minion-architecture equivalent, an intentional
-    divergence from Pi''s single-instance reset, not a gap in it.'
+    has_pending() reproduce this exactly, exposed at the Agent-instance level too
+    (`AgentInstance.clear_steering_queue`/`.clear_follow_up_queue`/`.clear_all_queues`/
+    `.has_queued_messages`, not only `Inbox`''s own methods -- the independent review''s same
+    Agent-surface point that applies to AG-011''s `steer`/`follow_up`). This is new Python
+    implementation added a prior pass -- the corresponding Pi operations had no Minion equivalent
+    at all before it (`CONTRACT_ASSURANCE_DEFECT`, resolved: a genuine Pi-visible public operation
+    was simply missing, not merely undocumented). Clearing does not touch the independent wake/
+    settle signal a host driver (Layer 08) uses to decide when to poll a target -- an orthogonal
+    concern pinned Pi has no analogue for at all (`wake_requested`/`take_wake` are an intentional
+    Minion architectural extension with no Pi counterpart, not Pi parity -- see AG-014''s note),
+    so this row does not constrain it either way beyond noting the two are intentionally decoupled.
+    This row is scoped to clearing/pending ONLY; pinned Pi''s `reset()` is a separate, broader
+    operation with its own requirement (`AG-016`) -- an earlier revision of this row also described
+    reset, calling fresh-instance replacement an intentional divergence while keeping this row''s
+    own disposition `adopted`, an incoherent pairing the independent review caught: that
+    description is removed here, not merely re-labeled, since AG-016 now owns reset on its own
+    terms. Language-neutral canonical evidence (`L07-R004`):
+    agent-inbox-queue-independence-and-clearing.yaml exercises clear-one/clear-all/
+    has_queued_messages through the real `Inbox`.'
   tests:
   - test_has_pending_is_false_for_an_empty_inbox
   - test_has_pending_is_true_with_only_a_next_turn_item
@@ -500,7 +540,148 @@ rows:
   - test_clearing_an_empty_target_is_a_harmless_no_op
   - test_clear_all_empties_both_queues
   - test_clearing_does_not_affect_the_wake_signal
-  python: src/minion_agent/agent/inbox.py::Inbox.clear/clear_all/has_pending
+  - test_agent_level_queue_clearing_delegates_to_the_inbox
+  - agent-inbox-queue-independence-and-clearing (L07-R004, language-neutral canonical)
+  python: src/minion_agent/agent/inbox.py::Inbox.clear/clear_all/has_pending, src/minion_agent/agent/instance.py::AgentInstance.clear_steering_queue/clear_follow_up_queue/clear_all_queues/has_queued_messages
+  rust: PENDING -- Layer 07 not yet implemented in Rust
+  disposition: adopted
+- id: AG-014
+  phase: 3
+  pi: packages/agent/src/agent.ts::createMutableAgentState, Agent.state (systemPrompt/model/thinkingLevel), packages/agent/src/types.ts::ThinkingLevel
+  surface: mutable per-instance current configuration (assurance Layer 07)
+  rule: 'L07-R001, PI_PARITY_DEFECT, resolved this pass. Re-audited directly against pinned Pi
+    source, not the independent review''s own description: `createMutableAgentState` returns an
+    object whose `systemPrompt`/`model`/`thinkingLevel` are plain, directly assignable properties
+    (not accessor methods) defaulting from `initialState?.systemPrompt ?? ""` /
+    `initialState?.model ?? DEFAULT_MODEL` / `initialState?.thinkingLevel ?? "off"`; `Agent.state`
+    returns this same live object, so `agent.state.systemPrompt = "..."` immediately mutates that
+    one Agent''s own current value and is read by every subsequent run -- distinct from
+    `AgentDefinition`''s shared, frozen defaults, which never change once an instance has minted
+    its own current value. `ThinkingLevel` is pinned Pi''s own seven-value union
+    (`"off"|"minimal"|"low"|"medium"|"high"|"xhigh"|"max"`), adopted verbatim.
+
+    Minion reproduces this with `AgentInstance.system_prompt`/`.model`/`.thinking_level`: plain
+    mutable instance attributes, initialized from `definition.system`/`.model`/`ThinkingLevel.OFF`
+    at construction, then freely reassignable per instance. Proven that mutating one instance never
+    affects a sibling instance of the same definition, nor the definition itself
+    (test_mutating_one_instances_config_does_not_affect_a_sibling_or_the_definition). `AgentDefinition`
+    itself remains frozen and shared -- Minion does NOT make the shared definition mutable to
+    imitate Pi, matching the independent review''s own preferred architecture (an immutable
+    definition supplying defaults, with each instance owning mutable current configuration).
+
+    Ownership vs. consumption (explicitly not conflated, per the independent review''s own
+    objection to the prior pass''s reasoning): Layer 07 owns the current value and its mutation
+    surface, now. The existing, uncertified `AgentLoop`/`driver.py` (Layer 08) still reads
+    `instance.definition.model`/`.definition.system` directly for an actual request -- it was not
+    rewired to read `instance.model`/`.system_prompt` instead, since that is Layer-08 run/turn
+    implementation this narrow Layer-07 pass has no mandate to modify. This is a disclosed,
+    deliberate scope boundary, not a silent omission: the independent review''s own words --
+    "Layer 07 must define current per-instance state and its mutation surface; Layer 08 may own
+    when run snapshots are consumed" -- explicitly accept that Layer 07''s obligation ends at
+    defining a clean, mutable primitive Layer 08 CAN consume without redesign, not that Layer 08
+    must already consume it before Layer 08 itself is undertaken.'
+  tests:
+  - test_current_config_defaults_from_the_definition
+  - test_mutating_one_instances_config_does_not_affect_a_sibling_or_the_definition
+  python: src/minion_agent/agent/instance.py::AgentInstance (system_prompt/model/thinking_level), src/minion_agent/agent/identity.py::ThinkingLevel
+  rust: PENDING -- Layer 07 not yet implemented in Rust
+  disposition: adopted
+- id: AG-015
+  phase: 3
+  pi: packages/agent/src/types.ts::AgentState (isStreaming/streamingMessage/pendingToolCalls/errorMessage/messages/tools)
+  surface: complete Agent public-state field disposition (assurance Layer 07)
+  rule: 'L07-R005, CONTRACT_ASSURANCE_DEFECT, resolved this pass: every pinned Pi `AgentState`
+    field neither AG-011/012/013/014 nor an already-certified layer owns now has an explicit,
+    non-contradictory disposition (no field is left with a vague "non-blocking gap"/"architectural
+    difference" label, per the independent review''s own explicit rejection of those as valid
+    dispositions):
+
+    `messages` -- adopted as a public projection, not a duplicate store. Pi''s own `state.messages`
+    getter returns the live backing array (mutable in place); assignment shallow-copies
+    (`messages = nextMessages.slice()`). Minion''s authority is the already-certified Layer-03
+    `SessionLog` (append-only); `AgentInstance.messages` is a fresh `derive_messages(self.log)`
+    projection on every read, never a live mutable reference -- an intentional, disclosed
+    divergence from Pi''s live-read semantics, justified because a caller mutating a returned
+    live array would otherwise be able to corrupt history outside the log''s own controlled
+    `append()` API, which Layer 03''s own certification does not permit (test_messages_projects_
+    the_session_log).
+
+    `tools` -- adopted as a public projection over the already-certified Layer-05 `ToolRegistry`,
+    not a duplicate store. Pi''s `state.tools` getter/setter pattern (live read, copy-on-assign)
+    has no Minion equivalent to build, since `ToolRegistry.visible_from(scope)` already exists and
+    already answers exactly "what tools are visible here" -- Layer 07 does not introduce a second,
+    competing tools list. Assigning a wholesale replacement set the way Pi''s `state.tools = [...]`
+    does is not reproduced; the Minion-architecture equivalent is registering/withdrawing tools
+    through the certified `ToolRegistry` API, an already-settled Layer-05 divergence this pass does
+    not revisit or duplicate.
+
+    `isStreaming` -- adopted, via `AgentStatus.IDLE`/`RUNNING` (see `identity.py`''s own docstring):
+    a lossless, direct two-value representation of the same boolean fact, not an "architectural
+    adaptation" that changes the observable semantic. `RUNNING` <-> `true`, `IDLE` <-> `false`.
+
+    `streamingMessage`/`pendingToolCalls`/`errorMessage` -- vocabulary and initial values adopted
+    now (`AgentInstance.streaming_message: Message | None = None`,
+    `.pending_tool_calls: frozenset[str] = frozenset()`, `.error_message: str | None = None`,
+    matching pinned Pi''s `undefined`/`undefined`/`new Set()`-as-empty/`undefined` initial state
+    exactly) -- deferred parity for their TRANSITIONS specifically: when and how they change during
+    a run requires step/turn timing this narrow pass does not implement or certify
+    (test_runtime_fields_start_at_pis_own_initial_values proves only the initial vocabulary/value,
+    deliberately not a fabricated transition). The existing, uncertified `driver.py` does not yet
+    write to these fields; wiring that is Layer 08''s own future obligation, not fixed here.
+
+    `wake_requested`/`take_wake` (Inbox) -- explicitly classified as an intentional Minion
+    architectural extension, NOT Pi parity: pinned Pi has no corresponding concept at all. Kept
+    separate from every `adopted` row above rather than folded into one of them, per the
+    independent review''s own instruction not to let wake semantics pollute an adopted Pi-parity
+    rule.'
+  tests:
+  - test_messages_projects_the_session_log
+  - test_runtime_fields_start_at_pis_own_initial_values
+  - test_an_instance_starts_idle
+  python: src/minion_agent/agent/instance.py::AgentInstance.messages/streaming_message/pending_tool_calls/error_message, src/minion_agent/agent/identity.py::AgentStatus, src/minion_agent/tools/registry.py::ToolRegistry.visible_from
+  rust: PENDING -- Layer 07 not yet implemented in Rust
+  disposition: adopted
+- id: AG-016
+  phase: 3
+  pi: packages/agent/src/agent.ts::Agent.reset
+  surface: in-place instance reset (assurance Layer 07)
+  rule: 'L07-R003, PI_PARITY_DEFECT, substantially resolved this pass -- one sub-piece explicitly
+    classified as a cross-layer dependency, not silently dropped (see below). Re-audited directly:
+    `reset()` rejects outright while `this.activeRun` is set
+    (`throw new Error("Agent is already processing. Wait for completion before resetting.")`,
+    exact text), with no partial mutation on rejection. When idle, it clears `messages` (to `[]`),
+    `isStreaming` (to `false`), `streamingMessage` (to `undefined`), `pendingToolCalls` (to a new
+    empty `Set`), `errorMessage` (to `undefined`), and both queues -- and retains everything else:
+    `systemPrompt`, `model`, `thinkingLevel`, `tools`, queue modes, `listeners`, and Agent object
+    identity. It is a method that mutates `this` in place; it is never a replacement object.
+
+    A prior revision substituted "create a fresh Agent instance" for this operation and called
+    that substitution an intentional divergence while leaving this row (folded into `AG-013` at
+    the time) at `disposition: adopted` -- an incoherent pairing the independent review caught:
+    fresh-instance replacement is observably different in identity, references, listener
+    registrations, active-run rejection, and retained configuration, none of which a brand-new
+    object can share with the one a caller was holding. `AgentInstance.reset()` (this pass) is
+    genuinely in-place: the same `Inbox`/`SessionLog`/scope objects survive, only their content
+    changes, exactly matching Pi (test_reset_is_in_place_not_a_fresh_instance,
+    test_reset_retains_identity_configuration_and_tool_relationship). The exact rejection text and
+    atomicity (no field touched before the precondition check) are both reproduced
+    (test_reset_while_running_is_rejected_atomically).
+
+    One sub-piece is NOT reproduced, and is classified here rather than silently omitted: pinned
+    Pi''s `reset()` also clears `messages`. Pi''s own transcript is a plain in-memory array with no
+    separate persisted log; Minion''s `SessionLog` (Layer 03, already certified) is append-only by
+    design, with no truncate/clear primitive, and teaching `derive_messages` to respect a "reset
+    boundary" marker would be a Layer-03 semantic change -- this narrow Layer-07 remediation has no
+    mandate to make that change, per the governing instruction''s own explicit "STOP and classify"
+    escape valve for exactly this situation. `AgentInstance.reset()` therefore clears every
+    Pi-cleared field this layer can safely reach (runtime state, both queues) and leaves the
+    message-clearing decision to whoever next owns Layer-03 evolution.'
+  tests:
+  - test_reset_clears_runtime_state_and_both_queues
+  - test_reset_retains_identity_configuration_and_tool_relationship
+  - test_reset_is_in_place_not_a_fresh_instance
+  - test_reset_while_running_is_rejected_atomically
+  python: src/minion_agent/agent/instance.py::AgentInstance.reset, AgentActiveError
   rust: PENDING -- Layer 07 not yet implemented in Rust
   disposition: adopted
 - id: TOOL-001

@@ -1,0 +1,29 @@
+name: agent-inbox-queue-mode-fifo
+family: agent
+authority: 2026-08-20-minion-agent-design.md
+pi_revision: b7bb00b936dbe21b8e160b3e89efdec361846699
+notes: >
+  L07-R004 (independent Rust review): direct, language-neutral evidence for pinned Pi's
+  `PendingMessageQueue`/`QueueMode`, exercising the real `Inbox` primitive with no provider, tool,
+  or run-loop timing at all. Pinned Pi's `QueueMode` is exactly two values: "one-at-a-time" removes
+  and returns only the single oldest queued message, leaving the remainder queued; "all" drains and
+  returns every queued message at once, emptying the queue. Claiming an empty queue returns nothing
+  and is not an error -- proven twice, once for a genuinely empty queue and once for a queue already
+  drained by an earlier claim in this same scenario (enqueue-after-claim is exercised too: `C` is
+  enqueued only after the first claim has already run). The runner does not implement FIFO, choose
+  which policy applies, or compute any of these results itself -- it only calls the real `Inbox`.
+agent_inbox:
+  actions:
+    - steer: { text: A }
+    - steer: { text: B }
+    - claim: { queue: steering, mode: one-at-a-time }
+      observe: first_claim
+    - steer: { text: C }
+    - claim: { queue: steering, mode: all }
+      observe: second_claim
+    - claim: { queue: steering, mode: all }
+      observe: third_claim_on_empty_queue
+expect:
+  first_claim: [A]
+  second_claim: [B, C]
+  third_claim_on_empty_queue: []

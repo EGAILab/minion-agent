@@ -6,13 +6,22 @@ three aliases are its fixed presets:
     followup  next-turn  wakes
     steer     next-step  wakes
     inject    next-step  silent
+
+Accepted message domain (`AG-011`, `L07-R002`): pinned Pi's `steer`/`followUp`
+each accept the whole `AgentMessage` union
+(`UserMessage | AssistantMessage | ToolResultMessage | CustomAgentMessages[...]`).
+`CustomAgentMessages` is empty in pinned Pi itself, so the actual domain is
+exactly `Message` -- the already-certified Layer-02 vocabulary -- adopted here
+verbatim. An earlier revision narrowed this to `UserMessage` only, with no
+coherent disposition; that narrowing is corrected, not merely re-labeled as
+intentional, since no architectural reason for it was ever established.
 """
 
 from __future__ import annotations
 
 import uuid
 
-from ..llm import UserMessage
+from ..llm import Message
 from .envelope import ClaimPolicy, InboxTarget, InputEnvelope, JsonValue
 
 _JSON_SCALARS = (str, int, float, bool, type(None))
@@ -60,7 +69,7 @@ class Inbox:
 
     def send(
         self,
-        message: UserMessage,
+        message: Message,
         target: InboxTarget,
         wakeup: bool,
         origin: JsonValue = None,
@@ -73,15 +82,15 @@ class Inbox:
             self._wake = True
         return envelope
 
-    def followup(self, message: UserMessage, origin: JsonValue = None) -> InputEnvelope:
+    def followup(self, message: Message, origin: JsonValue = None) -> InputEnvelope:
         """Queue a prompt for the next turn and wake the driver."""
         return self.send(message, InboxTarget.NEXT_TURN, wakeup=True, origin=origin)
 
-    def steer(self, message: UserMessage, origin: JsonValue = None) -> InputEnvelope:
+    def steer(self, message: Message, origin: JsonValue = None) -> InputEnvelope:
         """Queue input for the next step boundary and wake the driver."""
         return self.send(message, InboxTarget.NEXT_STEP, wakeup=True, origin=origin)
 
-    def inject(self, message: UserMessage, origin: JsonValue = None) -> InputEnvelope:
+    def inject(self, message: Message, origin: JsonValue = None) -> InputEnvelope:
         """Queue context for the next step boundary without waking.
 
         It rides along with whatever wakes the driver next, which is what makes

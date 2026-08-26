@@ -24,6 +24,7 @@ from ..agent.identity import AgentStatus
 from ..agent.instance import AgentInstance
 from ..llm import (
     LlmService,
+    Message,
     Request,
     StopReason,
     StreamChunk,
@@ -31,7 +32,6 @@ from ..llm import (
     ThinkingDelta,
     ToolCallBlock,
     ToolCallDelta,
-    UserMessage,
     collect,
 )
 from ..session import (
@@ -192,7 +192,7 @@ class AgentLoop:
         return self.instance.inbox.claim(InboxTarget.NEXT_STEP, self.next_step_policy)
 
     async def _pre_step(
-        self, messages: tuple[UserMessage, ...], reason: PreStepReason
+        self, messages: tuple[Message, ...], reason: PreStepReason
     ) -> PreStepDecision:
         """Ask listeners what should enter this step.
 

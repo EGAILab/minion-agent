@@ -1,0 +1,31 @@
+name: agent-inbox-queue-independence-and-clearing
+family: agent
+authority: 2026-08-20-minion-agent-design.md
+pi_revision: b7bb00b936dbe21b8e160b3e89efdec361846699
+notes: >
+  L07-R004 (independent Rust review): pinned Pi keeps two independent queues -- steering and
+  follow-up -- and `clearSteeringQueue()`/`clearFollowUpQueue()` each discard only their own
+  queue, never the other; `clearAllQueues()` discards both; `hasQueuedMessages()` is the OR of
+  both. This scenario proves all four together: steering holds `A, C`, follow-up holds `B`;
+  clearing steering leaves follow-up (and therefore `hasQueuedMessages`) untouched; claiming
+  follow-up then empties it, so `hasQueuedMessages` finally reports false. Nothing here is
+  computed by the runner -- every observation is the real `Inbox`'s own return value.
+agent_inbox:
+  actions:
+    - steer: { text: A }
+    - follow_up: { text: B }
+    - steer: { text: C }
+    - has_queued_messages: {}
+      observe: pending_before_any_clear
+    - clear: { queue: steering }
+    - has_queued_messages: {}
+      observe: pending_after_clearing_steering
+    - claim: { queue: follow_up, mode: all }
+      observe: follow_up_claim
+    - has_queued_messages: {}
+      observe: pending_after_draining_follow_up
+expect:
+  pending_before_any_clear: true
+  pending_after_clearing_steering: true
+  follow_up_claim: [B]
+  pending_after_draining_follow_up: false

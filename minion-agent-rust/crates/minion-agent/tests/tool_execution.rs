@@ -253,6 +253,117 @@ fn plugin_with_raw_after_attack(
     .erase()
 }
 
+fn plugin_with_nullish_after_waterfall(
+    seen: Arc<parking_lot::Mutex<Vec<(Option<Value>, Option<Usage>, Option<bool>)>>>,
+) -> DynPluginSpec {
+    PluginSpec::<Value>::new(
+        "nullish-after-waterfall",
+        vec![],
+        || json!({}),
+        move |context, _config| {
+            let seen = Arc::clone(&seen);
+            async move {
+                context
+                    .tools()
+                    .map_err(|error| PluginInitError::new(error.to_string()))?
+                    .register(
+                        &context,
+                        ToolDefinition::new(
+                            "nullish-hooked",
+                            "nullish-hooked",
+                            serde_json::from_value(json!({})).unwrap(),
+                            "nullish-hooked",
+                            |_request| {
+                                Box::pin(async {
+                                    let mut output = result("original");
+                                    output.details = json!({"original": true});
+                                    output.usage = Some(Usage {
+                                        input: 1,
+                                        total_tokens: 1,
+                                        ..Usage::default()
+                                    });
+                                    output.terminate = Some(true);
+                                    Ok(output)
+                                })
+                            },
+                        ),
+                    )
+                    .map_err(|error| PluginInitError::new(error.to_string()))?;
+                let spec = after_tool_call_spec();
+                let events = context
+                    .events()
+                    .map_err(|error| PluginInitError::new(error.to_string()))?;
+                events
+                    .declare(&spec)
+                    .map_err(|error| PluginInitError::new(error.to_string()))?;
+                let effects = context.effect_store();
+                events
+                    .on_waterfall(
+                        &spec,
+                        &effects,
+                        context.scope(),
+                        |mut current, next| async move {
+                            current.details = None;
+                            current.usage = None;
+                            current.terminate = None;
+                            next.call(Some(current)).await
+                        },
+                    )
+                    .map_err(|error| PluginInitError::new(error.to_string()))?;
+                let first_seen = Arc::clone(&seen);
+                register_after_tool_call_hook(&context, move |current| {
+                    let seen = Arc::clone(&first_seen);
+                    async move {
+                        seen.lock().push((
+                            current.details.clone(),
+                            current.usage.clone(),
+                            current.terminate,
+                        ));
+                        Ok(Some(
+                            AfterToolCallOverride::default()
+                                .with_details(json!({"replacement": true}))
+                                .with_usage(Usage {
+                                    output: 2,
+                                    total_tokens: 2,
+                                    ..Usage::default()
+                                })
+                                .with_terminate(false),
+                        ))
+                    }
+                })
+                .map_err(|error| PluginInitError::new(error.to_string()))?;
+                events
+                    .on_waterfall(
+                        &spec,
+                        &effects,
+                        context.scope(),
+                        |mut current, next| async move {
+                            current.details = None;
+                            current.usage = None;
+                            current.terminate = None;
+                            next.call(Some(current)).await
+                        },
+                    )
+                    .map_err(|error| PluginInitError::new(error.to_string()))?;
+                register_after_tool_call_hook(&context, move |current| {
+                    let seen = Arc::clone(&seen);
+                    async move {
+                        seen.lock().push((
+                            current.details.clone(),
+                            current.usage.clone(),
+                            current.terminate,
+                        ));
+                        Ok(None)
+                    }
+                })
+                .map_err(|error| PluginInitError::new(error.to_string()))?;
+                Ok(())
+            }
+        },
+    )
+    .erase()
+}
+
 fn call(id: &str, name: &str, arguments: Value) -> ToolCall {
     ToolCall::new(
         id,
@@ -680,6 +791,60 @@ fn raw_after_listener_is_normalized_before_the_next_listener_and_final_result() 
             seen.lock().as_slice(),
             &[("t1".into(), "raw-hooked".into(), Some(vec!["alpha".into()]))]
         );
+    });
+}
+
+#[test]
+fn raw_nullish_after_replacements_preserve_accumulated_values_between_listeners() {
+    run(async {
+        let runtime = Runtime::new();
+        let seen = Arc::new(parking_lot::Mutex::new(Vec::new()));
+        runtime
+            .mount(
+                &plugin_with_nullish_after_waterfall(Arc::clone(&seen)),
+                json!({}),
+            )
+            .unwrap();
+        runtime.reconcile().await.unwrap();
+
+        let batch = execute_tool_calls(
+            &runtime.context(),
+            &[call("t1", "nullish-hooked", json!({}))],
+            ToolExecutionOptions::new(StopReason::ToolUse, 0.0),
+        )
+        .await
+        .unwrap();
+
+        let replacement_usage = Usage {
+            output: 2,
+            total_tokens: 2,
+            ..Usage::default()
+        };
+        assert_eq!(
+            seen.lock().as_slice(),
+            &[
+                (
+                    Some(json!({"original": true})),
+                    Some(Usage {
+                        input: 1,
+                        total_tokens: 1,
+                        ..Usage::default()
+                    }),
+                    Some(true),
+                ),
+                (
+                    Some(json!({"replacement": true})),
+                    Some(replacement_usage.clone()),
+                    Some(false),
+                ),
+            ]
+        );
+        assert_eq!(
+            batch.messages[0].details,
+            Some(json!({"replacement": true}))
+        );
+        assert_eq!(batch.messages[0].usage, Some(replacement_usage));
+        assert!(!batch.terminate);
     });
 }
 

@@ -186,10 +186,10 @@ pub struct AfterToolCallResult {
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct AfterToolCallOverride {
     content: Option<Vec<ToolResultContentBlock>>,
-    details: Option<Option<Value>>,
-    usage: Option<Option<Usage>>,
+    details: Option<Value>,
+    usage: Option<Usage>,
     is_error: Option<bool>,
-    terminate: Option<Option<bool>>,
+    terminate: Option<bool>,
 }
 
 struct PreparedToolCall {
@@ -210,12 +210,12 @@ impl AfterToolCallOverride {
         self
     }
 
-    pub fn with_details(mut self, details: Option<Value>) -> Self {
+    pub fn with_details(mut self, details: Value) -> Self {
         self.details = Some(details);
         self
     }
 
-    pub fn with_usage(mut self, usage: Option<Usage>) -> Self {
+    pub fn with_usage(mut self, usage: Usage) -> Self {
         self.usage = Some(usage);
         self
     }
@@ -226,7 +226,7 @@ impl AfterToolCallOverride {
     }
 
     pub fn with_terminate(mut self, terminate: bool) -> Self {
-        self.terminate = Some(Some(terminate));
+        self.terminate = Some(terminate);
         self
     }
 
@@ -235,16 +235,16 @@ impl AfterToolCallOverride {
             current.content = content;
         }
         if let Some(details) = self.details {
-            current.details = details;
+            current.details = Some(details);
         }
         if let Some(usage) = self.usage {
-            current.usage = usage;
+            current.usage = Some(usage);
         }
         if let Some(is_error) = self.is_error {
             current.is_error = is_error;
         }
         if let Some(terminate) = self.terminate {
-            current.terminate = terminate;
+            current.terminate = Some(terminate);
         }
         current
     }
@@ -286,16 +286,9 @@ where
                     };
                     next.call(Some(replacement)).await
                 }
-                Err(error) => Ok(AfterToolCallResult {
-                    tool_call_id: current.tool_call_id,
-                    tool_name: current.tool_name,
-                    content: error_content(error.message()),
-                    details: empty_error_details(),
-                    usage: None,
-                    added_tool_names: None,
-                    is_error: true,
-                    terminate: None,
-                }),
+                Err(error) => Err(crate::runtime::WaterfallError::ListenerFailed(
+                    error.message().to_owned(),
+                )),
             }
         }
     })
@@ -594,14 +587,22 @@ async fn execute_and_finalize_prepared(
         }
     };
     let protected = executed.clone();
-    let normalization = protected.clone();
+    let normalization_authority = protected.clone();
+    let normalization_state = Arc::new(parking_lot::Mutex::new(executed.clone()));
+    let step_state = Arc::clone(&normalization_state);
     let finalized = match events
         .waterfall_normalized(&after_spec, executed, scope.as_ref(), move |candidate| {
-            restore_protected(candidate, &normalization)
+            let mut previous = step_state.lock();
+            let normalized =
+                normalize_successful_after_result(candidate, &previous, &normalization_authority);
+            previous.clone_from(&normalized);
+            normalized
         })
         .await
     {
-        Ok(finalized) => restore_protected(finalized, &protected),
+        Ok(finalized) => {
+            normalize_successful_after_result(finalized, &normalization_state.lock(), &protected)
+        }
         Err(EventError::Waterfall(error)) => immediate_error(&call, &error.to_string()),
         Err(error) => return Err(error.into()),
     };
@@ -686,6 +687,23 @@ fn restore_protected(
         .added_tool_names
         .clone_from(&authoritative.added_tool_names);
     candidate
+}
+
+fn normalize_successful_after_result(
+    mut candidate: AfterToolCallResult,
+    previous: &AfterToolCallResult,
+    authoritative: &AfterToolCallResult,
+) -> AfterToolCallResult {
+    if candidate.details.is_none() {
+        candidate.details.clone_from(&previous.details);
+    }
+    if candidate.usage.is_none() {
+        candidate.usage.clone_from(&previous.usage);
+    }
+    if candidate.terminate.is_none() {
+        candidate.terminate = previous.terminate;
+    }
+    restore_protected(candidate, authoritative)
 }
 
 fn arguments_value(arguments: &BTreeMap<String, Value>) -> Value {

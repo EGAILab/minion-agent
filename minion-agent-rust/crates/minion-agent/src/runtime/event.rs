@@ -95,6 +95,8 @@ impl ParallelErrors {
 pub enum WaterfallError {
     #[error("waterfall `next` may be called at most once per listener")]
     NextAlreadyCalled,
+    #[error("{0}")]
+    ListenerFailed(String),
 }
 
 #[derive(Debug, Error)]

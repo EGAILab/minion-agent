@@ -514,10 +514,9 @@ impl Serialize for ConstrainedSampling {
     {
         match self {
             Self::Disabled => false.serialize(serializer),
-            Self::JsonSchema { strict } => ConstrainedSamplingConfig::JsonSchema {
-                strict: *strict,
+            Self::JsonSchema { strict } => {
+                ConstrainedSamplingConfig::JsonSchema { strict: *strict }.serialize(serializer)
             }
-            .serialize(serializer),
             Self::Grammar { variants } => ConstrainedSamplingConfig::Grammar {
                 variants: variants.clone(),
             }

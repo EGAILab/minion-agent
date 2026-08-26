@@ -88,10 +88,7 @@ fn constrained_sampling_preserves_absent_false_json_schema_and_grammar() {
             },
         })
     );
-    assert_eq!(
-        parsed[0].as_json()["constrained_sampling"],
-        Value::Null
-    );
+    assert_eq!(parsed[0].as_json()["constrained_sampling"], Value::Null);
 }
 
 #[test]

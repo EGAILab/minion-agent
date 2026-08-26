@@ -406,6 +406,103 @@ rows:
   python: src/minion_agent/agent/ + agent_loop
   rust: Phase 3 event vocabulary
   disposition: adopted
+- id: AG-011
+  phase: 3
+  pi: packages/agent/src/agent.ts::PendingMessageQueue, Agent.steer, Agent.followUp
+  surface: steering/follow-up queue identity, storage, and ordering (assurance Layer 07)
+  rule: 'pinned Pi keeps exactly two per-instance queues -- steering and follow-up -- each an
+    independent FIFO of enqueued messages, never interpreted, normalized, or reordered at enqueue.
+    Minion generalizes both under one storage primitive addressed by a two-valued target (design
+    spec section 6): the step-boundary target realizes pinned Pi''s steering queue; the turn-
+    boundary target realizes pinned Pi''s follow-up queue. `steer()`/`follow-up()` are pinned Pi''s
+    two enqueue operations under this vocabulary. A third operation, silent injection (enqueues to
+    the step-boundary target without requesting a wake), is an intentional Minion architectural
+    extension pinned Pi does not define -- proven never to request a wake on its own
+    (test_injection_alone_never_requests_a_wake). Claiming one target never observes or disturbs
+    the other (test_the_two_queues_are_independent, test_the_two_queues_never_leak_into_each_other
+    -- property-based, arbitrary interleavings). Enqueue order is preserved exactly
+    (test_one_at_a_time_preserves_send_order -- property-based) and every sent message is claimed
+    exactly once across however many claims it takes to drain it
+    (test_every_sent_message_is_claimed_exactly_once, test_claiming_never_invents_input --
+    property-based). Each queued input carries an opaque, JSON-safe provenance value the runtime
+    never inspects, matched, or interprets (design spec section 6) -- an intentional Minion
+    addition with no Pi equivalent, required because Minion''s claim-time boundary (see AG-012)
+    can merge several enqueued inputs into one claimed batch, which a single `turn.origin` could
+    not represent.'
+  tests:
+  - test_followup_queues_for_the_next_turn_and_wakes
+  - test_steer_queues_for_the_next_step_and_wakes
+  - test_inject_queues_for_the_next_step_without_waking
+  - test_the_two_queues_are_independent
+  - test_every_envelope_gets_a_unique_id
+  - test_origin_is_carried_verbatim
+  - test_origin_defaults_to_none
+  - test_a_non_json_safe_origin_is_rejected_eagerly
+  - test_nested_json_structures_are_walked
+  - test_a_non_string_mapping_key_is_rejected
+  - test_every_sent_message_is_claimed_exactly_once
+  - test_the_two_queues_never_leak_into_each_other
+  - test_one_at_a_time_preserves_send_order
+  - test_claiming_never_invents_input
+  - test_injection_alone_never_requests_a_wake
+  python: src/minion_agent/agent/inbox.py::Inbox, src/minion_agent/agent/envelope.py::InboxTarget/InputEnvelope
+  rust: PENDING -- Layer 07 not yet implemented in Rust
+  disposition: adopted
+- id: AG-012
+  phase: 3
+  pi: packages/agent/src/types.ts::QueueMode, packages/agent/src/agent.ts::PendingMessageQueue.drain
+  surface: queue claim (drain) policy (assurance Layer 07)
+  rule: 'pinned Pi''s QueueMode is exactly two values: "all" drains and returns every queued
+    message at once, emptying the queue; "one-at-a-time" removes and returns only the single
+    oldest queued message, leaving the remainder queued for a future claim. Each queue''s mode is
+    independently configurable and defaults to "one-at-a-time" (`new PendingMessageQueue(mode)`,
+    `steeringMode ?? "one-at-a-time"`, `followUpMode ?? "one-at-a-time"`). Minion''s ClaimPolicy
+    (ALL / ONE_AT_A_TIME) reproduces this exactly -- verified directly against pinned Pi''s own
+    `drain()` implementation, not inferred from ordinary queue conventions. Claiming an empty
+    target returns nothing and is not an error. A drained inbox stays drained across repeated
+    claims with no further enqueues (test_a_drained_inbox_stays_drained -- property-based).
+    *When* a claim happens and which
+    policy governs a given boundary at runtime is Layer 08''s decision; this row certifies only
+    the primitive''s own behavior for either policy, independent of when or how often Layer 08
+    invokes it.'
+  tests:
+  - test_one_at_a_time_claims_only_the_oldest
+  - test_all_claims_everything_queued
+  - test_claiming_removes_what_it_claimed
+  - test_a_drained_inbox_stays_drained
+  python: src/minion_agent/agent/inbox.py::Inbox.claim, src/minion_agent/agent/envelope.py::ClaimPolicy
+  rust: PENDING -- Layer 07 not yet implemented in Rust
+  disposition: adopted
+- id: AG-013
+  phase: 3
+  pi: packages/agent/src/agent.ts::Agent.clearSteeringQueue/clearFollowUpQueue/clearAllQueues/hasQueuedMessages
+  surface: queue clearing and pending-input observation (assurance Layer 07)
+  rule: 'pinned Pi''s clearSteeringQueue()/clearFollowUpQueue() each discard everything queued at
+    their own queue, leaving the other untouched; clearAllQueues() discards both. hasQueuedMessages()
+    is true exactly when the steering OR the follow-up queue still holds unclaimed input. Clearing
+    an already-empty target is a harmless no-op. Minion''s Inbox.clear(target)/clear_all()/
+    has_pending() reproduce this exactly. This is new Python implementation added this pass --
+    the corresponding Pi operations had no Minion equivalent at all before it (`CONTRACT_ASSURANCE_
+    DEFECT`, resolved this pass: a genuine Pi-visible public operation was simply missing, not
+    merely undocumented). Clearing does not touch the independent wake/settle signal a host driver
+    (Layer 08) uses to decide when to poll a target -- an orthogonal concern pinned Pi has no
+    analogue for at all, so this row does not constrain it either way beyond noting the two are
+    intentionally decoupled. Pinned Pi''s own `reset()` additionally clears the transcript and
+    mid-run state fields alongside both queues; Minion does not reproduce an in-place reset
+    (Session''s log is append-only, an already-certified Layer-03 property) -- creating a fresh
+    instance through the agent registry is the Minion-architecture equivalent, an intentional
+    divergence from Pi''s single-instance reset, not a gap in it.'
+  tests:
+  - test_has_pending_is_false_for_an_empty_inbox
+  - test_has_pending_is_true_with_only_a_next_turn_item
+  - test_has_pending_is_true_with_only_a_next_step_item
+  - test_clearing_one_target_leaves_the_other_untouched
+  - test_clearing_an_empty_target_is_a_harmless_no_op
+  - test_clear_all_empties_both_queues
+  - test_clearing_does_not_affect_the_wake_signal
+  python: src/minion_agent/agent/inbox.py::Inbox.clear/clear_all/has_pending
+  rust: PENDING -- Layer 07 not yet implemented in Rust
+  disposition: adopted
 - id: TOOL-001
   phase: 4
   pi: packages/agent/src/agent-loop.ts::executeToolCalls

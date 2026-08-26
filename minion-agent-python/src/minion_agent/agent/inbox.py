@@ -93,6 +93,12 @@ class Inbox:
         """What is queued at `target`, unclaimed."""
         return tuple(self._queues[target])
 
+    def has_pending(self) -> bool:
+        """Whether either queue still holds unclaimed input (pinned Pi's
+        `Agent.hasQueuedMessages()`: true when the steering OR the follow-up
+        queue has items)."""
+        return any(self._queues.values())
+
     def claim(self, target: InboxTarget, policy: ClaimPolicy) -> tuple[InputEnvelope, ...]:
         """Remove and return queued input according to `policy`."""
         queue = self._queues[target]
@@ -102,3 +108,16 @@ class Inbox:
             claimed, queue[:] = tuple(queue), []
             return claimed
         return (queue.pop(0),)
+
+    def clear(self, target: InboxTarget) -> None:
+        """Discard whatever is queued at `target`, unclaimed (pinned Pi's
+        `clearSteeringQueue()`/`clearFollowUpQueue()`, one queue at a time).
+        The wake signal is untouched -- orthogonal concerns: wake means
+        "something happened", clearing only removes queued content."""
+        self._queues[target].clear()
+
+    def clear_all(self) -> None:
+        """Discard everything queued at every target (pinned Pi's
+        `clearAllQueues()`)."""
+        for target in self._queues:
+            self.clear(target)

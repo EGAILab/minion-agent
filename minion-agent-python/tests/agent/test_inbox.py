@@ -142,3 +142,67 @@ def test_a_non_string_mapping_key_is_rejected() -> None:
 
     with pytest.raises(NotJsonSafeOriginError, match="keys must be strings"):
         inbox.followup(_message("bad"), origin={1: "one"})  # type: ignore[dict-item]
+
+
+def test_has_pending_is_false_for_an_empty_inbox() -> None:
+    """Pi's `hasQueuedMessages()`: true when EITHER queue has items."""
+    assert not Inbox().has_pending()
+
+
+def test_has_pending_is_true_with_only_a_next_turn_item() -> None:
+    inbox = Inbox()
+    inbox.followup(_message("hello"))
+
+    assert inbox.has_pending()
+
+
+def test_has_pending_is_true_with_only_a_next_step_item() -> None:
+    inbox = Inbox()
+    inbox.steer(_message("actually, stop"))
+
+    assert inbox.has_pending()
+
+
+def test_clearing_one_target_leaves_the_other_untouched() -> None:
+    """Pi's `clearSteeringQueue()`/`clearFollowUpQueue()`: each clears exactly
+    its own queue, not the other."""
+    inbox = Inbox()
+    inbox.followup(_message("turn"))
+    inbox.steer(_message("step"))
+
+    inbox.clear(InboxTarget.NEXT_STEP)
+
+    assert inbox.pending(InboxTarget.NEXT_STEP) == ()
+    assert len(inbox.pending(InboxTarget.NEXT_TURN)) == 1
+
+
+def test_clearing_an_empty_target_is_a_harmless_no_op() -> None:
+    inbox = Inbox()
+
+    inbox.clear(InboxTarget.NEXT_TURN)
+
+    assert inbox.pending(InboxTarget.NEXT_TURN) == ()
+
+
+def test_clear_all_empties_both_queues() -> None:
+    """Pi's `clearAllQueues()`: both queues, in one call."""
+    inbox = Inbox()
+    inbox.followup(_message("turn"))
+    inbox.steer(_message("step"))
+
+    inbox.clear_all()
+
+    assert not inbox.has_pending()
+    assert inbox.pending(InboxTarget.NEXT_TURN) == ()
+    assert inbox.pending(InboxTarget.NEXT_STEP) == ()
+
+
+def test_clearing_does_not_affect_the_wake_signal() -> None:
+    """Clearing removes queued content; it is not itself a settle signal --
+    only `take_wake()` (driven by the run loop, Layer 08) consumes that."""
+    inbox = Inbox()
+    inbox.followup(_message("hello"))
+
+    inbox.clear_all()
+
+    assert inbox.wake_requested

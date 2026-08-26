@@ -56,18 +56,23 @@ class ExecutionMode(StrEnum):
     SEQUENTIAL = "sequential"
 
 
-_EMPTY_SCHEMA: dict[str, Any] = {"type": "object", "properties": {}}
-
-
 @dataclass(frozen=True, slots=True)
 class ToolDefinition:
     """One registered tool."""
 
     name: str
     description: str
-    parameters: type[BaseModel] | dict[str, Any] | None
-    """A pydantic model class (validated in `execute.py`), a raw JSON Schema object (not
-    Python-validated -- `TOOL-F010`), or `None` (published as the empty-object schema)."""
+    parameters: type[BaseModel] | dict[str, Any]
+    """A pydantic model class (validated in `execute.py`) or a raw, object-valued JSON Schema
+    dict (not Python-validated -- `TOOL-F010`). Required: missing/`None` is not a shorthand for
+    "no parameters" (`L05-R005`) -- a tool that takes nothing still supplies the explicit empty
+    schema `{"type": "object", "properties": {}}`. "Object-valued" describes the JSON
+    *representation* of the schema itself (the value is a mapping) -- it does not require the
+    schema to describe an object *instance* via a top-level `"type": "object"` keyword. Pinned
+    Pi's `Tool<TParameters extends TSchema>` (`packages/ai/src/types.ts`) is generic over
+    TypeBox's whole `TSchema` domain, not narrowed to `TObject`, so `{"type": "string"}` and a
+    top-level `{"oneOf": [...]}` are equally valid tool parameter schemas (`L05-R005`, corrected
+    after an earlier repair mistakenly required `parameters["type"] == "object"`)."""
     execute: ToolFn
     label: str
     """Human-readable label for UI display (pinned Pi `AgentTool.label`, required -- TOOL-F001)."""
@@ -85,16 +90,29 @@ class ToolDefinition:
     """Pinned Pi `AgentTool.prepareArguments?`. Field/signature only -- Layer 05 does not certify
     when or whether the pipeline invokes it (`TOOL-F002`)."""
 
-    def schema(self) -> ToolSchema:
-        """The model-facing schema for this tool.
+    def __post_init__(self) -> None:
+        """Reject `None`/non-mapping `parameters` at construction, not only via typing
+        (`L05-R005`): a dynamically-typed caller can still pass `None` or a JSON-Schema-spec
+        boolean shorthand past `mypy`. This checks only that the value is *some* mapping -- the
+        JSON representation "object-valued" actually requires -- never a particular JSON Schema
+        keyword (e.g. a top-level `"type": "object"`). Pinned Pi's `Tool<TParameters extends
+        TSchema>` accepts any TypeBox schema, not only object-instance schemas (`{"type":
+        "string"}` and a top-level `{"oneOf": [...]}` are both valid); Layer 05 is not a JSON
+        Schema validator and does not otherwise inspect nested keywords."""
+        if isinstance(self.parameters, type) and issubclass(self.parameters, BaseModel):
+            return
+        if isinstance(self.parameters, dict):
+            return
+        raise TypeError(
+            "ToolDefinition.parameters is required and must be a pydantic BaseModel subclass or "
+            "an object-valued JSON Schema mapping -- missing/None and the JSON-Schema-spec "
+            "boolean-shorthand forms are not accepted; pass {'type': 'object', 'properties': {}} "
+            "explicitly for a no-argument tool (L05-R005)"
+        )
 
-        A tool with no parameter model still publishes an empty object schema
-        rather than nothing: a model told a tool has no schema has no defined
-        way to call it. A raw JSON Schema `dict` publishes unchanged.
-        """
-        if self.parameters is None:
-            parameters = dict(_EMPTY_SCHEMA)
-        elif isinstance(self.parameters, dict):
+    def schema(self) -> ToolSchema:
+        """The model-facing schema for this tool. A raw JSON Schema `dict` publishes unchanged."""
+        if isinstance(self.parameters, dict):
             parameters = self.parameters
         else:
             parameters = self.parameters.model_json_schema()

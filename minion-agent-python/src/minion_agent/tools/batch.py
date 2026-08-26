@@ -16,7 +16,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 
 from ..llm import ToolCallBlock
-from ..runtime import Context, ScopeKey
+from ..runtime import Context, Scope, ScopeKey
 from .definition import ExecutionMode
 from .execute import execute_call
 from .registry import ToolRegistry
@@ -42,7 +42,7 @@ class BatchOutcome:
 
 
 def _is_sequential(
-    calls: Sequence[ToolCallBlock], registry: ToolRegistry, scope: ScopeKey | None
+    calls: Sequence[ToolCallBlock], registry: ToolRegistry, scope: ScopeKey | Scope | None
 ) -> bool:
     """Pi's contagion rule: one exclusive tool serializes the whole batch.
 
@@ -66,7 +66,7 @@ async def execute_batch(
     *,
     registry: ToolRegistry,
     ctx: Context,
-    scope: ScopeKey | None = None,
+    scope: ScopeKey | Scope | None = None,
 ) -> BatchOutcome:
     """Run every call in `calls`, returning results in source order."""
     completion: list[str] = []

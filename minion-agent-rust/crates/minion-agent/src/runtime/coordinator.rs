@@ -4,9 +4,11 @@ use futures::FutureExt;
 use parking_lot::Mutex;
 use serde_json::Value;
 
+use crate::tools::ToolRegistry;
+
 use super::{
     DynPluginSpec, EventBus, FiberError, FiberHandle, FiberInitContext, PluginConfigError,
-    ScopeTree, ServiceOwner, ServiceRegistry,
+    ScopeTree, ServiceOwner, ServiceRegistry, fiber::ContextResources,
 };
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -55,6 +57,7 @@ struct RuntimeCore {
     services: ServiceRegistry,
     events: EventBus,
     scopes: ScopeTree,
+    tools: ToolRegistry,
     fibers: Mutex<Vec<FiberHandle>>,
     pending_revocations: Mutex<Vec<super::ServiceName>>,
     observer: Arc<dyn RuntimeObserver>,
@@ -68,10 +71,12 @@ impl Runtime {
     pub fn with_observer(observer: Arc<dyn RuntimeObserver>) -> Self {
         let scopes = ScopeTree::new();
         let services = ServiceRegistry::new();
+        let tools = ToolRegistry::new(scopes.clone());
         let core = Arc::new(RuntimeCore {
             services: services.clone(),
             events: EventBus::new(scopes.clone()),
             scopes,
+            tools,
             fibers: Mutex::new(Vec::new()),
             pending_revocations: Mutex::new(Vec::new()),
             observer,
@@ -116,9 +121,12 @@ impl Runtime {
         let inject = spec.inject().to_vec();
         let owner = Arc::new(Mutex::new(None::<FiberHandle>));
         let context_owner = Arc::clone(&owner);
-        let context_services = self.core.services.clone();
+        let context_resources = ContextResources {
+            services: self.core.services.clone(),
+            events: self.core.events.clone(),
+            tools: self.core.tools.clone(),
+        };
         let context_observer = Arc::clone(&self.core.observer);
-        let context_events = self.core.events.clone();
         let context_scope = scope.clone();
         let plugin_name = spec.name().to_owned();
         let state_observer = Arc::clone(&self.core.observer);
@@ -134,11 +142,10 @@ impl Runtime {
                 let owner: Arc<dyn ServiceOwner> = Arc::new(fiber);
                 FiberInitContext::coordinated(
                     effects,
-                    context_services.clone(),
+                    context_resources.clone(),
                     owner,
                     plugin_name.clone(),
                     Arc::clone(&context_observer),
-                    context_events.clone(),
                     context_scope.clone(),
                 )
             }),
@@ -174,7 +181,11 @@ impl Runtime {
     }
 
     pub fn context(&self) -> super::Context {
-        FiberInitContext::runtime_view(self.core.services.clone(), self.core.events.clone())
+        FiberInitContext::runtime_view(ContextResources {
+            services: self.core.services.clone(),
+            events: self.core.events.clone(),
+            tools: self.core.tools.clone(),
+        })
     }
 
     pub async fn reconcile(&self) -> Result<(), FiberError> {
@@ -219,6 +230,10 @@ impl Runtime {
 
     pub fn scopes(&self) -> &ScopeTree {
         &self.core.scopes
+    }
+
+    pub fn tools(&self) -> &ToolRegistry {
+        &self.core.tools
     }
 }
 

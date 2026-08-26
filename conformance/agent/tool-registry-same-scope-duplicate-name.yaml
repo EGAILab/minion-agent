@@ -14,10 +14,10 @@ tool_registry:
   plugins:
     - id: first-plugin
       tools:
-        - { name: read, description: first, label: Read (first) }
+        - { name: read, description: first, label: Read (first), parameters: { type: object, properties: {} } }
     - id: second-plugin
       tools:
-        - { name: read, description: second, label: Read (second) }
+        - { name: read, description: second, label: Read (second), parameters: { type: object, properties: {} } }
   steps:
     - mount: first-plugin
     - mount: second-plugin

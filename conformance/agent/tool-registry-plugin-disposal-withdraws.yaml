@@ -11,10 +11,10 @@ tool_registry:
   plugins:
     - id: ephemeral-plugin
       tools:
-        - { name: temp, description: temporary, label: Temp }
+        - { name: temp, description: temporary, label: Temp, parameters: { type: object, properties: {} } }
     - id: permanent-plugin
       tools:
-        - { name: keep, description: permanent, label: Keep }
+        - { name: keep, description: permanent, label: Keep, parameters: { type: object, properties: {} } }
   steps:
     - mount: ephemeral-plugin
     - mount: permanent-plugin

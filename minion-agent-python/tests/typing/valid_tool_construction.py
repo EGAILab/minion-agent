@@ -16,24 +16,35 @@ from __future__ import annotations
 from minion_agent.llm import GrammarConstrainedSampling, JsonSchemaConstrainedSampling
 from minion_agent.tools.definition import ExecutionMode, ToolDefinition
 
+_EMPTY_SCHEMA = {"type": "object", "properties": {}}
+
 # `label` is required (pinned Pi `AgentTool.label`, no `?`) -- TOOL-F001.
 _labeled: ToolDefinition = ToolDefinition(
-    name="echo", description="repeat", parameters=None, execute=lambda args: "ok", label="Echo"
+    name="echo",
+    description="repeat",
+    parameters=_EMPTY_SCHEMA,
+    execute=lambda args: "ok",
+    label="Echo",
 )
 
-# A parameterless tool still constructs; `schema()` synthesizes the empty-object shape at runtime.
+# A parameterless tool still supplies the explicit empty-object schema (`L05-R005`); `parameters`
+# is required and missing/`None` are not shorthand for it.
 _parameterless: ToolDefinition = ToolDefinition(
-    name="noop", description="do nothing", parameters=None, execute=lambda args: "ok", label="Noop"
+    name="noop",
+    description="do nothing",
+    parameters=_EMPTY_SCHEMA,
+    execute=lambda args: "ok",
+    label="Noop",
 )
 
 # `mode` defaults to `None` (no per-tool override), not a concrete `ExecutionMode` -- TOOL-F004.
 _default_mode: ToolDefinition = ToolDefinition(
-    name="a", description="a", parameters=None, execute=lambda args: "ok", label="A"
+    name="a", description="a", parameters=_EMPTY_SCHEMA, execute=lambda args: "ok", label="A"
 )
 _explicit_sequential: ToolDefinition = ToolDefinition(
     name="b",
     description="b",
-    parameters=None,
+    parameters=_EMPTY_SCHEMA,
     execute=lambda args: "ok",
     label="B",
     mode=ExecutionMode.SEQUENTIAL,
@@ -43,7 +54,7 @@ _explicit_sequential: ToolDefinition = ToolDefinition(
 _constrained_false: ToolDefinition = ToolDefinition(
     name="c",
     description="c",
-    parameters=None,
+    parameters=_EMPTY_SCHEMA,
     execute=lambda args: "ok",
     label="C",
     constrained_sampling=False,
@@ -51,7 +62,7 @@ _constrained_false: ToolDefinition = ToolDefinition(
 _constrained_json_schema: ToolDefinition = ToolDefinition(
     name="d",
     description="d",
-    parameters=None,
+    parameters=_EMPTY_SCHEMA,
     execute=lambda args: "ok",
     label="D",
     constrained_sampling=JsonSchemaConstrainedSampling(strict="prefer"),
@@ -59,18 +70,32 @@ _constrained_json_schema: ToolDefinition = ToolDefinition(
 _constrained_grammar: ToolDefinition = ToolDefinition(
     name="e",
     description="e",
-    parameters=None,
+    parameters=_EMPTY_SCHEMA,
     execute=lambda args: "ok",
     label="E",
-    constrained_sampling=GrammarConstrainedSampling(variants={"openai_lark": "start: WORD+"}),
+    constrained_sampling=GrammarConstrainedSampling(openai_lark="start: WORD+"),
 )
 
 # `prepare_arguments` -- field/signature only (TOOL-F002); Layer 05 does not certify invocation.
 _with_prepare_arguments: ToolDefinition = ToolDefinition(
     name="f",
     description="f",
-    parameters=None,
+    parameters=_EMPTY_SCHEMA,
     execute=lambda args: "ok",
     label="F",
     prepare_arguments=lambda args: dict(args),
+)
+
+# "Object-valued" is the schema's own JSON representation (a mapping), not a requirement that the
+# schema describe an object instance (`L05-R005`) -- pinned Pi's `Tool<TParameters extends
+# TSchema>` is generic over TypeBox's whole `TSchema` domain, not narrowed to `TObject`.
+_non_object_instance: ToolDefinition = ToolDefinition(
+    name="g", description="g", parameters={"type": "string"}, execute=lambda args: "ok", label="G"
+)
+_top_level_combinator: ToolDefinition = ToolDefinition(
+    name="h",
+    description="h",
+    parameters={"oneOf": [{"type": "string"}, {"type": "number"}]},
+    execute=lambda args: "ok",
+    label="H",
 )

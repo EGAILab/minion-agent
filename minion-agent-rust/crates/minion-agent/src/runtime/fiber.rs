@@ -12,6 +12,8 @@ use parking_lot::Mutex;
 use thiserror::Error;
 use tokio::sync::{Mutex as AsyncMutex, watch};
 
+use crate::tools::ToolRegistry;
+
 use super::{
     DisposeError, DisposeErrors, EffectHandle, EffectStore, EventBus, RuntimeError,
     RuntimeObservation, RuntimeObserver, ScopeHandle, Service, ServiceCheck, ServiceName,
@@ -51,9 +53,17 @@ pub struct FiberInitContext {
     observer: Option<Arc<dyn RuntimeObserver>>,
     events: Option<EventBus>,
     scope: Option<ScopeHandle>,
+    tools: Option<ToolRegistry>,
 }
 
 pub type Context = FiberInitContext;
+
+#[derive(Clone)]
+pub(crate) struct ContextResources {
+    pub services: ServiceRegistry,
+    pub events: EventBus,
+    pub tools: ToolRegistry,
+}
 
 pub(crate) type InitContextFactory =
     Arc<dyn Fn(Arc<EffectStore>) -> FiberInitContext + Send + Sync>;
@@ -75,40 +85,42 @@ impl FiberInitContext {
             observer: None,
             events: None,
             scope: None,
+            tools: None,
         }
     }
 
     pub(crate) fn coordinated(
         effects: Arc<EffectStore>,
-        services: ServiceRegistry,
+        resources: ContextResources,
         owner: Arc<dyn ServiceOwner>,
         plugin: String,
         observer: Arc<dyn RuntimeObserver>,
-        events: EventBus,
         scope: Option<ScopeHandle>,
     ) -> Self {
         Self {
             effects,
-            services: Some(services),
+            services: Some(resources.services),
             owner: Some(owner),
             plugin: Some(plugin),
             observer: Some(observer),
-            events: Some(events),
+            events: Some(resources.events),
             scope,
+            tools: Some(resources.tools),
         }
     }
 
-    pub(crate) fn runtime_view(services: ServiceRegistry, events: EventBus) -> Self {
+    pub(crate) fn runtime_view(resources: ContextResources) -> Self {
         let effects = Arc::new(EffectStore::new());
         effects.close();
         Self {
             effects,
-            services: Some(services),
+            services: Some(resources.services),
             owner: None,
             plugin: None,
             observer: None,
-            events: Some(events),
+            events: Some(resources.events),
             scope: None,
+            tools: Some(resources.tools),
         }
     }
 
@@ -165,6 +177,12 @@ impl FiberInitContext {
 
     pub fn scope(&self) -> Option<&ScopeHandle> {
         self.scope.as_ref()
+    }
+
+    pub fn tools(&self) -> Result<&ToolRegistry, RuntimeError> {
+        self.tools
+            .as_ref()
+            .ok_or(RuntimeError::UncoordinatedContext)
     }
 
     pub fn provide<S>(

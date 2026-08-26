@@ -86,10 +86,45 @@ def test_grammar_constrained_sampling_round_trips() -> None:
         name="a",
         description="d",
         parameters={},
-        constrained_sampling=GrammarConstrainedSampling(variants={"openai_lark": "grammar text"}),
+        constrained_sampling=GrammarConstrainedSampling(openai_lark="grammar text"),
     )
 
     assert schema.as_json()["constrained_sampling"] == {
         "type": "grammar",
         "variants": {"openai_lark": "grammar text"},
+    }
+
+
+def test_grammar_constrained_sampling_openai_regex_round_trips() -> None:
+    """The closed GrammarFormat domain has exactly two independently-optional formats
+    (`L05-R001`, pinned Pi `packages/ai/src/types.ts::GrammarFormat`) -- confirm the second
+    one is accepted too, not only the one exercised above."""
+    schema = ToolSchema(
+        name="a",
+        description="d",
+        parameters={},
+        constrained_sampling=GrammarConstrainedSampling(openai_regex="^[a-z]+$"),
+    )
+
+    assert schema.as_json()["constrained_sampling"] == {
+        "type": "grammar",
+        "variants": {"openai_regex": "^[a-z]+$"},
+    }
+
+
+def test_grammar_constrained_sampling_both_formats_round_trip() -> None:
+    """Pi's `GrammarVariants = Partial<Record<GrammarFormat, string>>` permits both formats
+    set simultaneously; each is independently optional, not mutually exclusive."""
+    schema = ToolSchema(
+        name="a",
+        description="d",
+        parameters={},
+        constrained_sampling=GrammarConstrainedSampling(
+            openai_lark="start: WORD+", openai_regex="^[a-z]+$"
+        ),
+    )
+
+    assert schema.as_json()["constrained_sampling"] == {
+        "type": "grammar",
+        "variants": {"openai_lark": "start: WORD+", "openai_regex": "^[a-z]+$"},
     }

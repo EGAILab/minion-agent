@@ -7,7 +7,11 @@ from minion_agent.tools.registry import ToolRegistry, register_tool
 
 def _definition(name: str = "echo", description: str = "d") -> ToolDefinition:
     return ToolDefinition(
-        name=name, description=description, parameters=None, execute=lambda args: "ok", label=name
+        name=name,
+        description=description,
+        parameters={"type": "object", "properties": {}},
+        execute=lambda args: "ok",
+        label=name,
     )
 
 

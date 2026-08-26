@@ -200,3 +200,122 @@ def test_session_event_name_pattern_matches_the_canonical_rule(
     pattern = schema["$defs"]["step"]["properties"]["append"]["properties"]["role"]["pattern"]
     matched = re.fullmatch(pattern, name) is not None
     assert matched == expect_valid, f"{name!r}: matched={matched}, expected={expect_valid}"
+
+
+_MISSING = object()
+
+
+def _tool_registry_document(
+    *,
+    omit_parameters: bool = False,
+    parameters: Any = None,
+    constrained_sampling: Any = _MISSING,
+) -> dict[str, Any]:
+    tool: dict[str, Any] = {"name": "t", "description": "d", "label": "T"}
+    if not omit_parameters:
+        tool["parameters"] = parameters
+    if constrained_sampling is not _MISSING:
+        tool["constrained_sampling"] = constrained_sampling
+    return {
+        "name": "probe",
+        "family": "agent",
+        "authority": "a",
+        "pi_revision": "p",
+        "tool_registry": {
+            "plugins": [{"id": "p1", "tools": [tool]}],
+            "steps": [{"mount": "p1"}],
+            "queries": [{"id": "q1"}],
+        },
+        "expect": {"q1": {"names": ["t"]}},
+    }
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "expect_valid"),
+    [
+        pytest.param(
+            {"parameters": {"type": "object", "properties": {}}}, True, id="empty-object-schema"
+        ),
+        pytest.param(
+            {
+                "parameters": {
+                    "type": "object",
+                    "properties": {"x": {"type": "string"}},
+                    "required": ["x"],
+                }
+            },
+            True,
+            id="explicit-object-schema",
+        ),
+        pytest.param({"parameters": {"type": "string"}}, True, id="non-object-instance-schema"),
+        pytest.param(
+            {"parameters": {"oneOf": [{"type": "string"}, {"type": "number"}]}},
+            True,
+            id="top-level-combinator-schema",
+        ),
+        pytest.param({"omit_parameters": True}, False, id="missing"),
+        pytest.param({"parameters": None}, False, id="null"),
+        pytest.param({"parameters": True}, False, id="boolean-true"),
+        pytest.param({"parameters": False}, False, id="boolean-false"),
+    ],
+)
+def test_tool_registry_parameters_domain(kwargs: dict[str, Any], expect_valid: bool) -> None:
+    """`L05-R005`: `parameters` is required and object-valued -- the JSON *representation* is a
+    mapping, matching pinned Pi's `Tool<TParameters extends TSchema>` (generic over TypeBox's
+    whole `TSchema` domain, not narrowed to `TObject`). A non-object-instance schema
+    (`{"type": "string"}`) and a top-level combinator (`oneOf`) are therefore valid, same as an
+    object-instance schema; only missing, explicit null, and the JSON-Schema-spec
+    boolean-shorthand forms are outside the domain. This canonical schema itself already admitted
+    the non-object-instance/combinator cases correctly (its own `"type": "object"` constrains the
+    *value* to be a mapping, not a nested keyword) -- the regression this pins was in the Python
+    public constructor, not here."""
+    schema = json.loads(TOOL_REGISTRY_SCHEMA.read_text(encoding="utf-8"))
+    document = _tool_registry_document(**kwargs)
+    errors = list(Draft202012Validator(schema).iter_errors(document))
+    if expect_valid:
+        assert not errors, [error.message for error in errors]
+    else:
+        assert errors, "expected this parameters value to be rejected"
+
+
+@pytest.mark.parametrize(
+    ("constrained_sampling", "expect_valid"),
+    [
+        pytest.param(_MISSING, True, id="absent"),
+        pytest.param(False, True, id="false"),
+        pytest.param({"type": "json_schema", "strict": "require"}, True, id="json_schema"),
+        pytest.param({"type": "grammar", "variants": {}}, True, id="grammar-empty-variants"),
+        pytest.param(
+            {"type": "grammar", "variants": {"openai_lark": "x"}}, True, id="grammar-lark-only"
+        ),
+        pytest.param(
+            {"type": "grammar", "variants": {"openai_regex": "x"}}, True, id="grammar-regex-only"
+        ),
+        pytest.param(
+            {"type": "grammar", "variants": {"openai_lark": "x", "openai_regex": "y"}},
+            True,
+            id="grammar-both",
+        ),
+        pytest.param(
+            {"type": "grammar", "variants": {"unknown_key": "x"}}, False, id="grammar-unknown-key"
+        ),
+        pytest.param(None, False, id="explicit-null"),
+    ],
+)
+def test_tool_registry_constrained_sampling_domain(
+    constrained_sampling: Any, expect_valid: bool
+) -> None:
+    """`L05-R001` (grammar keys closed to pinned Pi's two formats, empty `variants: {}` is
+    Pi-valid at the Tool-model boundary -- Pi's own runtime rejection of an empty grammar
+    selection happens at provider request-construction time, Real Providers/Layer 11 territory)
+    and `L05-R006` (explicit `null` is not a fifth alias for the absent state; a scenario meaning
+    "absent" omits the key entirely)."""
+    schema = json.loads(TOOL_REGISTRY_SCHEMA.read_text(encoding="utf-8"))
+    document = _tool_registry_document(
+        parameters={"type": "object", "properties": {}}, constrained_sampling=constrained_sampling
+    )
+    errors = list(Draft202012Validator(schema).iter_errors(document))
+    if expect_valid:
+        assert not errors, [error.message for error in errors]
+    else:
+        assert errors, "expected this constrained_sampling value to be rejected"

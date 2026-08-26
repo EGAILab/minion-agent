@@ -28,7 +28,13 @@ def _ctx() -> Context:
 
 
 def _definition(name: str, execute: Any) -> ToolDefinition:
-    return ToolDefinition(name=name, description=name, parameters=None, execute=execute, label=name)
+    return ToolDefinition(
+        name=name,
+        description=name,
+        parameters={"type": "object", "properties": {}},
+        execute=execute,
+        label=name,
+    )
 
 
 def _loader(registry: ToolRegistry) -> ToolDefinition:

@@ -5,9 +5,15 @@ rather than in the tools package. Two consequences follow, and both matter:
 an adapter can translate a schema without importing the tool registry, and
 `llm` keeps its rule of knowing nothing about layers above it.
 
-`parameters` is JSON Schema. Keeping it a plain mapping rather than a pydantic
-model is deliberate: the model-facing contract has to be language-neutral, and
-a second implementation must be able to produce byte-identical output.
+`parameters` is an object-valued JSON Schema representation compatible with
+pinned Pi's `Tool.parameters` boundary (`packages/ai/src/types.ts::Tool<TParameters
+extends TSchema>` -- TypeBox's `TSchema` is always object-shaped at this position;
+Pi never produces a bare JSON-Schema-spec boolean value here). "Object-valued,"
+not "arbitrary JSON Schema" (`L05-R005`) -- the value domain is a JSON Schema
+object with standard keywords, never the boolean-shorthand forms `true`/`false`.
+Keeping it a plain mapping rather than a pydantic model is deliberate: the
+model-facing contract has to be language-neutral, and a second implementation
+must be able to produce byte-identical output.
 """
 
 from __future__ import annotations
@@ -36,11 +42,17 @@ class JsonSchemaConstrainedSampling:
 class GrammarConstrainedSampling:
     """Pi's `{type: "grammar", variants}` constrained-sampling variant.
 
-    `variants` is keyed by an open grammar-format string (Pi's own known
-    values today are provider-specific, e.g. `"openai_lark"`/`"openai_regex"`)
-    -- never a closed enum, matching this project's `api`/`provider` rule."""
+    `variants` mirrors pinned Pi's own **closed** `GrammarVariants = Partial<Record<
+    GrammarFormat, string>>` (`packages/ai/src/types.ts`), where
+    `GrammarFormat = "openai_lark" | "openai_regex"` -- exactly two independently
+    optional named formats, never an open string-keyed map (`L05-R001`: an earlier
+    draft of this type falsely attributed an open map to Pi). Unlike `api`/`provider`
+    elsewhere in this project, which pinned Pi source itself leaves open, `GrammarFormat`
+    is a closed TypeScript union at the pinned commit -- verified directly, not assumed
+    by analogy."""
 
-    variants: dict[str, str]
+    openai_lark: str | None = None
+    openai_regex: str | None = None
 
 
 type ConstrainedSampling = JsonSchemaConstrainedSampling | GrammarConstrainedSampling
@@ -76,7 +88,12 @@ class ToolSchema:
         elif isinstance(self.constrained_sampling, JsonSchemaConstrainedSampling):
             sampling = {"type": "json_schema", "strict": self.constrained_sampling.strict}
         else:
-            sampling = {"type": "grammar", "variants": dict(self.constrained_sampling.variants)}
+            variants: dict[str, str] = {}
+            if self.constrained_sampling.openai_lark is not None:
+                variants["openai_lark"] = self.constrained_sampling.openai_lark
+            if self.constrained_sampling.openai_regex is not None:
+                variants["openai_regex"] = self.constrained_sampling.openai_regex
+            sampling = {"type": "grammar", "variants": variants}
         return {
             "name": self.name,
             "description": self.description,

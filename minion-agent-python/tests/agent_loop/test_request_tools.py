@@ -15,7 +15,11 @@ def _say(text: str) -> UserMessage:
 
 def _echo() -> ToolDefinition:
     return ToolDefinition(
-        name="echo", description="repeat", parameters=None, execute=lambda args: "ok", label="Echo"
+        name="echo",
+        description="repeat",
+        parameters={"type": "object", "properties": {}},
+        execute=lambda args: "ok",
+        label="Echo",
     )
 
 

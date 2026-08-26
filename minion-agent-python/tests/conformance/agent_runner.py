@@ -159,7 +159,7 @@ def _stub(spec: dict[str, Any], registry: ToolRegistry, name: str) -> Any:
                 ToolDefinition(
                     name=added_name,
                     description=added_name,
-                    parameters=None,
+                    parameters={"type": "object", "properties": {}},
                     execute=lambda inner: "added",
                     label=added_name,
                 )
@@ -344,7 +344,7 @@ async def run_agent_scenario(document: dict[str, Any]) -> dict[str, Any]:
             ToolDefinition(
                 name=name,
                 description=name,
-                parameters=None,
+                parameters={"type": "object", "properties": {}},
                 execute=_stub(stub, ctx.tools, name),
                 label=name,
                 mode=ExecutionMode(stub.get("execution_mode", "parallel")),

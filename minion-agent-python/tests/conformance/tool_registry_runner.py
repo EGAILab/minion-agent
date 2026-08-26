@@ -29,14 +29,17 @@ def _constrained_sampling(raw: Any) -> ConstrainedSampling | bool | None:
         return raw
     if raw["type"] == "json_schema":
         return JsonSchemaConstrainedSampling(strict=raw["strict"])
-    return GrammarConstrainedSampling(variants=dict(raw["variants"]))
+    variants = raw["variants"]
+    return GrammarConstrainedSampling(
+        openai_lark=variants.get("openai_lark"), openai_regex=variants.get("openai_regex")
+    )
 
 
 def _tool_definition(spec: dict[str, Any]) -> ToolDefinition:
     return ToolDefinition(
         name=spec["name"],
         description=spec["description"],
-        parameters=spec.get("parameters"),  # a raw JSON Schema dict, or None (TOOL-F010)
+        parameters=spec["parameters"],  # a raw, object-valued JSON Schema dict (L05-R005/TOOL-F010)
         execute=lambda args: "ok",  # never invoked -- Layer 05 registry scenarios never execute
         label=spec["label"],
         constrained_sampling=_constrained_sampling(spec.get("constrained_sampling")),
@@ -48,7 +51,13 @@ def _schema_as_dict(definition: ToolDefinition) -> dict[str, Any]:
 
 
 class _ScopeTable:
-    """Real `ScopeKey`/`Scope` objects, keyed by the plain names scenarios use."""
+    """Real `ScopeKey`/`Scope` objects, keyed by the plain names scenarios use.
+
+    Rejects unresolved parent/query references explicitly (`L05-R004`): a `scope_parent` or
+    query `scope` naming a scope no earlier `plugins[]` entry actually created is malformed
+    canonical input, not "no parent"/"untagged" -- validating this reference is the runner's own
+    input-validation boundary, not a simulation of tool-registry visibility semantics.
+    """
 
     def __init__(self) -> None:
         self.keys: dict[str, ScopeKey] = {}
@@ -56,7 +65,14 @@ class _ScopeTable:
 
     def key_for(self, name: str, parent_name: str | None) -> ScopeKey:
         if name not in self.keys:
-            parent = self.keys.get(parent_name) if parent_name else None
+            parent = None
+            if parent_name is not None:
+                if parent_name not in self.keys:
+                    raise ValueError(
+                        f"scope {name!r} declares scope_parent {parent_name!r}, which no earlier "
+                        "plugins[] entry created -- malformed canonical input"
+                    )
+                parent = self.keys[parent_name]
             self.keys[name] = ScopeKey(name, parent=parent)
         return self.keys[name]
 
@@ -68,10 +84,81 @@ class _ScopeTable:
         self.live[name] = scope
         return scope
 
+    def require_live(self, name: str) -> Scope:
+        """The real `Scope` a query's `scope:` name refers to -- raises if that name was never
+        created by any `plugins[]` entry, rather than silently treating it as untagged."""
+        if name not in self.live:
+            raise ValueError(
+                f"query references scope {name!r}, which no plugins[] entry ever created"
+            )
+        return self.live[name]
+
+
+def _validate_references(spec_doc: dict[str, Any]) -> None:
+    """Reject malformed declarative references before any Runtime object is constructed
+    (`L05-R004`): a plugin's `apply()` raising during `reconcile()` is recorded as a fiber
+    failure and reconciliation continues, so a `scope_parent`/query `scope` naming a
+    never-declared scope previously surfaced only as an incidental `KeyError` later, not the
+    direct rejection this boundary promises. This validates the scenario description itself
+    (structural fixture integrity), not registry lookup/shadowing semantics -- it never decides
+    visibility, ancestry, or ordering; the real `ToolRegistry`/`Context`/`Scope` seam still owns
+    all of that once construction begins.
+    """
+    plugin_ids = {entry["id"] for entry in spec_doc["plugins"]}
+    scope_parents: dict[str, str | None] = {
+        entry["scope"]: entry.get("scope_parent")
+        for entry in spec_doc["plugins"]
+        if entry.get("scope") is not None
+    }
+
+    for scope_name, parent_name in scope_parents.items():
+        if parent_name is None:
+            continue
+        if parent_name == scope_name:
+            raise ValueError(f"scope {scope_name!r} declares itself as its own scope_parent")
+        if parent_name not in scope_parents:
+            raise ValueError(
+                f"scope {scope_name!r} declares scope_parent {parent_name!r}, which no "
+                "plugins[] entry declares as its own scope -- malformed canonical input"
+            )
+
+    for scope_name in scope_parents:
+        seen = {scope_name}
+        current = scope_parents[scope_name]
+        while current is not None:
+            if current in seen:
+                raise ValueError(
+                    f"scope {scope_name!r}'s scope_parent chain contains a cycle at {current!r}"
+                )
+            seen.add(current)
+            current = scope_parents[current]
+
+    for step in spec_doc["steps"]:
+        for key in ("mount", "unmount", "withdraw"):
+            if key in step and step[key] not in plugin_ids:
+                raise ValueError(
+                    f"step {key!r} references plugin {step[key]!r}, which no plugins[] entry "
+                    "declares -- malformed canonical input"
+                )
+        if "dispose_scope" in step and step["dispose_scope"] not in scope_parents:
+            raise ValueError(
+                f"step dispose_scope references scope {step['dispose_scope']!r}, which no "
+                "plugins[] entry declares -- malformed canonical input"
+            )
+
+    for query in spec_doc["queries"]:
+        scope_name = query.get("scope")
+        if scope_name is not None and scope_name not in scope_parents:
+            raise ValueError(
+                f"query {query['id']!r} references scope {scope_name!r}, which no plugins[] "
+                "entry declares -- malformed canonical input"
+            )
+
 
 async def run_tool_registry_scenario(document: dict[str, Any]) -> dict[str, Any]:
     """Run one `tool_registry` scenario and return `{query_id: {...}}` observations."""
     spec_doc = document["tool_registry"]
+    _validate_references(spec_doc)
     root = Context()
     root.plugins.mount(spec_of(tools_plugin), None, root)
     await root.plugins.reconcile()
@@ -113,8 +200,11 @@ async def run_tool_registry_scenario(document: dict[str, Any]) -> dict[str, Any]
     registry: ToolRegistry = root.tools
     observations: dict[str, Any] = {}
     for query in spec_doc["queries"]:
-        scope_key = scopes.keys.get(query["scope"]) if query.get("scope") else None
-        visible = registry.visible_from(scope_key)
+        # A real, possibly-disposed Scope object -- not a bare key -- so a disposed scope
+        # correctly observes no visibility at all (L05-R002), and an unresolved scope name
+        # fails loudly rather than silently meaning "untagged" (L05-R004).
+        scope = scopes.require_live(query["scope"]) if query.get("scope") else None
+        visible = registry.visible_from(scope)
         observation: dict[str, Any] = {
             "names": [definition.name for definition in visible],
             "schemas": [_schema_as_dict(definition) for definition in visible],
@@ -122,7 +212,7 @@ async def run_tool_registry_scenario(document: dict[str, Any]) -> dict[str, Any]
         if "resolve" in query:
             resolved: dict[str, Any] = {}
             for name in query["resolve"]:
-                found = registry.resolve(name, scope_key)
+                found = registry.resolve(name, scope)
                 resolved[name] = (
                     {"found": True, "label": found.label} if found is not None else {"found": False}
                 )

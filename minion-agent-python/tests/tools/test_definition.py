@@ -1,5 +1,6 @@
 """A definition is what the registry stores and the model is told about."""
 
+import pytest
 from pydantic import BaseModel
 
 from minion_agent.tools.definition import ExecutionMode, ToolDefinition
@@ -48,11 +49,55 @@ def test_a_defaulted_field_is_not_required() -> None:
 
 
 def test_a_tool_without_parameters_gets_an_empty_object_schema() -> None:
-    """Not a missing schema: a model needs to be told the tool takes nothing,
-    or it has no way to call it correctly."""
-    schema = _definition(parameters=None).schema()
+    """Not a missing schema: a model needs to be told the tool takes nothing, or it has no way to
+    call it correctly. The tool author supplies the empty schema explicitly (`L05-R005`);
+    `None`/missing are not shorthand for it -- see the negative test below."""
+    schema = _definition(parameters={"type": "object", "properties": {}}).schema()
 
     assert schema.parameters == {"type": "object", "properties": {}}
+
+
+def test_a_tool_with_none_parameters_is_rejected() -> None:
+    """`L05-R005`: pinned Pi's `Tool.parameters` is required. `None` is not a semantic alias for
+    the empty schema -- it is rejected at construction, not only by typing."""
+    with pytest.raises(TypeError, match="parameters"):
+        _definition(parameters=None)
+
+
+@pytest.mark.parametrize("bad", [True, False, [], "schema", 42], ids=lambda v: type(v).__name__)
+def test_a_tool_with_a_non_mapping_parameters_value_is_rejected(bad: object) -> None:
+    """The "object-valued JSON Schema" boundary means the JSON *representation* of the schema is
+    a mapping -- it excludes the JSON-Schema-spec boolean-shorthand forms and any other
+    non-mapping value (`L05-R005`)."""
+    with pytest.raises(TypeError, match="parameters"):
+        _definition(parameters=bad)
+
+
+@pytest.mark.parametrize(
+    "parameters",
+    [
+        pytest.param({"type": "object", "properties": {}}, id="empty-object-instance"),
+        pytest.param({"type": "string"}, id="non-object-instance"),
+        pytest.param(
+            {"oneOf": [{"type": "string"}, {"type": "number"}]}, id="top-level-combinator"
+        ),
+        pytest.param({"$comment": "kept", "custom-extension": {"x": 1}}, id="arbitrary-members"),
+    ],
+)
+def test_a_tool_accepts_any_object_valued_schema_representation(
+    parameters: dict[str, object],
+) -> None:
+    """`L05-R005`: "object-valued" describes the schema's own JSON representation (a mapping),
+    not a requirement that the schema describe an object *instance* via a top-level `"type":
+    "object"` keyword. Pinned Pi's `Tool<TParameters extends TSchema>` is generic over TypeBox's
+    whole `TSchema` domain, not narrowed to `TObject` -- a non-object-instance schema and a
+    top-level combinator are equally valid tool parameter schemas. An earlier repair mistakenly
+    required `parameters["type"] == "object"`, which rejected both. Arbitrary object members
+    (keywords Layer 05 does not itself interpret) must survive unchanged -- Layer 05 is not a
+    JSON Schema validator."""
+    schema = _definition(parameters=parameters).schema()
+
+    assert schema.parameters == parameters
 
 
 def test_execution_modes_are_exactly_two() -> None:

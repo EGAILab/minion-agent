@@ -234,7 +234,7 @@ class AgentLoop:
             if decision.system_override is not None
             else self.instance.definition.system
         }
-        schemas = self.tools.schemas(self.instance.scope.key)
+        schemas = self.tools.schemas(self.instance.scope)
         record_header(
             log,
             self.artifacts,
@@ -285,7 +285,7 @@ class AgentLoop:
             calls,
             registry=self.tools,
             ctx=self.instance.ctx,
-            scope=self.instance.scope.key,
+            scope=self.instance.scope,
         )
         for result in outcome.results:
             log.append(

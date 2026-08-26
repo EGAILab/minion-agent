@@ -8,9 +8,14 @@ notes: >
   nothing (a model told a tool has no schema has no defined way to call it); constrained_sampling
   preserves all four pinned-Pi states -- absent (Tool.constrainedSampling? undefined), false,
   json_schema{strict}, and grammar{variants} (packages/ai/src/types.ts::ConstrainedSamplingConfig,
-  TOOL-F005). Provider-specific enforcement/fallback is Real Providers (assurance Layer 11)
-  territory; this scenario proves only that the metadata survives, never that any provider acts
-  on it.
+  TOOL-F005). `parameters` is always written explicitly, including the empty-object case
+  (`L05-R005`): Pi's own `Tool.parameters` is required, so the canonical boundary no longer
+  accepts a missing/null shorthand -- that was a Python/DSL-only convenience previously
+  conflated with the real contract, not a distinct Pi-recognized state. Grammar `variants` is
+  closed to pinned Pi's own two formats (`L05-R001`) -- both are exercised here independently
+  and together, since Pi's `Partial<Record<...>>` permits either or both. Provider-specific
+  enforcement/fallback is Real Providers (assurance Layer 11) territory; this scenario proves
+  only that the metadata survives, never that any provider acts on it.
 tool_registry:
   plugins:
     - id: root-plugin
@@ -26,23 +31,42 @@ tool_registry:
         - name: no_params
           description: parameterless
           label: No Params
+          parameters: { type: object, properties: {} }
         - name: constrained_absent
           description: no constrained-sampling preference stated
           label: Constrained Absent
+          parameters: { type: object, properties: {} }
         - name: constrained_false
           description: explicitly disabled
           label: Constrained False
+          parameters: { type: object, properties: {} }
           constrained_sampling: false
         - name: constrained_json_schema
           description: json_schema variant
           label: Constrained JSON Schema
+          parameters: { type: object, properties: {} }
           constrained_sampling: { type: json_schema, strict: require }
-        - name: constrained_grammar
-          description: grammar variant
-          label: Constrained Grammar
+        - name: constrained_grammar_lark
+          description: grammar variant, openai_lark only
+          label: Constrained Grammar Lark
+          parameters: { type: object, properties: {} }
           constrained_sampling:
             type: grammar
             variants: { openai_lark: "start: WORD+" }
+        - name: constrained_grammar_regex
+          description: grammar variant, openai_regex only
+          label: Constrained Grammar Regex
+          parameters: { type: object, properties: {} }
+          constrained_sampling:
+            type: grammar
+            variants: { openai_regex: "^[a-z]+$" }
+        - name: constrained_grammar_both
+          description: grammar variant, both formats set
+          label: Constrained Grammar Both
+          parameters: { type: object, properties: {} }
+          constrained_sampling:
+            type: grammar
+            variants: { openai_lark: "start: WORD+", openai_regex: "^[a-z]+$" }
   steps:
     - mount: root-plugin
   queries:
@@ -55,7 +79,9 @@ expect:
       - constrained_absent
       - constrained_false
       - constrained_json_schema
-      - constrained_grammar
+      - constrained_grammar_lark
+      - constrained_grammar_regex
+      - constrained_grammar_both
     schemas:
       - name: with_schema
         description: has a real parameter schema
@@ -81,9 +107,21 @@ expect:
         description: json_schema variant
         parameters: { type: object, properties: {} }
         constrained_sampling: { type: json_schema, strict: require }
-      - name: constrained_grammar
-        description: grammar variant
+      - name: constrained_grammar_lark
+        description: grammar variant, openai_lark only
         parameters: { type: object, properties: {} }
         constrained_sampling:
           type: grammar
           variants: { openai_lark: "start: WORD+" }
+      - name: constrained_grammar_regex
+        description: grammar variant, openai_regex only
+        parameters: { type: object, properties: {} }
+        constrained_sampling:
+          type: grammar
+          variants: { openai_regex: "^[a-z]+$" }
+      - name: constrained_grammar_both
+        description: grammar variant, both formats set
+        parameters: { type: object, properties: {} }
+        constrained_sampling:
+          type: grammar
+          variants: { openai_lark: "start: WORD+", openai_regex: "^[a-z]+$" }

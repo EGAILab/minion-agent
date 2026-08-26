@@ -14,7 +14,7 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable
 
 from ..llm import ToolSchema
-from ..runtime import Context, ScopedRegistry, ScopeKey, scope_of
+from ..runtime import Context, Scope, ScopedRegistry, ScopeKey, scope_of
 from .definition import ToolDefinition
 
 
@@ -32,19 +32,35 @@ class ToolRegistry:
         """File `definition` under `scope`; returns a withdrawal handle."""
         return self._entries.add(scope, definition.name, definition)
 
-    def visible_from(self, scope: ScopeKey | None = None) -> tuple[ToolDefinition, ...]:
+    def visible_from(self, scope: ScopeKey | Scope | None = None) -> tuple[ToolDefinition, ...]:
         """Tools visible from `scope`, nearest first, one per name.
 
         `ScopedRegistry` returns nearest-scope-first and takes no position on
         collisions; shadowing is this registry's composition rule, applied by
         keeping the first entry seen for each name.
+
+        A disposed/inactive scope is never a valid observation point (`L05-R002`):
+        querying with a live `Scope` whose `.disposed` is true returns no
+        visibility at all, not even untagged/ancestor entries -- matching
+        certified Rust's `ScopeTree::active_ancestor_chain` behavior exactly.
+        This reuses the certified Runtime's own `Scope.disposed` property
+        directly rather than duplicating disposal tracking; a bare `ScopeKey`
+        (no liveness information attached) is accepted unchanged, since the
+        generic `ScopedRegistry` primitive itself deliberately has no opinion
+        on scope activity -- see `ScopedRegistry`'s own docstring.
         """
+        if isinstance(scope, Scope):
+            if scope.disposed:
+                return ()
+            scope = scope.key
         seen: dict[str, ToolDefinition] = {}
         for name, definition in self._entries.visible_from(scope):
             seen.setdefault(name, definition)
         return tuple(seen.values())
 
-    def resolve(self, name: str, scope: ScopeKey | None = None) -> ToolDefinition | None:
+    def resolve(
+        self, name: str, scope: ScopeKey | Scope | None = None
+    ) -> ToolDefinition | None:
         """The definition `name` refers to from `scope`, or None.
 
         None rather than an exception: an unknown call becomes an error result
@@ -55,7 +71,7 @@ class ToolRegistry:
                 return definition
         return None
 
-    def schemas(self, scope: ScopeKey | None = None) -> tuple[ToolSchema, ...]:
+    def schemas(self, scope: ScopeKey | Scope | None = None) -> tuple[ToolSchema, ...]:
         """Model-facing schemas for every tool visible from `scope`."""
         return tuple(definition.schema() for definition in self.visible_from(scope))
 

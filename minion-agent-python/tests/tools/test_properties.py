@@ -32,12 +32,21 @@ def _registry(mode: ExecutionMode) -> ToolRegistry:
     for name, execute in (("ok", lambda args: "ok"), ("slow", lambda args: "slow")):
         registry.register(
             ToolDefinition(
-                name=name, description=name, parameters=None, execute=execute, label=name, mode=mode
+                name=name,
+                description=name,
+                parameters={"type": "object", "properties": {}},
+                execute=execute,
+                label=name,
+                mode=mode,
             )
         )
     registry.register(
         ToolDefinition(
-            name="broken", description="broken", parameters=None, execute=broken, label="broken"
+            name="broken",
+            description="broken",
+            parameters={"type": "object", "properties": {}},
+            execute=broken,
+            label="broken",
         )
     )
     return registry
@@ -105,7 +114,7 @@ async def test_a_unanimous_batch_of_any_size_terminates(size: int) -> None:
         ToolDefinition(
             name="stop",
             description="stop",
-            parameters=None,
+            parameters={"type": "object", "properties": {}},
             execute=lambda args: ToolResult(
                 tool_call_id="", content=(), tool_name="stop", terminate=True
             ),
@@ -133,7 +142,7 @@ async def test_a_mixed_batch_never_terminates(
         ToolDefinition(
             name="stop",
             description="stop",
-            parameters=None,
+            parameters={"type": "object", "properties": {}},
             execute=lambda args: ToolResult(
                 tool_call_id="", content=(), tool_name="stop", terminate=True
             ),
@@ -145,7 +154,7 @@ async def test_a_mixed_batch_never_terminates(
         ToolDefinition(
             name="go",
             description="go",
-            parameters=None,
+            parameters={"type": "object", "properties": {}},
             execute=lambda args: "go",
             label="go",
             mode=mode,

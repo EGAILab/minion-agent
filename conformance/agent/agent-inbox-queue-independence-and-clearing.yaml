@@ -8,8 +8,12 @@ notes: >
   queue, never the other; `clearAllQueues()` discards both; `hasQueuedMessages()` is the OR of
   both. This scenario proves all four together: steering holds `A, C`, follow-up holds `B`;
   clearing steering leaves follow-up (and therefore `hasQueuedMessages`) untouched; claiming
-  follow-up then empties it, so `hasQueuedMessages` finally reports false. Nothing here is
-  computed by the runner -- every observation is the real `Inbox`'s own return value.
+  follow-up then empties it, so `hasQueuedMessages` finally reports false. The scenario then
+  repopulates both queues and exercises `clearAllQueues()` itself (`clear: {queue: all}`),
+  discarding both at once -- the second independent Rust review found this specific case
+  claimed but not actually present in this file, since everything above it only exercises
+  single-target clearing. Nothing here is computed by the runner -- every observation is the
+  real `Inbox`'s own return value.
 agent_inbox:
   actions:
     - steer: { text: A }
@@ -24,8 +28,17 @@ agent_inbox:
       observe: follow_up_claim
     - has_queued_messages: {}
       observe: pending_after_draining_follow_up
+    - steer: { text: D }
+    - follow_up: { text: E }
+    - has_queued_messages: {}
+      observe: pending_before_clear_all
+    - clear: { queue: all }
+    - has_queued_messages: {}
+      observe: pending_after_clear_all
 expect:
   pending_before_any_clear: true
   pending_after_clearing_steering: true
   follow_up_claim: [B]
   pending_after_draining_follow_up: false
+  pending_before_clear_all: true
+  pending_after_clear_all: false

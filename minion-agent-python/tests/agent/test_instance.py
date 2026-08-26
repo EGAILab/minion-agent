@@ -6,8 +6,26 @@ from minion_agent.agent.envelope import InboxTarget
 from minion_agent.agent.identity import AgentDefinition, AgentStatus, ThinkingLevel
 from minion_agent.agent.instance import AgentActiveError, AgentInstance, instance_scope_key
 from minion_agent.llm import ModelId, TextBlock, UserMessage
-from minion_agent.runtime import Context, scope_of
+from minion_agent.runtime import Context, FiberState, scope_of
 from minion_agent.session import SessionLog
+from minion_agent.session.derive import encode_message
+from minion_agent.session.events import EventKind
+from minion_agent.tools.definition import ToolDefinition
+from minion_agent.tools.registry import ToolRegistry
+
+
+class _FakeOwner:
+    """A minimal, always-active service owner (mirrors `test_context_access.py`)."""
+
+    name = "owner"
+    state = FiberState.ACTIVE
+
+
+def _with_tools(ctx: Context, registry: ToolRegistry | None = None) -> ToolRegistry:
+    """Provide `registry` (or a fresh one) as the `ctx.tools` service and return it."""
+    registry = registry or ToolRegistry()
+    ctx.registry.provide("tools", registry, _FakeOwner())
+    return registry
 
 
 def _definition() -> AgentDefinition:
@@ -144,6 +162,59 @@ def test_messages_projects_the_session_log() -> None:
     assert instance.messages == ()
 
 
+def test_messages_reflects_events_actually_appended_to_the_log() -> None:
+    """The positive counterpart to the empty-log case above: a real appended
+    message actually surfaces through the projection, proving it reads live
+    log content and is not just always empty."""
+    instance = _instance()
+    message = UserMessage(content=(TextBlock(text="hi"),), timestamp=1)
+    instance.log.append(EventKind.USER_MESSAGE, {"message": encode_message(message)})
+
+    assert instance.messages == (message,)
+
+
+# -- AG-017: Agent-level tools projection -------------------------------------
+
+
+def test_tools_projects_the_tool_registry_visible_from_this_instances_scope() -> None:
+    """Pi's `state.tools` read; Minion's authority is the certified Layer-05
+    `ToolRegistry` -- `AgentInstance.tools` is a fresh projection over
+    `visible_from(scope)`, mirroring `messages` (`AG-017`, `L07-R005`)."""
+    context = Context()
+    registry = _with_tools(context)
+    definition = ToolDefinition(
+        name="echo",
+        description="d",
+        parameters={"type": "object", "properties": {}},
+        execute=lambda args: "ok",
+        label="echo",
+    )
+    instance = _instance(context)
+    registry.register(definition, scope=instance.scope.key)
+
+    assert instance.tools == (definition,)
+
+
+def test_tools_reflects_registrations_made_after_construction() -> None:
+    """Not a snapshot taken at `__init__` time -- a fresh read every access,
+    exactly like `messages`."""
+    context = Context()
+    registry = _with_tools(context)
+    instance = _instance(context)
+    assert instance.tools == ()
+
+    definition = ToolDefinition(
+        name="echo",
+        description="d",
+        parameters={"type": "object", "properties": {}},
+        execute=lambda args: "ok",
+        label="echo",
+    )
+    registry.register(definition, scope=instance.scope.key)
+
+    assert instance.tools == (definition,)
+
+
 # -- AG-016: in-place reset ---------------------------------------------------
 
 
@@ -161,6 +232,48 @@ def test_reset_clears_runtime_state_and_both_queues() -> None:
     assert instance.streaming_message is None
     assert instance.pending_tool_calls == frozenset()
     assert not instance.inbox.has_pending()
+
+
+def test_reset_clears_messages_via_the_session_reset_marker() -> None:
+    """Pinned Pi's `reset()` also clears `messages` (`this._state.messages = []`).
+    Minion reproduces this through the already-certified Layer-03
+    `session.reset(log)` marker, not by adding a new primitive to `SessionLog`
+    (`L07-R003`, second independent Rust review): appending a `session/reset`
+    event makes `derive_messages` stop projecting everything at or before it."""
+    instance = _instance()
+    message = UserMessage(content=(TextBlock(text="hi"),), timestamp=1)
+    instance.log.append(EventKind.USER_MESSAGE, {"message": encode_message(message)})
+    assert instance.messages == (message,)
+
+    instance.reset()
+
+    assert instance.messages == ()
+
+
+def test_reset_preserves_full_history_for_audit_after_clearing_the_projection() -> None:
+    """`session.reset()` appends a marker; it never truncates the log itself --
+    history stays readable, only the model-facing projection changes."""
+    instance = _instance()
+    message = UserMessage(content=(TextBlock(text="hi"),), timestamp=1)
+    instance.log.append(EventKind.USER_MESSAGE, {"message": encode_message(message)})
+
+    instance.reset()
+
+    assert len(instance.log) == 2
+
+
+def test_reset_does_not_clear_a_pending_wake_signal() -> None:
+    """Normative, not incidental (`L07-R003`, second independent Rust review):
+    wake and queued content are orthogonal concerns, and pinned Pi has no wake
+    concept to constrain this decision either way -- a wake that arrived before
+    an idle instance was reset still describes a real, unconsumed signal."""
+    instance = _instance()
+    instance.inbox.followup(UserMessage(content=(TextBlock(text="hi"),), timestamp=1))
+    assert instance.inbox.wake_requested
+
+    instance.reset()
+
+    assert instance.inbox.wake_requested
 
 
 def test_reset_retains_identity_configuration_and_tool_relationship() -> None:

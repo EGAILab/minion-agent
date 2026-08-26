@@ -588,66 +588,112 @@ rows:
   disposition: adopted
 - id: AG-015
   phase: 3
-  pi: packages/agent/src/types.ts::AgentState (isStreaming/streamingMessage/pendingToolCalls/errorMessage/messages/tools)
-  surface: complete Agent public-state field disposition (assurance Layer 07)
-  rule: 'L07-R005, CONTRACT_ASSURANCE_DEFECT, resolved this pass: every pinned Pi `AgentState`
-    field neither AG-011/012/013/014 nor an already-certified layer owns now has an explicit,
-    non-contradictory disposition (no field is left with a vague "non-blocking gap"/"architectural
-    difference" label, per the independent review''s own explicit rejection of those as valid
-    dispositions):
-
-    `messages` -- adopted as a public projection, not a duplicate store. Pi''s own `state.messages`
-    getter returns the live backing array (mutable in place); assignment shallow-copies
-    (`messages = nextMessages.slice()`). Minion''s authority is the already-certified Layer-03
-    `SessionLog` (append-only); `AgentInstance.messages` is a fresh `derive_messages(self.log)`
-    projection on every read, never a live mutable reference -- an intentional, disclosed
-    divergence from Pi''s live-read semantics, justified because a caller mutating a returned
-    live array would otherwise be able to corrupt history outside the log''s own controlled
-    `append()` API, which Layer 03''s own certification does not permit (test_messages_projects_
-    the_session_log).
-
-    `tools` -- adopted as a public projection over the already-certified Layer-05 `ToolRegistry`,
-    not a duplicate store. Pi''s `state.tools` getter/setter pattern (live read, copy-on-assign)
-    has no Minion equivalent to build, since `ToolRegistry.visible_from(scope)` already exists and
-    already answers exactly "what tools are visible here" -- Layer 07 does not introduce a second,
-    competing tools list. Assigning a wholesale replacement set the way Pi''s `state.tools = [...]`
-    does is not reproduced; the Minion-architecture equivalent is registering/withdrawing tools
-    through the certified `ToolRegistry` API, an already-settled Layer-05 divergence this pass does
-    not revisit or duplicate.
-
-    `isStreaming` -- adopted, via `AgentStatus.IDLE`/`RUNNING` (see `identity.py`''s own docstring):
-    a lossless, direct two-value representation of the same boolean fact, not an "architectural
-    adaptation" that changes the observable semantic. `RUNNING` <-> `true`, `IDLE` <-> `false`.
-
-    `streamingMessage`/`pendingToolCalls`/`errorMessage` -- vocabulary and initial values adopted
-    now (`AgentInstance.streaming_message: Message | None = None`,
-    `.pending_tool_calls: frozenset[str] = frozenset()`, `.error_message: str | None = None`,
-    matching pinned Pi''s `undefined`/`undefined`/`new Set()`-as-empty/`undefined` initial state
-    exactly) -- deferred parity for their TRANSITIONS specifically: when and how they change during
-    a run requires step/turn timing this narrow pass does not implement or certify
-    (test_runtime_fields_start_at_pis_own_initial_values proves only the initial vocabulary/value,
-    deliberately not a fabricated transition). The existing, uncertified `driver.py` does not yet
-    write to these fields; wiring that is Layer 08''s own future obligation, not fixed here.
-
-    `wake_requested`/`take_wake` (Inbox) -- explicitly classified as an intentional Minion
-    architectural extension, NOT Pi parity: pinned Pi has no corresponding concept at all. Kept
-    separate from every `adopted` row above rather than folded into one of them, per the
-    independent review''s own instruction not to let wake semantics pollute an adopted Pi-parity
-    rule.'
+  pi: packages/agent/src/types.ts::AgentState (isStreaming)
+  surface: processing status field disposition (assurance Layer 07)
+  rule: 'L07-R005, CONTRACT_ASSURANCE_DEFECT, resolved a prior pass, re-scoped this pass to this
+    one field only (see AG-017/AG-018/AG-019 for the fields this row previously bundled together
+    under one disposition -- the second independent Rust review correctly rejected that bundling,
+    since a single `disposition:` value cannot honestly describe fields whose actual dispositions
+    differ): `isStreaming` is adopted via `AgentStatus.IDLE`/`RUNNING` (see `identity.py`''s own
+    docstring), a lossless, direct two-value representation of the same boolean fact, not an
+    "architectural adaptation" that changes the observable semantic. `RUNNING` <-> `true`, `IDLE`
+    <-> `false`.'
   tests:
-  - test_messages_projects_the_session_log
-  - test_runtime_fields_start_at_pis_own_initial_values
   - test_an_instance_starts_idle
-  python: src/minion_agent/agent/instance.py::AgentInstance.messages/streaming_message/pending_tool_calls/error_message, src/minion_agent/agent/identity.py::AgentStatus, src/minion_agent/tools/registry.py::ToolRegistry.visible_from
+  python: src/minion_agent/agent/instance.py::AgentInstance.status, src/minion_agent/agent/identity.py::AgentStatus
   rust: PENDING -- Layer 07 not yet implemented in Rust
   disposition: adopted
+- id: AG-017
+  phase: 3
+  pi: packages/agent/src/types.ts::AgentState (messages/tools)
+  surface: messages and tools public projections (assurance Layer 07)
+  rule: 'L07-R005, split out of AG-015 this pass (see AG-015''s own note on why): both fields are
+    genuine, disclosed divergences from Pi''s own field semantics, not straight adoption, so both
+    belong under `intentional divergence` rather than `adopted`.
+
+    `messages` -- Pi''s own `state.messages` getter returns the live backing array (mutable in
+    place); assignment shallow-copies (`messages = nextMessages.slice()`). Minion''s authority is
+    the already-certified Layer-03 `SessionLog` (append-only); `AgentInstance.messages` is a fresh
+    `derive_messages(self.log)` projection on every read, never a live mutable reference -- an
+    intentional, disclosed divergence from Pi''s live-read semantics, justified because a caller
+    mutating a returned live array would otherwise be able to corrupt history outside the log''s
+    own controlled `append()` API, which Layer 03''s own certification does not permit
+    (test_messages_projects_the_session_log, test_messages_reflects_events_actually_appended_to_
+    the_log).
+
+    `tools` -- L07-R005''s own tools sub-finding, resolved this pass: a prior pass claimed `tools`
+    as adopted on the strength of the certified Layer-05 `ToolRegistry.visible_from(scope)`
+    existing somewhere in the codebase, without actually exposing an Agent-level accessor that
+    calls it -- so nothing on `AgentInstance` itself answered "what tools does this agent see" the
+    way Pi''s `Agent.state.tools` getter does, which the independent review correctly read as the
+    claimed projection not actually existing. `AgentInstance.tools` (this pass) closes that gap: a
+    fresh `ToolRegistry.visible_from(self.scope.key)` projection on every read, resolved through
+    `ctx.tools` the same way `AgentLoopFactory.for_instance` already does when composing a driver --
+    not a second resolution mechanism, only a second caller of the existing one
+    (test_tools_projects_the_tool_registry_visible_from_this_instances_scope,
+    test_tools_reflects_registrations_made_after_construction). Assigning a wholesale replacement
+    set the way Pi''s `state.tools = [...]` does is still not reproduced; the Minion-architecture
+    equivalent remains registering/withdrawing tools through the certified `ToolRegistry` API, an
+    already-settled Layer-05 divergence this pass does not revisit or duplicate -- this is why the
+    field as a whole is `intentional divergence`, not `adopted`, even though a read accessor now
+    exists.'
+  tests:
+  - test_messages_projects_the_session_log
+  - test_messages_reflects_events_actually_appended_to_the_log
+  - test_tools_projects_the_tool_registry_visible_from_this_instances_scope
+  - test_tools_reflects_registrations_made_after_construction
+  python: src/minion_agent/agent/instance.py::AgentInstance.messages/tools, src/minion_agent/tools/registry.py::ToolRegistry.visible_from
+  rust: PENDING -- Layer 07 not yet implemented in Rust
+  disposition: intentional divergence
+- id: AG-018
+  phase: 3
+  pi: packages/agent/src/types.ts::AgentState (streamingMessage/pendingToolCalls/errorMessage)
+  surface: runtime-field vocabulary and initial values (assurance Layer 07)
+  rule: 'L07-R005, split out of AG-015 this pass (see AG-015''s own note on why): vocabulary and
+    initial values are adopted now (`AgentInstance.streaming_message: Message | None = None`,
+    `.pending_tool_calls: frozenset[str] = frozenset()`, `.error_message: str | None = None`,
+    matching pinned Pi''s `undefined`/`undefined`/`new Set()`-as-empty/`undefined` initial state
+    exactly) -- `deferred parity` for their TRANSITIONS specifically: when and how they change
+    during a run requires step/turn timing this narrow pass does not implement or certify
+    (test_runtime_fields_start_at_pis_own_initial_values proves only the initial vocabulary/value,
+    deliberately not a fabricated transition). The existing, uncertified `driver.py` does not yet
+    write to these fields; wiring that is Layer 08''s own future obligation, not fixed here. This
+    row''s own disposition is `deferred parity`, distinctly from AG-015''s `adopted` and AG-017''s
+    `intentional divergence` -- exactly the kind of distinction a single bundled row previously
+    obscured.'
+  tests:
+  - test_runtime_fields_start_at_pis_own_initial_values
+  python: src/minion_agent/agent/instance.py::AgentInstance.streaming_message/pending_tool_calls/error_message
+  rust: PENDING -- Layer 07 not yet implemented in Rust
+  disposition: deferred parity
+- id: AG-019
+  phase: 3
+  pi: (none -- no pinned Pi equivalent)
+  surface: wake signal, an intentional Minion-only extension (assurance Layer 07)
+  rule: '`wake_requested`/`take_wake` (`Inbox`) is an intentional Minion architectural extension
+    with no pinned Pi counterpart at all -- there is no Pi rule to adopt or diverge from, so this
+    row exists only so the manifest does not leave a Minion-only public surface silently
+    undisposed. Recorded as `intentional divergence` for lack of a better-fitting taxonomy value
+    (the closest available: this is Minion actively choosing to add something beyond Pi, not a
+    parity gap Pi requires and Minion has not yet closed). Kept separate from AG-015/017/018 per
+    the independent review''s own instruction not to let wake semantics pollute an adopted or
+    deferred Pi-parity row. `reset()`''s own relationship to wake (whether a pending wake survives
+    a reset) is specified normatively at AG-016, not here -- this row covers the signal''s own
+    existence and semantics only.'
+  tests:
+  - test_has_pending_is_false_for_an_empty_inbox
+  - test_clearing_does_not_affect_the_wake_signal
+  python: src/minion_agent/agent/inbox.py::Inbox.wake_requested/take_wake
+  rust: PENDING -- Layer 07 not yet implemented in Rust
+  disposition: intentional divergence
 - id: AG-016
   phase: 3
   pi: packages/agent/src/agent.ts::Agent.reset
   surface: in-place instance reset (assurance Layer 07)
-  rule: 'L07-R003, PI_PARITY_DEFECT, substantially resolved this pass -- one sub-piece explicitly
-    classified as a cross-layer dependency, not silently dropped (see below). Re-audited directly:
-    `reset()` rejects outright while `this.activeRun` is set
+  rule: 'L07-R003, PI_PARITY_DEFECT, fully resolved this pass (a prior pass classified the
+    `messages`-clearing sub-piece as an unresolvable cross-layer dependency; the second independent
+    Rust review correctly rejected that conclusion -- see below). Re-audited directly: `reset()`
+    rejects outright while `this.activeRun` is set
     (`throw new Error("Agent is already processing. Wait for completion before resetting.")`,
     exact text), with no partial mutation on rejection. When idle, it clears `messages` (to `[]`),
     `isStreaming` (to `false`), `streamingMessage` (to `undefined`), `pendingToolCalls` (to a new
@@ -657,8 +703,8 @@ rows:
 
     A prior revision substituted "create a fresh Agent instance" for this operation and called
     that substitution an intentional divergence while leaving this row (folded into `AG-013` at
-    the time) at `disposition: adopted` -- an incoherent pairing the independent review caught:
-    fresh-instance replacement is observably different in identity, references, listener
+    the time) at `disposition: adopted` -- an incoherent pairing an earlier independent review
+    caught: fresh-instance replacement is observably different in identity, references, listener
     registrations, active-run rejection, and retained configuration, none of which a brand-new
     object can share with the one a caller was holding. `AgentInstance.reset()` (this pass) is
     genuinely in-place: the same `Inbox`/`SessionLog`/scope objects survive, only their content
@@ -667,21 +713,35 @@ rows:
     atomicity (no field touched before the precondition check) are both reproduced
     (test_reset_while_running_is_rejected_atomically).
 
-    One sub-piece is NOT reproduced, and is classified here rather than silently omitted: pinned
-    Pi''s `reset()` also clears `messages`. Pi''s own transcript is a plain in-memory array with no
-    separate persisted log; Minion''s `SessionLog` (Layer 03, already certified) is append-only by
-    design, with no truncate/clear primitive, and teaching `derive_messages` to respect a "reset
-    boundary" marker would be a Layer-03 semantic change -- this narrow Layer-07 remediation has no
-    mandate to make that change, per the governing instruction''s own explicit "STOP and classify"
-    escape valve for exactly this situation. `AgentInstance.reset()` therefore clears every
-    Pi-cleared field this layer can safely reach (runtime state, both queues) and leaves the
-    message-clearing decision to whoever next owns Layer-03 evolution.'
+    `messages` clearing (this pass, closing L07-R003 completely): a prior pass concluded
+    `SessionLog` had no truncate/clear primitive and classified message-clearing as an
+    unresolvable Layer-03 dependency. That conclusion was wrong -- it overlooked
+    `session/operations.py::reset(log)`, an already-certified Layer-03 operation that appends a
+    `session/reset` marker event rather than truncating the append-only log; `derive_messages`
+    already treats the latest such marker as an exclusive floor
+    (`effective_surface`/`_derive` in `session/derive.py`). `AgentInstance.reset()` now calls this
+    exact function, so `AgentInstance.messages` reads `()` immediately after reset while the full
+    event history remains intact and readable underneath, exactly matching Pi''s own observable
+    behavior without adding any new primitive to `SessionLog` itself
+    (test_reset_clears_messages_via_the_session_reset_marker,
+    test_reset_preserves_full_history_for_audit_after_clearing_the_projection).
+
+    Wake-on-reset (L07-R003, second independent Rust review -- specified normatively here, not left
+    implicit): a pending `Inbox.wake_requested` signal, if any, is deliberately NOT cleared by
+    `reset()`. This is an explicit decision, not an untested side effect of delegating to
+    `clear_all()`: wake and queued content are orthogonal (see AG-013/AG-019), and pinned Pi has no
+    wake concept to take a position on either way, so nothing about Pi parity constrains this
+    choice. A wake that arrived before a caller reset an idle instance still describes a real,
+    unconsumed signal, so it survives (test_reset_does_not_clear_a_pending_wake_signal).'
   tests:
   - test_reset_clears_runtime_state_and_both_queues
+  - test_reset_clears_messages_via_the_session_reset_marker
+  - test_reset_preserves_full_history_for_audit_after_clearing_the_projection
+  - test_reset_does_not_clear_a_pending_wake_signal
   - test_reset_retains_identity_configuration_and_tool_relationship
   - test_reset_is_in_place_not_a_fresh_instance
   - test_reset_while_running_is_rejected_atomically
-  python: src/minion_agent/agent/instance.py::AgentInstance.reset, AgentActiveError
+  python: src/minion_agent/agent/instance.py::AgentInstance.reset, AgentActiveError, src/minion_agent/session/operations.py::reset
   rust: PENDING -- Layer 07 not yet implemented in Rust
   disposition: adopted
 - id: TOOL-001

@@ -30,8 +30,16 @@
   },
   "$defs": {
     "action": {
+      "$comment": "L07-R004 (second independent Rust review): `minProperties: 1` alone let an action carry more than one operation key at once (e.g. both `steer` and `follow_up`), which no runner semantics defines an order for. `oneOf` on `required` makes exactly one operation key mandatory -- a document naming two operation keys matches more than one branch and is rejected; a document naming zero matches none and is also rejected. `observe` is additionally constrained to the two operations that actually have a pinned-Pi return value to observe (`claim`/`has_queued_messages`): the four enqueue/clear branches also forbid `observe` via `not: {required: [\"observe\"]}`, so an action combining e.g. `steer` with `observe` matches zero branches and is rejected, not silently accepted the way the `properties` list alone (which only names it as a valid key somewhere) would allow.",
       "type": "object",
-      "minProperties": 1,
+      "oneOf": [
+        { "required": ["steer"], "not": { "required": ["observe"] } },
+        { "required": ["follow_up"], "not": { "required": ["observe"] } },
+        { "required": ["inject"], "not": { "required": ["observe"] } },
+        { "required": ["clear"], "not": { "required": ["observe"] } },
+        { "required": ["claim"] },
+        { "required": ["has_queued_messages"] }
+      ],
       "properties": {
         "steer": { "$ref": "#/$defs/enqueueInput" },
         "follow_up": { "$ref": "#/$defs/enqueueInput" },

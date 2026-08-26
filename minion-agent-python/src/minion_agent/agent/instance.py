@@ -7,6 +7,8 @@ from collections.abc import Callable
 from ..llm import Message, ModelId
 from ..runtime import Context, ScopeKey
 from ..session import SessionLog, derive_messages
+from ..session import reset as reset_session_log
+from ..tools import ToolDefinition, ToolRegistry
 from .envelope import InboxTarget, InputEnvelope, JsonValue
 from .events import AGENT_STATUS, declare_agent_events
 from .identity import AgentDefinition, AgentInstanceId, AgentStatus, ThinkingLevel
@@ -87,6 +89,22 @@ class AgentInstance:
         corruptible by mutating a returned collection in place."""
         return derive_messages(self.log)
 
+    @property
+    def tools(self) -> tuple[ToolDefinition, ...]:
+        """The current visible-tool set (`AG-017`): a fresh projection over the
+        already-certified Layer-05 `ToolRegistry`, from this instance's own scope --
+        never a duplicate store, mirroring `messages`'s read-through pattern above.
+        Resolved through `ctx.tools` the same way `AgentLoopFactory.for_instance`
+        already does when composing a driver (`agent_loop/__init__.py`); this
+        property is not a second resolution mechanism, only a second caller of the
+        existing one, exposed at the Agent-instance level Pi's own `state.tools`
+        getter parity requires (the independent review's `L07-R005` tools
+        sub-finding: the projection existed by construction elsewhere, but nothing
+        on `AgentInstance` itself actually answered "what tools does this agent
+        see" the way Pi's `Agent.state.tools` does)."""
+        registry: ToolRegistry = self._ctx.tools
+        return registry.visible_from(self.scope.key)
+
     def set_status(self, status: AgentStatus) -> None:
         """Record a status transition and announce it.
 
@@ -102,27 +120,39 @@ class AgentInstance:
             self.on_status_change(status)
 
     def reset(self) -> None:
-        """Clear runtime state and both queues in place (`AG-016`, `L07-R003`).
+        """Clear runtime state, messages, and both queues in place (`AG-016`, `L07-R003`).
 
         Pinned Pi's `Agent.reset()`, exactly: rejects outright while active
         (`this.activeRun`, matched here by `status is not IDLE`), with the exact
         error text preserved and no partial mutation on rejection. When idle, it
-        clears `streamingMessage`/`pendingToolCalls`/`errorMessage` and both
-        queues, and retains everything else: object identity, `on_status_change`,
-        `definition`, the mutable current `system_prompt`/`model`/`thinking_level`,
-        and the tool/scope relationship. This is genuinely in-place -- the same
-        `Inbox`/`SessionLog`/scope objects, not a replacement instance -- which is
-        the exact property the independent Rust review's rejection turned on.
+        clears `streamingMessage`/`pendingToolCalls`/`errorMessage`, `messages`,
+        and both queues, and retains everything else: object identity,
+        `on_status_change`, `definition`, the mutable current
+        `system_prompt`/`model`/`thinking_level`, and the tool/scope relationship.
+        This is genuinely in-place -- the same `Inbox`/`SessionLog`/scope objects,
+        not a replacement instance -- which is the exact property the independent
+        Rust review's rejection turned on.
 
-        One Pi-owned effect is deliberately NOT reproduced: pinned Pi's `reset()`
-        also clears `messages` (`this._state.messages = []`). Pi's own transcript
-        is a plain in-memory array with no separate persisted log; Minion's
-        `SessionLog` (Layer 03, already certified) is append-only by design, with
-        no truncate/clear primitive, and adding one -- or teaching `derive_messages`
-        to respect a reset boundary -- would be a Layer-03 semantic change this
-        narrow Layer-07 remediation has no mandate to make. This is a classified,
-        disclosed cross-layer dependency, not a silently dropped requirement: see
-        `assurance/layers/07-agent-state-inboxes-python.md`'s PASS 2.5 section.
+        `messages` is cleared via the already-certified Layer-03
+        `session.reset(log)` (`session/operations.py`), which appends a
+        `session/reset` marker event rather than truncating the append-only log:
+        `derive_messages` already treats the latest such marker as an exclusive
+        floor (`effective_surface`/`_derive` in `session/derive.py`), so every
+        event at or before it stops projecting into `AgentInstance.messages`
+        immediately, without adding any new primitive to `SessionLog` itself. A
+        prior pass concluded no such primitive existed and classified this as an
+        unresolvable cross-layer dependency; the second independent Rust review
+        correctly rejected that conclusion by pointing at this exact,
+        already-certified mechanism, which that prior pass had not found.
+
+        The pending wake signal (`Inbox.wake_requested`), if any, is deliberately
+        NOT cleared by reset -- an explicit, normative decision, not an untested
+        side effect of delegating to `clear_all()`: wake and queued content are
+        orthogonal (`Inbox.clear`'s own docstring), and pinned Pi has no wake
+        concept to take a position on at all, so nothing about `reset()`'s Pi
+        parity constrains this either way. Preserving it is intentional because a
+        wake that arrived before a caller reset an idle instance still describes
+        a real, unconsumed signal (`test_reset_does_not_clear_a_pending_wake_signal`).
         """
         if self._status is not AgentStatus.IDLE:
             raise AgentActiveError(
@@ -132,6 +162,7 @@ class AgentInstance:
         self.pending_tool_calls = frozenset()
         self.error_message = None
         self.inbox.clear_all()
+        reset_session_log(self.log)
 
     def steer(self, message: Message, origin: JsonValue = None) -> InputEnvelope:
         """Pinned Pi's `Agent.steer()` -- the Agent-level public surface

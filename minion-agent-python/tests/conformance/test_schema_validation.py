@@ -331,3 +331,84 @@ def test_tool_registry_constrained_sampling_domain(
         assert not errors, [error.message for error in errors]
     else:
         assert errors, "expected this constrained_sampling value to be rejected"
+
+
+def _agent_inbox_document(action: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "name": "t",
+        "family": "agent",
+        "authority": "x",
+        "pi_revision": "x",
+        "agent_inbox": {"actions": [action]},
+        "expect": {},
+    }
+
+
+@pytest.mark.parametrize(
+    "action",
+    [
+        pytest.param({"steer": {"text": "A"}, "follow_up": {"text": "B"}}, id="steer+follow_up"),
+        pytest.param(
+            {"claim": {"queue": "steering", "mode": "all"}, "clear": {"queue": "all"}},
+            id="claim+clear",
+        ),
+        pytest.param({"observe": "x"}, id="observe-with-no-operation"),
+    ],
+)
+def test_agent_inbox_action_rejects_ambiguous_or_empty_operations(
+    action: dict[str, Any],
+) -> None:
+    """`L07-R004` (second independent Rust review): an action naming more than one
+    operation key -- or none at all -- has no defined runner order/effect and must
+    be rejected by the schema itself, not merely avoided by convention in fixtures."""
+    schema = json.loads(AGENT_INBOX_SCHEMA.read_text(encoding="utf-8"))
+    errors = list(Draft202012Validator(schema).iter_errors(_agent_inbox_document(action)))
+    assert errors, f"expected this action to be rejected: {action}"
+
+
+def test_agent_inbox_action_accepts_exactly_one_operation() -> None:
+    """The positive counterpart: a single operation key still validates cleanly."""
+    schema = json.loads(AGENT_INBOX_SCHEMA.read_text(encoding="utf-8"))
+    document = _agent_inbox_document({"steer": {"text": "A"}})
+    errors = list(Draft202012Validator(schema).iter_errors(document))
+    assert not errors, [error.message for error in errors]
+
+
+@pytest.mark.parametrize(
+    "action",
+    [
+        pytest.param({"steer": {"text": "A"}, "observe": "x"}, id="steer+observe"),
+        pytest.param({"follow_up": {"text": "A"}, "observe": "x"}, id="follow_up+observe"),
+        pytest.param({"inject": {"text": "A"}, "observe": "x"}, id="inject+observe"),
+        pytest.param({"clear": {"queue": "all"}, "observe": "x"}, id="clear+observe"),
+    ],
+)
+def test_agent_inbox_action_rejects_observe_on_enqueue_or_clear_operations(
+    action: dict[str, Any],
+) -> None:
+    """`L07-R004` (second independent Rust review): `observe` names a return value to
+    check against `expect`, but enqueue/clear operations have no pinned-Pi return value
+    to observe -- only `claim`/`has_queued_messages` do. A prior fix made operation keys
+    mutually exclusive but left `observe` attachable to any of them regardless."""
+    schema = json.loads(AGENT_INBOX_SCHEMA.read_text(encoding="utf-8"))
+    errors = list(Draft202012Validator(schema).iter_errors(_agent_inbox_document(action)))
+    assert errors, f"expected observe to be rejected on this operation: {action}"
+
+
+@pytest.mark.parametrize(
+    "action",
+    [
+        pytest.param(
+            {"claim": {"queue": "steering", "mode": "all"}, "observe": "x"}, id="claim+observe"
+        ),
+        pytest.param({"has_queued_messages": {}, "observe": "x"}, id="has_queued_messages+observe"),
+    ],
+)
+def test_agent_inbox_action_accepts_observe_on_claim_or_pending_operations(
+    action: dict[str, Any],
+) -> None:
+    """The positive counterpart: `observe` remains valid on the two operations that
+    actually return something to check."""
+    schema = json.loads(AGENT_INBOX_SCHEMA.read_text(encoding="utf-8"))
+    errors = list(Draft202012Validator(schema).iter_errors(_agent_inbox_document(action)))
+    assert not errors, [error.message for error in errors]

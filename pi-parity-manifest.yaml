@@ -475,7 +475,7 @@ rows:
   - agent-inbox-queue-mode-fifo (L07-R004, language-neutral canonical)
   - agent-inbox-queue-independence-and-clearing (L07-R004, language-neutral canonical)
   python: src/minion_agent/agent/inbox.py::Inbox, src/minion_agent/agent/envelope.py::InboxTarget/InputEnvelope, src/minion_agent/agent/instance.py::AgentInstance.steer/follow_up/inject
-  rust: PENDING -- Layer 07 not yet implemented in Rust
+  rust: crates/minion-agent/src/agent/inbox.rs::Inbox; crates/minion-agent/tests/agent_inbox.rs; crates/minion-agent/tests/agent_inbox_conformance.rs
   disposition: adopted
 - id: AG-012
   phase: 3
@@ -503,7 +503,7 @@ rows:
   - test_a_drained_inbox_stays_drained
   - agent-inbox-queue-mode-fifo (L07-R004, language-neutral canonical)
   python: src/minion_agent/agent/inbox.py::Inbox.claim, src/minion_agent/agent/envelope.py::ClaimPolicy
-  rust: PENDING -- Layer 07 not yet implemented in Rust
+  rust: crates/minion-agent/src/agent/inbox.rs::Inbox.claim/ClaimPolicy; crates/minion-agent/tests/agent_inbox.rs; crates/minion-agent/tests/agent_inbox_conformance.rs
   disposition: adopted
 - id: AG-013
   phase: 3
@@ -546,7 +546,7 @@ rows:
   - test_agent_level_queue_clearing_delegates_to_the_inbox
   - agent-inbox-queue-independence-and-clearing (L07-R004, language-neutral canonical)
   python: src/minion_agent/agent/inbox.py::Inbox.clear/clear_all/has_pending, src/minion_agent/agent/instance.py::AgentInstance.clear_steering_queue/clear_follow_up_queue/clear_all_queues/has_queued_messages
-  rust: PENDING -- Layer 07 not yet implemented in Rust
+  rust: crates/minion-agent/src/agent/inbox.rs::Inbox.clear/clear_all/has_pending; crates/minion-agent/tests/agent_inbox.rs; crates/minion-agent/tests/agent_inbox_conformance.rs
   disposition: adopted
 - id: AG-014
   phase: 3
@@ -587,7 +587,7 @@ rows:
   - test_current_config_defaults_from_the_definition
   - test_mutating_one_instances_config_does_not_affect_a_sibling_or_the_definition
   python: src/minion_agent/agent/instance.py::AgentInstance (system_prompt/model/thinking_level), src/minion_agent/agent/identity.py::ThinkingLevel
-  rust: PENDING -- Layer 07 not yet implemented in Rust
+  rust: crates/minion-agent/src/agent/identity.rs::AgentDefinition/ThinkingLevel; crates/minion-agent/src/agent/instance.rs::AgentInstance; crates/minion-agent/tests/agent_state.rs
   disposition: adopted
 - id: AG-015
   phase: 3
@@ -604,7 +604,7 @@ rows:
   tests:
   - test_an_instance_starts_idle
   python: src/minion_agent/agent/instance.py::AgentInstance.status, src/minion_agent/agent/identity.py::AgentStatus
-  rust: PENDING -- Layer 07 not yet implemented in Rust
+  rust: crates/minion-agent/src/agent/identity.rs::AgentStatus; crates/minion-agent/src/agent/instance.rs::AgentInstance.status/set_status; crates/minion-agent/tests/agent_state.rs
   disposition: adopted
 - id: AG-017
   phase: 3
@@ -660,7 +660,7 @@ rows:
   - test_tools_is_empty_when_no_tools_service_is_mounted
   - test_reset_does_not_disturb_the_tools_relationship
   python: src/minion_agent/agent/instance.py::AgentInstance.messages/tools, src/minion_agent/tools/registry.py::ToolRegistry.visible_from
-  rust: PENDING -- Layer 07 not yet implemented in Rust
+  rust: crates/minion-agent/src/agent/instance.rs::AgentInstance.messages/tools; crates/minion-agent/tests/agent_state.rs
   disposition: intentional divergence
 - id: AG-018
   phase: 3
@@ -681,7 +681,7 @@ rows:
   tests:
   - test_runtime_fields_start_at_pis_own_initial_values
   python: src/minion_agent/agent/instance.py::AgentInstance.streaming_message/pending_tool_calls/error_message
-  rust: PENDING -- Layer 07 not yet implemented in Rust
+  rust: crates/minion-agent/src/agent/instance.rs::AgentMutableState/AgentInstance; crates/minion-agent/tests/agent_state.rs
   disposition: deferred parity
 - id: AG-019
   phase: 3
@@ -701,7 +701,7 @@ rows:
   - test_has_pending_is_false_for_an_empty_inbox
   - test_clearing_does_not_affect_the_wake_signal
   python: src/minion_agent/agent/inbox.py::Inbox.wake_requested/take_wake
-  rust: PENDING -- Layer 07 not yet implemented in Rust
+  rust: crates/minion-agent/src/agent/inbox.rs::Inbox.wake_requested/take_wake; crates/minion-agent/tests/agent_inbox.rs; crates/minion-agent/tests/agent_state.rs
   disposition: intentional divergence
 - id: AG-016
   phase: 3
@@ -759,7 +759,7 @@ rows:
   - test_reset_is_in_place_not_a_fresh_instance
   - test_reset_while_running_is_rejected_atomically
   python: src/minion_agent/agent/instance.py::AgentInstance.reset, AgentActiveError, src/minion_agent/session/operations.py::reset
-  rust: PENDING -- Layer 07 not yet implemented in Rust
+  rust: crates/minion-agent/src/agent/instance.rs::AgentInstance.reset/AgentError; crates/minion-agent/tests/agent_state.rs
   disposition: adopted
 - id: TOOL-001
   phase: 4

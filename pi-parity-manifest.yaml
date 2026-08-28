@@ -593,9 +593,13 @@ rows:
     `active-abort-tool`/`abort-settles-before-idle` remain unfilled placeholders and are not cited;
     no Layer-08 evidence is offered for a rule this layer does not own.
 
-    Cross-reference (`L08-R009`, PASS 4): `AG-022` disposes a DIFFERENT, pre-existing Layer-08-local
-    method (`AgentLoop.request_boundary_stop()`) that is NOT this row''s own `Agent.abort()` surface
-    and never claims to be -- see that row for why the two must not be conflated.'
+    PASS 4 briefly added a cross-reference here to a since-removed row (`AG-022`, disposing the
+    pre-existing local `cancel()`/`request_boundary_stop()` latch). PASS 5 (`L08-R009`, `L08-R010`)
+    removed that method and its row entirely -- it was a public method that could alter a
+    Pi-equivalent run''s own observable outcome with no owner governance approval for the divergence,
+    and no demonstrated product need justified keeping it, the same default already applied to
+    `max_steps` (`L08-R005`). Layer 08 now has no local cancel/boundary-stop mechanism of any kind;
+    this row''s own deferral to Layer 09 is unqualified again.'
   tests: []
   python: NOT_APPLICABLE -- deferred to Layer 09
   rust: NOT_APPLICABLE -- deferred to Layer 09
@@ -708,15 +712,39 @@ rows:
     (`test_a_run_executor_failure_recovers_through_the_live_lifecycle_event_seam`,
     `test_a_post_turn_callback_failure_recovers_through_the_live_seam`).
 
-    Deliberately bounded, disclosed explicitly rather than silently narrowed: the assistant reply''s
-    OWN streamed `message_start`/`message_update`/`message_end` is NOT dispatched through this seam.
-    The already-certified Layer-02/04 `collect()` (`llm/stream.py`) accepts only a synchronous
-    `on_chunk` callback -- an intentional, narrow design for that layer this pass does not reopen --
-    so a chunk-level listener has nothing to `await`. This does not affect `handleRunFailure`
-    fidelity at all (the failure''s own message lifecycle is synthesized directly in async
-    `_settle_run_failure`, never stream-bound), and `streaming_message` content fidelity (`AG-008`,
-    `L08-R003`, closed) is a wholly separate, unaffected concern -- see `agent/events.py`''s own
-    `AGENT_LIFECYCLE_EVENT` docstring for the full scope statement.
+    PASS 5, correcting two further gaps the independent re-review of the PASS-4 candidate caught
+    (`L08-R002` again): PASS 4''s own seam was genuinely live but still incomplete and mistimed.
+
+    (1) Completeness: the assistant reply''s OWN streamed `message_start`/`message_update`/
+    `message_end` were excluded, on the theory that the certified Layer-02/04 `collect()`
+    (`llm/stream.py`) accepts only a synchronous `on_chunk` callback. The re-review correctly
+    rejected that as an implementation constraint, not a Pi-visible contract limitation: `_run_step`
+    now iterates `self.llm.stream(request)` directly -- reproducing `collect()`''s own trivial drain
+    loop at the one call site that needs an async per-chunk dispatch, without reopening or modifying
+    `collect()` itself, still certified, still used by every other caller. Layer-06''s own
+    `tools/execution-start`/`tools/execution-end` EMIT events (synchronous, fire-and-forget by
+    certified design) are captured in real time and redelivered through the SAME seam once a tool
+    batch settles, in the exact order Layer 06 emitted them -- a disclosed, narrower fidelity than
+    pinned Pi''s own live blocking dispatch for this one event pair specifically (a slow Minion
+    listener cannot causally delay a specific tool call''s own further progress the way a slow pinned
+    Pi listener could), since Layer-06''s EMIT dispatch mode is certified and this pass does not
+    reopen it.
+
+    (2) Reduce-before-listener timing: pinned Pi''s own `processEvents` reduces `AgentState` for an
+    event, THEN dispatches -- and does so uniformly for every `message_start`/`message_end`, not
+    only the assistant''s own streamed one (`streamingMessage` is set to the message at
+    `message_start`, cleared AND pushed onto the transcript only at `message_end`). PASS 4''s own
+    `_admit_messages` appended the durable transcript entry BEFORE dispatching `MessageStart`, so a
+    `message_start` listener could already observe the message in derived history one event early,
+    and never set `streaming_message` for a plain admitted (non-streamed) message at all;
+    `_settle_run_failure` had the identical defect for the synthesized failure, and additionally set
+    `error_message` only AFTER `turn_end`''s own listeners had already run rather than before. Every
+    admission point (`_admit_messages`) and both terminal paths (`_run_step`''s own represented-error
+    branch and its own normal end, `_settle_run_failure`) now perform the exact reduce pinned Pi''s
+    own reducer performs for that event, immediately before that event''s own dispatch -- not batched,
+    not reordered. `_run_wrapped`''s own entry/exit now also mirror pinned Pi''s `runWithLifecycle`/
+    `finishRun` unconditional state writes exactly (`streaming_message`/`error_message` reset at
+    entry; `streaming_message`/`pending_tool_calls` reset at exit via `finally`).
 
     Still explicitly excludes the eager, pre-stream `UnknownModelError` (a caller/config bug, not a
     run-executor failure, re-raised uncaught -- `test_an_unresolvable_model_still_raises_uncaught`,
@@ -734,8 +762,11 @@ rows:
   - test_a_prepare_next_turn_listener_failure_settles_gracefully
   - test_a_post_turn_callback_failure_settles_gracefully
   - test_an_unresolvable_model_still_raises_uncaught
-  python: src/minion_agent/agent_loop/driver.py::AgentLoop._execute_run (catch boundary), AgentLoop._dispatch_agent_event, AgentLoop._admit_messages, AgentLoop._settle_run_failure
-  rust: PENDING -- Layer 08 not yet implemented in Rust; the PASS-2 (L08-R002) and PASS-3 (L08-R002, live-listener delivery) candidates were independently rejected on this row, PASS 4 is the remediated candidate awaiting re-review
+  - test_a_stream_with_no_start_chunk_still_gets_a_message_start
+  - test_turn_end_sets_error_message_even_for_a_non_terminal_reply
+  - test_collect_calls_on_chunk_for_every_chunk_in_order (llm/stream.py, certified evidence collect() itself still keeps)
+  python: src/minion_agent/agent_loop/driver.py::AgentLoop._execute_run (catch boundary), AgentLoop._dispatch_agent_event, AgentLoop._admit_messages, AgentLoop._settle_run_failure, AgentLoop._run_step (direct stream iteration, captured tool-execution redelivery)
+  rust: PENDING -- Layer 08 not yet implemented in Rust; the PASS-2, PASS-3, and PASS-4 candidates were each independently rejected on this row (L08-R002), PASS 5 is the remediated candidate awaiting re-review
   disposition: adopted
 - id: AG-010
   phase: 3
@@ -833,51 +864,6 @@ rows:
   python: src/minion_agent/agent_loop/driver.py::AgentLoop._run_step (_StepResult.terminal), AgentLoop._run_inner (immediate return on terminal)
   rust: PENDING -- Layer 08 not yet implemented in Rust; the PASS-2 candidate's independent review rejected this row (L08-R008); the PASS-3 re-review found this row's own content PASS and only its evidence mechanism stale after L08-R006 (updated this pass)
   disposition: adopted
-- id: AG-022
-  phase: 3
-  pi: (none -- no pinned Pi equivalent; NOT `Agent.abort`, see below)
-  surface: request_boundary_stop(), a Minion-only host boundary-stop latch (L08-R009)
-  rule: 'New row, closing a contract-assurance gap the independent re-review of the PASS-3 candidate
-    found (`L08-R009`): `AgentLoop` carried a public, observable method (formerly named `cancel()`)
-    with real, currently-observable effects -- it ends the run at the NEXT turn boundary, producing
-    `agent_end(reason=...)` -- yet no manifest row disposed it, `spec/agent.md` never defined its
-    relationship to `AG-007`, and a stale implementation comment pointed to `AG-019` (Layer-07''s own
-    unrelated wake-signal row). Two independent Rust implementations could reasonably reach different
-    conclusions about whether Layer 08 must implement this latch at all, or what it means.
-
-    Disposition, determined by asking exactly what the re-review asked first -- whether this is part
-    of the INTENDED public Agent semantic surface, or only an internal Minion driver mechanism: it is
-    genuinely NOT pinned Pi''s own cancellation surface. Pi''s own public surface for this concept is
-    `Agent.abort()` (packages/agent/src/agent.ts) -- a DIFFERENT name, and one whose real job (active
-    signal propagation into the running provider/tools/hooks) this method has never attempted and
-    still does not. Layer 07''s own already-certified contract (`spec/agent.md`, `AG-007`) already
-    places active abort propagation at Layer 09; this row''s own latch predates any Layer-09 design
-    and merely happens to be reachable through the same driver object.
-
-    Resolved by making the disposition explicit rather than implicit (Case B of the re-review''s own
-    framework): renamed from `cancel()` to `request_boundary_stop()`, and the internal flag from
-    `_cancelled` to `_boundary_stop_requested`, so neither the public name nor the internal one
-    implies pi''s own `abort()` semantics. The observable `agent_end` reason string changed from
-    `"cancelled"` to `"boundary_stop"` for the same reason -- naming consistency between what callers
-    invoke and what they observe. Behavior is otherwise UNCHANGED from the prior (`AG-020`-adjacent,
-    now-superseded) description: checked only after the current turn''s own `prepareNextTurn`/
-    `shouldStopAfterTurn`/steering poll have already run unconditionally (never skips a turn''s own
-    post-turn ordering for a turn that already happened, mirroring `AG-004`''s own turn-order
-    contract), gating only whether a FURTHER turn is attempted. Work already in flight (a running
-    tool, an open provider request) is always allowed to finish -- no signal is sent to interrupt it,
-    unlike pi''s own `abort()`, which is exactly why this is not that.
-
-    Layer 08 implements ONLY this local, observable boundary-stop latch. It does not implement, and
-    this row does not claim, any of: provider abort-signal propagation, stream abort propagation,
-    tool abort propagation, hook abort propagation, or transport abort propagation -- all remain
-    Layer 09''s own territory (`AG-007`), unimplemented here, exactly as before this row existed.'
-  tests:
-  - test_boundary_stop_ends_the_turn_at_the_next_boundary
-  - test_a_boundary_stopped_turn_still_records_its_tool_result
-  - test_boundary_stop_clears_so_the_next_turn_runs
-  python: src/minion_agent/agent_loop/driver.py::AgentLoop.request_boundary_stop, AgentLoop._boundary_stop_requested (checked in AgentLoop._run_inner, after prepare/stop/steering)
-  rust: PENDING -- Layer 08 not yet implemented in Rust; new row this pass (L08-R009)
-  disposition: intentional divergence
 - id: AG-011
   phase: 3
   pi: packages/agent/src/agent.ts::PendingMessageQueue, Agent.steer, Agent.followUp

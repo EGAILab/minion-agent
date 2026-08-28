@@ -645,12 +645,12 @@ async def test_a_run_executor_failure_recovers_through_the_live_lifecycle_event_
 
 
 async def test_a_post_turn_callback_failure_recovers_through_the_live_seam() -> None:
-    """`L08-R002`, PASS 4: same live seam for a failure originating from a
+    """`L08-R002`, PASS 4/5: same live seam for a failure originating from a
     POST-turn callback (`AGENT_TURN_STOPPING`), distinct from a pre-step
     failure -- both are "the run executor" from pinned pi's own perspective.
-    The ordinary turn's own admitted prompt and its own `turn_end` already
-    happened live before the failure; the same seam then delivers the
-    synthesized failure's own sequence too."""
+    The ordinary turn's own admitted prompt, its own streamed assistant
+    reply, and its own `turn_end` already happened live before the failure;
+    the same seam then delivers the synthesized failure's own sequence too."""
 
     def boom(*args: Any) -> TurnStopping:
         raise RuntimeError("stopping listener exploded")
@@ -669,6 +669,8 @@ async def test_a_post_turn_callback_failure_recovers_through_the_live_seam() -> 
 
     assert seen == [
         MessageStart,  # the prompt's own admission
+        MessageEnd,
+        MessageStart,  # the assistant's own streamed reply (`L08-R002`, PASS 5)
         MessageEnd,
         TurnEnd,  # the ordinary turn's own close
         MessageStart,  # the synthesized failure
@@ -706,10 +708,13 @@ async def test_failure_message_start_listener_failure_interrupts_recovery() -> N
     assert loop.instance.status is AgentStatus.IDLE
     assert seen == [MessageStart]
     kinds = [e.kind for e in loop.instance.log.events]
-    # message_start's own durable "reduce" (the ASSISTANT_MESSAGE log entry)
-    # already happened before the listener that then threw -- but nothing
-    # after it (no TURN_END, no AGENT_END) does, since recovery aborted here.
-    assert kinds == [EventKind.AGENT_START, EventKind.TURN_START, EventKind.ASSISTANT_MESSAGE]
+    # message_start's own reduce is only `streaming_message = failure`
+    # (`PASS 5`, `L08-R002`) -- pinned pi's own reducer does not push onto
+    # the transcript until `message_end`, so the failure's own
+    # `ASSISTANT_MESSAGE` log entry is NOT yet appended when message_start's
+    # listener throws; recovery aborted before reaching that reduce at all.
+    assert kinds == [EventKind.AGENT_START, EventKind.TURN_START]
+    assert loop.instance.streaming_message is None
 
 
 async def test_failure_message_end_listener_failure_interrupts_recovery() -> None:
@@ -838,6 +843,82 @@ async def test_a_rejection_during_the_initial_steering_admission_ends_the_turn()
     assert end.data["detail"] == "no steering allowed"
     texts = [text_of(m) for m in derive_messages(loop.instance.log)]
     assert texts == ["hello"]
+
+
+class _NoStartStreamAdapter:
+    """Test-only adapter that never emits its own `StreamStart` chunk at all
+    -- some real providers do not -- exercising pinned pi's own defensive
+    `!addedPartial` fallback (`L08-R002`, PASS 5): `_run_step` must still
+    dispatch a `MessageStart` for the assistant's own reply immediately
+    before its `MessageEnd`, even though no live start chunk ever opened it."""
+
+    provider = "mock"
+    api = "mock"
+    models = frozenset({"mock-1"})
+
+    def __init__(self, message: AssistantMessage) -> None:
+        self._message = message
+
+    def stream(self, request: Request) -> AsyncIterator[StreamChunk]:
+        async def replay() -> AsyncIterator[StreamChunk]:
+            yield StreamDone(message=self._message, partial=self._message)
+
+        return replay()
+
+
+async def test_a_stream_with_no_start_chunk_still_gets_a_message_start() -> None:
+    from minion_agent.agent.identity import AgentDefinition
+    from minion_agent.agent.registry import AgentRegistry
+    from minion_agent.agent_loop.driver import AgentLoop
+    from minion_agent.llm import LlmService
+    from minion_agent.runtime import Context
+    from minion_agent.session import SessionService
+    from minion_agent.tools.registry import ToolRegistry
+
+    message = AssistantMessage(
+        content=(TextBlock(text="hi"),),
+        stop_reason=StopReason.STOP,
+        usage=Usage(),
+        model="mock-1",
+        provider="mock",
+        timestamp=0,
+    )
+    ctx = Context()
+    sessions = SessionService()
+    llm = LlmService()
+    llm.register(_NoStartStreamAdapter(message))
+    registry = AgentRegistry(ctx=ctx, sessions=sessions)
+    handle = registry.create("room-a", AgentDefinition(name="ada", model=ModelId("mock", "mock-1")))
+    loop = AgentLoop(
+        instance=handle.instance, llm=llm, tools=ToolRegistry(), artifacts=sessions.artifacts
+    )
+    seen: list[type] = []
+
+    def observe(instance: Any, event: Any) -> None:
+        if isinstance(event, MessageStart | MessageEnd):
+            seen.append(type(event))
+
+    loop.instance.ctx.events.on(AGENT_LIFECYCLE_EVENT, observe)
+
+    await loop.prompt(_say("go"))
+
+    assert seen == [MessageStart, MessageEnd, MessageStart, MessageEnd]
+
+
+async def test_turn_end_sets_error_message_even_for_a_non_terminal_reply() -> None:
+    """`L08-R002`, PASS 5: `turn_end`'s own reduce (pinned pi: `if role ===
+    "assistant" && errorMessage`) applies unconditionally to every turn_end,
+    not only a represented `error`/`aborted` terminal one -- an ordinary
+    `stop`/`tool_use` reply can still carry a truthy `error_message` (a
+    provider-level incidental failure that did not itself prevent
+    completion), and `error_message` must still be set from it."""
+    loop = _loop(
+        ScriptedResponse((TextBlock(text="hi"),), StopReason.STOP, error_message="incidental")
+    )
+
+    await loop.prompt(_say("go"))
+
+    assert loop.instance.error_message == "incidental"
 
 
 # -- L08-R003: full streaming_message fidelity --------------------------------
@@ -1085,6 +1166,8 @@ async def test_the_initial_prompt_lifecycle_precedes_the_steering_claim() -> Non
         "steering_claim",
         "message_start:steer me",
         "message_end:steer me",
+        "message_start:hi",  # the assistant's own streamed reply (`L08-R002`, PASS 5)
+        "message_end:hi",
     ]
     # Prompt and steering remain inputs to the SAME first provider request --
     # only their own lifecycle/claim timing differs, never their turn.

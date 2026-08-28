@@ -48,6 +48,24 @@ async def test_collect_returns_the_settled_message() -> None:
     assert result is final
 
 
+async def test_collect_calls_on_chunk_for_every_chunk_in_order() -> None:
+    """`on_chunk` observes every chunk as it arrives (own docstring) -- a
+    consumer that wants streaming fidelity without a second traversal, the
+    exact contract this parameter exists for, independent of which caller
+    (if any) currently exercises it."""
+    partial = _message("", StopReason.PENDING)
+    final = _message("hello")
+    start = StreamStart(partial=partial)
+    delta = TextDelta(content_index=0, delta="hello", partial=partial)
+    done = StreamDone(message=final, partial=final)
+    seen: list[StreamChunk] = []
+
+    result = await collect(_stream(start, delta, done), on_chunk=seen.append)
+
+    assert seen == [start, delta, done]
+    assert result is final
+
+
 async def test_collect_returns_an_error_message_without_raising() -> None:
     """The stream never raises once returned; failures ride it (spec section 4)."""
     failed = _message("", StopReason.ERROR)

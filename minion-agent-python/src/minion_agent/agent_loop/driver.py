@@ -12,29 +12,41 @@ one assistant response plus the tool calls/results it triggers, bracketed by
 turn," kept because the observable boundary it emits (one `TURN_START`/
 `TURN_END` pair per call) is what matters, not the helper's own name.
 
-PASS 4 remediates an independent Rust re-review rejection (L08-R002, R004,
-R005, R006, R009) against the PASS-3 candidate:
+PASS 5 remediates an independent Rust re-review rejection (L08-R002, R004,
+R005, R009, R010) against the PASS-4 candidate:
 
-- a live, listener-bearing Agent-event seam (`AGENT_LIFECYCLE_EVENT`)
-  matching pinned Pi's own `processEvents`, used identically by ordinary
-  turn/run progress and by `handleRunFailure` recovery -- a recovery listener
-  failure now genuinely interrupts the remaining recovery sequence and
-  propagates, instead of the run settling gracefully via raw log appends
-  alone (`L08-R002`);
-- the initial prompt's own message lifecycle is now admitted and dispatched
-  BEFORE the initial steering queue is ever claimed, not merely after
-  `TURN_START` (`L08-R006`);
-- `max_steps` removed entirely from the Pi-equivalent `prompt()`/
-  `continue_()` run seam -- it no longer exists as a concept at this layer at
-  all (`L08-R005`);
-- the pre-existing local boundary-stop latch, formerly named `cancel()`,
-  renamed to `request_boundary_stop()` and explicitly disposed as a
-  Minion-only host extension distinct from pinned Pi's own `Agent.abort()`
-  (deferred to Layer 09), never presented as Pi cancellation (`L08-R009`).
+- the live `AGENT_LIFECYCLE_EVENT` seam (`processEvents`) now carries the
+  COMPLETE pinned-Pi `AgentEvent` union, not a partial one: the assistant
+  reply's own streamed `message_start`/`message_update`/`message_end` are
+  now dispatched live too (`_run_step` iterates `self.llm.stream(request)`
+  directly, replacing the certified `collect()` convenience wrapper's
+  synchronous `on_chunk` callback with an async loop that can `await` a
+  dispatch per chunk -- no certified Layer-02/04 code is touched or
+  reopened), and Layer-06's own `tools/execution-start`/`-end` EMIT events
+  are captured in real time and redelivered through this same seam,
+  in order, once a tool batch settles (`L08-R002`);
+- every reduce (durable log append / `streaming_message` / `error_message`
+  write) now happens strictly BEFORE that event's own dispatch, matching
+  pinned Pi's `processEvents` reduce-then-listen order exactly for every
+  event -- an earlier revision reduced first for the WRONG event (message
+  end's own transcript-push reduce ran before message *start*'s dispatch)
+  and left `streaming_message` unset for plain admitted (non-streamed)
+  messages, which pinned Pi's own reducer does not distinguish (`L08-R002`);
+- `max_steps` remains fully removed (`L08-R005`, unchanged since PASS 4);
+  the canonical regression that proves it now exceeds the actual former
+  default it replaces, not an unrelated smaller number (`L08-R005`);
+- the local boundary-stop latch (`request_boundary_stop()`/`cancel()`) is
+  REMOVED entirely, not merely renamed: it was a public method that could
+  alter a Pi-equivalent run's own observable outcome with no owner
+  governance approval for that divergence, and no demonstrated product need
+  justified keeping it -- the same default this project already applied to
+  `max_steps` (`L08-R009`, `L08-R010`).
 
 `spec/agent.md`'s own Layer-08 section is the normative contract this file
-implements; PASS 4 rewrote it as one coherent current statement (`L08-R004`)
-rather than leaving it PASS-2 text describing a since-superseded design.
+implements; PASS 5 corrected its remaining internal contradiction (the
+assistant-event carve-out this pass's own fix now makes untrue) and the
+Layer-07 section's own stale present-tense claims that Layer 08 was
+unimplemented (`L08-R004`).
 """
 
 from __future__ import annotations
@@ -68,6 +80,9 @@ from ..agent.projection import (
     AgentStart,
     MessageEnd,
     MessageStart,
+    MessageUpdate,
+    ToolExecutionEnd,
+    ToolExecutionStart,
     TurnEnd,
     TurnStart,
 )
@@ -78,7 +93,6 @@ from ..llm import (
     Message,
     Request,
     StopReason,
-    StreamChunk,
     StreamDone,
     StreamError,
     StreamStart,
@@ -97,7 +111,6 @@ from ..llm import (
     Usage,
     UserContentBlock,
     UserMessage,
-    collect,
 )
 from ..session import (
     ArtifactStore,
@@ -112,6 +125,7 @@ from ..tools.batch import BatchOutcome, execute_batch, execute_length_stop_batch
 from ..tools.definition import ToolDefinition
 from ..tools.events import TOOLS_EXECUTION_END, TOOLS_EXECUTION_START
 from ..tools.registry import ToolRegistry
+from ..tools.result import ToolResult
 
 
 def _snapshot_tool_registry(tools: tuple[ToolDefinition, ...]) -> ToolRegistry:
@@ -165,7 +179,6 @@ class AgentLoop:
         self.telemetry = telemetry
         self.next_turn_policy = ClaimPolicy.ONE_AT_A_TIME
         self.next_step_policy = ClaimPolicy.ONE_AT_A_TIME
-        self._boundary_stop_requested = False
 
     async def prompt(
         self,
@@ -265,21 +278,6 @@ class AgentLoop:
             )
         )
 
-    def request_boundary_stop(self) -> None:
-        """Request that the current run's next turn boundary end the run.
-
-        This is a Minion-only host/pump extension (`AG-022`; `L08-R009`),
-        NOT pinned Pi's `Agent.abort()`: it does not signal the running
-        provider, tools, or hooks -- work already in flight (a running tool,
-        an open request) is allowed to finish, so the transcript stays
-        coherent, and only the *next* request is stopped. Real active
-        cancellation -- provider/tool/hook signal propagation -- remains
-        Layer 09's own territory (`AG-007`), unimplemented here. Renamed from
-        `cancel()` (PASS 3 and earlier) specifically so its name does not
-        imply Pi's own cancellation surface, which this is not.
-        """
-        self._boundary_stop_requested = True
-
     async def _run_wrapped(
         self,
         *,
@@ -287,10 +285,14 @@ class AgentLoop:
         causes: list[dict[str, object]],
         skip_initial_steering_poll: bool = False,
     ) -> None:
-        """One pi-equivalent run's full lifecycle: status/`error_message`
-        reset at entry (pinned Pi's `runWithLifecycle`), guaranteed status
-        settlement on exit, regardless of success or a run-executor failure
-        this pass already settles gracefully (see `_settle_run_failure`)."""
+        """One pi-equivalent run's full lifecycle: three unconditional state
+        writes at entry, matching pinned Pi's own `runWithLifecycle` exactly
+        (`isStreaming = true`, `streamingMessage = undefined`, `errorMessage
+        = undefined`), and three more, unconditionally, on exit via `finally`
+        -- matching pinned Pi's own `finishRun()` (`isStreaming = false`,
+        `streamingMessage = undefined`, `pendingToolCalls = new Set()`) --
+        regardless of success or a run-executor failure this pass already
+        settles gracefully (see `_settle_run_failure`)."""
         if self.instance.status is not AgentStatus.IDLE:
             # Pinned Pi's own `runWithLifecycle` guard -- a third, distinct
             # "already processing" string, defensive and normally
@@ -301,6 +303,7 @@ class AgentLoop:
             # skips the public guards.
             raise AgentActiveError("Agent is already processing.")
         self.instance.set_status(AgentStatus.RUNNING)
+        self.instance.streaming_message = None
         self.instance.error_message = None
         try:
             await self._execute_run(
@@ -310,6 +313,8 @@ class AgentLoop:
             )
         finally:
             self.instance.set_status(AgentStatus.IDLE)
+            self.instance.streaming_message = None
+            self.instance.pending_tool_calls = frozenset()
 
     async def _dispatch_agent_event(self, event: AgentEvent) -> None:
         """Pinned Pi's own `processEvents`: the single seam every lifecycle
@@ -340,12 +345,30 @@ class AgentLoop:
         very next thing `_run_inner` does (`L08-R006`). Appended to the
         run-local `context`/`new_messages` accumulators as it goes, matching
         pinned Pi's own `currentContext.messages.push(message)`/
-        `newMessages.push(message)` timing exactly (`L08-R001`)."""
+        `newMessages.push(message)` timing exactly (`L08-R001`).
+
+        Reduce-before-listener, per event, matching pinned Pi's own
+        `processEvents` exactly (`L08-R002`, PASS 4): pinned Pi's own
+        reducer applies UNCONDITIONALLY to every `message_start`/
+        `message_end`, not only the assistant's own streamed reply --
+        `streamingMessage` is set to the message at `message_start`, and
+        only at `message_end` is it cleared AND the message pushed onto the
+        transcript. An earlier revision appended the durable log entry (this
+        run's own "transcript push") BEFORE dispatching `MessageStart`,
+        which let a `message_start` listener observe the message already
+        present in derived history one event early, and never set
+        `streaming_message` for a plain admitted message at all. `log.append`
+        (the transcript-push reduce) now happens between the two dispatches,
+        exactly where pinned Pi's own `message_end` reducer runs."""
         log = self.instance.log
         for message in messages:
-            log.append(EventKind.USER_MESSAGE, {"message": encode_message(message)})
+            self.instance.streaming_message = message
             await self._dispatch_agent_event(MessageStart(message=message))
+
+            self.instance.streaming_message = None
+            log.append(EventKind.USER_MESSAGE, {"message": encode_message(message)})
             await self._dispatch_agent_event(MessageEnd(message=message))
+
             context.messages.append(message)
             new_messages.append(message)
 
@@ -397,7 +420,6 @@ class AgentLoop:
             # turn (L08-R002, `eager-invalid-model-fails-before-stream.yaml`).
             raise
         except Exception as error:
-            self._boundary_stop_requested = False
             # Propagates uncaught if a recovery listener itself throws
             # (`L08-R002`) -- pinned Pi's own `handleRunFailure` has no
             # further catch around it either; `_run_wrapped`'s own `finally`
@@ -405,7 +427,11 @@ class AgentLoop:
             await self._settle_run_failure(error, config, causes)
             return
 
-        self._boundary_stop_requested = False
+        # agent_end's own reduce, matching pinned Pi's reducer exactly
+        # (`case "agent_end": streamingMessage = undefined`) -- always
+        # already `None` by this point via each turn's own message_end, but
+        # set unconditionally here too, not left to happen to be true.
+        self.instance.streaming_message = None
         payload: dict[str, object] = {"reason": end_reason, "causes": causes}
         if detail is not None:
             payload["detail"] = detail
@@ -511,18 +537,6 @@ class AgentLoop:
                 if not has_more_tool_calls and not step_input:
                     break  # inner loop exhausted -> poll follow-up below
 
-                if self._boundary_stop_requested:
-                    # A Minion-only host extension (`AG-022`, no pi
-                    # equivalent -- `request_boundary_stop()`, `L08-R009`),
-                    # gated the same way pinned Pi's own post-turn ordering
-                    # is never skipped for a turn that already happened: only
-                    # after this turn's own prepareNextTurn/
-                    # shouldStopAfterTurn/steering poll have already run
-                    # unconditionally. Work already in flight finishes; only
-                    # the *next* request is stopped.
-                    self._span(SpanKind.TURN, "turn", reason="boundary_stop")
-                    return "boundary_stop", None
-
                 reason = PreStepReason.STEERING if step_input else PreStepReason.TOOL_RESULTS
                 decision = await self._pre_step(
                     tuple(envelope.message for envelope in step_input), reason
@@ -569,7 +583,16 @@ class AgentLoop:
         turn/run progress uses, not a recovery-only special path, and with NO
         preceding `turn_start` at all. `TURN_END` still carries an explicit
         override the offline `project()` honors directly (see
-        `projection.py`) for callers reconstructing the log after the fact."""
+        `projection.py`) for callers reconstructing the log after the fact.
+
+        Reduce-before-listener, per event, matching pinned Pi's own
+        `processEvents` exactly (`L08-R002`, PASS 4): `streaming_message` is
+        set to the failure at `message_start` and cleared at `message_end`
+        (an earlier revision never set it at all); the failure's transcript
+        entry is appended at `message_end` time, between the two dispatches,
+        not before either; `error_message` is set as part of `turn_end`'s own
+        reduce, before that event's own dispatch (an earlier revision set it
+        only after `turn_end`'s listeners had already run)."""
         log = self.instance.log
         failure = AssistantMessage(
             content=(TextBlock(text=""),),
@@ -580,15 +603,17 @@ class AgentLoop:
             timestamp=0,
             error_message=str(error),
         )
-        log.append(EventKind.ASSISTANT_MESSAGE, {"message": encode_message(failure)})
-        await self._dispatch_agent_event(MessageStart(message=failure))
-        await self._dispatch_agent_event(MessageEnd(message=failure))
-        self.instance.streaming_message = None
 
+        self.instance.streaming_message = failure
+        await self._dispatch_agent_event(MessageStart(message=failure))
+
+        self.instance.streaming_message = None
+        log.append(EventKind.ASSISTANT_MESSAGE, {"message": encode_message(failure)})
+        await self._dispatch_agent_event(MessageEnd(message=failure))
+
+        self.instance.error_message = str(error)
         log.append(EventKind.TURN_END, {"message": encode_message(failure)})
         await self._dispatch_agent_event(TurnEnd(message=failure, tool_results=()))
-        self.instance.error_message = str(error)
-        self.instance.pending_tool_calls = frozenset()
 
         payload: dict[str, object] = {
             "reason": "failed",
@@ -599,6 +624,9 @@ class AgentLoop:
         await self._dispatch_agent_event(
             AgentEnd(reason="failed", causes=tuple(causes), messages=(failure,))
         )
+        # Pinned Pi's `finishRun()` (not `handleRunFailure` itself) resets
+        # `pendingToolCalls`; `_run_wrapped`'s own `finally` mirrors that,
+        # unconditionally, for every run -- not repeated here.
 
     async def _should_stop(
         self,
@@ -733,21 +761,22 @@ class AgentLoop:
             tools=schemas,
         )
 
-        # Non-`None` for exactly the duration of one provider request, matching
-        # pinned Pi's own `streamingMessage` write points (`message_start`/
-        # `message_update` -> the partial message; `message_end` -> `undefined`).
-        # Set directly from each chunk's own `partial` (`L08-R003`): the
-        # already-certified Layer-02/04 `StreamChunk` carries the complete
-        # partial assistant message on every variant, so no independent
-        # reconstruction from raw deltas is needed or attempted. Not
-        # dispatched through `AGENT_LIFECYCLE_EVENT` (`L08-R002`): `collect()`
-        # accepts only a synchronous `on_chunk` callback, so a chunk-level
-        # listener has nothing to `await` -- log + offline `project()` remain
-        # this reply's own observability surface, unchanged from PASS 3.
+        # Streamed assistant reply lifecycle, fully live (`L08-R002`, PASS 5):
+        # iterates `self.llm.stream(request)` directly rather than through the
+        # certified Layer-02/04 `collect()` convenience wrapper, whose own
+        # `on_chunk` callback is synchronous by design and cannot itself
+        # `await` a dispatch. This does not reopen or modify `collect()` --
+        # still certified, still used elsewhere -- it reproduces its own
+        # trivial drain loop here, the one call site that needs an async
+        # per-chunk dispatch. `streaming_message` is set directly from each
+        # chunk's own already-complete `partial` (`L08-R003`, unchanged): the
+        # certified `StreamChunk` carries it on every variant, so no
+        # independent reconstruction from raw deltas is attempted. Reduce
+        # (the log append / `streaming_message` write), THEN dispatch, per
+        # event -- matching pinned Pi's own `processEvents` order exactly.
         stream_opened = False
-
-        def log_chunk(chunk: StreamChunk) -> None:
-            nonlocal stream_opened
+        reply: AssistantMessage | None = None
+        async for chunk in self.llm.stream(request):
             match chunk:
                 case StreamStart():
                     stream_opened = True
@@ -756,7 +785,8 @@ class AgentLoop:
                         EventKind.ASSISTANT_STREAM_START,
                         {"partial": encode_message(chunk.partial)},
                     )
-                    return
+                    await self._dispatch_agent_event(MessageStart(message=chunk.partial))
+                    continue
                 case TextStart():
                     kind = "text_start"
                 case TextDelta():
@@ -776,7 +806,8 @@ class AgentLoop:
                 case ToolCallEnd():
                     kind = "toolcall_end"
                 case StreamDone() | StreamError():
-                    return
+                    reply = chunk.message
+                    break
             self.instance.streaming_message = chunk.partial
             log.append(
                 EventKind.ASSISTANT_CHUNK,
@@ -786,17 +817,26 @@ class AgentLoop:
                     "partial": encode_message(chunk.partial),
                 },
             )
+            await self._dispatch_agent_event(
+                MessageUpdate(kind=kind, content_index=chunk.content_index, message=chunk.partial)
+            )
+        # Never actually `None`: `self.llm` is always a `LlmService`, whose
+        # own certified `_settled()` wrapper (`llm/service.py`, Layer 02/04)
+        # guarantees every returned stream yields a terminal chunk before
+        # ending, even for a raw adapter that breaks its own protocol -- the
+        # same guarantee `collect()` enforces defensively for a caller that
+        # might hand it an unwrapped stream, which this call site never does.
+        assert reply is not None, "LlmService.stream always yields a terminal chunk"
 
-        reply = await collect(self.llm.stream(request), log_chunk)
+        # message_end's own reduce-then-dispatch. `not stream_opened` mirrors
+        # pinned Pi's own defensive `!addedPartial` fallback: a stream that
+        # never emitted its own "start" still gets a `MessageStart` here,
+        # immediately before its own `MessageEnd`.
         self.instance.streaming_message = None
         log.append(EventKind.ASSISTANT_MESSAGE, {"message": encode_message(reply)})
-        if reply.error_message:
-            # Pinned Pi's own `processEvents`: `turn_end` sets `errorMessage` from
-            # a failed/aborted assistant message's own `errorMessage`, and nothing
-            # clears it again until the *next* run starts (`_run_wrapped`) or
-            # `reset()` (Layer-07, certified) -- it is not cleared here, and not
-            # cleared by this run's own `agent_end` either.
-            self.instance.error_message = reply.error_message
+        if not stream_opened:
+            await self._dispatch_agent_event(MessageStart(message=reply))
+        await self._dispatch_agent_event(MessageEnd(message=reply))
         context.messages.append(reply)
         new_messages.append(reply)
 
@@ -804,7 +844,13 @@ class AgentLoop:
             # Represented error/aborted (`L08-R008`): pinned Pi emits this
             # turn's own `turn_end` with empty `toolResults` and returns
             # immediately -- no tool calls are ever inspected or executed for
-            # a message representing its own failure.
+            # a message representing its own failure. `error_message` is
+            # `turn_end`'s own reduce (pinned Pi: `if role === "assistant" &&
+            # errorMessage`), set before that event's own dispatch, not after
+            # -- and nothing clears it again until the *next* run starts
+            # (`_run_wrapped`) or `reset()` (Layer-07, certified).
+            if reply.error_message:
+                self.instance.error_message = reply.error_message
             log.append(EventKind.TURN_END, {})
             await self._dispatch_agent_event(TurnEnd(message=reply, tool_results=()))
             self._span(SpanKind.STEP, "step", reason=reason.value)
@@ -828,15 +874,30 @@ class AgentLoop:
         if calls:
             execution_registry = _snapshot_tool_registry(context.tools)
 
-            # `pending_tool_calls` tracks the real batch window via the already-
-            # certified Layer-06 `tools/execution-start`/`tools/execution-end`
-            # events -- add on start, remove on end, matching pinned Pi's own
-            # `processEvents` reducer exactly, through an existing seam.
+            # `pending_tool_calls` (the reduce) tracks the real batch window,
+            # in real time, through the already-certified Layer-06
+            # `tools/execution-start`/`tools/execution-end` EMIT events --
+            # matching pinned Pi's own `processEvents` reducer exactly. The
+            # unified Agent-event DISPATCH for those same two events is
+            # captured here and redelivered once the batch settles (below) --
+            # a disclosed consequence of Layer-06's own certified EMIT
+            # (synchronous, fire-and-forget) dispatch mode, which this pass
+            # does not reopen: every event still reaches the unified seam, in
+            # the exact order Layer 06 emitted it (every call's own
+            # `_preflight`/start always precedes any call's own execute/end,
+            # `tools/batch.py`'s own certified ordering), just not causally
+            # blocking that specific call's own further progress the way a
+            # slow pinned-Pi listener could (`L08-R002`).
+            captured_starts: list[tuple[str, str, dict[str, object]]] = []
+            captured_ends: list[tuple[str, ToolResult]] = []
+
             def on_execution_start(call_id: str, name: str, arguments: dict[str, object]) -> None:
                 self.instance.pending_tool_calls = self.instance.pending_tool_calls | {call_id}
+                captured_starts.append((call_id, name, arguments))
 
-            def on_execution_end(call_id: str, name: str, result: object) -> None:
+            def on_execution_end(call_id: str, name: str, result: ToolResult) -> None:
                 self.instance.pending_tool_calls = self.instance.pending_tool_calls - {call_id}
+                captured_ends.append((call_id, result))
 
             dispose_start = self.instance.ctx.events.on(
                 TOOLS_EXECUTION_START, on_execution_start, scope=self.instance.scope.key
@@ -863,11 +924,25 @@ class AgentLoop:
             finally:
                 dispose_start()
                 dispose_end()
-                self.instance.pending_tool_calls = frozenset()
+
+            for start_call_id, start_name, start_arguments in captured_starts:
+                await self._dispatch_agent_event(
+                    ToolExecutionStart(
+                        tool_call_id=start_call_id, tool_name=start_name, arguments=start_arguments
+                    )
+                )
+            for end_call_id, end_result in captured_ends:
+                await self._dispatch_agent_event(
+                    ToolExecutionEnd(tool_call_id=end_call_id, is_error=end_result.is_error)
+                )
 
             results: list[Message] = []
             for result in outcome.results:
                 message = result.to_message()
+                self.instance.streaming_message = message
+                await self._dispatch_agent_event(MessageStart(message=message))
+
+                self.instance.streaming_message = None
                 log.append(
                     EventKind.TOOL_RESULT,
                     {
@@ -880,8 +955,8 @@ class AgentLoop:
                         "added_tool_names": list(result.added_tool_names),
                     },
                 )
-                await self._dispatch_agent_event(MessageStart(message=message))
                 await self._dispatch_agent_event(MessageEnd(message=message))
+
                 context.messages.append(message)
                 new_messages.append(message)
                 results.append(message)
@@ -910,6 +985,12 @@ class AgentLoop:
                         context.tools = context.tools + tuple(newly_visible)
             tool_result_messages = tuple(results)
 
+        # turn_end's own reduce (pinned Pi: `if role === "assistant" &&
+        # errorMessage`), before that event's own dispatch -- a no-op here in
+        # the ordinary case (a normal reply carries no error), but applied
+        # unconditionally, matching pinned Pi's own reducer exactly.
+        if reply.error_message:
+            self.instance.error_message = reply.error_message
         log.append(EventKind.TURN_END, {})
         await self._dispatch_agent_event(TurnEnd(message=reply, tool_results=tool_result_messages))
         self._span(SpanKind.STEP, "step", reason=reason.value)

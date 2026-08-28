@@ -12,6 +12,14 @@ tools:
 steps:
   - followup: ping
   - await_idle: true
+description: >
+  Two pi turns, not one: the tool-call response and the tool execution/result
+  close pi's first turn (`turn_start`/`turn_end` bracket exactly one assistant
+  response plus its tool calls/results); the model is asked again inside a
+  second, freshly bracketed turn within the same run (`agent_start`/
+  `agent_end` unchanged). An earlier revision bracketed both provider
+  requests inside one `turn_start`/`turn_end` pair -- observably wrong once
+  checked against pinned Pi's `agent-loop.ts` (Layer 08).
 expect_events:
   - agent_start
   - turn_start
@@ -23,6 +31,8 @@ expect_events:
   - tool_execution_end
   - message_start
   - message_end
+  - turn_end
+  - turn_start
   - message_update
   - message_start
   - message_end

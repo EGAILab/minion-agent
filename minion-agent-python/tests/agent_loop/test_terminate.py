@@ -41,7 +41,7 @@ def _tool(name: str, *, terminate: bool) -> ToolDefinition:
 
 
 def _steps(loop: Any) -> int:
-    return len([e for e in loop.instance.log.events if e.kind == EventKind.STEP_START])
+    return len([e for e in loop.instance.log.events if e.kind == EventKind.TURN_START])
 
 
 async def test_a_unanimous_batch_ends_the_turn() -> None:
@@ -52,7 +52,7 @@ async def test_a_unanimous_batch_ends_the_turn() -> None:
     await loop.run_until_idle()
 
     assert _steps(loop) == 1
-    end = next(e for e in loop.instance.log.events if e.kind == EventKind.TURN_END)
+    end = next(e for e in loop.instance.log.events if e.kind == EventKind.AGENT_END)
     assert end.data["reason"] == "terminated"
 
 
@@ -92,7 +92,7 @@ async def test_turn_stopping_is_not_dispatched_when_terminate_fires() -> None:
     # unrelated reason (e.g. max_steps == 1), which would likewise leave
     # `asked` empty without proving termination fired. Pinning the reason
     # rules that confound out -- default max_steps is 16, far above 1.
-    end = next(e for e in loop.instance.log.events if e.kind == EventKind.TURN_END)
+    end = next(e for e in loop.instance.log.events if e.kind == EventKind.AGENT_END)
     assert end.data["reason"] == "terminated"
 
 
@@ -116,7 +116,7 @@ async def test_a_terminating_batch_still_logs_its_results() -> None:
     results = [e for e in loop.instance.log.events if e.kind == EventKind.TOOL_RESULT]
     assert len(results) == 1
     assert _steps(loop) == 1
-    end = next(e for e in loop.instance.log.events if e.kind == EventKind.TURN_END)
+    end = next(e for e in loop.instance.log.events if e.kind == EventKind.AGENT_END)
     assert end.data["reason"] == "terminated"
 
 
@@ -128,5 +128,5 @@ async def test_a_step_with_no_tools_never_terminates() -> None:
 
     await loop.run_until_idle()
 
-    end = next(e for e in loop.instance.log.events if e.kind == EventKind.TURN_END)
+    end = next(e for e in loop.instance.log.events if e.kind == EventKind.AGENT_END)
     assert end.data["reason"] == "completed"

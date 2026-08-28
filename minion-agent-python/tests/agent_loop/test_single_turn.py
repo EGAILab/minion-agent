@@ -84,14 +84,14 @@ async def test_the_turn_is_logged_in_order() -> None:
 
     kinds = [event.kind for event in loop.instance.log.events]
     assert kinds == [
+        EventKind.AGENT_START,
         EventKind.TURN_START,
         EventKind.USER_MESSAGE,
-        EventKind.STEP_START,
         EventKind.REQUEST_HEADER,
         EventKind.ASSISTANT_CHUNK,
         EventKind.ASSISTANT_MESSAGE,
-        EventKind.STEP_END,
         EventKind.TURN_END,
+        EventKind.AGENT_END,
     ]
 
 

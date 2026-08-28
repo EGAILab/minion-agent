@@ -4,8 +4,22 @@ Imperative and package-internal, following DSH's `ReactLoopAgent`: a stateful
 class with an explicit phase. Neither pi nor DSH factors the live loop as a
 pure reducer, and this design does not invent one.
 
-A **step** is one model request plus the tools it calls. A **turn** is zero or
-more steps.
+Pi vocabulary, adopted exactly (Layer 08): a **run** is one `prompt()`/
+`continue()`-equivalent invocation, bracketed by `agent_start`/`agent_end`. A
+**turn** is one assistant response plus the tool calls/results it triggers,
+bracketed by `turn_start`/`turn_end` -- never more than one provider request.
+Pi has no "step" concept; `_run_step` is Minion's own internal helper name for
+"run one turn," kept because the observable boundary it now emits (one
+`TURN_START`/`TURN_END` pair per call) is what matters, not the helper's own
+name. An earlier revision conflated a turn with "zero or more steps" and let
+`_run_step` run several times inside a single `TURN_START`/`TURN_END`
+bracket -- observably wrong once more than one provider request occurred in
+what Minion called one turn (confirmed against pinned Pi's `agent-loop.ts`,
+where `turn_start`/`turn_end` bracket exactly one assistant response). What
+that prior single bracket actually represented was pi's **run**: `_run_once`
+(renamed from `_run_turn`) now owns the `AGENT_START`/`AGENT_END` bracket,
+and `_run_step` owns `TURN_START`/`TURN_END` around exactly one provider
+request.
 """
 
 from __future__ import annotations
@@ -79,7 +93,7 @@ class AgentLoop:
         self.instance.set_status(AgentStatus.RUNNING)
         try:
             while inbox.pending(InboxTarget.NEXT_TURN):
-                await self._run_turn()
+                await self._run_once()
         finally:
             inbox.take_wake()
             self.instance.set_status(AgentStatus.IDLE)
@@ -105,11 +119,12 @@ class AgentLoop:
         """
         self._cancelled = True
 
-    async def _run_turn(self) -> None:
+    async def _run_once(self) -> None:
+        """One pi-equivalent run: `AGENT_START` to `AGENT_END`, one or more turns."""
         log = self.instance.log
         claimed = self.instance.inbox.claim(InboxTarget.NEXT_TURN, self.next_turn_policy)
         causes = [{"id": envelope.id, "origin": envelope.origin} for envelope in claimed]
-        log.append(EventKind.TURN_START, {"causes": causes})
+        log.append(EventKind.AGENT_START, {"causes": causes})
 
         # The first step claims step input too, so steering queued before the
         # turn opened enters it rather than waiting for a second step.
@@ -121,7 +136,7 @@ class AgentLoop:
             self._cancelled = False
             self._span(SpanKind.TURN, "turn", reason="rejected")
             log.append(
-                EventKind.TURN_END,
+                EventKind.AGENT_END,
                 {"reason": "rejected", "causes": causes, "detail": decision.reason},
             )
             return
@@ -166,12 +181,12 @@ class AgentLoop:
                 end_reason = "rejected"
                 break
 
-        # Cleared with the turn: a cancelled turn must not poison the next.
+        # Cleared with the run: a cancelled run must not poison the next.
         self._cancelled = False
         self._span(SpanKind.TURN, "turn", reason=end_reason)
         # Causes repeat at the end so a consumer reading only completions can
-        # route a result without replaying the whole turn.
-        log.append(EventKind.TURN_END, {"reason": end_reason, "causes": causes})
+        # route a result without replaying the whole run.
+        log.append(EventKind.AGENT_END, {"reason": end_reason, "causes": causes})
 
     async def _should_stop(self) -> bool:
         """Ask listeners whether to stop, folding by first-opinion-wins.
@@ -222,13 +237,18 @@ class AgentLoop:
         """
         log = self.instance.log
 
-        # Before `step/start`: what entered the step caused it, and the model
-        # cannot see a prompt that is not yet on the surface when the request
-        # is derived.
+        # `reason` is Minion-internal bookkeeping (why this turn began -- initial/
+        # steering/tool_results), not part of pi's own bare `turn_start` (no fields
+        # at all) -- kept on the raw log entry, not projected into the public
+        # `TurnStart` event.
+        log.append(EventKind.TURN_START, {"reason": reason.value})
+
+        # After `turn/start`, matching pinned Pi exactly (`runAgentLoop`/`runLoop`
+        # emit `turn_start` before the entering messages, every turn, not only the
+        # first): what entered the turn caused it, and the model cannot see a
+        # prompt that is not yet on the surface when the request is derived.
         for message in decision.messages:
             log.append(EventKind.USER_MESSAGE, {"message": encode_message(message)})
-
-        log.append(EventKind.STEP_START, {"reason": reason.value})
 
         components = {
             "system_base": decision.system_override
@@ -311,6 +331,6 @@ class AgentLoop:
                 },
             )
 
-        log.append(EventKind.STEP_END, {})
+        log.append(EventKind.TURN_END, {})
         self._span(SpanKind.STEP, "step", reason=reason.value)
         return outcome if calls else None

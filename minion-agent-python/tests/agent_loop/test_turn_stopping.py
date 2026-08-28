@@ -25,7 +25,7 @@ def _tool_call() -> ScriptedResponse:
 
 
 def _steps(loop: AgentLoop) -> int:
-    return len([e for e in loop.instance.log.events if e.kind == EventKind.STEP_START])
+    return len([e for e in loop.instance.log.events if e.kind == EventKind.TURN_START])
 
 
 async def test_a_stop_decision_ends_the_turn_early() -> None:
@@ -68,7 +68,7 @@ async def test_a_stopped_turn_records_why() -> None:
 
     await loop.run_until_idle()
 
-    end = next(e for e in loop.instance.log.events if e.kind == EventKind.TURN_END)
+    end = next(e for e in loop.instance.log.events if e.kind == EventKind.AGENT_END)
     assert end.data["reason"] == "stopped"
 
 

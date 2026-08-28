@@ -43,10 +43,10 @@ async def test_cancelling_ends_the_turn_at_the_next_boundary() -> None:
 
     await loop.run_until_idle()
 
-    steps = [e for e in loop.instance.log.events if e.kind == EventKind.STEP_START]
+    steps = [e for e in loop.instance.log.events if e.kind == EventKind.TURN_START]
     assert len(steps) == 1
 
-    end = next(e for e in loop.instance.log.events if e.kind == EventKind.TURN_END)
+    end = next(e for e in loop.instance.log.events if e.kind == EventKind.AGENT_END)
     assert end.data["reason"] == "cancelled"
 
 
@@ -74,7 +74,7 @@ async def test_cancelling_clears_so_the_next_turn_runs() -> None:
     loop.instance.inbox.followup(_say("second"))
     await loop.run_until_idle()
 
-    ends = [e for e in loop.instance.log.events if e.kind == EventKind.TURN_END]
+    ends = [e for e in loop.instance.log.events if e.kind == EventKind.AGENT_END]
     assert [end.data["reason"] for end in ends] == ["cancelled", "completed"]
 
 

@@ -301,11 +301,28 @@ rows:
   phase: 3
   pi: packages/agent/src/agent-loop.ts::runAgentLoop
   surface: initial prompt event order
-  rule: agent_start -> turn_start -> initial prompt message lifecycle
+  rule: 'Layer 08, PASS 1 (this pass): `agent_start -> turn_start -> initial prompt message
+    lifecycle`, confirmed directly against `runAgentLoop` (agent-loop.ts:95-118): it emits
+    `agent_start`, `turn_start`, and one `message_start`/`message_end` pair per initial prompt
+    message, in that order, before `runLoop`''s own body ever runs.
+
+    This row previously cited only the still-unfilled placeholder scenario
+    `initial-prompt-order-after-turn-start` (`TO_BE_FILLED_FROM_PINNED_PI_BEHAVIOR`) as its
+    evidence while carrying `disposition: adopted` -- a false certification claim this pass
+    corrects, not merely re-labels: nothing backed it. `driver.py` itself also had this order
+    backwards until this pass (`USER_MESSAGE` appended before `TURN_START`, the reverse of Pi''s
+    own order), caught by the corrected canonical scenarios below failing until the append order
+    was swapped. That placeholder scenario remains unfilled and is not cited as evidence here;
+    real evidence exists via the already-passing legacy-shape scenarios and focused tests listed
+    below. Filling the placeholder itself (a differently-shaped, `family`/`given`/`when`/`expect`
+    unified scenario) is left as separate, explicitly flagged follow-up work, not silently
+    dropped.'
   tests:
-  - initial-prompt-order-after-turn-start
-  python: src/minion_agent/agent_loop/driver.py (rewrite)
-  rust: Phase 3 agent loop
+  - test_the_turn_is_logged_in_order
+  - turn-lifecycle (legacy-shape canonical)
+  - tool-round-trip (legacy-shape canonical)
+  python: src/minion_agent/agent_loop/driver.py::AgentLoop._run_once/_run_step
+  rust: PENDING -- Layer 08 not yet implemented in Rust
   disposition: adopted
 - id: AG-002
   phase: 3
@@ -332,12 +349,42 @@ rows:
   phase: 3
   pi: packages/agent/src/agent-loop.ts::runLoop
   surface: turn definition/order
-  rule: one assistant response + resulting tool results; turn_end then prepareNextTurn then shouldStopAfterTurn then steering
+  rule: 'Layer 08, PASS 1 (this pass): a turn is exactly one assistant response plus the tool
+    calls/results it triggers -- never more than one provider request -- bracketed by
+    `turn_start`/`turn_end`, confirmed directly against `runLoop` (agent-loop.ts:95-275).
+
+    This row previously claimed the full ordering `turn_end -> prepareNextTurn ->
+    shouldStopAfterTurn -> steering` as `adopted`, citing only the still-unfilled placeholder
+    scenarios `turn-lifecycle-order`/`terminate-still-runs-prepare-and-stop-policy`
+    (`TO_BE_FILLED_FROM_PINNED_PI_BEHAVIOR`) -- a false certification claim, corrected here, not
+    merely re-labeled. The turn *definition* itself was also wrong until this pass:
+    `driver.py`''s prior `_run_turn` let its own inner loop call what is now `_run_step` (one
+    provider request) multiple times inside a single `TURN_START`/`TURN_END` bracket -- observably
+    incompatible with Pi once a turn produced more than one provider request (caught by
+    `tool-round-trip.yaml`/`projected-execution-ends-follow-completion-order.yaml`, both of which
+    exercise exactly that two-request shape). `_run_step` now owns exactly one `TURN_START`/
+    `TURN_END` pair; the prior multi-step bracket was actually pi''s own **run**, not a turn, and
+    is now `AGENT_START`/`AGENT_END` (`_run_once`, renamed from `_run_turn` -- the boundary moved,
+    the helper name did not need to).
+
+    Of the four-stage ordering this row claims, three are real and evidenced: `turn_end` fires
+    (`_run_step`''s own close), then `shouldStopAfterTurn` is asked (`AgentLoop._should_stop`,
+    dispatching `agent/turn-stopping`) before steering is polled (`_claim_step_input`) for the
+    next turn -- confirmed by `test_a_stop_decision_ends_the_turn_early`/`test_no_opinion_
+    continues`/`test_steering_is_claimed_at_the_step_boundary`, all passing against this exact
+    order. `prepareNextTurn` itself is NOT implemented at all -- `driver.py` has no hook between
+    `turn_end` and the stop decision that can replace `context`/`model`/`thinking_level` for the
+    next request only, the way pi''s own `prepareNextTurn` can. This is a disclosed, tracked gap,
+    not a silently dropped requirement -- `AGENT_PRE_STEP`/`AGENT_TURN_STOPPING` are adjacent
+    Minion hooks but do not reproduce `prepareNextTurn`''s specific run-local-override semantics.'
   tests:
-  - turn-lifecycle-order
-  - terminate-still-runs-prepare-and-stop-policy
-  python: src/minion_agent/agent_loop/driver.py (rewrite)
-  rust: Phase 3 agent loop
+  - test_a_stop_decision_ends_the_turn_early
+  - test_no_opinion_continues
+  - test_steering_is_claimed_at_the_step_boundary
+  - tool-round-trip (legacy-shape canonical)
+  - projected-execution-ends-follow-completion-order (legacy-shape canonical)
+  python: src/minion_agent/agent_loop/driver.py::AgentLoop._run_once/_run_step/_should_stop
+  rust: PENDING -- Layer 08 not yet implemented in Rust
   disposition: adopted
 - id: AG-005
   phase: 3

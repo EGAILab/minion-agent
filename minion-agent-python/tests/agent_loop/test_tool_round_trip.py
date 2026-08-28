@@ -48,7 +48,7 @@ async def test_the_model_is_asked_again_after_the_result() -> None:
 
     await loop.run_until_idle()
 
-    steps = [e for e in loop.instance.log.events if e.kind == EventKind.STEP_START]
+    steps = [e for e in loop.instance.log.events if e.kind == EventKind.TURN_START]
     assert [step.data["reason"] for step in steps] == ["initial", "tool_results"]
 
 
@@ -111,8 +111,8 @@ async def test_max_steps_bounds_a_runaway_tool_loop() -> None:
 
     await loop.run_until_idle()
 
-    steps = [e for e in loop.instance.log.events if e.kind == EventKind.STEP_START]
+    steps = [e for e in loop.instance.log.events if e.kind == EventKind.TURN_START]
     assert len(steps) == 3
 
-    end = next(e for e in loop.instance.log.events if e.kind == EventKind.TURN_END)
+    end = next(e for e in loop.instance.log.events if e.kind == EventKind.AGENT_END)
     assert end.data["reason"] == "max_steps"

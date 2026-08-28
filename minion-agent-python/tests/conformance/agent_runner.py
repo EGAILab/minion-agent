@@ -18,7 +18,7 @@ from typing import Any
 from minion_agent.agent.envelope import ClaimPolicy
 from minion_agent.agent.identity import AgentDefinition
 from minion_agent.agent.plugin import agents_plugin
-from minion_agent.agent.projection import TurnEnd, event_names, project
+from minion_agent.agent.projection import AgentEnd, event_names, project
 from minion_agent.agent_loop import agent_loop_plugin
 from minion_agent.llm import (
     AssistantMessage,
@@ -506,7 +506,7 @@ async def run_agent_scenario(document: dict[str, Any]) -> dict[str, Any]:
             }
             for m in messages
         ],
-        "causes": [list(event.causes) for event in events if isinstance(event, TurnEnd)],
+        "causes": [list(event.causes) for event in events if isinstance(event, AgentEnd)],
         "assistant_stop_reasons": [
             m.stop_reason.value for m in messages if isinstance(m, AssistantMessage)
         ],

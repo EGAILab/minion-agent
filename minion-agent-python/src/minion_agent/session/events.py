@@ -40,10 +40,10 @@ class EventKind(StrEnum):
     TOOL_RESULT = "tool/result"
 
     # --- log-only: lifecycle ---
+    AGENT_START = "agent/start"
+    AGENT_END = "agent/end"
     TURN_START = "turn/start"
     TURN_END = "turn/end"
-    STEP_START = "step/start"
-    STEP_END = "step/end"
 
     # --- log-only: fidelity and request reconstruction ---
     ASSISTANT_CHUNK = "assistant/chunk"

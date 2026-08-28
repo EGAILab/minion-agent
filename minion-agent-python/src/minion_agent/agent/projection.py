@@ -65,11 +65,16 @@ class TurnEnd:
 
 @dataclass(frozen=True, slots=True)
 class MessageUpdate:
-    """One streaming delta. Pi's tenth event."""
+    """One streaming update. Pi's tenth event, `{assistantMessageEvent, message}`:
+    `message` is the FULL partial assistant message as accumulated so far (Layer 08, PASS 3,
+    `L08-R003` -- an earlier revision reconstructed only accumulated text and dropped thinking/
+    tool-call partial content entirely, when the certified Layer-02/04 `StreamChunk` already
+    carries the complete partial on every variant). `kind`/`content_index` are Minion's own
+    decomposition of pi's raw `assistantMessageEvent`, kept for existing diagnostic value."""
 
     kind: str
     content_index: int
-    delta: str
+    message: Message
 
 
 @dataclass(frozen=True, slots=True)
@@ -107,9 +112,10 @@ type AgentEvent = (
     | ToolExecutionEnd
 )
 
-_MESSAGE_KINDS = frozenset(
-    {EventKind.USER_MESSAGE, EventKind.ASSISTANT_MESSAGE, EventKind.TOOL_RESULT}
-)
+_MESSAGE_KINDS = frozenset({EventKind.USER_MESSAGE, EventKind.TOOL_RESULT})
+"""`ASSISTANT_MESSAGE` is handled in its own branch (Layer 08, PASS 3): whether it gets its own
+`MessageStart` depends on whether an `ASSISTANT_STREAM_START` already opened it, which this
+generic per-entry handling cannot express."""
 
 
 def project(log: SessionLog) -> tuple[AgentEvent, ...]:
@@ -127,6 +133,16 @@ def project(log: SessionLog) -> tuple[AgentEvent, ...]:
     is buffered here and re-sorted by `completion_index` before its
     `ToolExecutionEnd` events are emitted; the `MessageStart`/`MessageEnd`
     pairs that follow still emit in the original, source, order.
+
+    `TURN_END`/`AGENT_END` entries may carry explicit `"message"`/`"messages"`
+    overrides (Layer 08, PASS 3, `L08-R002`): pinned Pi's `handleRunFailure`
+    fallback emits `turn_end(failure, [])` / `agent_end(messages=[failure])`
+    -- the failure message ONLY, not whatever this run's own turn/run
+    accumulators happen to hold -- and does so without a preceding
+    `turn_start` at all. Fixing the projection to honor an explicit override
+    (rather than inventing a synthetic `turn_start` pinned Pi never emits)
+    is the sanctioned fix; the accumulators' own normal behavior is
+    unaffected for every other `TURN_END`/`AGENT_END`.
     """
     events: list[AgentEvent] = []
     # Buffered `tool/result` entries of the run currently being accumulated.
@@ -138,10 +154,15 @@ def project(log: SessionLog) -> tuple[AgentEvent, ...]:
     # `turn_end{message, toolResults}` (reset at each TURN_START).
     turn_message: Message | None = None
     turn_results: list[Message] = []
+    # Whether ASSISTANT_STREAM_START already opened a MessageStart for the
+    # assistant reply currently streaming -- ASSISTANT_MESSAGE must not open
+    # a second one when it did (Layer 08, PASS 3, L08-R003).
+    stream_open = False
 
-    def emit_message(message: Message) -> None:
+    def emit_message(message: Message, *, suppress_start: bool = False) -> None:
         nonlocal turn_message
-        events.append(MessageStart(message=message))
+        if not suppress_start:
+            events.append(MessageStart(message=message))
         events.append(MessageEnd(message=message))
         run_messages.append(message)
         if isinstance(message, AssistantMessage):
@@ -170,11 +191,16 @@ def project(log: SessionLog) -> tuple[AgentEvent, ...]:
             events.append(AgentStart(causes=tuple(entry.data.get("causes", ()))))
 
         elif entry.kind == EventKind.AGENT_END:
+            if "messages" in entry.data:
+                # Pi's handleRunFailure: agent_end.messages is [failureMessage] only.
+                messages = tuple(decode_message(m) for m in entry.data["messages"])
+            else:
+                messages = tuple(run_messages)
             events.append(
                 AgentEnd(
                     reason=entry.data.get("reason", "completed"),
                     causes=tuple(entry.data.get("causes", ())),
-                    messages=tuple(run_messages),
+                    messages=messages,
                 )
             )
 
@@ -183,16 +209,33 @@ def project(log: SessionLog) -> tuple[AgentEvent, ...]:
             events.append(TurnStart())
 
         elif entry.kind == EventKind.TURN_END:
-            events.append(TurnEnd(message=turn_message, tool_results=tuple(turn_results)))
+            if "message" in entry.data:
+                # Pi's handleRunFailure: turn_end(failure, []) -- no preceding
+                # turn_start at all; the failure message, not this turn's
+                # own (possibly nonexistent) accumulator.
+                override = entry.data["message"]
+                message = decode_message(override) if override is not None else None
+                events.append(TurnEnd(message=message, tool_results=()))
+            else:
+                events.append(TurnEnd(message=turn_message, tool_results=tuple(turn_results)))
+
+        elif entry.kind == EventKind.ASSISTANT_STREAM_START:
+            message = decode_message(entry.data["partial"])
+            events.append(MessageStart(message=message))
+            stream_open = True
 
         elif entry.kind == EventKind.ASSISTANT_CHUNK:
             events.append(
                 MessageUpdate(
                     kind=entry.data["kind"],
                     content_index=entry.data["content_index"],
-                    delta=entry.data["delta"],
+                    message=decode_message(entry.data["partial"]),
                 )
             )
+
+        elif entry.kind == EventKind.ASSISTANT_MESSAGE:
+            emit_message(decode_message(entry.data["message"]), suppress_start=stream_open)
+            stream_open = False
 
         elif entry.kind == EventKind.TOOL_CALL:
             events.append(

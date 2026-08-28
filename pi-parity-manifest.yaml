@@ -326,35 +326,41 @@ rows:
   disposition: adopted
 - id: AG-002
   phase: 3
-  pi: packages/agent/src/agent-loop.ts::runLoop
+  pi: packages/agent/src/agent-loop.ts::runAgentLoop / runLoop
   surface: initial steering poll
-  rule: 'Layer 08, PASS 2, resolved this pass: pinned Pi polls steering once, before the first
-    turn''s own body runs, whether the run is a fresh prompt or a continuation
-    (`pendingMessages = getSteeringMessages() ?? []` at the top of `runLoop`, confirmed directly).
-    Section 1''s audit (`CONTRACT_ASSURANCE_DEFECT`, this row''s prior text): the row was already
-    genuinely true of the existing, uncertified `driver.py` before this pass (the initial claim
-    already merged the step-boundary claim into the first `_pre_step`), but its own citation was
-    entirely unsupported -- both cited scenarios were still `TO_BE_FILLED_FROM_PINNED_PI_BEHAVIOR`
-    placeholders, so `disposition: adopted` had no real evidence backing it at all. `initial-
-    steering-before-first-request` remains unfilled and is not cited here; real evidence exists
-    via `test_steering_is_claimed_at_the_step_boundary` (`tests/agent_loop/test_pre_step.py`,
-    already passing before this pass) and the corrected `continue_()` tests below, which prove the
-    initial poll fires uniformly across `prompt()`/`continue_()`/`run_until_idle()`''s own claimed-
-    batch entries, not merely for one entry path.
+  rule: 'Layer 08, PASS 3 (this pass), correcting a PASS-2 ordering defect the independent Rust
+    review caught (`L08-R006`): pinned Pi''s `runAgentLoop` emits `agent_start`, `turn_start`, then
+    the initial prompt messages'' own `message_start`/`message_end` pairs, and only THEN does
+    `runLoop`''s own body run -- whose first statement is the initial steering poll
+    (`pendingMessages = getSteeringMessages() ?? []`), confirmed directly against source
+    (agent-loop.ts:95-118, 161). The initial steering claim is strictly a post-`turn_start` event,
+    even for a run''s very first turn.
 
-    `continue-steering-no-double-drain` (this pass): pinned Pi''s `Agent.continue()` pre-drains
-    steering itself when the last transcript message is assistant, then sets a one-shot
-    `skipInitialSteeringPoll` flag so the freshly started run''s own initial poll does not claim
-    the identical batch a second time. `AgentLoop.continue_()` (new this pass) reproduces this
-    exactly: its steering-drain branch passes `skip_initial_steering_poll=True` into
-    `_run_wrapped`/`_execute_run`, which then skips the initial `_claim_step_input()` call entirely
+    PASS 2''s own implementation got this backwards: the initial claim/pre-step dispatch ran before
+    `TURN_START` was ever appended to the log, so a pre-step listener observing live log state at
+    claim time would see no `TURN_START` yet -- observably wrong once checked against pinned Pi''s
+    own emission order. PASS 3 fixes this directly in `_run_inner`: `TURN_START` is now appended
+    unconditionally, before the initial claim/`_pre_step` dispatch ever runs; `_run_step`''s own
+    `open_turn=False` flag for that first turn prevents a duplicate append once the turn''s own body
+    executes. Proven with listener-based evidence, not offline projection (inbox claims are not
+    themselves projected events): an `AGENT_PRE_STEP` listener inspects `instance.log.events` for
+    `TURN_START` at the moment the initial claim reaches it
+    (`test_the_initial_steering_claim_happens_after_turn_start`).
+
+    `continue-steering-no-double-drain` (PASS 2, unchanged this pass): pinned Pi''s `Agent.continue()`
+    pre-drains steering itself when the last transcript message is assistant, then sets a one-shot
+    `skipInitialSteeringPoll` flag so the freshly started run''s own initial poll does not claim the
+    identical batch a second time. `AgentLoop.continue_()` reproduces this exactly: its
+    steering-drain branch passes `skip_initial_steering_poll=True` into `_run_wrapped`/
+    `_execute_run`/`_run_inner`, which then skips the initial `_claim_step_input()` call entirely
     for that run (`test_continue_does_not_double_drain_steering_after_pre_drain`).'
   tests:
+  - test_the_initial_steering_claim_happens_after_turn_start
   - test_steering_is_claimed_at_the_step_boundary
   - test_continue_drains_steering_when_last_message_is_assistant
   - test_continue_does_not_double_drain_steering_after_pre_drain
-  python: src/minion_agent/agent_loop/driver.py::AgentLoop._run_inner (initial poll), AgentLoop.continue_ (skip_initial_steering_poll)
-  rust: PENDING -- Layer 08 not yet implemented in Rust
+  python: src/minion_agent/agent_loop/driver.py::AgentLoop._run_inner (TURN_START before the initial claim), AgentLoop.continue_ (skip_initial_steering_poll)
+  rust: PENDING -- Layer 08 not yet implemented in Rust; the PASS-2 candidate's independent review rejected this row (L08-R006), PASS 3 is the remediated candidate awaiting re-review
   disposition: adopted
 - id: AG-003
   phase: 3
@@ -393,42 +399,65 @@ rows:
   phase: 3
   pi: packages/agent/src/agent-loop.ts::runLoop
   surface: turn definition/order
-  rule: 'Layer 08, PASS 1 (this pass): a turn is exactly one assistant response plus the tool
-    calls/results it triggers -- never more than one provider request -- bracketed by
-    `turn_start`/`turn_end`, confirmed directly against `runLoop` (agent-loop.ts:95-275).
+  rule: 'Layer 08, PASS 3 (this pass) -- the coherent current statement, superseding PASS 1''s
+    disclosed gap and PASS 2''s mis-scoped `prepareNextTurn`, both of which the independent Rust
+    review of the PASS-2 candidate caught (`L08-R001`, `L08-R004`).
 
-    This row previously claimed the full ordering `turn_end -> prepareNextTurn ->
-    shouldStopAfterTurn -> steering` as `adopted`, citing only the still-unfilled placeholder
-    scenarios `turn-lifecycle-order`/`terminate-still-runs-prepare-and-stop-policy`
-    (`TO_BE_FILLED_FROM_PINNED_PI_BEHAVIOR`) -- a false certification claim, corrected here, not
-    merely re-labeled. The turn *definition* itself was also wrong until this pass:
-    `driver.py`''s prior `_run_turn` let its own inner loop call what is now `_run_step` (one
-    provider request) multiple times inside a single `TURN_START`/`TURN_END` bracket -- observably
-    incompatible with Pi once a turn produced more than one provider request (caught by
-    `tool-round-trip.yaml`/`projected-execution-ends-follow-completion-order.yaml`, both of which
-    exercise exactly that two-request shape). `_run_step` now owns exactly one `TURN_START`/
-    `TURN_END` pair; the prior multi-step bracket was actually pi''s own **run**, not a turn, and
-    is now `AGENT_START`/`AGENT_END` (`_run_once`, renamed from `_run_turn` -- the boundary moved,
-    the helper name did not need to).
+    A turn is exactly one assistant response plus the tool calls/results it triggers -- never more
+    than one provider request -- bracketed by `turn_start`/`turn_end`, confirmed directly against
+    `runLoop` (agent-loop.ts:95-275; unchanged since PASS 1, `_run_step` owns exactly one bracket).
 
-    Of the four-stage ordering this row claims, three are real and evidenced: `turn_end` fires
-    (`_run_step`''s own close), then `shouldStopAfterTurn` is asked (`AgentLoop._should_stop`,
-    dispatching `agent/turn-stopping`) before steering is polled (`_claim_step_input`) for the
-    next turn -- confirmed by `test_a_stop_decision_ends_the_turn_early`/`test_no_opinion_
-    continues`/`test_steering_is_claimed_at_the_step_boundary`, all passing against this exact
-    order. `prepareNextTurn` itself is NOT implemented at all -- `driver.py` has no hook between
-    `turn_end` and the stop decision that can replace `context`/`model`/`thinking_level` for the
-    next request only, the way pi''s own `prepareNextTurn` can. This is a disclosed, tracked gap,
-    not a silently dropped requirement -- `AGENT_PRE_STEP`/`AGENT_TURN_STOPPING` are adjacent
-    Minion hooks but do not reproduce `prepareNextTurn`''s specific run-local-override semantics.'
+    The complete post-turn ordering, confirmed directly against `runLoop`''s own body
+    (agent-loop.ts:161-245): `turn_end` (`_run_step`''s own close) -> `prepareNextTurn` ->
+    `shouldStopAfterTurn` -> steering poll for the next turn -> follow-up polled only if the run
+    would otherwise stop (`AG-005`). PASS 1 disclosed `prepareNextTurn` as an unimplemented,
+    tracked gap; PASS 2 implemented an event (`AGENT_PREPARE_NEXT_TURN`) but let it replace only
+    `system_prompt`, a truncation the independent review caught against the exact source:
+    `AgentLoopTurnUpdate.context: AgentContext` replaces the WHOLE `{systemPrompt, messages, tools}`
+    object, not one field (types.ts:138-145; `runLoop`''s own
+    `currentContext = nextTurnSnapshot.context ?? currentContext`, agent-loop.ts:226-231 -- a
+    whole-object swap via `??`, never a per-field merge). `model`/`thinkingLevel` are independently
+    optional per-field replacements alongside it (agent-loop.ts:232-238), with the same
+    `"off"`-vs-`undefined` special case already certified at Layer-07 `AG-014`.
+
+    PASS 3 corrects the implementation to match: `RunConfigUpdate.context: RunContext | None`
+    replaces `_run_inner`''s run-local `context` wholesale when set
+    (`if update.context is not None: context = update.context`), while `RunConfigUpdate.model`/
+    `.thinking_level` remain independent optional replacements on the run-local `RunConfig`. The
+    replacement is proven run-local-only, never persisted back to the certified Layer-07
+    `AgentInstance`, and never leaking into an unrelated second run
+    (`test_prepare_next_turn_can_replace_the_whole_context`,
+    `test_prepare_next_turn_can_replace_model_and_thinking_level`,
+    `test_prepare_next_turn_context_replacement_does_not_persist_to_the_next_run`). Listener
+    signatures for both `AGENT_PREPARE_NEXT_TURN` and `AGENT_TURN_STOPPING` now mirror pinned Pi''s
+    own `PrepareNextTurnContext`/`ShouldStopAfterTurnContext` exactly --
+    `(message, tool_results, context, new_messages)`, not the tool-batch-outcome-only shape PASS 2
+    passed listeners -- confirmed against types.ts:126-147
+    (`test_should_stop_and_prepare_next_turn_receive_pis_full_context`).
+
+    `terminate`''s own scope is unchanged and remains correctly narrow (`TOOL-007`): it suppresses
+    only the tool-driven inner-loop continuation (`has_more_tool_calls`), never `prepareNextTurn`/
+    `shouldStopAfterTurn`/the steering poll for that same turn -- still evidenced by
+    `test_a_stop_decision_ends_the_turn_early`/`test_no_opinion_continues`.
+
+    A represented `error`/`aborted` assistant message is the one turn-ending case this ordering
+    does NOT apply to at all: pinned Pi returns immediately after that turn''s own `turn_end`,
+    running none of `prepareNextTurn`/`shouldStopAfterTurn`/the steering or follow-up poll
+    (agent-loop.ts:196-200) -- certified separately at `AG-021` (`L08-R008`), not a carve-out of
+    this row''s own ordering claim.'
   tests:
   - test_a_stop_decision_ends_the_turn_early
   - test_no_opinion_continues
-  - test_steering_is_claimed_at_the_step_boundary
+  - test_prepare_next_turn_can_replace_the_whole_context
+  - test_prepare_next_turn_can_replace_model_and_thinking_level
+  - test_prepare_next_turn_context_replacement_does_not_persist_to_the_next_run
+  - test_should_stop_and_prepare_next_turn_receive_pis_full_context
+  - test_run_start_snapshot_ignores_a_later_caller_config_change
+  - test_run_start_snapshot_ignores_session_changes_from_outside_the_run
   - tool-round-trip (legacy-shape canonical)
   - projected-execution-ends-follow-completion-order (legacy-shape canonical)
-  python: src/minion_agent/agent_loop/driver.py::AgentLoop._run_once/_run_step/_should_stop
-  rust: PENDING -- Layer 08 not yet implemented in Rust
+  python: src/minion_agent/agent_loop/driver.py::AgentLoop._run_inner/_run_step/_prepare_next_turn/_should_stop
+  rust: PENDING -- Layer 08 not yet implemented in Rust; the PASS-2 candidate's independent review rejected this row (L08-R001, L08-R004), PASS 3 is the remediated candidate awaiting re-review
   disposition: adopted
 - id: AG-005
   phase: 3
@@ -478,7 +507,18 @@ rows:
     ("Agent is already processing a prompt. Use steer() or followUp() to queue messages, or wait
     for completion.") while a run is active (`test_prompt_rejects_while_active`); accepts a single
     message or a tuple, entering a new run directly, not through the follow-up queue
-    (`test_prompt_starts_a_run_with_the_given_message`, `test_prompt_accepts_a_tuple_of_messages`).
+    (`test_prompt_starts_a_run_with_the_given_message`,
+    `test_prompt_accepts_a_tuple_of_typed_messages_unchanged`).
+
+    `prompt(text, images?)` (Layer 08, PASS 3, `L08-R007`): pinned Pi''s own convenience overload,
+    confirmed against source -- a plain string (optionally with images) normalizes into exactly one
+    `UserMessage` whose content is `[{type:"text",...}, ...images]`, text first then the supplied
+    images in order. This is an ADDITIONAL accepted form, not a narrowing of the typed
+    `Message | tuple[Message, ...]` boundary AG-006 already certified above -- both forms coexist
+    unchanged (`test_prompt_accepts_a_plain_string`,
+    `test_prompt_string_with_one_image_orders_text_then_image`,
+    `test_prompt_string_with_multiple_images_preserves_order`,
+    `test_prompt_accepts_a_tuple_of_typed_messages_unchanged`).
 
     `continue_()` rejects with its own, DIFFERENT exact text ("Agent is already processing. Wait
     for completion before continuing.") while active (`test_continue_rejects_while_active`);
@@ -501,7 +541,10 @@ rows:
   tests:
   - test_prompt_rejects_while_active
   - test_prompt_starts_a_run_with_the_given_message
-  - test_prompt_accepts_a_tuple_of_messages
+  - test_prompt_accepts_a_tuple_of_typed_messages_unchanged
+  - test_prompt_accepts_a_plain_string
+  - test_prompt_string_with_one_image_orders_text_then_image
+  - test_prompt_string_with_multiple_images_preserves_order
   - test_continue_rejects_while_active
   - test_continue_rejects_with_no_transcript
   - test_continue_rejects_when_last_message_is_assistant_and_nothing_queued
@@ -510,7 +553,7 @@ rows:
   - test_continue_sends_full_history_when_last_message_is_not_assistant
   - test_run_wrapped_defensive_guard_rejects_when_not_idle
   python: src/minion_agent/agent_loop/driver.py::AgentLoop.prompt/continue_/_run_wrapped
-  rust: PENDING -- Layer 08 not yet implemented in Rust
+  rust: PENDING -- Layer 08 not yet implemented in Rust; the PASS-2 candidate's independent review rejected this row (L08-R007), PASS 3 is the remediated candidate awaiting re-review
   disposition: adopted
 - id: AG-007
   phase: 3
@@ -557,13 +600,23 @@ rows:
 
     `streaming_message`: non-`None` for exactly the duration of one provider request, matching
     pinned Pi''s own `message_start`/`message_update` -> partial, `message_end` -> `None` write
-    points. Content-level fidelity is disclosed as text-only (accumulated `TextDelta`s): Minion''s
-    certified Layer-02/04 `collect()` exposes only raw deltas, not a live partial message object to
-    build a richer one from, and reconstructing pinned Pi''s own opaque partial representation is
-    out of this layer''s scope to invent. This is a stated, deliberate simplification
-    (`intentional divergence` on content fidelity specifically), not silently dropped -- the
-    non-`None`/`None` transition timing itself, the part that is actually part of the observable
-    contract this row certifies, is exact.
+    points. PASS 2''s own content-fidelity simplification (text-only, accumulated `TextDelta`s) was
+    itself a false premise the independent Rust review caught (`L08-R003`): the already-certified
+    Layer-02/04 `StreamChunk` type carries a complete `partial: AssistantMessage` field on EVERY
+    variant (`stream.py`''s own module docstring -- "every chunk carries `partial`, the message as
+    assembled so far"), confirmed directly against pinned Pi''s equivalent chunk shape too. PASS 3
+    corrects this: `_run_step`''s own `log_chunk` closure sets
+    `self.instance.streaming_message = chunk.partial` directly from each chunk''s own already-complete
+    partial -- text, thinking, and tool-call content alike -- with no independent reconstruction
+    from raw deltas attempted. Since the certified `MockAdapter` only ever streams text deltas, a
+    test-local-only `_RichStreamAdapter` (implementing the same informal `Adapter` protocol,
+    `tests/agent_loop/test_run_entry_points.py`) supplies the thinking/tool-call evidence without
+    touching certified adapter code
+    (`test_streaming_message_carries_the_full_partial_for_text`,
+    `test_streaming_message_carries_the_full_partial_for_thinking`,
+    `test_streaming_message_carries_the_full_partial_for_tool_calls`,
+    `test_streaming_message_clears_after_the_message_finalizes`). The non-`None`/`None` transition
+    timing itself was already exact and is unchanged by this correction.
 
     `pending_tool_calls`: real per-call add-on-start/remove-on-end tracking through the
     already-certified Layer-06 `tools/execution-start`/`tools/execution-end` events -- an existing
@@ -580,32 +633,45 @@ rows:
   - test_a_pre_step_listener_failure_settles_gracefully
   - test_a_turn_stopping_listener_failure_settles_gracefully
   - test_a_prepare_next_turn_listener_failure_settles_gracefully
+  - test_streaming_message_carries_the_full_partial_for_text
+  - test_streaming_message_carries_the_full_partial_for_thinking
+  - test_streaming_message_carries_the_full_partial_for_tool_calls
+  - test_streaming_message_clears_after_the_message_finalizes
+  - test_message_start_precedes_message_update_for_a_streamed_reply
   python: src/minion_agent/agent_loop/driver.py::AgentLoop._run_wrapped/_run_step (streaming_message/pending_tool_calls/error_message writes)
-  rust: PENDING -- Layer 08 not yet implemented in Rust
+  rust: PENDING -- Layer 08 not yet implemented in Rust; the PASS-2 candidate's independent review rejected this row (L08-R003), PASS 3 is the remediated candidate awaiting re-review
   disposition: adopted
 - id: AG-009
   phase: 3
   pi: packages/agent/src/agent.ts::handleRunFailure
   surface: high-level callback failure settlement
-  rule: 'Layer 08, PASS 2, resolved this pass -- a genuine implementation gap, not merely an
-    evidence gap (`PI_PARITY_DEFECT`, closed): `driver.py` had no fallback at all before this pass
-    for an unexpected exception from listener/callback code -- it would have propagated raw out of
-    `prompt()`/`continue_()`/`run_until_idle()`. `AgentLoop._settle_run_failure` reproduces pinned
-    Pi''s `handleRunFailure`: an unexpected exception from `AGENT_PRE_STEP`/`AGENT_TURN_STOPPING`/
-    `AGENT_PREPARE_NEXT_TURN` listener dispatch (Minion''s own three loop-callback seams, wrapped in
-    a narrow `_LoopCallbackFailure` marker so only these three are caught -- see below) synthesizes
-    a minimal failure assistant message (`stop_reason=ERROR`, `error_message=str(error)`), logs a
-    matched `TURN_START`/`ASSISTANT_MESSAGE`/`TURN_END` (a small, disclosed simplification of pinned
-    Pi''s own bare `turn_end` with no preceding `turn_start` at all, chosen so the projection''s
-    turn-scoped accumulator never special-cases an unmatched `TURN_END`), then `AGENT_END` with
-    `reason: "failed"` -- never an unhandled exception escaping the public entry points.
-
-    Deliberately NARROW, matching pinned Pi''s own boundary exactly, confirmed by a dedicated
-    regression: an unresolvable model still raises eagerly, UNCAUGHT
+  rule: 'Layer 08, PASS 3 (this pass), correcting a catch-boundary defect the independent Rust
+    review of the PASS-2 candidate caught (`L08-R002`): pinned Pi''s `handleRunFailure` is the catch
+    boundary around the WHOLE run executor -- `runWithLifecycle` wraps the entire `runAgentLoop`/
+    `runAgentLoopContinue` call, not three hand-picked listener dispatch sites. PASS 2''s own
+    `_LoopCallbackFailure` mechanism only wrapped `AGENT_PRE_STEP`/`AGENT_TURN_STOPPING`/
+    `AGENT_PREPARE_NEXT_TURN` listener dispatch specifically -- narrower than pinned Pi''s real
+    boundary, and an unforeseen failure anywhere else inside a turn (an adapter breaking its
+    streaming contract, for one) would still have propagated raw. PASS 3 widens the boundary in
+    `_execute_run` to a single `try`/`except Exception` around the whole `_run_inner` call, with one
+    explicit, deliberate exclusion: `UnknownModelError`, which pinned Pi resolves eagerly before a
+    stream is ever returned (a caller/config bug, not a run-executor failure) and re-raises
+    uncaught, confirmed by a dedicated regression
     (`test_an_unresolvable_model_still_raises_uncaught`,
-    `eager-invalid-model-fails-before-stream.yaml`, already-certified section-4 evidence) -- model/
-    provider/tool-execution failures are not "unexpected loop callback failure" in pinned Pi''s own
-    sense and must not be smuggled into a settled failure turn.
+    `eager-invalid-model-fails-before-stream.yaml`, already-certified section-4 evidence). The
+    now-unused `_LoopCallbackFailure` class is kept only as a historical marker; nothing raises it.
+
+    `_settle_run_failure` synthesizes a minimal failure assistant message (`stop_reason=ERROR`,
+    `error_message=str(error)`) and logs EXACTLY pinned Pi''s own bare sequence --
+    `message_start`/`message_end`/`turn_end(failure, [])` -- with NO preceding synthetic
+    `turn_start` at all (an earlier PASS-2 revision inserted one, which the review also caught: a
+    `TURN_START` legitimately precedes the failure only when this run''s own prior, genuine progress
+    already logged one -- e.g. a pre-step failure on this run''s very first turn, whose
+    `TURN_START` `_run_inner` already appends unconditionally per `AG-002`''s own ordering --
+    never one `_settle_run_failure` itself invents). `TURN_END` carries an explicit
+    `{"message": ...}` override the projection honors directly instead of falling back to the
+    turn''s own (possibly nonexistent) accumulator -- see `AG-010` for the matching `AGENT_END`
+    override this same finding requires.
 
     `active-abort-provider`/`abort-settles-before-idle`-flavored concerns (Layer 09) are explicitly
     out of this row''s scope -- see `AG-007`. `high-level-callback-failure-settlement` remains an
@@ -614,9 +680,10 @@ rows:
   - test_a_pre_step_listener_failure_settles_gracefully
   - test_a_turn_stopping_listener_failure_settles_gracefully
   - test_a_prepare_next_turn_listener_failure_settles_gracefully
+  - test_a_post_turn_callback_failure_settles_gracefully
   - test_an_unresolvable_model_still_raises_uncaught
-  python: src/minion_agent/agent_loop/driver.py::AgentLoop._settle_run_failure, _LoopCallbackFailure
-  rust: PENDING -- Layer 08 not yet implemented in Rust
+  python: src/minion_agent/agent_loop/driver.py::AgentLoop._execute_run (catch boundary), AgentLoop._settle_run_failure
+  rust: PENDING -- Layer 08 not yet implemented in Rust; the PASS-2 candidate's independent review rejected this row (L08-R002), PASS 3 is the remediated candidate awaiting re-review
   disposition: adopted
 - id: AG-010
   phase: 3
@@ -639,14 +706,103 @@ rows:
     `two-runs-have-independently-scoped-agent-end-messages` and
     `continuation-excludes-the-prior-runs-messages`, both language-neutral canonical). This row''s
     prior sole citation, `agent-end-messages-prompt-vs-continuation`, remains an unfilled
-    placeholder and is not cited here.'
+    placeholder and is not cited here.
+
+    A distinct exception to the normal accumulator, corrected this pass (`L08-R002`, independent
+    review of the PASS-2 candidate): pinned Pi''s `handleRunFailure` fallback bypasses the normal
+    accumulator entirely and emits `agent_end(messages=[failureMessage])` -- the synthesized
+    failure message ONLY, never diluted by whatever this run''s own turn/run accumulators happen to
+    hold by that point (agent-loop.ts, `handleRunFailure`). `_execute_run` now threads the failure
+    message returned by `_settle_run_failure` into `AGENT_END`''s own payload as an explicit
+    `"messages"` override, which `project()`''s `AGENT_END` branch honors directly instead of
+    falling back to `run_messages`
+    (`test_failure_agent_end_messages_is_only_the_failure_message`). This is NOT the same case as a
+    represented `error`/`aborted` assistant message reaching its own turn normally (`AG-021`,
+    `L08-R008`): that is a successfully-produced message using the run''s own ordinary accumulator,
+    confirmed directly against pinned Pi''s own source distinction (agent-loop.ts:196-200 uses
+    `newMessages`, the run''s own accumulator; `handleRunFailure`''s fallback uses a synthesized
+    single-message array) -- proven by a dedicated regression that the represented-error path does
+    NOT trigger this row''s override mechanism
+    (`test_represented_error_agent_end_messages_uses_the_normal_accumulator`).'
   tests:
   - test_agent_end_messages_are_invocation_local
   - test_a_second_run_does_not_see_the_first_runs_messages
   - two-runs-have-independently-scoped-agent-end-messages (language-neutral canonical)
   - continuation-excludes-the-prior-runs-messages (language-neutral canonical)
-  python: src/minion_agent/agent/projection.py::project (AgentStart/AgentEnd), src/minion_agent/agent_loop/driver.py::AgentLoop._execute_run
+  - test_failure_agent_end_messages_is_only_the_failure_message
+  - test_represented_error_agent_end_messages_uses_the_normal_accumulator
+  python: src/minion_agent/agent/projection.py::project (AgentStart/AgentEnd, "messages"/"message" overrides), src/minion_agent/agent_loop/driver.py::AgentLoop._execute_run
+  rust: PENDING -- Layer 08 not yet implemented in Rust; the PASS-2 candidate's independent review rejected this row (L08-R002), PASS 3 is the remediated candidate awaiting re-review
+  disposition: adopted
+- id: AG-020
+  phase: 3
+  pi: (none -- no pinned Pi equivalent)
+  surface: max_steps, a Minion-only host/pump safety cap (L08-R005)
+  rule: 'Resolved this pass without introducing an unapproved Pi divergence, per the independent
+    Rust review''s own finding (`L08-R005`): pinned Layer 08 has no stop rule equivalent to
+    `max_steps` at all -- runAgentLoop''s own `runLoop` has no per-invocation step ceiling, and
+    nothing in `agent-loop.ts` bounds how many turns one run may take. PASS 2''s own placement
+    checked `steps >= max_steps` BEFORE `prepareNextTurn`/`shouldStopAfterTurn`/the steering poll
+    for the turn that hit the cap, which would have skipped pinned Pi''s own unconditional post-turn
+    ordering (`AG-004`) for that turn specifically -- an observable divergence the review correctly
+    flagged as needing either removal, a genuinely non-observable placement, or explicit
+    intentional-divergence escalation, never silent preservation.
+
+    A parity-neutral placement was possible and is what this pass adopts: `_run_inner`''s own
+    `max_steps` check moved to AFTER `prepareNextTurn`/`shouldStopAfterTurn`/the steering poll have
+    already run unconditionally for the turn that reached the cap -- it gates only whether a
+    FURTHER turn is attempted next, never skips pinned Pi''s own post-turn ordering for a turn that
+    already happened. This is a Minion-only host/pump safety mechanism sitting entirely outside the
+    Pi semantic seam `AG-004` certifies: every turn Pi would itself run still runs its own complete,
+    unabridged post-turn sequence; `max_steps` only ever prevents Minion''s own pump from starting
+    one MORE turn pinned Pi would have started too. No new observable divergence from pinned Pi''s
+    own turn-order contract is introduced by this row -- the cap''s existence itself (a Minion
+    architectural/host extension, not a Pi rule) is what this row records and disposes.'
+  tests:
+  - test_a_stop_decision_ends_the_turn_early
+  - test_no_opinion_continues
+  python: src/minion_agent/agent_loop/driver.py::AgentLoop._run_inner (max_steps check, after prepare/stop/steering)
   rust: PENDING -- Layer 08 not yet implemented in Rust
+  disposition: intentional divergence
+- id: AG-021
+  phase: 3
+  pi: packages/agent/src/agent-loop.ts::runLoop
+  surface: represented assistant error/aborted is immediately terminal (L08-R008)
+  rule: 'Layer 08, PASS 3, closing a gap the independent Rust review of the PASS-2 candidate caught
+    (`L08-R008`): confirmed directly against source (agent-loop.ts:196-200), immediately after
+    `streamAssistantResponse` returns, pinned Pi checks
+    `if (message.stopReason === "error" || message.stopReason === "aborted")` and, when true, emits
+    that turn''s own `turn_end` with empty `toolResults` and returns immediately -- running NONE of
+    `prepareNextTurn`/`shouldStopAfterTurn`/the steering or follow-up poll for that turn. No tool
+    calls are ever inspected or executed for a message representing its own failure, even if the
+    model''s response happened to include tool-call content blocks.
+
+    PASS 2''s own implementation collapsed this into the same branch as an ordinary
+    no-more-tool-calls stop, running the full post-turn sequence regardless of `stop_reason` -- this
+    pass adds an explicit `_StepResult.terminal` flag `_run_step` sets when
+    `reply.stop_reason in (ERROR, ABORTED)`, and `_run_inner` returns immediately on `terminal`,
+    before ever calling `_prepare_next_turn`/`_should_stop`/claiming steering or follow-up.
+    Discriminating evidence installs listeners on all four skipped hooks/queues and proves none is
+    invoked/consumed for both `error` and `aborted`
+    (`test_represented_error_skips_prepare_stop_steering_and_follow_up`,
+    `test_represented_aborted_skips_prepare_stop_steering_and_follow_up`) -- the steering-queued
+    case specifically proves the STEADY-STATE poll never fires by queuing from within an
+    `AGENT_PRE_STEP` listener dispatched AFTER the run''s own unconditional initial poll (`AG-002`)
+    has already run, so the message is genuinely at risk only of the poll this row certifies never
+    reaches it.
+
+    Uses the run''s own NORMAL `new_messages` accumulator for `agent_end.messages`, confirmed
+    directly against source (agent-loop.ts:199 uses `newMessages`, not a synthesized array) --
+    DISTINCT from `AG-010`''s own `handleRunFailure` override, an unrelated mechanism for an
+    unexpected THROWN exception, never for a normally-produced represented-error message
+    (`test_represented_error_agent_end_messages_uses_the_normal_accumulator`). This is Layer-08
+    terminal handling only -- no active abort propagation (Layer 09, `AG-007`) is implemented here.'
+  tests:
+  - test_represented_error_skips_prepare_stop_steering_and_follow_up
+  - test_represented_aborted_skips_prepare_stop_steering_and_follow_up
+  - test_represented_error_agent_end_messages_uses_the_normal_accumulator
+  python: src/minion_agent/agent_loop/driver.py::AgentLoop._run_step (_StepResult.terminal), AgentLoop._run_inner (immediate return on terminal)
+  rust: PENDING -- Layer 08 not yet implemented in Rust; the PASS-2 candidate's independent review rejected this row (L08-R008), PASS 3 is the remediated candidate awaiting re-review
   disposition: adopted
 - id: AG-011
   phase: 3

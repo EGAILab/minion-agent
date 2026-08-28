@@ -1,47 +1,52 @@
-"""Layer 08, PASS 2: prompt()/continue_() entry points, run-local
-prepareNextTurn overrides, and pinned pi's handleRunFailure fallback."""
+"""Layer 08, PASS 3: remediation for the independent Rust contract rejection
+(L08-R001..R008) -- prompt()/continue_() entry points, the complete run-local
+RunContext/RunConfig snapshot and whole-context prepareNextTurn, pinned pi's
+real handleRunFailure catch boundary, full streaming_message fidelity, the
+initial-steering-poll ordering fix, and represented error/aborted terminal
+handling."""
 
+from collections.abc import AsyncIterator
+from dataclasses import replace
 from typing import Any
 
 import pytest
 
-from minion_agent.agent.decisions import Enter, Reject, RunConfigUpdate, TurnStopping
+from minion_agent.agent.decisions import Enter, Reject, RunConfigUpdate, RunContext, TurnStopping
 from minion_agent.agent.events import AGENT_PRE_STEP, AGENT_PREPARE_NEXT_TURN, AGENT_TURN_STOPPING
 from minion_agent.agent.identity import AgentStatus, ThinkingLevel
 from minion_agent.agent.instance import AgentActiveError
-from minion_agent.agent_loop.driver import _RunSnapshot
 from minion_agent.llm import (
     AssistantMessage,
+    ImageBlock,
     ModelId,
+    Request,
+    StopReason,
     TextBlock,
+    ThinkingBlock,
     ToolCallBlock,
+    Usage,
     UserMessage,
     text_of,
 )
 from minion_agent.llm.adapters.mock import ScriptedResponse
-from minion_agent.llm.messages import StopReason
+from minion_agent.llm.errors import UnknownModelError
+from minion_agent.llm.stream import (
+    StreamChunk,
+    StreamDone,
+    StreamStart,
+    TextDelta,
+    TextEnd,
+    TextStart,
+    ThinkingDelta,
+    ThinkingEnd,
+    ThinkingStart,
+    ToolCallDelta,
+    ToolCallEnd,
+    ToolCallStart,
+)
 from minion_agent.session import EventKind, derive_messages
 
 from .test_single_turn import _loop, _loop_with_adapter, _register, _say
-
-
-def test_run_snapshot_apply_overrides_only_the_given_fields() -> None:
-    snapshot = _RunSnapshot(
-        system_prompt="original", model=ModelId("mock", "mock-1"), thinking_level=ThinkingLevel.OFF
-    )
-
-    snapshot.apply(RunConfigUpdate())
-    assert (snapshot.system_prompt, snapshot.model, snapshot.thinking_level) == (
-        "original",
-        ModelId("mock", "mock-1"),
-        ThinkingLevel.OFF,
-    )
-
-    override_model = ModelId("mock", "mock-2")
-    snapshot.apply(RunConfigUpdate(model=override_model, thinking_level=ThinkingLevel.HIGH))
-    assert snapshot.system_prompt == "original"
-    assert snapshot.model == override_model
-    assert snapshot.thinking_level is ThinkingLevel.HIGH
 
 
 async def test_prompt_starts_a_run_with_the_given_message() -> None:
@@ -53,12 +58,51 @@ async def test_prompt_starts_a_run_with_the_given_message() -> None:
     assert loop.instance.status is AgentStatus.IDLE
 
 
-async def test_prompt_accepts_a_tuple_of_messages() -> None:
+async def test_prompt_accepts_a_tuple_of_typed_messages_unchanged() -> None:
+    """`L08-R007`: the typed `Message | tuple[Message, ...]` boundary is not
+    narrowed by adding the convenience `str` form."""
     loop = _loop(ScriptedResponse((TextBlock(text="hi"),), StopReason.STOP))
 
     await loop.prompt((_say("one"), _say("two")))
 
     assert [text_of(m) for m in derive_messages(loop.instance.log)][:2] == ["one", "two"]
+
+
+async def test_prompt_accepts_a_plain_string() -> None:
+    """`L08-R007`: pinned pi's `prompt(text: string)` convenience overload."""
+    loop = _loop(ScriptedResponse((TextBlock(text="hi"),), StopReason.STOP))
+
+    await loop.prompt("hello")
+
+    messages = derive_messages(loop.instance.log)
+    assert isinstance(messages[0], UserMessage)
+    assert messages[0].content == (TextBlock(text="hello"),)
+
+
+async def test_prompt_string_with_one_image_orders_text_then_image() -> None:
+    """`L08-R007`: pinned pi's `[{type:"text",...}, ...images]` construction --
+    text first, then the supplied images, in order."""
+    loop = _loop(ScriptedResponse((TextBlock(text="hi"),), StopReason.STOP))
+    image = ImageBlock(mime_type="image/png", data=b"Zm9v")
+
+    await loop.prompt("describe this", images=(image,))
+
+    messages = derive_messages(loop.instance.log)
+    assert isinstance(messages[0], UserMessage)
+    assert messages[0].content == (TextBlock(text="describe this"), image)
+
+
+async def test_prompt_string_with_multiple_images_preserves_order() -> None:
+    """`L08-R007`."""
+    loop = _loop(ScriptedResponse((TextBlock(text="hi"),), StopReason.STOP))
+    first = ImageBlock(mime_type="image/png", data=b"AAAA")
+    second = ImageBlock(mime_type="image/png", data=b"BBBB")
+
+    await loop.prompt("compare these", images=(first, second))
+
+    messages = derive_messages(loop.instance.log)
+    assert isinstance(messages[0], UserMessage)
+    assert messages[0].content == (TextBlock(text="compare these"), first, second)
 
 
 async def test_prompt_rejects_while_active() -> None:
@@ -175,41 +219,263 @@ async def test_run_wrapped_defensive_guard_rejects_when_not_idle() -> None:
         await loop._run_wrapped(entering=(), causes=[])
 
 
-async def test_prepare_next_turn_can_override_system_prompt_run_locally() -> None:
+# -- L08-R001: complete run snapshot and whole-context prepareNextTurn -------
+
+
+async def test_run_start_snapshot_ignores_a_later_caller_config_change() -> None:
     loop, adapter = _loop_with_adapter(
         ScriptedResponse((ToolCallBlock(id="t1", name="echo", arguments={}),), StopReason.TOOL_USE),
         ScriptedResponse((TextBlock(text="second"),), StopReason.STOP),
     )
     _register(loop, "echo", lambda tool_call_id, args: "pong")
-    original_system = loop.instance.system_prompt
 
-    async def prepare(instance: Any, outcome: Any, next_: Any) -> RunConfigUpdate:
-        return RunConfigUpdate(system_prompt="run-local override")
+    async def mutate_mid_run(instance: Any, *args: Any, **kwargs: Any) -> RunConfigUpdate:
+        instance.system_prompt = "mutated mid-run"
+        return RunConfigUpdate()
+
+    loop.instance.ctx.events.on(AGENT_PREPARE_NEXT_TURN, mutate_mid_run)
+    await loop.prompt(_say("go"))
+
+    # Both requests of this SAME run still used the snapshot taken at run
+    # start, not the mid-run mutation.
+    assert adapter.requests[0].system == adapter.requests[1].system
+
+
+async def test_run_start_snapshot_ignores_session_changes_from_outside_the_run() -> None:
+    """A message appended to the run-local context is the run's own turn
+    output, not a re-derivation from the log -- proven by mutating the log
+    directly mid-run (simulating an external append) and confirming the next
+    request within the same run does not see it."""
+    loop, adapter = _loop_with_adapter(
+        ScriptedResponse((ToolCallBlock(id="t1", name="echo", arguments={}),), StopReason.TOOL_USE),
+        ScriptedResponse((TextBlock(text="second"),), StopReason.STOP),
+    )
+
+    def inject_externally(tool_call_id: str, args: dict[str, object]) -> str:
+        from minion_agent.session import EventKind as _EK
+        from minion_agent.session import encode_message as _encode
+
+        loop.instance.log.append(_EK.USER_MESSAGE, {"message": _encode(_say("external injection"))})
+        return "pong"
+
+    _register(loop, "echo", inject_externally)
+    await loop.prompt(_say("go"))
+
+    second_request_texts = [text_of(m) for m in adapter.requests[1].messages]
+    assert "external injection" not in second_request_texts
+
+
+async def test_prepare_next_turn_can_replace_the_whole_context() -> None:
+    """`L08-R001`: `RunConfigUpdate.context` replaces `system_prompt`/
+    `messages`/`tools` wholesale for the next request only -- pinned pi's own
+    `currentContext = nextTurnSnapshot.context ?? currentContext`."""
+    loop, adapter = _loop_with_adapter(
+        ScriptedResponse((ToolCallBlock(id="t1", name="echo", arguments={}),), StopReason.TOOL_USE),
+        ScriptedResponse((TextBlock(text="second"),), StopReason.STOP),
+    )
+    _register(loop, "echo", lambda tool_call_id, args: "pong")
+    replacement_message = _say("replacement history")
+
+    async def prepare(
+        instance: Any,
+        message: Any,
+        tool_results: Any,
+        context: RunContext,
+        new_messages: Any,
+        next_: Any,
+    ) -> RunConfigUpdate:
+        return RunConfigUpdate(
+            context=RunContext(
+                system_prompt="replaced system prompt",
+                messages=[replacement_message],
+                tools=context.tools,
+            )
+        )
 
     loop.instance.ctx.events.on(AGENT_PREPARE_NEXT_TURN, prepare)
     await loop.prompt(_say("go"))
 
-    assert adapter.requests[0].system != adapter.requests[1].system
-    # Never persisted back to the certified Layer-07 instance.
-    assert loop.instance.system_prompt == original_system
+    second_request = adapter.requests[1]
+    assert [text_of(m) for m in second_request.messages] == ["replacement history"]
+    assert second_request.system != adapter.requests[0].system
 
 
-async def test_prepare_next_turn_default_is_a_pure_pass_through() -> None:
+class _MultiModelAdapter:
+    """Test-only adapter serving two model ids, so a `RunConfigUpdate.model`
+    replacement (`L08-R001`) has somewhere to actually land -- the certified
+    `MockAdapter` only ever serves `mock-1`."""
+
+    provider = "mock"
+    api = "mock"
+    models = frozenset({"mock-1", "mock-2"})
+
+    def __init__(self, *responses: AssistantMessage) -> None:
+        self._responses = list(responses)
+        self.requests: list[Request] = []
+
+    def stream(self, request: Request) -> AsyncIterator[StreamChunk]:
+        self.requests.append(request)
+        message = self._responses.pop(0)
+
+        async def replay() -> AsyncIterator[StreamChunk]:
+            yield StreamStart(partial=message)
+            yield StreamDone(message=message, partial=message)
+
+        return replay()
+
+
+def _reply(text: str) -> AssistantMessage:
+    return AssistantMessage(
+        content=(TextBlock(text=text),),
+        stop_reason=StopReason.STOP,
+        usage=Usage(),
+        model="mock-1",
+        provider="mock",
+        timestamp=0,
+    )
+
+
+async def test_prepare_next_turn_can_replace_model_and_thinking_level() -> None:
+    """`L08-R001`: `model`/`thinking_level` are independently optional
+    replacements applied to the run-local `RunConfig`, distinct from
+    `context`'s own whole-object replacement."""
+    from minion_agent.agent.identity import AgentDefinition
+    from minion_agent.agent.registry import AgentRegistry
+    from minion_agent.llm import LlmService
+    from minion_agent.runtime import Context
+    from minion_agent.session import SessionService
+    from minion_agent.tools.events import declare_tools_events
+    from minion_agent.tools.registry import ToolRegistry
+
+    ctx = Context()
+    declare_tools_events(ctx.events)
+    sessions = SessionService()
+    llm = LlmService()
+    adapter = _MultiModelAdapter(
+        AssistantMessage(
+            content=(ToolCallBlock(id="t1", name="echo", arguments={}),),
+            stop_reason=StopReason.TOOL_USE,
+            usage=Usage(),
+            model="mock-1",
+            provider="mock",
+            timestamp=0,
+        ),
+        _reply("second"),
+    )
+    llm.register(adapter)
+    registry = AgentRegistry(ctx=ctx, sessions=sessions)
+    handle = registry.create("room-a", AgentDefinition(name="ada", model=ModelId("mock", "mock-1")))
+    from minion_agent.agent_loop.driver import AgentLoop
+
+    loop = AgentLoop(
+        instance=handle.instance, llm=llm, tools=ToolRegistry(), artifacts=sessions.artifacts
+    )
+    _register(loop, "echo", lambda tool_call_id, args: "pong")
+    other_model = ModelId("mock", "mock-2")
+
+    async def prepare(instance: Any, *args: Any, **kwargs: Any) -> RunConfigUpdate:
+        return RunConfigUpdate(model=other_model, thinking_level=ThinkingLevel.HIGH)
+
+    loop.instance.ctx.events.on(AGENT_PREPARE_NEXT_TURN, prepare)
+    await loop.prompt(_say("go"))
+
+    assert adapter.requests[0].model == ModelId("mock", "mock-1")
+    assert adapter.requests[1].model == other_model
+
+
+async def test_prepare_next_turn_context_replacement_does_not_persist_to_the_next_run() -> None:
+    """The replacement is run-local only -- a second, independent run starts
+    from a fresh snapshot again, not the previous run's replaced context."""
+    loop, adapter = _loop_with_adapter(
+        ScriptedResponse((ToolCallBlock(id="t1", name="echo", arguments={}),), StopReason.TOOL_USE),
+        ScriptedResponse((TextBlock(text="first done"),), StopReason.STOP),
+        ScriptedResponse((TextBlock(text="second done"),), StopReason.STOP),
+    )
+    _register(loop, "echo", lambda tool_call_id, args: "pong")
+
+    async def prepare_once(
+        instance: Any,
+        message: Any,
+        tool_results: Any,
+        context: RunContext,
+        new_messages: Any,
+        next_: Any,
+    ) -> RunConfigUpdate:
+        dispose()
+        return RunConfigUpdate(
+            context=RunContext(
+                system_prompt="only for the first run",
+                messages=list(context.messages),
+                tools=context.tools,
+            )
+        )
+
+    dispose = loop.instance.ctx.events.on(AGENT_PREPARE_NEXT_TURN, prepare_once)
+    await loop.prompt(_say("first"))
+    await loop.prompt(_say("second"))
+
+    # The second run's own first request must not carry the first run's
+    # replaced system prompt.
+    assert adapter.requests[2].system != adapter.requests[1].system
+
+
+async def test_added_tool_names_already_visible_is_not_duplicated() -> None:
+    """A result naming a tool already present in `context.tools` (design spec
+    section 7's `added_tool_names`, consumed here per Layer 06's own
+    boundary -- see `spec/tools.md`) is a no-op, not a duplicate schema."""
+    from minion_agent.tools.result import ToolResult
+
     loop, adapter = _loop_with_adapter(
         ScriptedResponse((ToolCallBlock(id="t1", name="echo", arguments={}),), StopReason.TOOL_USE),
         ScriptedResponse((TextBlock(text="second"),), StopReason.STOP),
     )
-    _register(loop, "echo", lambda tool_call_id, args: "pong")
 
+    def redeclare_self(tool_call_id: str, args: dict[str, Any]) -> ToolResult:
+        return ToolResult(
+            tool_call_id="",
+            content=(TextBlock(text="pong"),),
+            tool_name="echo",
+            added_tool_names=("echo",),
+        )
+
+    _register(loop, "echo", redeclare_self)
     await loop.prompt(_say("go"))
 
-    assert adapter.requests[0].model == adapter.requests[1].model
+    second_request_names = [schema.name for schema in adapter.requests[1].tools]
+    assert second_request_names.count("echo") == 1
+
+
+async def test_should_stop_and_prepare_next_turn_receive_pis_full_context() -> None:
+    """`L08-R001`: listener signature mirrors pinned pi's
+    `ShouldStopAfterTurnContext`/`PrepareNextTurnContext` exactly --
+    `message`, `tool_results`, `context`, `new_messages`."""
+    loop = _loop(ScriptedResponse((TextBlock(text="hi"),), StopReason.STOP))
+    seen: dict[str, Any] = {}
+
+    def observe_stop(
+        instance: Any, message: Any, tool_results: Any, context: Any, new_messages: Any
+    ) -> None:
+        seen["stop_message"] = message
+        seen["stop_tool_results"] = tool_results
+        seen["stop_context"] = context
+        seen["stop_new_messages"] = new_messages
+        return None
+
+    loop.instance.ctx.events.on(AGENT_TURN_STOPPING, observe_stop)
+    loop.instance.inbox.followup(_say("hello"))
+
+    await loop.run_until_idle()
+
+    assert isinstance(seen["stop_message"], AssistantMessage)
+    assert seen["stop_tool_results"] == ()
+    assert isinstance(seen["stop_context"], RunContext)
+    assert [text_of(m) for m in seen["stop_new_messages"]] == ["hello", "hi"]
+
+
+# -- L08-R002: pinned pi's real handleRunFailure catch boundary --------------
 
 
 async def test_a_pre_step_listener_failure_settles_gracefully() -> None:
-    """Pinned pi's `handleRunFailure`: an unexpected exception from
-    `AGENT_PRE_STEP` dispatch does not escape `prompt()`."""
-
     async def boom(instance: Any, reason: Any, messages: Any, next_: Any) -> Enter:
         raise RuntimeError("listener exploded")
 
@@ -221,14 +487,43 @@ async def test_a_pre_step_listener_failure_settles_gracefully() -> None:
     assert loop.instance.status is AgentStatus.IDLE
     assert loop.instance.error_message == "listener exploded"
     kinds = [e.kind for e in loop.instance.log.events]
-    assert kinds[-1] == EventKind.AGENT_END
+    # `TURN_START` legitimately precedes the failure here: pinned pi's own
+    # `runAgentLoop` emits it unconditionally before ever calling into
+    # `runLoop`'s body, where a pre-step listener would fire -- the same
+    # `TURN_START` this run's own opening already appended (`L08-R006`), not
+    # a synthetic one `_settle_run_failure` itself inserts (it inserts none).
+    assert kinds == [
+        EventKind.AGENT_START,
+        EventKind.TURN_START,
+        EventKind.ASSISTANT_MESSAGE,
+        EventKind.TURN_END,
+        EventKind.AGENT_END,
+    ]
     end = next(e for e in loop.instance.log.events if e.kind == EventKind.AGENT_END)
     assert end.data["reason"] == "failed"
-    assistant = [
-        m for m in derive_messages(loop.instance.log) if isinstance(m, AssistantMessage)
-    ]
+    assistant = [m for m in derive_messages(loop.instance.log) if isinstance(m, AssistantMessage)]
     assert assistant and assistant[-1].stop_reason is StopReason.ERROR
     assert assistant[-1].error_message == "listener exploded"
+
+
+async def test_failure_agent_end_messages_is_only_the_failure_message() -> None:
+    """`L08-R002`: pinned pi's `agent_end(messages=[failureMessage])`, not
+    every message accumulated since `AGENT_START`."""
+
+    async def boom(instance: Any, reason: Any, messages: Any, next_: Any) -> Enter:
+        raise RuntimeError("boom")
+
+    loop = _loop(ScriptedResponse((), StopReason.STOP))
+    loop.instance.ctx.events.on(AGENT_PRE_STEP, boom)
+
+    await loop.prompt(_say("hello"))
+
+    from minion_agent.agent.projection import AgentEnd, project
+
+    events = project(loop.instance.log)
+    end = next(e for e in events if isinstance(e, AgentEnd))
+    assert len(end.messages) == 1
+    assert end.messages[0].error_message == "boom"
 
 
 async def test_a_turn_stopping_listener_failure_settles_gracefully() -> None:
@@ -246,7 +541,7 @@ async def test_a_turn_stopping_listener_failure_settles_gracefully() -> None:
 
 
 async def test_a_prepare_next_turn_listener_failure_settles_gracefully() -> None:
-    async def boom(instance: Any, outcome: Any, next_: Any) -> RunConfigUpdate:
+    async def boom(instance: Any, *args: Any) -> RunConfigUpdate:
         raise RuntimeError("prepare listener exploded")
 
     loop = _loop(ScriptedResponse((TextBlock(text="hi"),), StopReason.STOP))
@@ -259,33 +554,34 @@ async def test_a_prepare_next_turn_listener_failure_settles_gracefully() -> None
     assert end.data["reason"] == "failed"
 
 
+async def test_a_post_turn_callback_failure_settles_gracefully() -> None:
+    """Post-turn callback failure, distinct from a pre-step failure -- both
+    are still "the run executor," pinned pi's own catch boundary."""
+
+    async def boom_after_turn(instance: Any, *args: Any) -> bool:
+        raise RuntimeError("post-turn callback exploded")
+
+    loop = _loop(ScriptedResponse((TextBlock(text="hi"),), StopReason.STOP))
+    loop.instance.ctx.events.on(AGENT_TURN_STOPPING, boom_after_turn)
+
+    await loop.prompt(_say("hello"))
+
+    assert loop.instance.error_message == "post-turn callback exploded"
+    end = next(e for e in loop.instance.log.events if e.kind == EventKind.AGENT_END)
+    assert end.data["reason"] == "failed"
+
+
 async def test_an_unresolvable_model_still_raises_uncaught() -> None:
-    """The failure-settling fallback is narrowly scoped to loop-callback
-    dispatch (`AGENT_PRE_STEP`/`AGENT_TURN_STOPPING`/`AGENT_PREPARE_NEXT_TURN`)
-    -- a provider/model-resolution failure is a different, pre-existing
-    contract (`eager-invalid-model-fails-before-stream.yaml`) and must still
-    propagate, not be smuggled into a settled failure turn."""
-
-    class _Boom(Exception):
-        pass
-
-    async def boom(instance: Any, reason: Any, messages: Any, next_: Any) -> Enter:
-        raise _Boom("not a loop-callback failure in the pi sense")
-
+    """`L08-R002`: the failure-settling fallback catches the run executor
+    broadly, but explicitly excludes the eager, pre-stream `UnknownModelError`
+    -- an unresolvable model is a caller/config bug, reported immediately,
+    never smuggled into a settled failure turn
+    (`eager-invalid-model-fails-before-stream.yaml`)."""
     loop = _loop(ScriptedResponse((), StopReason.STOP))
+    loop.instance.model = ModelId("mock", "no-such-model")
 
-    # Simulate a non-callback failure by making the pre-step machinery itself
-    # raise from outside the driver's own three dispatch wrappers: patch
-    # `_run_step` directly instead, since that is the real non-callback path
-    # (LLM/tool execution) this fallback must not catch.
-    async def failing_run_step(decision: Any, reason: Any, snapshot: Any) -> None:
-        raise _Boom("model resolution failed")
-
-    loop._run_step = failing_run_step  # type: ignore[method-assign]
-    loop.instance.inbox.followup(_say("hello"))
-
-    with pytest.raises(_Boom):
-        await loop.run_until_idle()
+    with pytest.raises(UnknownModelError):
+        await loop.prompt(_say("hello"))
 
 
 async def test_a_rejected_follow_up_continuation_ends_the_run() -> None:
@@ -311,3 +607,296 @@ async def test_a_rejected_follow_up_continuation_ends_the_run() -> None:
     end = next(e for e in loop.instance.log.events if e.kind == EventKind.AGENT_END)
     assert end.data["reason"] == "rejected"
     assert end.data["detail"] == "not now"
+
+
+# -- L08-R003: full streaming_message fidelity --------------------------------
+
+
+class _RichStreamAdapter:
+    """Test-only adapter emitting `start`/`*_start`/`*_delta`/`*_end` chunks
+    for text, thinking, AND tool-call content -- the certified Layer-02/04
+    `MockAdapter` only emits text deltas, so this exercises `L08-R003`'s
+    full-partial-fidelity requirement (thinking/tool-call, not just text)
+    without touching certified adapter code."""
+
+    provider = "mock"
+    api = "mock"
+    models = frozenset({"mock-1"})
+
+    def __init__(self, message: AssistantMessage) -> None:
+        self._message = message
+        self.requests: list[Request] = []
+
+    def stream(self, request: Request) -> AsyncIterator[StreamChunk]:
+        self.requests.append(request)
+        pending = replace(self._message, stop_reason=StopReason.PENDING)
+
+        async def replay() -> AsyncIterator[StreamChunk]:
+            yield StreamStart(partial=pending)
+            for index, block in enumerate(self._message.content):
+                if isinstance(block, ThinkingBlock):
+                    yield ThinkingStart(content_index=index, partial=pending)
+                    yield ThinkingDelta(content_index=index, delta=block.thinking, partial=pending)
+                    yield ThinkingEnd(content_index=index, thinking=block.thinking, partial=pending)
+                elif isinstance(block, ToolCallBlock):
+                    yield ToolCallStart(content_index=index, partial=pending)
+                    yield ToolCallDelta(content_index=index, delta="{}", partial=pending)
+                    yield ToolCallEnd(content_index=index, tool_call=block, partial=pending)
+                elif isinstance(block, TextBlock):
+                    yield TextStart(content_index=index, partial=pending)
+                    yield TextDelta(content_index=index, delta=block.text, partial=pending)
+                    yield TextEnd(content_index=index, text=block.text, partial=pending)
+            yield StreamDone(message=self._message, partial=self._message)
+
+        return replay()
+
+
+def _rich_loop(message: AssistantMessage) -> tuple[Any, _RichStreamAdapter]:
+    from minion_agent.agent.identity import AgentDefinition
+    from minion_agent.agent.registry import AgentRegistry
+    from minion_agent.agent_loop.driver import AgentLoop
+    from minion_agent.llm import LlmService
+    from minion_agent.runtime import Context
+    from minion_agent.session import SessionService
+    from minion_agent.tools.registry import ToolRegistry
+
+    ctx = Context()
+    sessions = SessionService()
+    llm = LlmService()
+    adapter = _RichStreamAdapter(message)
+    llm.register(adapter)
+    registry = AgentRegistry(ctx=ctx, sessions=sessions)
+    handle = registry.create(
+        "room-a", AgentDefinition(name="ada", model=ModelId("mock", "mock-1"), system="be helpful")
+    )
+    loop = AgentLoop(
+        instance=handle.instance, llm=llm, tools=ToolRegistry(), artifacts=sessions.artifacts
+    )
+    return loop, adapter
+
+
+async def test_streaming_message_carries_the_full_partial_for_text() -> None:
+    from minion_agent.llm import Usage
+
+    message = AssistantMessage(
+        content=(TextBlock(text="hello"),),
+        stop_reason=StopReason.STOP,
+        usage=Usage(),
+        model="mock-1",
+        provider="mock",
+        timestamp=1,
+    )
+    loop, _adapter = _rich_loop(message)
+    loop.instance.inbox.followup(_say("go"))
+
+    await loop.run_until_idle()
+
+    from minion_agent.agent.projection import MessageUpdate, project
+
+    updates = [e for e in project(loop.instance.log) if isinstance(e, MessageUpdate)]
+    assert any(u.kind == "text_start" for u in updates)
+    assert any(u.kind == "text_delta" and text_of(u.message) == "hello" for u in updates)
+    assert any(u.kind == "text_end" for u in updates)
+
+
+async def test_streaming_message_carries_the_full_partial_for_thinking() -> None:
+    from minion_agent.llm import Usage
+
+    message = AssistantMessage(
+        content=(ThinkingBlock(thinking="pondering"), TextBlock(text="done")),
+        stop_reason=StopReason.STOP,
+        usage=Usage(),
+        model="mock-1",
+        provider="mock",
+        timestamp=1,
+    )
+    loop, _adapter = _rich_loop(message)
+    loop.instance.inbox.followup(_say("go"))
+
+    await loop.run_until_idle()
+
+    from minion_agent.agent.projection import MessageUpdate, project
+
+    updates = [e for e in project(loop.instance.log) if isinstance(e, MessageUpdate)]
+    thinking_updates = [u for u in updates if u.kind.startswith("thinking")]
+    assert thinking_updates
+    assert any(
+        any(isinstance(b, ThinkingBlock) and b.thinking == "pondering" for b in u.message.content)
+        for u in thinking_updates
+    )
+
+
+async def test_streaming_message_carries_the_full_partial_for_tool_calls() -> None:
+    from minion_agent.llm import Usage
+
+    call = ToolCallBlock(id="t1", name="echo", arguments={})
+    message = AssistantMessage(
+        content=(call,),
+        stop_reason=StopReason.TOOL_USE,
+        usage=Usage(),
+        model="mock-1",
+        provider="mock",
+        timestamp=1,
+    )
+    loop, _adapter = _rich_loop(message)
+    _register(loop, "echo", lambda tool_call_id, args: "pong")
+    loop.instance.ctx.events.on(AGENT_TURN_STOPPING, lambda *_: TurnStopping.STOP)
+    loop.instance.inbox.followup(_say("go"))
+
+    await loop.run_until_idle()
+
+    from minion_agent.agent.projection import MessageUpdate, project
+
+    updates = [e for e in project(loop.instance.log) if isinstance(e, MessageUpdate)]
+    toolcall_updates = [u for u in updates if u.kind.startswith("toolcall")]
+    assert toolcall_updates
+    assert any(
+        any(isinstance(b, ToolCallBlock) and b.name == "echo" for b in u.message.content)
+        for u in toolcall_updates
+    )
+
+
+async def test_streaming_message_clears_after_the_message_finalizes() -> None:
+    loop = _loop(ScriptedResponse((TextBlock(text="hi"),), StopReason.STOP))
+    loop.instance.inbox.followup(_say("go"))
+
+    await loop.run_until_idle()
+
+    assert loop.instance.streaming_message is None
+
+
+async def test_message_start_precedes_message_update_for_a_streamed_reply() -> None:
+    """`L08-R003`: pinned pi's exact order, `message_start -> message_update*
+    -> message_end` -- an earlier revision's canonical scenarios encoded the
+    reverse."""
+    loop = _loop(ScriptedResponse((TextBlock(text="hi"),), StopReason.STOP))
+    loop.instance.inbox.followup(_say("go"))
+
+    await loop.run_until_idle()
+
+    from minion_agent.agent.projection import MessageEnd, MessageStart, MessageUpdate, project
+
+    kinds = [type(e) for e in project(loop.instance.log)]
+    # The entering user message's own MessageStart/MessageEnd pair is fully
+    # matched before the assistant reply's stream ever opens, so a
+    # MessageStart outnumbering MessageEnd at the moment of the first
+    # MessageUpdate can only be the assistant reply's own still-open start --
+    # proving it precedes every update, without assuming fixed indices.
+    first_update = kinds.index(MessageUpdate)
+    starts_before = kinds[:first_update].count(MessageStart)
+    ends_before = kinds[:first_update].count(MessageEnd)
+    assert starts_before > ends_before
+
+
+# -- L08-R006: initial steering polled after the first turn opens ------------
+
+
+async def test_the_initial_steering_claim_happens_after_turn_start() -> None:
+    """Offline projection alone cannot prove this (it does not project inbox
+    claims); a listener observing live log state at the moment the claimed
+    steering message reaches it is the discriminating evidence pinned pi's
+    own ordering requires (`L08-R006`)."""
+    loop = _loop(ScriptedResponse((TextBlock(text="hi"),), StopReason.STOP))
+    seen_turn_start_already_logged = []
+
+    async def observe(instance: Any, reason: Any, messages: Any, next_: Any) -> Any:
+        if reason.value == "initial":
+            kinds = [e.kind for e in instance.log.events]
+            seen_turn_start_already_logged.append(EventKind.TURN_START in kinds)
+        return await next_(instance, reason, messages)
+
+    loop.instance.ctx.events.on(AGENT_PRE_STEP, observe)
+    loop.instance.inbox.steer(_say("steer me"))
+    loop.instance.inbox.followup(_say("hello"))
+
+    await loop.run_until_idle()
+
+    assert seen_turn_start_already_logged == [True]
+
+
+# -- L08-R008: represented error/aborted is immediately terminal -------------
+
+
+async def test_represented_error_skips_prepare_stop_steering_and_follow_up() -> None:
+    loop = _loop(ScriptedResponse((), StopReason.ERROR, error_message="boom"))
+    prepared: list[str] = []
+    stopped: list[str] = []
+
+    async def observe_prepare(instance: Any, *args: Any, **kwargs: Any) -> RunConfigUpdate:
+        prepared.append("called")
+        return RunConfigUpdate()
+
+    def observe_stop(*args: Any) -> TurnStopping:
+        stopped.append("called")
+        return TurnStopping.CONTINUE
+
+    async def queue_steering_after_the_initial_claim(
+        instance: Any, reason: Any, messages: Any, next_: Any
+    ) -> Any:
+        # The initial steering poll already claimed whatever was pending
+        # before `run_until_idle()` even started -- queuing here, inside the
+        # INITIAL `AGENT_PRE_STEP` dispatch, is strictly after that claim, so
+        # this message is only ever at risk of the *steady-state* poll R008
+        # must prove never runs for a represented error/aborted turn.
+        if reason.value == "initial":
+            instance.inbox.steer(_say("should not be consumed"))
+        return await next_(instance, reason, messages)
+
+    loop.instance.ctx.events.on(AGENT_PRE_STEP, queue_steering_after_the_initial_claim)
+    loop.instance.ctx.events.on(AGENT_PREPARE_NEXT_TURN, observe_prepare)
+    loop.instance.ctx.events.on(AGENT_TURN_STOPPING, observe_stop)
+    loop.instance.inbox.followup(_say("go"))
+
+    await loop.run_until_idle()
+
+    assert prepared == []
+    assert stopped == []
+    assert loop.instance.inbox.has_pending()  # steering was never claimed
+    end = next(e for e in loop.instance.log.events if e.kind == EventKind.AGENT_END)
+    assert end.data["reason"] == "error"
+
+
+async def test_represented_aborted_skips_prepare_stop_steering_and_follow_up() -> None:
+    loop = _loop(ScriptedResponse((), StopReason.ABORTED, error_message="cancelled"))
+    prepared: list[str] = []
+    stopped: list[str] = []
+
+    async def observe_prepare(instance: Any, *args: Any, **kwargs: Any) -> RunConfigUpdate:
+        prepared.append("called")
+        return RunConfigUpdate()
+
+    def observe_stop(*args: Any) -> TurnStopping:
+        stopped.append("called")
+        return TurnStopping.CONTINUE
+
+    loop.instance.ctx.events.on(AGENT_PREPARE_NEXT_TURN, observe_prepare)
+    loop.instance.ctx.events.on(AGENT_TURN_STOPPING, observe_stop)
+    loop.instance.inbox.followup(_say("go"))
+    loop.instance.inbox.followup(_say("queued follow-up, should not be consumed"))
+
+    await loop.run_until_idle()
+
+    assert prepared == []
+    assert stopped == []
+    end = next(e for e in loop.instance.log.events if e.kind == EventKind.AGENT_END)
+    assert end.data["reason"] == "aborted"
+    # The queued follow-up survives this run untouched -- run_until_idle's own
+    # outer pump picks it up as a fresh, separate run afterward.
+    texts = [text_of(m) for m in derive_messages(loop.instance.log)]
+    assert texts.count("queued follow-up, should not be consumed") == 1
+
+
+async def test_represented_error_agent_end_messages_uses_the_normal_accumulator() -> None:
+    """Distinct from `handleRunFailure` (`L08-R002`): a represented error is a
+    NORMAL, successfully-produced message, so `agent_end.messages` is pinned
+    pi's usual run-scoped accumulator (`newMessages`), not a synthesized
+    single-message override."""
+    loop = _loop(ScriptedResponse((), StopReason.ERROR, error_message="boom"))
+    loop.instance.inbox.followup(_say("go"))
+
+    await loop.run_until_idle()
+
+    from minion_agent.agent.projection import AgentEnd, project
+
+    end = next(e for e in project(loop.instance.log) if isinstance(e, AgentEnd))
+    assert [text_of(m) for m in end.messages] == ["go", ""]

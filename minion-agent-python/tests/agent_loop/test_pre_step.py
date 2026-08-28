@@ -99,10 +99,13 @@ async def test_a_rejection_closes_the_turn_with_no_step() -> None:
 
     await loop.run_until_idle()
 
+    # `TURN_START` legitimately precedes the rejection (`L08-R006`: pinned
+    # pi's own `runAgentLoop` emits it unconditionally before ever calling
+    # into `runLoop`'s body, where the pre-step decision is made) -- what
+    # "no step" actually means is that `_run_step` itself never ran: no
+    # `USER_MESSAGE`, `REQUEST_HEADER`, `ASSISTANT_MESSAGE`, or `TURN_END`.
     kinds = [event.kind for event in loop.instance.log.events]
-    assert EventKind.TURN_START not in kinds
-    assert kinds[0] == EventKind.AGENT_START
-    assert kinds[-1] == EventKind.AGENT_END
+    assert kinds == [EventKind.AGENT_START, EventKind.TURN_START, EventKind.AGENT_END]
 
 
 async def test_a_rejected_turn_still_records_that_it_happened() -> None:

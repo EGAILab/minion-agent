@@ -11,17 +11,26 @@ AGENT_PRE_STEP = "agent/pre-step"
 """Waterfall returning `Reject | Enter`, terminal `Enter(claimed messages)`."""
 
 AGENT_TURN_STOPPING = "agent/turn-stopping"
-"""Serial, returning `TurnStopping`. Dispatched after every turn, including one a tool batch's
-`terminate` verdict ended -- pinned Pi's `shouldStopAfterTurn` runs regardless of `hasMoreToolCalls`
-(Layer 08, PASS 2; an earlier revision of this docstring claimed hard termination skipped dispatch
-entirely, which was never actually true of pinned Pi -- `terminate` only ever affects whether the
-tool-driven inner loop has more work, a fact this event's own listeners still get to observe)."""
+"""Serial, returning `TurnStopping`. Listener signature:
+`(instance, message, tool_results, context, new_messages) -> TurnStopping`, mirroring pinned Pi's
+own `ShouldStopAfterTurnContext` exactly (`L08-R001`, PASS 3 -- an earlier revision gave listeners
+no context at all). Dispatched after every turn, including one a tool batch's `terminate` verdict
+ended -- pinned Pi's `shouldStopAfterTurn` runs regardless of `hasMoreToolCalls` (`terminate` only
+ever affects whether the tool-driven inner loop has more work, a fact this event's own listeners
+still get to observe). Not dispatched for a represented `error`/`aborted` assistant message
+(`L08-R008`, PASS 3): pinned Pi returns immediately after that turn's own `turn_end`."""
 
 AGENT_PREPARE_NEXT_TURN = "agent/prepare-next-turn"
-"""Waterfall returning a `RunConfigUpdate`, terminal `RunConfigUpdate()` (no override). Pinned Pi's
-`prepareNextTurn`: dispatched after every turn, before the stop decision, and any returned
-`system_prompt`/`model`/`thinking_level` applies to the next provider request only -- never
-persisted back to the certified Layer-07 `AgentInstance` (Layer 08, PASS 2)."""
+"""Waterfall returning a `RunConfigUpdate`, terminal `RunConfigUpdate()` (no override). Listener
+signature: `(instance, message, tool_results, context, new_messages, next_) -> RunConfigUpdate`,
+mirroring pinned Pi's own `PrepareNextTurnContext` exactly (`L08-R001`, PASS 3 -- an earlier
+revision passed only the tool-batch outcome, and `RunConfigUpdate` could replace only
+`system_prompt`, not pinned Pi's whole `context`). Dispatched after every turn (including one a
+tool batch's `terminate` verdict ended), before the stop decision. Any returned
+`context`/`model`/`thinking_level` applies to the next provider request only -- never persisted
+back to the certified Layer-07 `AgentInstance`. Not dispatched for a represented `error`/`aborted`
+assistant message (`L08-R008`, PASS 3): pinned Pi returns immediately after that turn's own
+`turn_end`."""
 
 AGENT_INBOX_INSERTED = "agent/inbox/inserted"
 AGENT_INBOX_CLAIMED = "agent/inbox/claimed"

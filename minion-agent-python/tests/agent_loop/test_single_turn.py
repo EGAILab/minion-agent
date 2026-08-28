@@ -88,6 +88,7 @@ async def test_the_turn_is_logged_in_order() -> None:
         EventKind.TURN_START,
         EventKind.USER_MESSAGE,
         EventKind.REQUEST_HEADER,
+        EventKind.ASSISTANT_STREAM_START,
         EventKind.ASSISTANT_CHUNK,
         EventKind.ASSISTANT_MESSAGE,
         EventKind.TURN_END,

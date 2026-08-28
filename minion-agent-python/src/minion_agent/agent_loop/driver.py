@@ -12,21 +12,24 @@ one assistant response plus the tool calls/results it triggers, bracketed by
 turn," kept because the observable boundary it emits (one `TURN_START`/
 `TURN_END` pair per call) is what matters, not the helper's own name.
 
-PASS 2 completes the public entry points pi actually has: `prompt()`/
-`continue_()` (Python cannot name a method `continue`, a reserved word), each
-with pi's own exact caller-rejection text, a run-start config snapshot pi's
-own `createContextSnapshot()` takes, `prepareNextTurn` (run-local
-system/model/thinking_level override, never persisted back to
-`AgentInstance`), mid-run follow-up continuation (the same run keeps going,
-not a fresh `AGENT_START`/`AGENT_END` pair per queued batch), and pi's
-`handleRunFailure` fallback for an unexpected listener/callback exception.
-`run_until_idle()` -- Minion's own pump, with no pi equivalent -- is now a
-thin driver over the same `_run_wrapped`/`_execute_run` primitives `prompt`/
-`continue_` use, one call per claimed batch.
+PASS 3 remediates an independent Rust contract rejection (L08-R001..R008)
+against the PASS-2 candidate: a complete run-local `RunContext`/`RunConfig`
+snapshot (not the truncated three-field `_RunSnapshot`) with whole-context
+`prepareNextTurn` replacement; a `handleRunFailure`-equivalent that catches
+any run-executor failure (not just three hand-picked listener sites) while
+still letting an eager, pre-stream caller error (`UnknownModelError`)
+propagate uncaught; full `streaming_message` fidelity from each stream
+chunk's own already-complete `partial` (not a hand-rolled text-only
+accumulator); the initial steering poll moved to after the first turn opens;
+`max_steps` repositioned so it never skips a turn's own post-turn ordering;
+a `prompt(text, images?)` convenience overload; and represented assistant
+`error`/`aborted` treated as immediately terminal, matching pinned Pi's own
+early return before any post-turn callback or queue poll.
 """
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass
 
 from ..agent.decisions import (
@@ -34,28 +37,42 @@ from ..agent.decisions import (
     PreStepDecision,
     PreStepReason,
     Reject,
+    RunConfig,
     RunConfigUpdate,
+    RunContext,
     TurnStopping,
     resolve_stopping,
 )
 from ..agent.envelope import ClaimPolicy, InboxTarget, InputEnvelope
 from ..agent.events import AGENT_PRE_STEP, AGENT_PREPARE_NEXT_TURN, AGENT_TURN_STOPPING
-from ..agent.identity import AgentStatus, ThinkingLevel
+from ..agent.identity import AgentStatus
 from ..agent.instance import AgentActiveError, AgentInstance
 from ..llm import (
     AssistantMessage,
+    ImageBlock,
     LlmService,
     Message,
-    ModelId,
     Request,
     StopReason,
     StreamChunk,
+    StreamDone,
+    StreamError,
+    StreamStart,
     TextBlock,
     TextDelta,
+    TextEnd,
+    TextStart,
     ThinkingDelta,
+    ThinkingEnd,
+    ThinkingStart,
     ToolCallBlock,
     ToolCallDelta,
+    ToolCallEnd,
+    ToolCallStart,
+    UnknownModelError,
     Usage,
+    UserContentBlock,
+    UserMessage,
     collect,
 )
 from ..session import (
@@ -68,42 +85,47 @@ from ..session import (
 )
 from ..telemetry import Span, SpanKind, TelemetryService
 from ..tools.batch import BatchOutcome, execute_batch, execute_length_stop_batch
+from ..tools.definition import ToolDefinition
 from ..tools.events import TOOLS_EXECUTION_END, TOOLS_EXECUTION_START
 from ..tools.registry import ToolRegistry
 
 
+def _snapshot_tool_registry(tools: tuple[ToolDefinition, ...]) -> ToolRegistry:
+    """A fresh, unscoped `ToolRegistry` holding exactly `tools` -- the
+    execution-time counterpart of `RunContext.tools` (`L08-R001`). Pinned
+    Pi's own tool-call lookup (`prepareToolCall`) resolves against
+    `currentContext.tools`, the snapshot, not a live registry; registering
+    each definition with `scope=None` (visible from every scope,
+    `ScopedRegistry.visible_from`'s own untagged fallback) reproduces that
+    through the existing, unmodified Layer-05/06 `ToolRegistry`/
+    `execute_batch` seam -- no lower-layer reopen."""
+    registry = ToolRegistry()
+    for definition in tools:
+        registry.register(definition)
+    return registry
+
+
 class _LoopCallbackFailure(Exception):
-    """Wraps an unexpected exception from `AGENT_PRE_STEP`/`AGENT_TURN_STOPPING`/
-    `AGENT_PREPARE_NEXT_TURN` listener dispatch -- pinned Pi's own `handleRunFailure`
-    boundary, "unexpected loop callback failure." Deliberately narrow: model/
-    provider/tool-execution failures are NOT wrapped here and propagate (or settle
-    via their own existing, different mechanisms) normally -- an unresolvable model
-    is a caller bug, reported eagerly, never smuggled into a settled failure turn
-    (`eager-invalid-model-fails-before-stream.yaml`, section 4's boundary)."""
+    """Unused as of PASS 3 (`L08-R002`): the catch boundary is now the whole
+    run executor, matching pinned Pi's own `runWithLifecycle`, not three
+    hand-picked listener dispatch sites. Kept only as a historical marker of
+    the PASS-2 design this pass replaced; nothing raises it."""
 
 
-@dataclass
-class _RunSnapshot:
-    """Pi's per-run config snapshot (`Agent.createContextSnapshot()`):
-    `system_prompt`/`model`/`thinking_level` read ONCE at run start, so a
-    caller mutating the certified Layer-07 `AgentInstance` mid-run does not
-    retroactively alter a run already in progress -- confirmed directly
-    against pi (`Agent.createContextSnapshot()` shallow-copies once; the run
-    loop's own local `config`/`currentContext` never re-reads `Agent._state`).
-    `prepareNextTurn` may still update this run-locally via `apply()`; those
-    updates are never written back to `AgentInstance`."""
+@dataclass(frozen=True, slots=True)
+class _StepResult:
+    """One turn's outcome, threaded back to `_run_inner` for the post-turn
+    decision sequence and, when terminal, the immediate-return path
+    (`L08-R008`)."""
 
-    system_prompt: str
-    model: ModelId
-    thinking_level: ThinkingLevel
-
-    def apply(self, update: RunConfigUpdate) -> None:
-        if update.system_prompt is not None:
-            self.system_prompt = update.system_prompt
-        if update.model is not None:
-            self.model = update.model
-        if update.thinking_level is not None:
-            self.thinking_level = update.thinking_level
+    message: AssistantMessage
+    tool_results: tuple[Message, ...]
+    has_more_tool_calls: bool
+    hard_terminated: bool
+    terminal: bool
+    """True for a represented `error`/`aborted` assistant message: pinned Pi
+    returns immediately after this turn's own `turn_end`, running none of
+    `prepareNextTurn`/`shouldStopAfterTurn`/the steering or follow-up poll."""
 
 
 class AgentLoop:
@@ -128,27 +150,46 @@ class AgentLoop:
         self.next_step_policy = ClaimPolicy.ONE_AT_A_TIME
         self._cancelled = False
 
-    async def prompt(self, message: Message | tuple[Message, ...]) -> None:
+    async def prompt(
+        self,
+        message: Message | tuple[Message, ...] | str,
+        images: tuple[ImageBlock, ...] = (),
+    ) -> None:
         """Pinned Pi's `Agent.prompt()`: start a new run with `message` as its
-        own entering prompt. Rejects while a run is already active, with pi's
-        exact text."""
+        own entering prompt. Rejects with pi's exact text while a run is
+        already active.
+
+        Two accepted forms, neither narrowing the other (`L08-R007`): the
+        typed `Message | tuple[Message, ...]` boundary (unchanged), and pi's
+        own convenience overload, a plain `str` (optionally with `images`) --
+        normalized into exactly one `UserMessage` whose content is the text
+        followed by the supplied images, in that order, matching pinned Pi's
+        `[{type:"text",...}, ...images]` construction exactly."""
         if self.instance.status is not AgentStatus.IDLE:
             raise AgentActiveError(
                 "Agent is already processing a prompt. Use steer() or "
                 "followUp() to queue messages, or wait for completion."
             )
-        entering = message if isinstance(message, tuple) else (message,)
+        if isinstance(message, str):
+            content: tuple[UserContentBlock, ...] = (TextBlock(text=message), *images)
+            entering: tuple[Message, ...] = (
+                UserMessage(content=content, timestamp=int(time.time() * 1000)),
+            )
+        elif isinstance(message, tuple):
+            entering = message
+        else:
+            entering = (message,)
         await self._run_wrapped(entering=entering, causes=[])
 
     async def continue_(self) -> None:
         """Pinned Pi's `Agent.continue()` (renamed: `continue` is a Python
-        keyword). Rejects while active or with an empty transcript, with pi's
-        exact text for each. When the transcript's last message is
-        assistant, drains eligible steering (skipping the run's own initial
-        steering poll, so the same batch is never claimed twice) or,
-        failing that, eligible follow-up; with neither queued, rejects.
-        Otherwise runs a plain continuation: no entering messages, full
-        history still sent."""
+        keyword). Rejects with its own, different exact text while active or
+        with an empty transcript. When the transcript's last message is
+        assistant: drains eligible steering (skipping this run's own initial
+        steering poll, so the same batch is never claimed twice) or, failing
+        that, eligible follow-up; with neither queued, rejects. Otherwise runs
+        a plain continuation: no entering messages, full history still sent.
+        """
         if self.instance.status is not AgentStatus.IDLE:
             raise AgentActiveError(
                 "Agent is already processing. Wait for completion before continuing."
@@ -225,9 +266,8 @@ class AgentLoop:
     ) -> None:
         """One pi-equivalent run's full lifecycle: status/`error_message`
         reset at entry (pinned Pi's `runWithLifecycle`), guaranteed status
-        settlement on exit, regardless of success, an internal defect, or a
-        run-loop failure this pass already settles gracefully (see
-        `_settle_run_failure`)."""
+        settlement on exit, regardless of success or a run-executor failure
+        this pass already settles gracefully (see `_settle_run_failure`)."""
         if self.instance.status is not AgentStatus.IDLE:
             # Pinned Pi's own `runWithLifecycle` guard -- a third, distinct
             # "already processing" string, defensive and normally
@@ -257,27 +297,48 @@ class AgentLoop:
     ) -> None:
         """One pi-equivalent run: `AGENT_START` to `AGENT_END`, one or more
         turns, continuing across follow-up-triggered continuations within
-        the same bracket (pi's own outer `runLoop` loop -- Minion's own pump
-        starts a *new* run per queued batch only when this run has already
-        ended, not while it is still open)."""
+        the same bracket (pi's own outer `runLoop` loop).
+
+        `context`/`config` are pinned Pi's own `createContextSnapshot()`/
+        `createLoopConfig()`: taken once, here, at run start (`L08-R001`) --
+        `_run_step` never re-reads `AgentInstance`/Session/`ToolRegistry`
+        after this point; only `prepareNextTurn` may replace them, run-locally.
+        """
         log = self.instance.log
         log.append(EventKind.AGENT_START, {"causes": causes})
-        snapshot = _RunSnapshot(
+        context = RunContext(
             system_prompt=self.instance.system_prompt,
-            model=self.instance.model,
-            thinking_level=self.instance.thinking_level,
+            messages=list(derive_messages(self.instance.log)),
+            tools=self.tools.visible_from(self.instance.scope),
         )
+        config = RunConfig(model=self.instance.model, thinking_level=self.instance.thinking_level)
+
+        failure: AssistantMessage | None = None
         try:
             end_reason, detail = await self._run_inner(
-                entering, causes, skip_initial_steering_poll, snapshot
+                entering, causes, skip_initial_steering_poll, context, config
             )
-        except _LoopCallbackFailure as failure:
-            end_reason, detail = self._settle_run_failure(failure.__cause__ or failure, snapshot)
+        except UnknownModelError:
+            # Pinned Pi's own boundary: resolving a model happens before a
+            # stream is returned, so an unresolvable one is a caller/config
+            # bug, reported eagerly -- never smuggled into a settled failure
+            # turn (L08-R002, `eager-invalid-model-fails-before-stream.yaml`).
+            raise
+        except Exception as error:
+            end_reason, failure = self._settle_run_failure(error, config)
+            detail = None
 
         self._cancelled = False
         payload: dict[str, object] = {"reason": end_reason, "causes": causes}
         if detail is not None:
             payload["detail"] = detail
+        if failure is not None:
+            # Pinned Pi's own `agent_end(messages=[failureMessage])`: the
+            # failure message ONLY, regardless of whatever this run's own
+            # `run_messages` accumulator happens to hold by this point
+            # (`L08-R002`) -- an explicit override the projection honors
+            # directly (see `projection.py`).
+            payload["messages"] = [encode_message(failure)]
         log.append(EventKind.AGENT_END, payload)
 
     async def _run_inner(
@@ -285,8 +346,28 @@ class AgentLoop:
         entering: tuple[Message, ...],
         causes: list[dict[str, object]],
         skip_initial_steering_poll: bool,
-        snapshot: _RunSnapshot,
+        context: RunContext,
+        config: RunConfig,
     ) -> tuple[str, str | None]:
+        log = self.instance.log
+        # Not pre-seeded with `entering`: `_run_step`'s own loop over
+        # `decision.messages` (which starts as `entering` but may be
+        # rewritten by an `AGENT_PRE_STEP` listener) is the single place
+        # both `context.messages` and `new_messages` grow -- pre-seeding
+        # here too would double-count the entering batch.
+        new_messages: list[Message] = []
+
+        # Pi's runAgentLoop/runAgentLoopContinue: agent_start (already
+        # appended by _execute_run), then turn_start, then the entering
+        # (prompt) messages' own lifecycle, THEN -- only for this very
+        # first turn -- the initial steering poll (runLoop's own first
+        # statement, called only after runAgentLoop has already emitted
+        # turn_start and the prompt messages). Subsequent turns' steering
+        # claims already happen correctly, as part of the PRECEDING turn's
+        # own post-turn sequence, before the next TURN_START -- only the
+        # very first poll needed reordering (`L08-R006`).
+        log.append(EventKind.TURN_START, {"reason": PreStepReason.INITIAL.value})
+
         if skip_initial_steering_poll:
             initial_step_input: tuple[InputEnvelope, ...] = ()
         else:
@@ -300,36 +381,70 @@ class AgentLoop:
         reason = PreStepReason.INITIAL
         steps = 0
         last_terminated = False
+        open_turn = False  # this first turn's TURN_START was already appended above
 
         while True:  # outer: continues across follow-up-triggered continuations
             while True:  # inner: turns within one continuation
-                outcome = await self._run_step(decision, reason, snapshot)
+                result = await self._run_step(
+                    decision, reason, context, config, new_messages, open_turn=open_turn
+                )
+                open_turn = True
                 steps += 1
-                last_terminated = outcome is not None and outcome.terminate
-                has_more_tool_calls = outcome is not None and not outcome.terminate
 
-                if steps >= self.instance.definition.max_steps:
-                    self._span(SpanKind.TURN, "turn", reason="max_steps")
-                    return "max_steps", None
-                if self._cancelled:
-                    self._span(SpanKind.TURN, "turn", reason="cancelled")
-                    return "cancelled", None
+                if result.terminal:
+                    # Represented error/aborted (L08-R008): pinned Pi returns
+                    # immediately after this turn's own turn_end, running
+                    # none of prepareNextTurn/shouldStopAfterTurn/steering/
+                    # follow-up for it.
+                    self._span(SpanKind.TURN, "turn", reason=result.message.stop_reason.value)
+                    return result.message.stop_reason.value, None
 
-                # Always dispatched, including after a tool batch's `terminate`
-                # verdict (`L08-PASS2`): `terminate` suppresses only the
+                last_terminated = result.hard_terminated
+                has_more_tool_calls = result.has_more_tool_calls
+
+                # Dispatched after every turn, including one a tool batch's
+                # `terminate` verdict ended: `terminate` suppresses only the
                 # tool-driven inner-loop continuation (`has_more_tool_calls`
-                # above), matching pinned Pi exactly -- it must not also skip
-                # `prepareNextTurn`/`shouldStopAfterTurn`/the steering poll,
-                # which pi's own `runLoop` still runs for that same turn.
-                snapshot.apply(await self._prepare_next_turn(outcome))
+                # above), matching pinned Pi exactly.
+                update = await self._prepare_next_turn(
+                    result.message, result.tool_results, context, tuple(new_messages)
+                )
+                if update.context is not None:
+                    context = update.context
+                if update.model is not None:
+                    config.model = update.model
+                if update.thinking_level is not None:
+                    config.thinking_level = update.thinking_level
 
-                if await self._should_stop():
+                if await self._should_stop(
+                    result.message, result.tool_results, context, tuple(new_messages)
+                ):
                     self._span(SpanKind.TURN, "turn", reason="stopped")
                     return "stopped", None
 
                 step_input = self._claim_step_input()
                 if not has_more_tool_calls and not step_input:
                     break  # inner loop exhausted -> poll follow-up below
+
+                if steps >= self.instance.definition.max_steps:
+                    # Minion-only host safety cap (`L08-R005`, AG-020):
+                    # checked only here, AFTER this turn's own
+                    # prepareNextTurn/shouldStopAfterTurn/steering poll have
+                    # already run unconditionally -- it gates only whether a
+                    # FURTHER turn is attempted, never skips pinned Pi's own
+                    # post-turn ordering for a turn that already happened.
+                    self._span(SpanKind.TURN, "turn", reason="max_steps")
+                    return "max_steps", None
+
+                if self._cancelled:
+                    # Another Minion-only host extension (AG-019, no pi
+                    # equivalent), gated the same way as `max_steps` above:
+                    # only after this turn's own full post-turn ordering has
+                    # already run. `cancel()`'s own docstring is exact --
+                    # work already in flight finishes; only the *next*
+                    # request is stopped.
+                    self._span(SpanKind.TURN, "turn", reason="cancelled")
+                    return "cancelled", None
 
                 reason = PreStepReason.STEERING if step_input else PreStepReason.TOOL_RESULTS
                 decision = await self._pre_step(
@@ -355,66 +470,91 @@ class AgentLoop:
                 return "rejected", decision.reason
 
     def _settle_run_failure(
-        self, error: BaseException, snapshot: _RunSnapshot
-    ) -> tuple[str, None]:
-        """Pinned Pi's `handleRunFailure`: an unexpected exception from
-        run-loop callback/listener code (not a normal model/tool failure,
-        both of which already settle as ordinary assistant/tool-result
-        content) still produces a coherent, terminal turn -- never an
+        self, error: BaseException, config: RunConfig
+    ) -> tuple[str, AssistantMessage]:
+        """Pinned Pi's `handleRunFailure`: an unexpected exception from the
+        run executor (any of it -- listener dispatch, an adapter breaking its
+        streaming contract, or any other unforeseen failure inside a turn;
+        NOT the eager, pre-stream `UnknownModelError` `_execute_run` already
+        excludes) still produces a coherent, terminal turn -- never an
         unhandled exception escaping `prompt()`/`continue_()`/
-        `run_until_idle()`. A matched `TURN_START`/`TURN_END` pair brackets
-        the synthesized failure message -- a small, disclosed simplification
-        of pinned Pi's own bare `turn_end` (no preceding `turn_start` at
-        all), chosen so the projection's own turn-scoped accumulator never
-        has to special-case an unmatched `TURN_END`."""
+        `run_until_idle()`.
+
+        Emits exactly pinned Pi's own bare sequence -- `message_start`/
+        `message_end`/`turn_end(failure, [])` -- with NO preceding
+        `turn_start` at all (`L08-R002`; an earlier revision inserted a
+        synthetic one). `TURN_END` carries an explicit override the
+        projection honors directly (see `projection.py`); the returned
+        failure message lets the caller (`_execute_run`) apply the matching
+        `agent_end(messages=[failure])` override itself, so the failure
+        message is never diluted by whatever this run's own turn/run
+        accumulators happen to hold."""
         log = self.instance.log
-        log.append(EventKind.TURN_START, {"reason": "failure"})
         failure = AssistantMessage(
             content=(TextBlock(text=""),),
             stop_reason=StopReason.ERROR,
             usage=Usage(),
-            model=snapshot.model.model,
-            provider=snapshot.model.provider,
+            model=config.model.model,
+            provider=config.model.provider,
             timestamp=0,
             error_message=str(error),
         )
         log.append(EventKind.ASSISTANT_MESSAGE, {"message": encode_message(failure)})
-        log.append(EventKind.TURN_END, {})
+        log.append(EventKind.TURN_END, {"message": encode_message(failure)})
         self.instance.error_message = str(error)
         self.instance.streaming_message = None
         self.instance.pending_tool_calls = frozenset()
-        return "failed", None
+        return "failed", failure
 
-    async def _should_stop(self) -> bool:
+    async def _should_stop(
+        self,
+        message: AssistantMessage,
+        tool_results: tuple[Message, ...],
+        context: RunContext,
+        new_messages: tuple[Message, ...],
+    ) -> bool:
         """Ask listeners whether to stop, folding by first-opinion-wins.
 
         Serial dispatch returns the last listener's value, so the fold is
         applied to that single opinion here; it earns its keep once Plan 4
-        collects several.
+        collects several. `message`/`tool_results`/`context`/`new_messages`
+        mirror pinned Pi's own `ShouldStopAfterTurnContext` exactly
+        (`L08-R001`) -- an earlier revision gave listeners no context at all.
         """
-        try:
-            decision = await self.instance.ctx.events.serial(
-                AGENT_TURN_STOPPING, self.instance, scope=self.instance.scope.key
-            )
-        except Exception as error:
-            raise _LoopCallbackFailure() from error
+        decision = await self.instance.ctx.events.serial(
+            AGENT_TURN_STOPPING,
+            self.instance,
+            message,
+            tool_results,
+            context,
+            new_messages,
+            scope=self.instance.scope.key,
+        )
         if decision is None:
             return False
         return resolve_stopping([decision]) is TurnStopping.STOP
 
-    async def _prepare_next_turn(self, outcome: BatchOutcome | None) -> RunConfigUpdate:
+    async def _prepare_next_turn(
+        self,
+        message: AssistantMessage,
+        tool_results: tuple[Message, ...],
+        context: RunContext,
+        new_messages: tuple[Message, ...],
+    ) -> RunConfigUpdate:
         """Pinned Pi's `prepareNextTurn`: a run-local override for the next
-        provider request's `system_prompt`/`model`/`thinking_level` only."""
-        try:
-            update: RunConfigUpdate = await self.instance.ctx.events.waterfall(
-                AGENT_PREPARE_NEXT_TURN,
-                self.instance,
-                outcome,
-                terminal=RunConfigUpdate(),
-                scope=self.instance.scope.key,
-            )
-        except Exception as error:
-            raise _LoopCallbackFailure() from error
+        provider request's whole `context`/`model`/`thinking_level`.
+        `message`/`tool_results`/`context`/`new_messages` mirror pinned Pi's
+        own `PrepareNextTurnContext` exactly (`L08-R001`)."""
+        update: RunConfigUpdate = await self.instance.ctx.events.waterfall(
+            AGENT_PREPARE_NEXT_TURN,
+            self.instance,
+            message,
+            tool_results,
+            context,
+            new_messages,
+            terminal=RunConfigUpdate(),
+            scope=self.instance.scope.key,
+        )
         return update
 
     def _claim_step_input(self) -> tuple[InputEnvelope, ...]:
@@ -432,113 +572,126 @@ class AgentLoop:
         transforms delegates with replacement arguments, which the listeners
         after it receive.
         """
-        try:
-            decision: PreStepDecision = await self.instance.ctx.events.waterfall(
-                AGENT_PRE_STEP,
-                self.instance,
-                reason,
-                messages,
-                terminal=Enter(messages=messages),
-                scope=self.instance.scope.key,
-            )
-        except Exception as error:
-            raise _LoopCallbackFailure() from error
+        decision: PreStepDecision = await self.instance.ctx.events.waterfall(
+            AGENT_PRE_STEP,
+            self.instance,
+            reason,
+            messages,
+            terminal=Enter(messages=messages),
+            scope=self.instance.scope.key,
+        )
         return decision
 
     async def _run_step(
-        self, decision: Enter, reason: PreStepReason, snapshot: _RunSnapshot
-    ) -> BatchOutcome | None:
+        self,
+        decision: Enter,
+        reason: PreStepReason,
+        context: RunContext,
+        config: RunConfig,
+        new_messages: list[Message],
+        *,
+        open_turn: bool = True,
+    ) -> _StepResult:
         """Run one model request and its tools.
 
         Tools execute as a batch -- parallel by default, with pi's contagion
-        rule serializing around an exclusive call. Returns the batch outcome,
-        or `None` when the model called no tools -- which the caller reads as
-        "nothing is owed".
+        rule serializing around an exclusive call. `context`/`config` are the
+        run's own snapshot (`L08-R001`) -- never re-read from `AgentInstance`/
+        Session/`ToolRegistry` here.
         """
         log = self.instance.log
 
         # `reason` is Minion-internal bookkeeping (why this turn began -- initial/
         # steering/tool_results), not part of pi's own bare `turn_start` (no fields
         # at all) -- kept on the raw log entry, not projected into the public
-        # `TurnStart` event.
-        log.append(EventKind.TURN_START, {"reason": reason.value})
+        # `TurnStart` event. `open_turn=False` only for this run's very first
+        # turn, whose TURN_START `_run_inner` already appended (`L08-R006`).
+        if open_turn:
+            log.append(EventKind.TURN_START, {"reason": reason.value})
 
-        # After `turn/start`, matching pinned Pi exactly (`runAgentLoop`/`runLoop`
-        # emit `turn_start` before the entering messages, every turn, not only the
-        # first): what entered the turn caused it, and the model cannot see a
-        # prompt that is not yet on the surface when the request is derived.
+        # After `turn/start`, matching pinned Pi exactly: what entered the turn
+        # caused it, and the model cannot see a prompt that is not yet on the
+        # surface when the request is derived. Appended to the run-local
+        # context/new-messages accumulators too (`L08-R001`) -- never re-derived
+        # from the log for request construction.
         for message in decision.messages:
             log.append(EventKind.USER_MESSAGE, {"message": encode_message(message)})
+            context.messages.append(message)
+            new_messages.append(message)
 
         components = {
             "system_base": decision.system_override
             if decision.system_override is not None
-            else snapshot.system_prompt
+            else context.system_prompt
         }
-        schemas = self.tools.schemas(self.instance.scope)
+        schemas = tuple(definition.schema() for definition in context.tools)
         record_header(
             log,
             self.artifacts,
             components,
-            model=snapshot.model.model,
+            model=config.model.model,
             tools=schemas,
         )
 
-        history = derive_messages(log)
+        history: list[Message] | tuple[Message, ...] = context.messages
         if decision.history_window is not None:
             history = history[-decision.history_window :]
 
         request = Request(
-            model=snapshot.model,
+            model=config.model,
             system=assemble_system(components),
-            messages=history,
+            messages=tuple(history),
             tools=schemas,
         )
 
         # Non-`None` for exactly the duration of one provider request, matching
         # pinned Pi's own `streamingMessage` write points (`message_start`/
         # `message_update` -> the partial message; `message_end` -> `undefined`).
-        # Content-level fidelity is text-only (accumulated `TextDelta`s): pi's own
-        # partial reconstruction is opaque to this layer, and Minion's certified
-        # Layer-02/04 `collect()` exposes only raw deltas, not a live partial
-        # message object, to build a richer one from -- a disclosed simplification,
-        # not a silently dropped requirement (AG-008).
-        partial_text: dict[int, str] = {}
-        self.instance.streaming_message = AssistantMessage(
-            content=(),
-            stop_reason=StopReason.PENDING,
-            usage=Usage(),
-            model=snapshot.model.model,
-            provider=snapshot.model.provider,
-            timestamp=0,
-        )
+        # Set directly from each chunk's own `partial` (`L08-R003`): the
+        # already-certified Layer-02/04 `StreamChunk` carries the complete
+        # partial assistant message on every variant, so no independent
+        # reconstruction from raw deltas is needed or attempted.
+        stream_opened = False
 
         def log_chunk(chunk: StreamChunk) -> None:
-            """Record streaming fidelity. Log-only: a delta that derived would
-            duplicate the message it is part of."""
+            nonlocal stream_opened
             match chunk:
-                case TextDelta():
-                    kind, delta = "text", chunk.delta
-                    partial_text[chunk.content_index] = (
-                        partial_text.get(chunk.content_index, "") + chunk.delta
+                case StreamStart():
+                    stream_opened = True
+                    self.instance.streaming_message = chunk.partial
+                    log.append(
+                        EventKind.ASSISTANT_STREAM_START,
+                        {"partial": encode_message(chunk.partial)},
                     )
-                    self.instance.streaming_message = AssistantMessage(
-                        content=tuple(TextBlock(text=text) for text in partial_text.values()),
-                        stop_reason=StopReason.PENDING,
-                        usage=Usage(),
-                        model=snapshot.model.model,
-                        provider=snapshot.model.provider,
-                        timestamp=0,
-                    )
-                case ThinkingDelta():
-                    kind, delta = "thinking", chunk.delta
-                case ToolCallDelta():
-                    kind, delta = "tool_call", chunk.delta
-                case _:
                     return
+                case TextStart():
+                    kind = "text_start"
+                case TextDelta():
+                    kind = "text_delta"
+                case TextEnd():
+                    kind = "text_end"
+                case ThinkingStart():
+                    kind = "thinking_start"
+                case ThinkingDelta():
+                    kind = "thinking_delta"
+                case ThinkingEnd():
+                    kind = "thinking_end"
+                case ToolCallStart():
+                    kind = "toolcall_start"
+                case ToolCallDelta():
+                    kind = "toolcall_delta"
+                case ToolCallEnd():
+                    kind = "toolcall_end"
+                case StreamDone() | StreamError():
+                    return
+            self.instance.streaming_message = chunk.partial
             log.append(
                 EventKind.ASSISTANT_CHUNK,
-                {"kind": kind, "content_index": chunk.content_index, "delta": delta},
+                {
+                    "kind": kind,
+                    "content_index": chunk.content_index,
+                    "partial": encode_message(chunk.partial),
+                },
             )
 
         reply = await collect(self.llm.stream(request), log_chunk)
@@ -551,6 +704,23 @@ class AgentLoop:
             # `reset()` (Layer-07, certified) -- it is not cleared here, and not
             # cleared by this run's own `agent_end` either.
             self.instance.error_message = reply.error_message
+        context.messages.append(reply)
+        new_messages.append(reply)
+
+        if reply.stop_reason in (StopReason.ERROR, StopReason.ABORTED):
+            # Represented error/aborted (`L08-R008`): pinned Pi emits this
+            # turn's own `turn_end` with empty `toolResults` and returns
+            # immediately -- no tool calls are ever inspected or executed for
+            # a message representing its own failure.
+            log.append(EventKind.TURN_END, {})
+            self._span(SpanKind.STEP, "step", reason=reason.value)
+            return _StepResult(
+                message=reply,
+                tool_results=(),
+                has_more_tool_calls=False,
+                hard_terminated=False,
+                terminal=True,
+            )
 
         calls = [block for block in reply.content if isinstance(block, ToolCallBlock)]
         for call in calls:
@@ -559,57 +729,99 @@ class AgentLoop:
                 {"id": call.id, "name": call.name, "arguments": call.arguments},
             )
 
-        # `pending_tool_calls` tracks the real batch window via the already-
-        # certified Layer-06 `tools/execution-start`/`tools/execution-end` events
-        # (`AG-008`) -- add on start, remove on end, matching pinned Pi's own
-        # `processEvents` reducer exactly, through an existing seam rather than a
-        # new one.
-        def on_execution_start(call_id: str, name: str, arguments: dict[str, object]) -> None:
-            self.instance.pending_tool_calls = self.instance.pending_tool_calls | {call_id}
+        outcome: BatchOutcome | None = None
+        tool_result_messages: tuple[Message, ...] = ()
+        if calls:
+            execution_registry = _snapshot_tool_registry(context.tools)
 
-        def on_execution_end(call_id: str, name: str, result: object) -> None:
-            self.instance.pending_tool_calls = self.instance.pending_tool_calls - {call_id}
+            # `pending_tool_calls` tracks the real batch window via the already-
+            # certified Layer-06 `tools/execution-start`/`tools/execution-end`
+            # events -- add on start, remove on end, matching pinned Pi's own
+            # `processEvents` reducer exactly, through an existing seam.
+            def on_execution_start(call_id: str, name: str, arguments: dict[str, object]) -> None:
+                self.instance.pending_tool_calls = self.instance.pending_tool_calls | {call_id}
 
-        dispose_start = self.instance.ctx.events.on(
-            TOOLS_EXECUTION_START, on_execution_start, scope=self.instance.scope.key
-        )
-        dispose_end = self.instance.ctx.events.on(
-            TOOLS_EXECUTION_END, on_execution_end, scope=self.instance.scope.key
-        )
-        try:
-            if reply.stop_reason is StopReason.LENGTH and calls:
-                # A length stop means the output was cut off by the token limit, so every
-                # tool call the message carries may itself have truncated arguments. Pinned
-                # Pi fails them all instead of executing potentially-truncated calls
-                # (`failToolCallsFromTruncatedMessage`, TOOL-017) -- none reach the registry.
-                outcome = await execute_length_stop_batch(
-                    calls, ctx=self.instance.ctx, scope=self.instance.scope
-                )
-            else:
-                outcome = await execute_batch(
-                    calls,
-                    registry=self.tools,
-                    ctx=self.instance.ctx,
-                    scope=self.instance.scope,
-                )
-        finally:
-            dispose_start()
-            dispose_end()
-            self.instance.pending_tool_calls = frozenset()
-        for result in outcome.results:
-            log.append(
-                EventKind.TOOL_RESULT,
-                {
-                    "message": encode_message(result.to_message()),
-                    # Pi emits `tool_execution_end` in completion order while
-                    # messages follow source order. Results are appended in
-                    # source order -- that is what the model reads -- so the
-                    # completion order rides along as data for the projection.
-                    "completion_index": outcome.completion_index(result.tool_call_id),
-                    "added_tool_names": list(result.added_tool_names),
-                },
+            def on_execution_end(call_id: str, name: str, result: object) -> None:
+                self.instance.pending_tool_calls = self.instance.pending_tool_calls - {call_id}
+
+            dispose_start = self.instance.ctx.events.on(
+                TOOLS_EXECUTION_START, on_execution_start, scope=self.instance.scope.key
             )
+            dispose_end = self.instance.ctx.events.on(
+                TOOLS_EXECUTION_END, on_execution_end, scope=self.instance.scope.key
+            )
+            try:
+                if reply.stop_reason is StopReason.LENGTH:
+                    # A length stop means the output was cut off by the token limit, so every
+                    # tool call the message carries may itself have truncated arguments. Pinned
+                    # Pi fails them all instead of executing potentially-truncated calls
+                    # (`failToolCallsFromTruncatedMessage`, TOOL-017) -- none reach the registry.
+                    outcome = await execute_length_stop_batch(
+                        calls, ctx=self.instance.ctx, scope=self.instance.scope
+                    )
+                else:
+                    outcome = await execute_batch(
+                        calls,
+                        registry=execution_registry,
+                        ctx=self.instance.ctx,
+                        scope=self.instance.scope,
+                    )
+            finally:
+                dispose_start()
+                dispose_end()
+                self.instance.pending_tool_calls = frozenset()
+
+            results: list[Message] = []
+            for result in outcome.results:
+                message = result.to_message()
+                log.append(
+                    EventKind.TOOL_RESULT,
+                    {
+                        "message": encode_message(message),
+                        # Pi emits `tool_execution_end` in completion order while
+                        # messages follow source order. Results are appended in
+                        # source order -- that is what the model reads -- so the
+                        # completion order rides along as data for the projection.
+                        "completion_index": outcome.completion_index(result.tool_call_id),
+                        "added_tool_names": list(result.added_tool_names),
+                    },
+                )
+                context.messages.append(message)
+                new_messages.append(message)
+                results.append(message)
+                if result.added_tool_names:
+                    # Layer 06's own boundary (spec/tools.md): `added_tool_names`
+                    # is pass-through evidence Layer 06 itself neither
+                    # interprets nor acts on, leaving "available from this
+                    # transcript point onward" to a later Agent-loop layer.
+                    # Consumed here by extending the run-local `context.tools`
+                    # snapshot in place -- the same way `context.messages`
+                    # grows from this run's own tool results -- never a live
+                    # re-read of `self.tools` as a whole (`L08-R001` still
+                    # holds: an unrelated external registration made through
+                    # `self.tools` while this run is in flight does not leak
+                    # in, only the specific names this run's own result named).
+                    known = {definition.name for definition in context.tools}
+                    newly_visible = []
+                    for added_name in result.added_tool_names:
+                        if added_name in known:
+                            continue
+                        added_definition = self.tools.resolve(added_name, self.instance.scope)
+                        if added_definition is not None:
+                            newly_visible.append(added_definition)
+                            known.add(added_name)
+                    if newly_visible:
+                        context.tools = context.tools + tuple(newly_visible)
+            tool_result_messages = tuple(results)
 
         log.append(EventKind.TURN_END, {})
         self._span(SpanKind.STEP, "step", reason=reason.value)
-        return outcome if calls else None
+        hard_terminated = outcome is not None and outcome.terminate
+        has_more_tool_calls = bool(calls) and not hard_terminated
+        return _StepResult(
+            message=reply,
+            tool_results=tool_result_messages,
+            has_more_tool_calls=has_more_tool_calls,
+            hard_terminated=hard_terminated,
+            terminal=False,
+        )

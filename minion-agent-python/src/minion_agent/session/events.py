@@ -44,6 +44,13 @@ class EventKind(StrEnum):
     AGENT_END = "agent/end"
     TURN_START = "turn/start"
     TURN_END = "turn/end"
+    ASSISTANT_STREAM_START = "assistant/stream-start"
+    """The stream's own `"start"` event (pinned Pi's `event.type === "start"`), carrying the
+    initial partial assistant message -- projects into the public `MessageStart` for the assistant
+    reply, before any `MessageUpdate`s (Layer 08, PASS 3, `L08-R003`). Distinct from
+    `ASSISTANT_MESSAGE` (the finalized message, log-only until this pass's projection fix made it
+    surface-adjacent): a stream that never emits `"start"` still gets a `MessageStart` from
+    `ASSISTANT_MESSAGE` itself, matching pinned Pi's own `!addedPartial` defensive fallback."""
 
     # --- log-only: fidelity and request reconstruction ---
     ASSISTANT_CHUNK = "assistant/chunk"

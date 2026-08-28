@@ -12,7 +12,7 @@ from minion_agent.agent.projection import (
     TurnStart,
     project,
 )
-from minion_agent.llm import TextBlock, UserMessage
+from minion_agent.llm import AssistantMessage, StopReason, TextBlock, Usage, UserMessage
 from minion_agent.session import EventKind, SessionLog, encode_message
 
 
@@ -270,44 +270,48 @@ def test_a_second_turns_end_does_not_see_the_first_turns_tool_results() -> None:
     assert ends[1].message is None
 
 
+def _partial(text: str) -> AssistantMessage:
+    return AssistantMessage(
+        content=(TextBlock(text=text),),
+        stop_reason=StopReason.STOP,
+        usage=Usage(),
+        model="m",
+        provider="p",
+        timestamp=0,
+    )
+
+
 def test_a_chunk_projects_to_a_message_update() -> None:
-    """Pi's tenth event, and the reason chunks are logged at all."""
+    """Pi's tenth event, `{assistantMessageEvent, message}` -- `message` is the
+    full partial assistant message as accumulated so far (`L08-R003`), not a
+    raw delta string."""
     log = SessionLog("s1")
-    log.append(EventKind.ASSISTANT_CHUNK, {"kind": "text", "content_index": 0, "delta": "hi"})
+    partial = _partial("hi")
+    log.append(
+        EventKind.ASSISTANT_CHUNK,
+        {"kind": "text_delta", "content_index": 0, "partial": encode_message(partial)},
+    )
 
     update = next(e for e in project(log) if isinstance(e, MessageUpdate))
 
-    assert (update.kind, update.delta) == ("text", "hi")
+    assert (update.kind, update.message) == ("text_delta", partial)
 
 
 def test_updates_precede_the_message_they_assemble() -> None:
+    """Pinned pi's exact order, `message_start -> message_update* ->
+    message_end` (`L08-R003`): the stream's own `"start"` event opens the
+    reply's `MessageStart` before any `MessageUpdate`."""
     log = SessionLog("s1")
-    log.append(EventKind.ASSISTANT_CHUNK, {"kind": "text", "content_index": 0, "delta": "hi"})
+    log.append(EventKind.ASSISTANT_STREAM_START, {"partial": encode_message(_partial(""))})
     log.append(
-        EventKind.ASSISTANT_MESSAGE,
-        {
-            "message": {
-                "role": "assistant",
-                "content": [{"type": "text", "text": "hi"}],
-                "timestamp": 0,
-                "stop_reason": "stop",
-                "model": "m",
-                "provider": "p",
-                "error_message": None,
-                "usage": {
-                    "input": 0,
-                    "output": 0,
-                    "cache_read": 0,
-                    "cache_write": 0,
-                    "reasoning": 0,
-                },
-            }
-        },
+        EventKind.ASSISTANT_CHUNK,
+        {"kind": "text_delta", "content_index": 0, "partial": encode_message(_partial("hi"))},
     )
+    log.append(EventKind.ASSISTANT_MESSAGE, {"message": encode_message(_partial("hi"))})
 
     kinds = [type(e) for e in project(log)]
 
-    assert kinds.index(MessageUpdate) < kinds.index(MessageStart)
+    assert kinds.index(MessageStart) < kinds.index(MessageUpdate) < kinds.index(MessageEnd)
 
 
 def _tool_result_entry(

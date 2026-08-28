@@ -72,9 +72,15 @@ async def test_a_stopped_turn_records_why() -> None:
     assert end.data["reason"] == "stopped"
 
 
-async def test_the_event_is_not_dispatched_when_nothing_is_owed() -> None:
-    """Hard termination precedes the decision: a turn the loop was already
-    going to end never asks."""
+async def test_the_event_is_still_dispatched_when_nothing_is_owed() -> None:
+    """Layer 08, PASS 2: pinned pi's own `shouldStopAfterTurn` runs after
+    every turn, including a plain text reply with no tool calls at all --
+    confirmed directly against `runLoop` (only an error/aborted `stopReason`
+    skips it, an early exit this scenario never reaches). A listener
+    answering CONTINUE is asked, and still cannot manufacture a second
+    request on its own: with nothing else pending, the run still ends after
+    one turn. An earlier revision of this test claimed the event was never
+    dispatched here at all -- that was never actually true of pinned Pi."""
     loop = _loop(ScriptedResponse((TextBlock(text="done"),), StopReason.STOP))
     asked: list[str] = []
 
@@ -87,7 +93,7 @@ async def test_the_event_is_not_dispatched_when_nothing_is_owed() -> None:
 
     await loop.run_until_idle()
 
-    assert asked == []
+    assert asked == ["asked"]
 
 
 async def test_continue_cannot_override_max_steps() -> None:

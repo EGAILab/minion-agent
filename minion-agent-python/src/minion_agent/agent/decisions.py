@@ -12,7 +12,8 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from enum import StrEnum
 
-from ..llm import Message
+from ..llm import Message, ModelId
+from .identity import ThinkingLevel
 
 
 @dataclass(frozen=True, slots=True)
@@ -78,3 +79,20 @@ def resolve_stopping(decisions: Iterable[TurnStopping]) -> TurnStopping:
         if decision is not TurnStopping.NO_OPINION:
             return decision
     return TurnStopping.CONTINUE
+
+
+@dataclass(frozen=True, slots=True)
+class RunConfigUpdate:
+    """Pinned Pi's `AgentLoopTurnUpdate` (`prepareNextTurn`'s return value):
+    an optional replacement for `system_prompt`/`model`/`thinking_level`,
+    applying to the next provider request only. `None` on any field means
+    "keep the current run-local value" -- the terminal `RunConfigUpdate()`
+    (all fields `None`) is a pure pass-through, exactly like `Enter`'s own
+    "no override" shape. Never persisted back to the certified Layer-07
+    `AgentInstance`: pinned Pi's own `prepareNextTurn` only ever affects the
+    local `config`/`currentContext` a single `runLoop` call keeps, not
+    `Agent._state` (Layer 08, PASS 2)."""
+
+    system_prompt: str | None = None
+    model: ModelId | None = None
+    thinking_level: ThinkingLevel | None = None

@@ -77,6 +77,11 @@ async def test_agent_scenario(scenario: Path) -> None:
         observed = [[cause["origin"] for cause in turn] for turn in outcome["causes"]]
         assert observed == document["expect_causes"]
 
+    if "expect_agent_end_messages" in document:
+        # Layer 08, PASS 2: pinned pi's agent_end.messages is invocation-local, not
+        # the whole transcript -- one list of texts per independently-scoped run.
+        assert outcome["agent_end_messages"] == document["expect_agent_end_messages"]
+
     if "expect_assistant_stop_reasons" in document:
         assert outcome["assistant_stop_reasons"] == document["expect_assistant_stop_reasons"]
 

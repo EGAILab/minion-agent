@@ -1,0 +1,31 @@
+name: a follow-up-drain continuation excludes the prior run's own messages
+description: >
+  Layer 08, PASS 2. `continue_()` (pinned pi's `Agent.continue()`) drains a
+  follow-up queued after the first run has already settled idle -- the
+  transcript's last message is assistant, so this exercises continue()'s own
+  follow-up-drain sub-case, which pinned pi routes through the same
+  pre-seeded-newMessages path prompt() uses (confirmed directly against
+  agent.ts: this sub-case calls runPromptMessages, not runAgentLoopContinue).
+  The second run's own agent_end.messages still excludes the first run's
+  messages entirely -- proving run-scoping, not proving pi's other,
+  empty-seeded plain-continuation case (last message NOT assistant), which
+  remains covered at the Python-test level only
+  (test_continue_sends_full_history_when_last_message_is_not_assistant).
+provider_script:
+  - content: [{ type: text, text: first reply }]
+    stop_reason: stop
+  - content: [{ type: text, text: continuation reply }]
+    stop_reason: stop
+steps:
+  - followup: one
+  - await_idle: true
+  - followup: two
+  - continue: true
+expect_agent_end_messages:
+  - [one, first reply]
+  - [two, continuation reply]
+expect_messages:
+  - { role: user, text: one }
+  - { role: assistant, text: first reply }
+  - { role: user, text: two }
+  - { role: assistant, text: continuation reply }

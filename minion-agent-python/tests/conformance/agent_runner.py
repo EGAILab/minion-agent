@@ -486,6 +486,16 @@ async def run_agent_scenario(document: dict[str, Any]) -> dict[str, Any]:
             except Exception as raised:
                 error = raised
                 break
+        if step.get("continue"):
+            # Layer 08, PASS 2: pinned pi's `Agent.continue()` (renamed --
+            # `continue` is a Python keyword). A thin call-through, same as
+            # `await_idle` above; the runner picks no branch of `continue_()`'s
+            # own logic itself.
+            try:
+                await loop.continue_()
+            except Exception as raised:
+                error = raised
+                break
 
     if late_updates:
         # Drain deterministically before observing the final state, so a "late update
@@ -507,6 +517,9 @@ async def run_agent_scenario(document: dict[str, Any]) -> dict[str, Any]:
             for m in messages
         ],
         "causes": [list(event.causes) for event in events if isinstance(event, AgentEnd)],
+        "agent_end_messages": [
+            [text_of(m) for m in event.messages] for event in events if isinstance(event, AgentEnd)
+        ],
         "assistant_stop_reasons": [
             m.stop_reason.value for m in messages if isinstance(m, AssistantMessage)
         ],

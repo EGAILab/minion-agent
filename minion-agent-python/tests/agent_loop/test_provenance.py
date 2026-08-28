@@ -44,7 +44,12 @@ async def test_claim_all_gives_one_run_several_causes() -> None:
     assert [cause["origin"] for cause in causes[0]] == ["a", "b", "c"]
 
 
-async def test_one_at_a_time_gives_each_run_one_cause() -> None:
+async def test_one_at_a_time_accumulates_causes_onto_the_same_run() -> None:
+    """Layer 08, PASS 2: mid-run follow-up continuation means a second queued
+    followup found once the first turn's inner loop exhausts keeps the *same*
+    run going (pinned pi's own outer `runLoop` loop) rather than starting a
+    fresh `AGENT_START`/`AGENT_END` pair -- one_at_a_time claims one followup
+    per continuation, but both still land on one run's own causes."""
     loop = _loop(ScriptedResponse((), StopReason.STOP), ScriptedResponse((), StopReason.STOP))
     loop.instance.inbox.followup(_say("one"), origin="a")
     loop.instance.inbox.followup(_say("two"), origin="b")
@@ -52,7 +57,7 @@ async def test_one_at_a_time_gives_each_run_one_cause() -> None:
     await loop.run_until_idle()
 
     causes = _causes(loop)
-    assert [[c["origin"] for c in run] for run in causes] == [["a"], ["b"]]
+    assert [[c["origin"] for c in run] for run in causes] == [["a", "b"]]
 
 
 async def test_causes_survive_to_agent_end() -> None:

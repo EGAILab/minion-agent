@@ -1,7 +1,12 @@
 name: each turn under one-at-a-time carries exactly its own cause
 description: >
-  The default policy. Two queued prompts produce two turns, each reporting the
-  single input it claimed.
+  The default policy. Two queued prompts produce two turns within one run
+  (Layer 08, PASS 2: mid-run follow-up continuation keeps a run open across
+  follow-up-triggered continuations, matching pinned pi's own outer `runLoop`
+  loop -- a second queued followup found once the first turn's inner loop
+  exhausts continues the *same* run rather than starting a fresh
+  `AGENT_START`/`AGENT_END` pair), each turn's own cause accumulating onto
+  that one run.
 
   No expect_events here: the causes and the messages are what this case pins,
   and listing the full bracket twice would obscure that.
@@ -15,8 +20,7 @@ steps:
   - followup: { text: two, origin: b }
   - await_idle: true
 expect_causes:
-  - [a]
-  - [b]
+  - [a, b]
 expect_messages:
   - { role: user, text: one }
   - { role: assistant, text: first reply }

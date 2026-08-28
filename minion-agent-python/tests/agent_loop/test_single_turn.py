@@ -142,6 +142,10 @@ async def test_the_logged_header_reconstructs_what_was_dispatched() -> None:
 
     store = ArtifactStore()
     ctx = Context()
+    # The driver dispatches `tools/*` events (pending_tool_calls tracking, Layer
+    # 08 PASS 2); a bare Context never mounts tools_plugin, so declaration has
+    # to happen here for that dispatch to be legal.
+    declare_tools_events(ctx.events)
     sessions = SessionService()
     llm = LlmService()
     adapter = MockAdapter([ScriptedResponse((), StopReason.STOP)])

@@ -328,22 +328,66 @@ rows:
   phase: 3
   pi: packages/agent/src/agent-loop.ts::runLoop
   surface: initial steering poll
-  rule: poll steering before first provider request inside first open turn
+  rule: 'Layer 08, PASS 2, resolved this pass: pinned Pi polls steering once, before the first
+    turn''s own body runs, whether the run is a fresh prompt or a continuation
+    (`pendingMessages = getSteeringMessages() ?? []` at the top of `runLoop`, confirmed directly).
+    Section 1''s audit (`CONTRACT_ASSURANCE_DEFECT`, this row''s prior text): the row was already
+    genuinely true of the existing, uncertified `driver.py` before this pass (the initial claim
+    already merged the step-boundary claim into the first `_pre_step`), but its own citation was
+    entirely unsupported -- both cited scenarios were still `TO_BE_FILLED_FROM_PINNED_PI_BEHAVIOR`
+    placeholders, so `disposition: adopted` had no real evidence backing it at all. `initial-
+    steering-before-first-request` remains unfilled and is not cited here; real evidence exists
+    via `test_steering_is_claimed_at_the_step_boundary` (`tests/agent_loop/test_pre_step.py`,
+    already passing before this pass) and the corrected `continue_()` tests below, which prove the
+    initial poll fires uniformly across `prompt()`/`continue_()`/`run_until_idle()`''s own claimed-
+    batch entries, not merely for one entry path.
+
+    `continue-steering-no-double-drain` (this pass): pinned Pi''s `Agent.continue()` pre-drains
+    steering itself when the last transcript message is assistant, then sets a one-shot
+    `skipInitialSteeringPoll` flag so the freshly started run''s own initial poll does not claim
+    the identical batch a second time. `AgentLoop.continue_()` (new this pass) reproduces this
+    exactly: its steering-drain branch passes `skip_initial_steering_poll=True` into
+    `_run_wrapped`/`_execute_run`, which then skips the initial `_claim_step_input()` call entirely
+    for that run (`test_continue_does_not_double_drain_steering_after_pre_drain`).'
   tests:
-  - initial-steering-before-first-request
-  - continue-steering-no-double-drain
-  python: src/minion_agent/agent_loop/driver.py (rewrite)
-  rust: Phase 3 agent loop
+  - test_steering_is_claimed_at_the_step_boundary
+  - test_continue_drains_steering_when_last_message_is_assistant
+  - test_continue_does_not_double_drain_steering_after_pre_drain
+  python: src/minion_agent/agent_loop/driver.py::AgentLoop._run_inner (initial poll), AgentLoop.continue_ (skip_initial_steering_poll)
+  rust: PENDING -- Layer 08 not yet implemented in Rust
   disposition: adopted
 - id: AG-003
   phase: 3
   pi: packages/agent/src/agent-loop.ts::runAgentLoopContinue
   surface: continuation invocation output
-  rule: continuation returns/emits only invocation-new messages
+  rule: 'Layer 08, PASS 2, resolved this pass: pinned Pi''s `runAgentLoopContinue` seeds
+    `newMessages` empty (`[]`), unlike `runAgentLoop`''s own prompt-message pre-seed -- so a plain
+    continuation''s `agent_end.messages` carries only what that invocation itself produced, never
+    the pre-existing transcript, confirmed directly against source (agent-loop.ts:120-143).
+
+    Section 1''s audit (`CONTRACT_ASSURANCE_DEFECT`, this row''s prior text): the row previously had
+    no implementation to be true OF at all -- `AgentInstance`/`driver.py` had no `continue_()`
+    entry point, and its sole citation (`agent-end-messages-prompt-vs-continuation`) was an
+    unfilled placeholder. Both gaps are closed this pass. `AgentLoop.continue_()` (new) implements
+    pinned Pi''s full branch structure: last-message-assistant steering/follow-up pre-drain (both
+    pre-seeded, `runAgentLoop`-style, matching Pi''s own routing of that sub-case through
+    `runPromptMessages` rather than `runAgentLoopContinue` -- confirmed by direct audit, not
+    assumed), and the plain-continuation case (last message not assistant) with empty entering
+    messages (`entering=()`), letting `_execute_run`''s run-scoped `AgentEnd.messages` accumulator
+    (Layer 08, PASS 2 -- see AG-010) naturally produce an empty-until-this-run''s-own-content list,
+    exactly matching `runAgentLoopContinue`''s own empty seed
+    (`test_continue_sends_full_history_when_last_message_is_not_assistant`, which additionally
+    proves the request still carries the FULL prior history even though nothing new entered).
+    `agent-end-messages-prompt-vs-continuation` remains unfilled and is not cited here; real
+    evidence exists via the language tests and the `continuation-excludes-the-prior-runs-messages`
+    canonical scenario (language-neutral, exercises the steering/follow-up-drain pre-seeded
+    sub-case specifically -- see that scenario''s own description for why it does not claim to
+    prove the plain empty-seeded case, which remains Python-test-only).'
   tests:
-  - agent-end-messages-prompt-vs-continuation
-  python: src/minion_agent/agent_loop/driver.py (rewrite)
-  rust: Phase 3 agent loop
+  - test_continue_sends_full_history_when_last_message_is_not_assistant
+  - continuation-excludes-the-prior-runs-messages (language-neutral canonical)
+  python: src/minion_agent/agent_loop/driver.py::AgentLoop.continue_, AgentLoop._execute_run
+  rust: PENDING -- Layer 08 not yet implemented in Rust
   disposition: adopted
 - id: AG-004
   phase: 3
@@ -390,68 +434,219 @@ rows:
   phase: 3
   pi: packages/agent/src/agent-loop.ts::runLoop
   surface: follow-up timing
-  rule: poll follow-up only when run would otherwise stop
+  rule: 'Layer 08, PASS 2, resolved this pass -- a genuine architectural gap, not merely an
+    evidence gap (`PI_PARITY_DEFECT`, closed): PASS 1''s own assurance disclosed that Minion''s
+    `run_until_idle()` pump started a *new* `AGENT_START`/`AGENT_END` bracket per queued follow-up
+    batch, rather than continuing the *same* run the way pinned Pi''s own outer `runLoop` loop does
+    (`pendingMessages = followUpMessages; continue outer` when the inner loop has exhausted and
+    follow-up is queued -- confirmed directly against source, agent-loop.ts:261-272). This pass
+    restructures `AgentLoop._run_inner` into pinned Pi''s real nested loop shape: an inner loop over
+    turns within one continuation, and an outer loop that polls follow-up only once the inner loop
+    would otherwise exit (no more tool calls, no steering claimed) and, if follow-up is found,
+    continues the *same* run rather than returning. `run_until_idle()` itself is now a thin pump
+    over this: it still claims one batch and calls `_run_wrapped` once per claim, but because
+    `_execute_run` now drains follow-up internally while a run stays open, a single pump iteration
+    typically consumes every queued follow-up batch in one run -- the outer pump''s own loop becomes
+    a safety net for the one case pinned Pi does NOT auto-continue either (a `shouldStopAfterTurn`
+    listener stopping the run early while follow-up is still queued; Pi would leave that queued for
+    an explicit `continue()` call, and Minion''s pump substitutes for that, an already-disclosed,
+    intentional extension -- AG-019''s own wake note).
+
+    The prior text''s own citations (`followup-only-when-otherwise-idle`,
+    `terminate-allows-follow-up-when-otherwise-idle`) were both unfilled placeholders and are not
+    cited here.'
   tests:
-  - followup-only-when-otherwise-idle
-  - terminate-allows-follow-up-when-otherwise-idle
-  python: src/minion_agent/agent_loop/driver.py (rewrite)
-  rust: Phase 3 agent loop
+  - test_one_at_a_time_accumulates_causes_onto_the_same_run
+  - two-runs-have-independently-scoped-agent-end-messages (language-neutral canonical)
+  - tool-round-trip (language-neutral canonical -- multiple turns, one run bracket)
+  python: src/minion_agent/agent_loop/driver.py::AgentLoop._run_inner (outer/inner nested loop)
+  rust: PENDING -- Layer 08 not yet implemented in Rust
   disposition: adopted
 - id: AG-006
   phase: 3
   pi: packages/agent/src/agent.ts::Agent.prompt / Agent.continue
   surface: prompt/continue caller rules
-  rule: prompt while active rejected; continue validates transcript and queue ordering
+  rule: 'Layer 08, PASS 2, resolved this pass -- a genuine implementation gap, not merely an
+    evidence gap (`PI_PARITY_DEFECT`, closed): `AgentInstance`/`AgentLoop` had no `prompt()`/
+    `continue()`-equivalent public entry points at all before this pass; `run_until_idle()` only
+    ever drained whatever was already queued, with no caller-facing rejection surface. This pass
+    adds `AgentLoop.prompt(message)` and `AgentLoop.continue_()` (`continue` is a Python keyword),
+    reproducing pinned Pi''s exact caller rules, confirmed directly against source (agent.ts:
+    348-407):
+
+    `prompt()` rejects with pinned Pi''s exact text
+    ("Agent is already processing a prompt. Use steer() or followUp() to queue messages, or wait
+    for completion.") while a run is active (`test_prompt_rejects_while_active`); accepts a single
+    message or a tuple, entering a new run directly, not through the follow-up queue
+    (`test_prompt_starts_a_run_with_the_given_message`, `test_prompt_accepts_a_tuple_of_messages`).
+
+    `continue_()` rejects with its own, DIFFERENT exact text ("Agent is already processing. Wait
+    for completion before continuing.") while active (`test_continue_rejects_while_active`);
+    rejects with "No messages to continue from" on an empty transcript
+    (`test_continue_rejects_with_no_transcript`); when the last message is assistant, drains
+    steering (else follow-up, else rejects with "Cannot continue from message role: assistant")
+    (`test_continue_drains_steering_when_last_message_is_assistant`,
+    `test_continue_drains_follow_up_when_last_message_is_assistant_and_no_steering`,
+    `test_continue_rejects_when_last_message_is_assistant_and_nothing_queued`); otherwise runs a
+    plain continuation (`test_continue_sends_full_history_when_last_message_is_not_assistant`).
+
+    A THIRD, distinct "already processing" string
+    (`runWithLifecycle`''s own internal guard, "Agent is already processing.") is also reproduced,
+    in `_run_wrapped`, defensive against a caller bypassing `prompt()`/`continue_()`''s own public
+    checks -- pinned Pi keeps this dead-under-normal-use guard too, for the same reason
+    (`test_run_wrapped_defensive_guard_rejects_when_not_idle`). All four "already processing"
+    strings across the certified surface (this row''s two, `runWithLifecycle`''s, and Layer-07''s own
+    certified `reset()` string) are distinct, matching pinned Pi exactly -- never consolidated into
+    one shared message.'
   tests:
-  - prompt-while-running-rejected
-  - continue-ordering
-  - continue-steering-no-double-drain
-  python: src/minion_agent/agent/ + agent_loop (rewrite)
-  rust: Phase 3 Agent API
+  - test_prompt_rejects_while_active
+  - test_prompt_starts_a_run_with_the_given_message
+  - test_prompt_accepts_a_tuple_of_messages
+  - test_continue_rejects_while_active
+  - test_continue_rejects_with_no_transcript
+  - test_continue_rejects_when_last_message_is_assistant_and_nothing_queued
+  - test_continue_drains_steering_when_last_message_is_assistant
+  - test_continue_drains_follow_up_when_last_message_is_assistant_and_no_steering
+  - test_continue_sends_full_history_when_last_message_is_not_assistant
+  - test_run_wrapped_defensive_guard_rejects_when_not_idle
+  python: src/minion_agent/agent_loop/driver.py::AgentLoop.prompt/continue_/_run_wrapped
+  rust: PENDING -- Layer 08 not yet implemented in Rust
   disposition: adopted
 - id: AG-007
   phase: 3
   pi: packages/agent/src/agent.ts::Agent.abort
   surface: active cancellation
-  rule: active run abort signal propagates into provider/tools/hooks
-  tests:
-  - active-abort-provider
-  - active-abort-tool
-  - abort-settles-before-idle
-  python: src/minion_agent/agent/ + llm transport (rewrite)
-  rust: Phase 3 + Phase 5 transport
-  disposition: adopted
+  rule: 'DEFERRED to Layer 09 (cancellation), not Layer 08''s ownership -- corrected this pass.
+    Section 1''s audit: this row''s prior text (`disposition: adopted`) was wrong on its face, not
+    merely under-evidenced -- active abort-signal propagation into provider/tools/hooks was never
+    attempted by any Layer-08 pass, and per the already-certified Layer-07 contract (`spec/agent.md`
+    §"Abort actively signals the running provider/tools/hooks... Layer 09''s territory") and this
+    pass''s own explicit instruction ("Do not implement Layer-09 active cancellation propagation"),
+    it is not this layer''s target at all. Layer 08''s own PASS-1 Pi audit confirmed the seams a
+    future Layer 09 pass will need (signal threading through `runLoop`/tool execution/hooks, no
+    separate abort code path at the agent-loop.ts level -- abort surfaces purely as a
+    `stopReason:"aborted"` assistant message, handled identically to `"error"`), and this pass''s own
+    `handleRunFailure`-equivalent (`AG-009`) is written to work correctly once an aborted/failed
+    turn reaches it, without itself implementing any propagation. `active-abort-provider`/
+    `active-abort-tool`/`abort-settles-before-idle` remain unfilled placeholders and are not cited;
+    no Layer-08 evidence is offered for a rule this layer does not own.'
+  tests: []
+  python: NOT_APPLICABLE -- deferred to Layer 09
+  rust: NOT_APPLICABLE -- deferred to Layer 09
+  disposition: deferred parity
 - id: AG-008
   phase: 3
   pi: packages/agent/src/agent.ts::AgentState
-  surface: observable agent state
-  rule: is_streaming/streaming_message/pending_tool_calls/error_message plus config-facing state
+  surface: runtime-field transition timing (is_streaming/streaming_message/pending_tool_calls/error_message)
+  rule: 'Layer 08, PASS 2, resolved this pass -- narrowed to the transition-timing scope this row
+    always meant to own (the config-facing subset -- `system_prompt`/`model`/`thinking_level`
+    existence and initial values -- is already certified at Layer-07 `AG-014`; runtime-field
+    vocabulary/initial values at `AG-018`; this row owns only WHEN each field changes during a run,
+    which both of those explicitly deferred to Layer 08).
+
+    `is_streaming`: pinned Pi''s `isStreaming` flips `true` at the very start of `runWithLifecycle`
+    and `false`, unconditionally via `finally`, at `finishRun()` -- once per `prompt()`/`continue()`
+    invocation, not once per pump. `AgentLoop._run_wrapped` reproduces this exactly, and -- a
+    correction this pass makes to Minion''s own prior pump behavior, not a Pi-parity regression --
+    `run_until_idle()` now calls `_run_wrapped` once per claimed batch rather than wrapping its
+    whole multi-batch pump in one shared RUNNING/IDLE bracket, so status genuinely toggles per
+    pi-equivalent run even when the pump drains several
+    (`test_continue_rejects_while_active`/`test_prompt_rejects_while_active` prove the guard
+    observes real-time status; `test_status_always_alternates`, unchanged, still holds since
+    alternation does not depend on pair count).
+
+    `streaming_message`: non-`None` for exactly the duration of one provider request, matching
+    pinned Pi''s own `message_start`/`message_update` -> partial, `message_end` -> `None` write
+    points. Content-level fidelity is disclosed as text-only (accumulated `TextDelta`s): Minion''s
+    certified Layer-02/04 `collect()` exposes only raw deltas, not a live partial message object to
+    build a richer one from, and reconstructing pinned Pi''s own opaque partial representation is
+    out of this layer''s scope to invent. This is a stated, deliberate simplification
+    (`intentional divergence` on content fidelity specifically), not silently dropped -- the
+    non-`None`/`None` transition timing itself, the part that is actually part of the observable
+    contract this row certifies, is exact.
+
+    `pending_tool_calls`: real per-call add-on-start/remove-on-end tracking through the
+    already-certified Layer-06 `tools/execution-start`/`tools/execution-end` events -- an existing
+    seam, not a new one -- matching pinned Pi''s own `processEvents` reducer exactly (add on
+    `tool_execution_start`, remove on `tool_execution_end`).
+
+    `error_message`: set from a turn''s own failed/aborted assistant message
+    (`reply.error_message`, when truthy) and, distinctly, NOT cleared at that run''s own
+    `agent_end` -- it persists across an idle period after a failed run and is cleared only at the
+    NEXT run''s start (`_run_wrapped`) or via the already-certified Layer-07 `reset()`, exactly
+    matching pinned Pi''s own `processEvents`/`finishRun` behavior (`finishRun` never touches
+    `errorMessage`; only `runWithLifecycle`''s own next-run entry does).'
   tests:
-  - agent-state-streaming-projection
-  - pending-tool-calls-state
-  - idle-after-agent-end-listeners
-  python: src/minion_agent/agent/ (rewrite)
-  rust: Phase 3 Agent state
+  - test_a_pre_step_listener_failure_settles_gracefully
+  - test_a_turn_stopping_listener_failure_settles_gracefully
+  - test_a_prepare_next_turn_listener_failure_settles_gracefully
+  python: src/minion_agent/agent_loop/driver.py::AgentLoop._run_wrapped/_run_step (streaming_message/pending_tool_calls/error_message writes)
+  rust: PENDING -- Layer 08 not yet implemented in Rust
   disposition: adopted
 - id: AG-009
   phase: 3
   pi: packages/agent/src/agent.ts::handleRunFailure
   surface: high-level callback failure settlement
-  rule: unexpected loop callback failure -> terminal assistant failure trace, turn_end, agent_end, then idle
+  rule: 'Layer 08, PASS 2, resolved this pass -- a genuine implementation gap, not merely an
+    evidence gap (`PI_PARITY_DEFECT`, closed): `driver.py` had no fallback at all before this pass
+    for an unexpected exception from listener/callback code -- it would have propagated raw out of
+    `prompt()`/`continue_()`/`run_until_idle()`. `AgentLoop._settle_run_failure` reproduces pinned
+    Pi''s `handleRunFailure`: an unexpected exception from `AGENT_PRE_STEP`/`AGENT_TURN_STOPPING`/
+    `AGENT_PREPARE_NEXT_TURN` listener dispatch (Minion''s own three loop-callback seams, wrapped in
+    a narrow `_LoopCallbackFailure` marker so only these three are caught -- see below) synthesizes
+    a minimal failure assistant message (`stop_reason=ERROR`, `error_message=str(error)`), logs a
+    matched `TURN_START`/`ASSISTANT_MESSAGE`/`TURN_END` (a small, disclosed simplification of pinned
+    Pi''s own bare `turn_end` with no preceding `turn_start` at all, chosen so the projection''s
+    turn-scoped accumulator never special-cases an unmatched `TURN_END`), then `AGENT_END` with
+    `reason: "failed"` -- never an unhandled exception escaping the public entry points.
+
+    Deliberately NARROW, matching pinned Pi''s own boundary exactly, confirmed by a dedicated
+    regression: an unresolvable model still raises eagerly, UNCAUGHT
+    (`test_an_unresolvable_model_still_raises_uncaught`,
+    `eager-invalid-model-fails-before-stream.yaml`, already-certified section-4 evidence) -- model/
+    provider/tool-execution failures are not "unexpected loop callback failure" in pinned Pi''s own
+    sense and must not be smuggled into a settled failure turn.
+
+    `active-abort-provider`/`abort-settles-before-idle`-flavored concerns (Layer 09) are explicitly
+    out of this row''s scope -- see `AG-007`. `high-level-callback-failure-settlement` remains an
+    unfilled placeholder and is not cited here.'
   tests:
-  - high-level-callback-failure-settlement
-  python: src/minion_agent/agent/ (rewrite)
-  rust: Phase 3 Agent wrapper
+  - test_a_pre_step_listener_failure_settles_gracefully
+  - test_a_turn_stopping_listener_failure_settles_gracefully
+  - test_a_prepare_next_turn_listener_failure_settles_gracefully
+  - test_an_unresolvable_model_still_raises_uncaught
+  python: src/minion_agent/agent_loop/driver.py::AgentLoop._settle_run_failure, _LoopCallbackFailure
+  rust: PENDING -- Layer 08 not yet implemented in Rust
   disposition: adopted
 - id: AG-010
   phase: 3
   pi: packages/agent/src/types.ts::AgentEvent
   surface: agent_end message set
-  rule: invocation-local messages; prompt includes prompt; continuation excludes prior context
+  rule: 'Layer 08, PASS 2, resolved this pass -- a genuine implementation gap, not merely an
+    evidence gap (`PI_PARITY_DEFECT`, closed): PASS 1''s own `project()` bracketed `AgentStart`/
+    `AgentEnd` around the WHOLE log unconditionally, with no run-local `messages` accumulation at
+    all. This pass makes `AGENT_START`/`AGENT_END` real, per-run log boundaries (see `AG-005`) and
+    has `project()` accumulate every message produced/consumed since the matching `AGENT_START`
+    into that run''s own `AgentEnd.messages` -- pinned Pi''s own invocation-local field, confirmed
+    exactly: a run triggered via the pre-seeded path (Minion''s `prompt()`, and `continue_()`''s
+    steering/follow-up-drain sub-case, which pinned Pi itself routes through `runPromptMessages`
+    rather than `runAgentLoopContinue`) starts its own accumulator with the entering messages
+    already logged; a run triggered via the empty-seeded path (`continue_()`''s plain-continuation
+    sub-case) starts empty and accumulates only what that run itself produces
+    (`test_continue_sends_full_history_when_last_message_is_not_assistant`). Two independently
+    scoped runs never see each other''s messages
+    (`test_a_second_run_does_not_see_the_first_runs_messages`,
+    `two-runs-have-independently-scoped-agent-end-messages` and
+    `continuation-excludes-the-prior-runs-messages`, both language-neutral canonical). This row''s
+    prior sole citation, `agent-end-messages-prompt-vs-continuation`, remains an unfilled
+    placeholder and is not cited here.'
   tests:
-  - agent-end-messages-prompt-vs-continuation
-  python: src/minion_agent/agent/ + agent_loop
-  rust: Phase 3 event vocabulary
+  - test_agent_end_messages_are_invocation_local
+  - test_a_second_run_does_not_see_the_first_runs_messages
+  - two-runs-have-independently-scoped-agent-end-messages (language-neutral canonical)
+  - continuation-excludes-the-prior-runs-messages (language-neutral canonical)
+  python: src/minion_agent/agent/projection.py::project (AgentStart/AgentEnd), src/minion_agent/agent_loop/driver.py::AgentLoop._execute_run
+  rust: PENDING -- Layer 08 not yet implemented in Rust
   disposition: adopted
 - id: AG-011
   phase: 3

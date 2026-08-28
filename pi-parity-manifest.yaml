@@ -328,39 +328,49 @@ rows:
   phase: 3
   pi: packages/agent/src/agent-loop.ts::runAgentLoop / runLoop
   surface: initial steering poll
-  rule: 'Layer 08, PASS 3 (this pass), correcting a PASS-2 ordering defect the independent Rust
-    review caught (`L08-R006`): pinned Pi''s `runAgentLoop` emits `agent_start`, `turn_start`, then
-    the initial prompt messages'' own `message_start`/`message_end` pairs, and only THEN does
-    `runLoop`''s own body run -- whose first statement is the initial steering poll
+  rule: 'Layer 08, PASS 4 (this pass), correcting a PASS-3 ordering defect the independent Rust
+    re-review caught (`L08-R006`): pinned Pi''s `runAgentLoop` emits `agent_start`, `turn_start`,
+    then the initial prompt messages'' own COMPLETE `message_start`/`message_end` lifecycle, and only
+    THEN does `runLoop`''s own body run -- whose first statement is the initial steering poll
     (`pendingMessages = getSteeringMessages() ?? []`), confirmed directly against source
-    (agent-loop.ts:95-118, 161). The initial steering claim is strictly a post-`turn_start` event,
-    even for a run''s very first turn.
+    (agent-loop.ts:95-118, 161). The initial steering claim is strictly a post-prompt-lifecycle
+    event, not merely a post-`turn_start` event.
 
-    PASS 2''s own implementation got this backwards: the initial claim/pre-step dispatch ran before
-    `TURN_START` was ever appended to the log, so a pre-step listener observing live log state at
-    claim time would see no `TURN_START` yet -- observably wrong once checked against pinned Pi''s
-    own emission order. PASS 3 fixes this directly in `_run_inner`: `TURN_START` is now appended
-    unconditionally, before the initial claim/`_pre_step` dispatch ever runs; `_run_step`''s own
-    `open_turn=False` flag for that first turn prevents a duplicate append once the turn''s own body
-    executes. Proven with listener-based evidence, not offline projection (inbox claims are not
-    themselves projected events): an `AGENT_PRE_STEP` listener inspects `instance.log.events` for
-    `TURN_START` at the moment the initial claim reaches it
-    (`test_the_initial_steering_claim_happens_after_turn_start`).
+    PASS 3''s own fix was necessary but insufficient: it moved `TURN_START` before the initial claim,
+    but the claim (`_claim_step_input()`) still ran before the prompt''s own messages were admitted
+    at all -- `_run_step` logged the ENTIRE combined `entering + claimed_steering` batch together,
+    afterward. A listener present at claim time would observe `TURN_START` already logged but NOT
+    the prompt''s own lifecycle -- observably weaker than pinned Pi''s real order. PASS 4 restructures
+    `_run_inner`''s first-turn handling into two explicit, sequential admission stages, each using
+    the SAME `AgentLoop._admit_messages` helper every other admission point already uses: (1) a
+    `PreStepReason.INITIAL` decision governs `entering` (the caller''s own prompt) ALONE, admitted
+    (logged, dispatched live, and accumulated into `context.messages`/`new_messages`) immediately;
+    (2) only THEN is `_claim_step_input()` called, and if non-empty, a SECOND, independent
+    `PreStepReason.STEERING` decision governs the claimed batch, admitted the same way. Both
+    decisions'' messages feed the SAME first provider request (pinned Pi never splits them into
+    separate turns) -- only their own admission/lifecycle timing is staged. Proven with a listener
+    trace across BOTH the live `AGENT_LIFECYCLE_EVENT` seam (proving the prompt''s own
+    `message_start`/`message_end` fire before the steering-reason claim marker) and the final
+    request (proving both messages still land in one combined request)
+    (`test_the_initial_prompt_lifecycle_precedes_the_steering_claim`).
 
-    `continue-steering-no-double-drain` (PASS 2, unchanged this pass): pinned Pi''s `Agent.continue()`
+    `continue-steering-no-double-drain` (unchanged since PASS 2): pinned Pi''s `Agent.continue()`
     pre-drains steering itself when the last transcript message is assistant, then sets a one-shot
     `skipInitialSteeringPoll` flag so the freshly started run''s own initial poll does not claim the
     identical batch a second time. `AgentLoop.continue_()` reproduces this exactly: its
     steering-drain branch passes `skip_initial_steering_poll=True` into `_run_wrapped`/
-    `_execute_run`/`_run_inner`, which then skips the initial `_claim_step_input()` call entirely
-    for that run (`test_continue_does_not_double_drain_steering_after_pre_drain`).'
+    `_execute_run`/`_run_inner`, which then skips stage (2) above entirely, and stage (1) alone
+    admits the pre-drained batch under `PreStepReason.INITIAL`
+    (`test_continue_does_not_double_drain_steering_after_pre_drain`).'
   tests:
+  - test_the_initial_prompt_lifecycle_precedes_the_steering_claim
   - test_the_initial_steering_claim_happens_after_turn_start
+  - test_a_rejection_during_the_initial_steering_admission_ends_the_turn
   - test_steering_is_claimed_at_the_step_boundary
   - test_continue_drains_steering_when_last_message_is_assistant
   - test_continue_does_not_double_drain_steering_after_pre_drain
-  python: src/minion_agent/agent_loop/driver.py::AgentLoop._run_inner (TURN_START before the initial claim), AgentLoop.continue_ (skip_initial_steering_poll)
-  rust: PENDING -- Layer 08 not yet implemented in Rust; the PASS-2 candidate's independent review rejected this row (L08-R006), PASS 3 is the remediated candidate awaiting re-review
+  python: src/minion_agent/agent_loop/driver.py::AgentLoop._run_inner (staged first-turn admission), AgentLoop._admit_messages, AgentLoop.continue_ (skip_initial_steering_poll)
+  rust: PENDING -- Layer 08 not yet implemented in Rust; both the PASS-2 (L08-R006) and PASS-3 (L08-R006) candidates were independently rejected on this row, PASS 4 is the remediated candidate awaiting re-review
   disposition: adopted
 - id: AG-003
   phase: 3
@@ -444,7 +454,16 @@ rows:
     does NOT apply to at all: pinned Pi returns immediately after that turn''s own `turn_end`,
     running none of `prepareNextTurn`/`shouldStopAfterTurn`/the steering or follow-up poll
     (agent-loop.ts:196-200) -- certified separately at `AG-021` (`L08-R008`), not a carve-out of
-    this row''s own ordering claim.'
+    this row''s own ordering claim.
+
+    PASS 4 (`L08-R004`): this row''s own content was already correct and evidenced when the
+    independent re-review ran -- the defect it found was that `spec/agent.md`''s normative Layer-08
+    section still described PASS-2''s narrower `prepareNextTurn` and a stale `streaming_message`
+    text-only claim, contradicting this row and the actual implementation. PASS 4 rewrote
+    `spec/agent.md`''s Layer-08 section as one coherent current statement (no historical PASS-1/
+    PASS-2 narrative mixed into normative text) and ran a full consistency pass across pinned Pi,
+    this manifest, `spec/agent.md`, canonical conformance, and the Python implementation together --
+    not merely re-reading the lines the review named.'
   tests:
   - test_a_stop_decision_ends_the_turn_early
   - test_no_opinion_continues
@@ -457,7 +476,7 @@ rows:
   - tool-round-trip (legacy-shape canonical)
   - projected-execution-ends-follow-completion-order (legacy-shape canonical)
   python: src/minion_agent/agent_loop/driver.py::AgentLoop._run_inner/_run_step/_prepare_next_turn/_should_stop
-  rust: PENDING -- Layer 08 not yet implemented in Rust; the PASS-2 candidate's independent review rejected this row (L08-R001, L08-R004), PASS 3 is the remediated candidate awaiting re-review
+  rust: PENDING -- Layer 08 not yet implemented in Rust; the PASS-2 (L08-R001, L08-R004) and PASS-3 (L08-R004, spec staleness) candidates were independently rejected, PASS 4 is the remediated candidate awaiting re-review
   disposition: adopted
 - id: AG-005
   phase: 3
@@ -572,7 +591,11 @@ rows:
     `handleRunFailure`-equivalent (`AG-009`) is written to work correctly once an aborted/failed
     turn reaches it, without itself implementing any propagation. `active-abort-provider`/
     `active-abort-tool`/`abort-settles-before-idle` remain unfilled placeholders and are not cited;
-    no Layer-08 evidence is offered for a rule this layer does not own.'
+    no Layer-08 evidence is offered for a rule this layer does not own.
+
+    Cross-reference (`L08-R009`, PASS 4): `AG-022` disposes a DIFFERENT, pre-existing Layer-08-local
+    method (`AgentLoop.request_boundary_stop()`) that is NOT this row''s own `Agent.abort()` surface
+    and never claims to be -- see that row for why the two must not be conflated.'
   tests: []
   python: NOT_APPLICABLE -- deferred to Layer 09
   rust: NOT_APPLICABLE -- deferred to Layer 09
@@ -643,47 +666,76 @@ rows:
   disposition: adopted
 - id: AG-009
   phase: 3
-  pi: packages/agent/src/agent.ts::handleRunFailure
-  surface: high-level callback failure settlement
-  rule: 'Layer 08, PASS 3 (this pass), correcting a catch-boundary defect the independent Rust
-    review of the PASS-2 candidate caught (`L08-R002`): pinned Pi''s `handleRunFailure` is the catch
-    boundary around the WHOLE run executor -- `runWithLifecycle` wraps the entire `runAgentLoop`/
-    `runAgentLoopContinue` call, not three hand-picked listener dispatch sites. PASS 2''s own
-    `_LoopCallbackFailure` mechanism only wrapped `AGENT_PRE_STEP`/`AGENT_TURN_STOPPING`/
-    `AGENT_PREPARE_NEXT_TURN` listener dispatch specifically -- narrower than pinned Pi''s real
-    boundary, and an unforeseen failure anywhere else inside a turn (an adapter breaking its
-    streaming contract, for one) would still have propagated raw. PASS 3 widens the boundary in
-    `_execute_run` to a single `try`/`except Exception` around the whole `_run_inner` call, with one
-    explicit, deliberate exclusion: `UnknownModelError`, which pinned Pi resolves eagerly before a
-    stream is ever returned (a caller/config bug, not a run-executor failure) and re-raises
-    uncaught, confirmed by a dedicated regression
-    (`test_an_unresolvable_model_still_raises_uncaught`,
-    `eager-invalid-model-fails-before-stream.yaml`, already-certified section-4 evidence). The
-    now-unused `_LoopCallbackFailure` class is kept only as a historical marker; nothing raises it.
+  pi: packages/agent/src/agent.ts::handleRunFailure, processEvents
+  surface: high-level callback failure settlement, through pinned pi's own listener-bearing seam
+  rule: 'Layer 08, PASS 4 (this pass), correcting a listener-delivery defect the independent Rust
+    re-review of the PASS-3 candidate caught (`L08-R002`): pinned Pi''s `handleRunFailure` does not
+    merely produce the right final trace -- it delivers each of its four events through
+    `processEvents`, the SAME reduce-then-dispatch seam every ordinary lifecycle event (`message_
+    start`, `message_update`, `message_end`, `tool_execution_start`/`_end`, `turn_end`, `agent_end`)
+    passes through (agent.ts:544-591). `processEvents` first reduces `this._state` for the event,
+    then awaits every subscribed listener (`this.listeners`) in registration order, with NO catch
+    around that loop -- a listener that throws aborts the remaining listeners for that event AND
+    propagates out of `processEvents` itself. `handleRunFailure` awaits four such calls sequentially
+    (agent.ts:511-527); a throw at any one aborts the rest, and since `runWithLifecycle`''s own
+    `catch` (which calls `handleRunFailure`) has no further catch around it, that exception
+    propagates all the way out to the caller of `prompt()`/`continue()`, while `finally { this.
+    finishRun() }` still settles `isStreaming`/`pendingToolCalls`/status regardless.
 
-    `_settle_run_failure` synthesizes a minimal failure assistant message (`stop_reason=ERROR`,
-    `error_message=str(error)`) and logs EXACTLY pinned Pi''s own bare sequence --
-    `message_start`/`message_end`/`turn_end(failure, [])` -- with NO preceding synthetic
-    `turn_start` at all (an earlier PASS-2 revision inserted one, which the review also caught: a
-    `TURN_START` legitimately precedes the failure only when this run''s own prior, genuine progress
-    already logged one -- e.g. a pre-step failure on this run''s very first turn, whose
-    `TURN_START` `_run_inner` already appends unconditionally per `AG-002`''s own ordering --
-    never one `_settle_run_failure` itself invents). `TURN_END` carries an explicit
-    `{"message": ...}` override the projection honors directly instead of falling back to the
-    turn''s own (possibly nonexistent) accumulator -- see `AG-010` for the matching `AGENT_END`
-    override this same finding requires.
+    PASS 3 corrected the visible failure trace (catch-boundary width, no synthetic `turn_start`,
+    the `agent_end.messages` override) but still produced it through raw `SessionLog.append` calls
+    with no live listener dispatch at all -- `project()` could reconstruct the SAME shape offline,
+    but nothing could observe or interrupt it DURING the run, and two independent implementations
+    could therefore choose different recovery-listener semantics from the written contract (the
+    re-review''s own finding). PASS 4 introduces the missing seam Minion never had before this pass:
+    `AGENT_LIFECYCLE_EVENT` (`agent/events.py`, `SERIAL` mode -- `EventBus.serial`''s own semantics,
+    sequential await with no catch around the loop, already match pinned Pi''s raw listener loop
+    exactly, so no new dispatch primitive was needed), dispatched via
+    `AgentLoop._dispatch_agent_event` for `AgentStart`/`TurnStart`/every admitted message batch
+    (`AgentLoop._admit_messages`, used identically by ordinary progress -- prompt, steering,
+    tool-result, follow-up admission -- AND recovery)/`TurnEnd`/`AgentEnd`. `_settle_run_failure`
+    (now `async`) dispatches its own four events through this SAME seam, in the SAME order pinned
+    Pi does, and lets a thrown listener propagate uncaught exactly as pinned Pi does -- proven by a
+    dedicated regression for each of the four recovery events independently
+    (`test_failure_message_start_listener_failure_interrupts_recovery`,
+    `test_failure_message_end_listener_failure_interrupts_recovery`,
+    `test_failure_turn_end_listener_failure_interrupts_recovery`,
+    `test_failure_agent_end_listener_failure_interrupts_recovery`), each confirming exactly which
+    log entries the aborted sequence still durably recorded (the "reduce" step, which precedes the
+    dispatch that then throws) and that `_run_wrapped`''s own `finally` still settles status.
+    Ordinary (non-recovery) delivery through the SAME seam is proven with a passive listener that
+    does not throw, for both a pre-step-originated and a post-turn-callback-originated failure
+    (`test_a_run_executor_failure_recovers_through_the_live_lifecycle_event_seam`,
+    `test_a_post_turn_callback_failure_recovers_through_the_live_seam`).
 
-    `active-abort-provider`/`abort-settles-before-idle`-flavored concerns (Layer 09) are explicitly
-    out of this row''s scope -- see `AG-007`. `high-level-callback-failure-settlement` remains an
-    unfilled placeholder and is not cited here.'
+    Deliberately bounded, disclosed explicitly rather than silently narrowed: the assistant reply''s
+    OWN streamed `message_start`/`message_update`/`message_end` is NOT dispatched through this seam.
+    The already-certified Layer-02/04 `collect()` (`llm/stream.py`) accepts only a synchronous
+    `on_chunk` callback -- an intentional, narrow design for that layer this pass does not reopen --
+    so a chunk-level listener has nothing to `await`. This does not affect `handleRunFailure`
+    fidelity at all (the failure''s own message lifecycle is synthesized directly in async
+    `_settle_run_failure`, never stream-bound), and `streaming_message` content fidelity (`AG-008`,
+    `L08-R003`, closed) is a wholly separate, unaffected concern -- see `agent/events.py`''s own
+    `AGENT_LIFECYCLE_EVENT` docstring for the full scope statement.
+
+    Still explicitly excludes the eager, pre-stream `UnknownModelError` (a caller/config bug, not a
+    run-executor failure, re-raised uncaught -- `test_an_unresolvable_model_still_raises_uncaught`,
+    already-certified section-4 evidence) and remains out of scope for
+    `active-abort-provider`/`abort-settles-before-idle`-flavored Layer-09 concerns -- see `AG-007`.'
   tests:
+  - test_a_run_executor_failure_recovers_through_the_live_lifecycle_event_seam
+  - test_a_post_turn_callback_failure_recovers_through_the_live_seam
+  - test_failure_message_start_listener_failure_interrupts_recovery
+  - test_failure_message_end_listener_failure_interrupts_recovery
+  - test_failure_turn_end_listener_failure_interrupts_recovery
+  - test_failure_agent_end_listener_failure_interrupts_recovery
   - test_a_pre_step_listener_failure_settles_gracefully
   - test_a_turn_stopping_listener_failure_settles_gracefully
   - test_a_prepare_next_turn_listener_failure_settles_gracefully
   - test_a_post_turn_callback_failure_settles_gracefully
   - test_an_unresolvable_model_still_raises_uncaught
-  python: src/minion_agent/agent_loop/driver.py::AgentLoop._execute_run (catch boundary), AgentLoop._settle_run_failure
-  rust: PENDING -- Layer 08 not yet implemented in Rust; the PASS-2 candidate's independent review rejected this row (L08-R002), PASS 3 is the remediated candidate awaiting re-review
+  python: src/minion_agent/agent_loop/driver.py::AgentLoop._execute_run (catch boundary), AgentLoop._dispatch_agent_event, AgentLoop._admit_messages, AgentLoop._settle_run_failure
+  rust: PENDING -- Layer 08 not yet implemented in Rust; the PASS-2 (L08-R002) and PASS-3 (L08-R002, live-listener delivery) candidates were independently rejected on this row, PASS 4 is the remediated candidate awaiting re-review
   disposition: adopted
 - id: AG-010
   phase: 3
@@ -731,39 +783,9 @@ rows:
   - continuation-excludes-the-prior-runs-messages (language-neutral canonical)
   - test_failure_agent_end_messages_is_only_the_failure_message
   - test_represented_error_agent_end_messages_uses_the_normal_accumulator
-  python: src/minion_agent/agent/projection.py::project (AgentStart/AgentEnd, "messages"/"message" overrides), src/minion_agent/agent_loop/driver.py::AgentLoop._execute_run
-  rust: PENDING -- Layer 08 not yet implemented in Rust; the PASS-2 candidate's independent review rejected this row (L08-R002), PASS 3 is the remediated candidate awaiting re-review
+  python: src/minion_agent/agent/projection.py::project (AgentStart/AgentEnd, "messages"/"message" overrides -- offline reconstruction), src/minion_agent/agent_loop/driver.py::AgentLoop._execute_run, AgentLoop._settle_run_failure (live `AgentEnd` dispatch, `AG-009`)
+  rust: PENDING -- Layer 08 not yet implemented in Rust; the PASS-2 candidate's independent review rejected this row (L08-R002), PASS 3 (self-reported) and PASS-4 re-reviews found this row's own content coherent
   disposition: adopted
-- id: AG-020
-  phase: 3
-  pi: (none -- no pinned Pi equivalent)
-  surface: max_steps, a Minion-only host/pump safety cap (L08-R005)
-  rule: 'Resolved this pass without introducing an unapproved Pi divergence, per the independent
-    Rust review''s own finding (`L08-R005`): pinned Layer 08 has no stop rule equivalent to
-    `max_steps` at all -- runAgentLoop''s own `runLoop` has no per-invocation step ceiling, and
-    nothing in `agent-loop.ts` bounds how many turns one run may take. PASS 2''s own placement
-    checked `steps >= max_steps` BEFORE `prepareNextTurn`/`shouldStopAfterTurn`/the steering poll
-    for the turn that hit the cap, which would have skipped pinned Pi''s own unconditional post-turn
-    ordering (`AG-004`) for that turn specifically -- an observable divergence the review correctly
-    flagged as needing either removal, a genuinely non-observable placement, or explicit
-    intentional-divergence escalation, never silent preservation.
-
-    A parity-neutral placement was possible and is what this pass adopts: `_run_inner`''s own
-    `max_steps` check moved to AFTER `prepareNextTurn`/`shouldStopAfterTurn`/the steering poll have
-    already run unconditionally for the turn that reached the cap -- it gates only whether a
-    FURTHER turn is attempted next, never skips pinned Pi''s own post-turn ordering for a turn that
-    already happened. This is a Minion-only host/pump safety mechanism sitting entirely outside the
-    Pi semantic seam `AG-004` certifies: every turn Pi would itself run still runs its own complete,
-    unabridged post-turn sequence; `max_steps` only ever prevents Minion''s own pump from starting
-    one MORE turn pinned Pi would have started too. No new observable divergence from pinned Pi''s
-    own turn-order contract is introduced by this row -- the cap''s existence itself (a Minion
-    architectural/host extension, not a Pi rule) is what this row records and disposes.'
-  tests:
-  - test_a_stop_decision_ends_the_turn_early
-  - test_no_opinion_continues
-  python: src/minion_agent/agent_loop/driver.py::AgentLoop._run_inner (max_steps check, after prepare/stop/steering)
-  rust: PENDING -- Layer 08 not yet implemented in Rust
-  disposition: intentional divergence
 - id: AG-021
   phase: 3
   pi: packages/agent/src/agent-loop.ts::runLoop
@@ -786,9 +808,16 @@ rows:
     invoked/consumed for both `error` and `aborted`
     (`test_represented_error_skips_prepare_stop_steering_and_follow_up`,
     `test_represented_aborted_skips_prepare_stop_steering_and_follow_up`) -- the steering-queued
-    case specifically proves the STEADY-STATE poll never fires by queuing from within an
-    `AGENT_PRE_STEP` listener dispatched AFTER the run''s own unconditional initial poll (`AG-002`)
-    has already run, so the message is genuinely at risk only of the poll this row certifies never
+    case specifically proves the STEADY-STATE poll never fires by queuing from within a live
+    `AGENT_LIFECYCLE_EVENT` listener watching for this exact turn''s own `TurnEnd` (`AG-009`),
+    dispatched immediately before `_run_step` returns its terminal result to `_run_inner`. PASS 4
+    replaced this row''s own earlier evidence mechanism (queuing during the INITIAL pre-step
+    dispatch), which PASS 3''s `L08-R006` fix made obsolete: since the initial steering claim is now
+    admitted before the first turn ever runs at all (`AG-002`), queuing during that dispatch would
+    be claimed regardless of this turn''s eventual outcome and would no longer discriminate anything
+    about R008 specifically -- queuing at this turn''s own live `TurnEnd` instead guarantees the
+    message is queued strictly after any admission this turn could possibly have done, so it is
+    genuinely at risk only of the poll this row certifies never
     reaches it.
 
     Uses the run''s own NORMAL `new_messages` accumulator for `agent_end.messages`, confirmed
@@ -802,8 +831,53 @@ rows:
   - test_represented_aborted_skips_prepare_stop_steering_and_follow_up
   - test_represented_error_agent_end_messages_uses_the_normal_accumulator
   python: src/minion_agent/agent_loop/driver.py::AgentLoop._run_step (_StepResult.terminal), AgentLoop._run_inner (immediate return on terminal)
-  rust: PENDING -- Layer 08 not yet implemented in Rust; the PASS-2 candidate's independent review rejected this row (L08-R008), PASS 3 is the remediated candidate awaiting re-review
+  rust: PENDING -- Layer 08 not yet implemented in Rust; the PASS-2 candidate's independent review rejected this row (L08-R008); the PASS-3 re-review found this row's own content PASS and only its evidence mechanism stale after L08-R006 (updated this pass)
   disposition: adopted
+- id: AG-022
+  phase: 3
+  pi: (none -- no pinned Pi equivalent; NOT `Agent.abort`, see below)
+  surface: request_boundary_stop(), a Minion-only host boundary-stop latch (L08-R009)
+  rule: 'New row, closing a contract-assurance gap the independent re-review of the PASS-3 candidate
+    found (`L08-R009`): `AgentLoop` carried a public, observable method (formerly named `cancel()`)
+    with real, currently-observable effects -- it ends the run at the NEXT turn boundary, producing
+    `agent_end(reason=...)` -- yet no manifest row disposed it, `spec/agent.md` never defined its
+    relationship to `AG-007`, and a stale implementation comment pointed to `AG-019` (Layer-07''s own
+    unrelated wake-signal row). Two independent Rust implementations could reasonably reach different
+    conclusions about whether Layer 08 must implement this latch at all, or what it means.
+
+    Disposition, determined by asking exactly what the re-review asked first -- whether this is part
+    of the INTENDED public Agent semantic surface, or only an internal Minion driver mechanism: it is
+    genuinely NOT pinned Pi''s own cancellation surface. Pi''s own public surface for this concept is
+    `Agent.abort()` (packages/agent/src/agent.ts) -- a DIFFERENT name, and one whose real job (active
+    signal propagation into the running provider/tools/hooks) this method has never attempted and
+    still does not. Layer 07''s own already-certified contract (`spec/agent.md`, `AG-007`) already
+    places active abort propagation at Layer 09; this row''s own latch predates any Layer-09 design
+    and merely happens to be reachable through the same driver object.
+
+    Resolved by making the disposition explicit rather than implicit (Case B of the re-review''s own
+    framework): renamed from `cancel()` to `request_boundary_stop()`, and the internal flag from
+    `_cancelled` to `_boundary_stop_requested`, so neither the public name nor the internal one
+    implies pi''s own `abort()` semantics. The observable `agent_end` reason string changed from
+    `"cancelled"` to `"boundary_stop"` for the same reason -- naming consistency between what callers
+    invoke and what they observe. Behavior is otherwise UNCHANGED from the prior (`AG-020`-adjacent,
+    now-superseded) description: checked only after the current turn''s own `prepareNextTurn`/
+    `shouldStopAfterTurn`/steering poll have already run unconditionally (never skips a turn''s own
+    post-turn ordering for a turn that already happened, mirroring `AG-004`''s own turn-order
+    contract), gating only whether a FURTHER turn is attempted. Work already in flight (a running
+    tool, an open provider request) is always allowed to finish -- no signal is sent to interrupt it,
+    unlike pi''s own `abort()`, which is exactly why this is not that.
+
+    Layer 08 implements ONLY this local, observable boundary-stop latch. It does not implement, and
+    this row does not claim, any of: provider abort-signal propagation, stream abort propagation,
+    tool abort propagation, hook abort propagation, or transport abort propagation -- all remain
+    Layer 09''s own territory (`AG-007`), unimplemented here, exactly as before this row existed.'
+  tests:
+  - test_boundary_stop_ends_the_turn_at_the_next_boundary
+  - test_a_boundary_stopped_turn_still_records_its_tool_result
+  - test_boundary_stop_clears_so_the_next_turn_runs
+  python: src/minion_agent/agent_loop/driver.py::AgentLoop.request_boundary_stop, AgentLoop._boundary_stop_requested (checked in AgentLoop._run_inner, after prepare/stop/steering)
+  rust: PENDING -- Layer 08 not yet implemented in Rust; new row this pass (L08-R009)
+  disposition: intentional divergence
 - id: AG-011
   phase: 3
   pi: packages/agent/src/agent.ts::PendingMessageQueue, Agent.steer, Agent.followUp

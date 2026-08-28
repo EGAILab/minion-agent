@@ -55,8 +55,6 @@ class AgentDefinition:
     name: str
     model: ModelId
     system: str = ""
-    max_steps: int = 16
-    """Upper bound on steps in one turn, so a tool-calling loop cannot run away."""
 
     @property
     def scope_name(self) -> str:

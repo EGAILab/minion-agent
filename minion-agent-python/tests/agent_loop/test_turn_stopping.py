@@ -4,7 +4,6 @@ from typing import Any
 
 from minion_agent.agent.decisions import TurnStopping
 from minion_agent.agent.events import AGENT_TURN_STOPPING
-from minion_agent.agent.identity import AgentDefinition
 from minion_agent.agent_loop.driver import AgentLoop
 from minion_agent.llm import TextBlock, ToolCallBlock, UserMessage
 from minion_agent.llm.adapters.mock import ScriptedResponse
@@ -94,18 +93,3 @@ async def test_the_event_is_still_dispatched_when_nothing_is_owed() -> None:
     await loop.run_until_idle()
 
     assert asked == ["asked"]
-
-
-async def test_continue_cannot_override_max_steps() -> None:
-    """max_steps is a loop invariant; a plugin must not be able to defeat it."""
-    loop = _loop(*[_tool_call() for _ in range(10)])
-    loop.instance.definition = AgentDefinition(
-        name="ada", model=loop.instance.definition.model, system="", max_steps=2
-    )
-    _register(loop, "echo", lambda tool_call_id, args: "again")
-    loop.instance.ctx.events.on(AGENT_TURN_STOPPING, lambda *_: TurnStopping.CONTINUE)
-    loop.instance.inbox.followup(_say("go"))
-
-    await loop.run_until_idle()
-
-    assert _steps(loop) == 2

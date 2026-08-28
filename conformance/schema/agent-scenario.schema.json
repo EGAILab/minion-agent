@@ -28,10 +28,6 @@
           "type": "string",
           "description": "Model name the agent requests. A name no adapter supplies exercises the eager side of the stream boundary."
         },
-        "max_steps": {
-          "type": "integer",
-          "minimum": 1
-        },
         "next_turn_policy": {
           "enum": [
             "all",

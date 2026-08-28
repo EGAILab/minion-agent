@@ -1,4 +1,6 @@
-"""Cancellation, and the guarantee that one agent cannot stall another."""
+"""The Minion-only host boundary-stop latch (`L08-R009`: NOT pinned Pi's own
+`Agent.abort()`, deferred to Layer 09 -- see `AG-022`), and the guarantee
+that one agent cannot stall another."""
 
 import asyncio
 from typing import Any
@@ -28,17 +30,17 @@ def _tool_call() -> ScriptedResponse:
     )
 
 
-def _cancelling_tool(loop: AgentLoop, output: str = "done") -> Any:
+def _boundary_stopping_tool(loop: AgentLoop, output: str = "done") -> Any:
     def run(tool_call_id: str, args: dict[str, Any]) -> str:
-        loop.cancel()
+        loop.request_boundary_stop()
         return output
 
     return run
 
 
-async def test_cancelling_ends_the_turn_at_the_next_boundary() -> None:
+async def test_boundary_stop_ends_the_turn_at_the_next_boundary() -> None:
     loop = _loop(*[_tool_call() for _ in range(5)])
-    _register(loop, "echo", _cancelling_tool(loop))
+    _register(loop, "echo", _boundary_stopping_tool(loop))
     loop.instance.inbox.followup(_say("go"))
 
     await loop.run_until_idle()
@@ -47,13 +49,14 @@ async def test_cancelling_ends_the_turn_at_the_next_boundary() -> None:
     assert len(steps) == 1
 
     end = next(e for e in loop.instance.log.events if e.kind == EventKind.AGENT_END)
-    assert end.data["reason"] == "cancelled"
+    assert end.data["reason"] == "boundary_stop"
 
 
-async def test_a_cancelled_turn_still_records_its_tool_result() -> None:
-    """Cancellation stops the next request, not the work already in flight."""
+async def test_a_boundary_stopped_turn_still_records_its_tool_result() -> None:
+    """The boundary stop takes effect at the next request, not the work
+    already in flight."""
     loop = _loop(_tool_call())
-    _register(loop, "echo", _cancelling_tool(loop, "finished"))
+    _register(loop, "echo", _boundary_stopping_tool(loop, "finished"))
     loop.instance.inbox.followup(_say("go"))
 
     await loop.run_until_idle()
@@ -62,12 +65,12 @@ async def test_a_cancelled_turn_still_records_its_tool_result() -> None:
     assert len(results) == 1
 
 
-async def test_cancelling_clears_so_the_next_turn_runs() -> None:
+async def test_boundary_stop_clears_so_the_next_turn_runs() -> None:
     loop = _loop(
         _tool_call(),
         ScriptedResponse((TextBlock(text="second turn"),), StopReason.STOP),
     )
-    _register(loop, "echo", _cancelling_tool(loop))
+    _register(loop, "echo", _boundary_stopping_tool(loop))
     loop.instance.inbox.followup(_say("first"))
     await loop.run_until_idle()
 
@@ -75,7 +78,7 @@ async def test_cancelling_clears_so_the_next_turn_runs() -> None:
     await loop.run_until_idle()
 
     ends = [e for e in loop.instance.log.events if e.kind == EventKind.AGENT_END]
-    assert [end.data["reason"] for end in ends] == ["cancelled", "completed"]
+    assert [end.data["reason"] for end in ends] == ["boundary_stop", "completed"]
 
 
 def _service(*responses: ScriptedResponse) -> LlmService:

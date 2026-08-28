@@ -12,19 +12,29 @@ one assistant response plus the tool calls/results it triggers, bracketed by
 turn," kept because the observable boundary it emits (one `TURN_START`/
 `TURN_END` pair per call) is what matters, not the helper's own name.
 
-PASS 3 remediates an independent Rust contract rejection (L08-R001..R008)
-against the PASS-2 candidate: a complete run-local `RunContext`/`RunConfig`
-snapshot (not the truncated three-field `_RunSnapshot`) with whole-context
-`prepareNextTurn` replacement; a `handleRunFailure`-equivalent that catches
-any run-executor failure (not just three hand-picked listener sites) while
-still letting an eager, pre-stream caller error (`UnknownModelError`)
-propagate uncaught; full `streaming_message` fidelity from each stream
-chunk's own already-complete `partial` (not a hand-rolled text-only
-accumulator); the initial steering poll moved to after the first turn opens;
-`max_steps` repositioned so it never skips a turn's own post-turn ordering;
-a `prompt(text, images?)` convenience overload; and represented assistant
-`error`/`aborted` treated as immediately terminal, matching pinned Pi's own
-early return before any post-turn callback or queue poll.
+PASS 4 remediates an independent Rust re-review rejection (L08-R002, R004,
+R005, R006, R009) against the PASS-3 candidate:
+
+- a live, listener-bearing Agent-event seam (`AGENT_LIFECYCLE_EVENT`)
+  matching pinned Pi's own `processEvents`, used identically by ordinary
+  turn/run progress and by `handleRunFailure` recovery -- a recovery listener
+  failure now genuinely interrupts the remaining recovery sequence and
+  propagates, instead of the run settling gracefully via raw log appends
+  alone (`L08-R002`);
+- the initial prompt's own message lifecycle is now admitted and dispatched
+  BEFORE the initial steering queue is ever claimed, not merely after
+  `TURN_START` (`L08-R006`);
+- `max_steps` removed entirely from the Pi-equivalent `prompt()`/
+  `continue_()` run seam -- it no longer exists as a concept at this layer at
+  all (`L08-R005`);
+- the pre-existing local boundary-stop latch, formerly named `cancel()`,
+  renamed to `request_boundary_stop()` and explicitly disposed as a
+  Minion-only host extension distinct from pinned Pi's own `Agent.abort()`
+  (deferred to Layer 09), never presented as Pi cancellation (`L08-R009`).
+
+`spec/agent.md`'s own Layer-08 section is the normative contract this file
+implements; PASS 4 rewrote it as one coherent current statement (`L08-R004`)
+rather than leaving it PASS-2 text describing a since-superseded design.
 """
 
 from __future__ import annotations
@@ -44,9 +54,23 @@ from ..agent.decisions import (
     resolve_stopping,
 )
 from ..agent.envelope import ClaimPolicy, InboxTarget, InputEnvelope
-from ..agent.events import AGENT_PRE_STEP, AGENT_PREPARE_NEXT_TURN, AGENT_TURN_STOPPING
+from ..agent.events import (
+    AGENT_LIFECYCLE_EVENT,
+    AGENT_PRE_STEP,
+    AGENT_PREPARE_NEXT_TURN,
+    AGENT_TURN_STOPPING,
+)
 from ..agent.identity import AgentStatus
 from ..agent.instance import AgentActiveError, AgentInstance
+from ..agent.projection import (
+    AgentEnd,
+    AgentEvent,
+    AgentStart,
+    MessageEnd,
+    MessageStart,
+    TurnEnd,
+    TurnStart,
+)
 from ..llm import (
     AssistantMessage,
     ImageBlock,
@@ -105,13 +129,6 @@ def _snapshot_tool_registry(tools: tuple[ToolDefinition, ...]) -> ToolRegistry:
     return registry
 
 
-class _LoopCallbackFailure(Exception):
-    """Unused as of PASS 3 (`L08-R002`): the catch boundary is now the whole
-    run executor, matching pinned Pi's own `runWithLifecycle`, not three
-    hand-picked listener dispatch sites. Kept only as a historical marker of
-    the PASS-2 design this pass replaced; nothing raises it."""
-
-
 @dataclass(frozen=True, slots=True)
 class _StepResult:
     """One turn's outcome, threaded back to `_run_inner` for the post-turn
@@ -148,7 +165,7 @@ class AgentLoop:
         self.telemetry = telemetry
         self.next_turn_policy = ClaimPolicy.ONE_AT_A_TIME
         self.next_step_policy = ClaimPolicy.ONE_AT_A_TIME
-        self._cancelled = False
+        self._boundary_stop_requested = False
 
     async def prompt(
         self,
@@ -248,14 +265,20 @@ class AgentLoop:
             )
         )
 
-    def cancel(self) -> None:
-        """Request that the current turn end at its next boundary.
+    def request_boundary_stop(self) -> None:
+        """Request that the current run's next turn boundary end the run.
 
-        Work already in flight -- a running tool, an open request -- is allowed
-        to finish, so the transcript stays coherent. Cancellation stops the
-        *next* request, not the current one.
+        This is a Minion-only host/pump extension (`AG-022`; `L08-R009`),
+        NOT pinned Pi's `Agent.abort()`: it does not signal the running
+        provider, tools, or hooks -- work already in flight (a running tool,
+        an open request) is allowed to finish, so the transcript stays
+        coherent, and only the *next* request is stopped. Real active
+        cancellation -- provider/tool/hook signal propagation -- remains
+        Layer 09's own territory (`AG-007`), unimplemented here. Renamed from
+        `cancel()` (PASS 3 and earlier) specifically so its name does not
+        imply Pi's own cancellation surface, which this is not.
         """
-        self._cancelled = True
+        self._boundary_stop_requested = True
 
     async def _run_wrapped(
         self,
@@ -288,6 +311,44 @@ class AgentLoop:
         finally:
             self.instance.set_status(AgentStatus.IDLE)
 
+    async def _dispatch_agent_event(self, event: AgentEvent) -> None:
+        """Pinned Pi's own `processEvents`: the single seam every lifecycle
+        event -- ordinary turn/run progress and `handleRunFailure` recovery
+        alike -- passes through, awaiting every subscribed listener in
+        registration order (`L08-R002`). `EventBus.serial` already matches
+        pinned Pi's own raw `for (const listener of this.listeners) await
+        listener(event, signal)` loop exactly: a listener that throws aborts
+        the remaining dispatch for THIS event and propagates -- no new
+        dispatch primitive was needed. Callers append the corresponding log
+        entry (the durable "reduce" step) before calling this (the "notify
+        listeners" step), matching pinned Pi's own reduce-then-dispatch
+        order."""
+        await self.instance.ctx.events.serial(
+            AGENT_LIFECYCLE_EVENT, self.instance, event, scope=self.instance.scope.key
+        )
+
+    async def _admit_messages(
+        self, messages: tuple[Message, ...], context: RunContext, new_messages: list[Message]
+    ) -> None:
+        """Log, dispatch, and accumulate one admitted message batch --
+        pinned Pi's own unconditional message lifecycle for whatever enters
+        a turn (the initial prompt, claimed steering, tool-result-triggered
+        continuation input, or a follow-up-triggered continuation's own
+        entering batch). Every admission point in `_run_inner` calls this
+        the same way, so the initial prompt's own lifecycle is genuinely
+        complete -- logged AND dispatched to any live listener -- before the
+        very next thing `_run_inner` does (`L08-R006`). Appended to the
+        run-local `context`/`new_messages` accumulators as it goes, matching
+        pinned Pi's own `currentContext.messages.push(message)`/
+        `newMessages.push(message)` timing exactly (`L08-R001`)."""
+        log = self.instance.log
+        for message in messages:
+            log.append(EventKind.USER_MESSAGE, {"message": encode_message(message)})
+            await self._dispatch_agent_event(MessageStart(message=message))
+            await self._dispatch_agent_event(MessageEnd(message=message))
+            context.messages.append(message)
+            new_messages.append(message)
+
     async def _execute_run(
         self,
         *,
@@ -303,20 +364,31 @@ class AgentLoop:
         `createLoopConfig()`: taken once, here, at run start (`L08-R001`) --
         `_run_step` never re-reads `AgentInstance`/Session/`ToolRegistry`
         after this point; only `prepareNextTurn` may replace them, run-locally.
+
+        The success path's own `AGENT_END` append/dispatch lives INSIDE this
+        method's `try` block, sharing the same `except Exception` boundary as
+        `_run_inner` itself (`L08-R002`): a listener that throws while this
+        run's own ordinary `agent_end` is being delivered is, per pinned
+        Pi's own architecture, indistinguishable from any other run-executor
+        failure -- `runWithLifecycle`'s catch does not know or care WHERE in
+        `runAgentLoop` the exception came from -- so it is caught here too
+        and converted into a settled failure turn via `_settle_run_failure`,
+        never silently swallowed and never left as a half-delivered success.
         """
         log = self.instance.log
         log.append(EventKind.AGENT_START, {"causes": causes})
+        await self._dispatch_agent_event(AgentStart(causes=tuple(causes)))
         context = RunContext(
             system_prompt=self.instance.system_prompt,
             messages=list(derive_messages(self.instance.log)),
             tools=self.tools.visible_from(self.instance.scope),
         )
         config = RunConfig(model=self.instance.model, thinking_level=self.instance.thinking_level)
+        new_messages: list[Message] = []
 
-        failure: AssistantMessage | None = None
         try:
             end_reason, detail = await self._run_inner(
-                entering, causes, skip_initial_steering_poll, context, config
+                entering, causes, skip_initial_steering_poll, context, config, new_messages
             )
         except UnknownModelError:
             # Pinned Pi's own boundary: resolving a model happens before a
@@ -325,21 +397,22 @@ class AgentLoop:
             # turn (L08-R002, `eager-invalid-model-fails-before-stream.yaml`).
             raise
         except Exception as error:
-            end_reason, failure = self._settle_run_failure(error, config)
-            detail = None
+            self._boundary_stop_requested = False
+            # Propagates uncaught if a recovery listener itself throws
+            # (`L08-R002`) -- pinned Pi's own `handleRunFailure` has no
+            # further catch around it either; `_run_wrapped`'s own `finally`
+            # still settles status, matching pinned Pi's `finishRun`.
+            await self._settle_run_failure(error, config, causes)
+            return
 
-        self._cancelled = False
+        self._boundary_stop_requested = False
         payload: dict[str, object] = {"reason": end_reason, "causes": causes}
         if detail is not None:
             payload["detail"] = detail
-        if failure is not None:
-            # Pinned Pi's own `agent_end(messages=[failureMessage])`: the
-            # failure message ONLY, regardless of whatever this run's own
-            # `run_messages` accumulator happens to hold by this point
-            # (`L08-R002`) -- an explicit override the projection honors
-            # directly (see `projection.py`).
-            payload["messages"] = [encode_message(failure)]
         log.append(EventKind.AGENT_END, payload)
+        await self._dispatch_agent_event(
+            AgentEnd(reason=end_reason, causes=tuple(causes), messages=tuple(new_messages))
+        )
 
     async def _run_inner(
         self,
@@ -348,35 +421,47 @@ class AgentLoop:
         skip_initial_steering_poll: bool,
         context: RunContext,
         config: RunConfig,
+        new_messages: list[Message],
     ) -> tuple[str, str | None]:
         log = self.instance.log
-        # Not pre-seeded with `entering`: `_run_step`'s own loop over
-        # `decision.messages` (which starts as `entering` but may be
-        # rewritten by an `AGENT_PRE_STEP` listener) is the single place
-        # both `context.messages` and `new_messages` grow -- pre-seeding
-        # here too would double-count the entering batch.
-        new_messages: list[Message] = []
 
         # Pi's runAgentLoop/runAgentLoopContinue: agent_start (already
-        # appended by _execute_run), then turn_start, then the entering
-        # (prompt) messages' own lifecycle, THEN -- only for this very
-        # first turn -- the initial steering poll (runLoop's own first
-        # statement, called only after runAgentLoop has already emitted
-        # turn_start and the prompt messages). Subsequent turns' steering
-        # claims already happen correctly, as part of the PRECEDING turn's
-        # own post-turn sequence, before the next TURN_START -- only the
-        # very first poll needed reordering (`L08-R006`).
+        # appended by _execute_run), turn_start, THEN the entering (prompt)
+        # messages' own complete message lifecycle -- admitted and dispatched
+        # here, before anything else -- and ONLY THEN, for this very first
+        # turn, the initial steering poll (runLoop's own first statement,
+        # called only after runAgentLoop has already emitted turn_start and
+        # the prompt messages). Subsequent turns' steering claims already
+        # happen correctly, as part of the PRECEDING turn's own post-turn
+        # sequence, before the next TURN_START -- only the very first poll
+        # needed this staged admission (`L08-R006`; an earlier revision
+        # claimed steering before the prompt's own lifecycle was admitted at
+        # all, which a listener present at claim time could observe).
         log.append(EventKind.TURN_START, {"reason": PreStepReason.INITIAL.value})
+        await self._dispatch_agent_event(TurnStart())
+
+        decision = await self._pre_step(entering, PreStepReason.INITIAL)
+        if isinstance(decision, Reject):
+            self._span(SpanKind.TURN, "turn", reason="rejected")
+            return "rejected", decision.reason
+        await self._admit_messages(decision.messages, context, new_messages)
 
         if skip_initial_steering_poll:
             initial_step_input: tuple[InputEnvelope, ...] = ()
         else:
             initial_step_input = self._claim_step_input()
-        pending = entering + tuple(envelope.message for envelope in initial_step_input)
-        decision = await self._pre_step(pending, PreStepReason.INITIAL)
-        if isinstance(decision, Reject):
-            self._span(SpanKind.TURN, "turn", reason="rejected")
-            return "rejected", decision.reason
+        if initial_step_input:
+            steering_decision = await self._pre_step(
+                tuple(envelope.message for envelope in initial_step_input), PreStepReason.STEERING
+            )
+            if isinstance(steering_decision, Reject):
+                self._span(SpanKind.TURN, "turn", reason="rejected")
+                return "rejected", steering_decision.reason
+            await self._admit_messages(steering_decision.messages, context, new_messages)
+            # The request-shaping decision (system_override/history_window)
+            # for this first turn: the latest-resolved admission wins, same
+            # as every later turn only ever has one decision in play at all.
+            decision = steering_decision
 
         reason = PreStepReason.INITIAL
         steps = 0
@@ -426,25 +511,17 @@ class AgentLoop:
                 if not has_more_tool_calls and not step_input:
                     break  # inner loop exhausted -> poll follow-up below
 
-                if steps >= self.instance.definition.max_steps:
-                    # Minion-only host safety cap (`L08-R005`, AG-020):
-                    # checked only here, AFTER this turn's own
-                    # prepareNextTurn/shouldStopAfterTurn/steering poll have
-                    # already run unconditionally -- it gates only whether a
-                    # FURTHER turn is attempted, never skips pinned Pi's own
-                    # post-turn ordering for a turn that already happened.
-                    self._span(SpanKind.TURN, "turn", reason="max_steps")
-                    return "max_steps", None
-
-                if self._cancelled:
-                    # Another Minion-only host extension (AG-019, no pi
-                    # equivalent), gated the same way as `max_steps` above:
-                    # only after this turn's own full post-turn ordering has
-                    # already run. `cancel()`'s own docstring is exact --
-                    # work already in flight finishes; only the *next*
-                    # request is stopped.
-                    self._span(SpanKind.TURN, "turn", reason="cancelled")
-                    return "cancelled", None
+                if self._boundary_stop_requested:
+                    # A Minion-only host extension (`AG-022`, no pi
+                    # equivalent -- `request_boundary_stop()`, `L08-R009`),
+                    # gated the same way pinned Pi's own post-turn ordering
+                    # is never skipped for a turn that already happened: only
+                    # after this turn's own prepareNextTurn/
+                    # shouldStopAfterTurn/steering poll have already run
+                    # unconditionally. Work already in flight finishes; only
+                    # the *next* request is stopped.
+                    self._span(SpanKind.TURN, "turn", reason="boundary_stop")
+                    return "boundary_stop", None
 
                 reason = PreStepReason.STEERING if step_input else PreStepReason.TOOL_RESULTS
                 decision = await self._pre_step(
@@ -453,6 +530,7 @@ class AgentLoop:
                 if isinstance(decision, Reject):
                     self._span(SpanKind.TURN, "turn", reason="rejected")
                     return "rejected", decision.reason
+                await self._admit_messages(decision.messages, context, new_messages)
 
             followups = self.instance.inbox.claim(InboxTarget.NEXT_TURN, self.next_turn_policy)
             if not followups:
@@ -468,27 +546,30 @@ class AgentLoop:
             if isinstance(decision, Reject):
                 self._span(SpanKind.TURN, "turn", reason="rejected")
                 return "rejected", decision.reason
+            await self._admit_messages(decision.messages, context, new_messages)
 
-    def _settle_run_failure(
-        self, error: BaseException, config: RunConfig
-    ) -> tuple[str, AssistantMessage]:
+    async def _settle_run_failure(
+        self, error: BaseException, config: RunConfig, causes: list[dict[str, object]]
+    ) -> None:
         """Pinned Pi's `handleRunFailure`: an unexpected exception from the
         run executor (any of it -- listener dispatch, an adapter breaking its
         streaming contract, or any other unforeseen failure inside a turn;
         NOT the eager, pre-stream `UnknownModelError` `_execute_run` already
-        excludes) still produces a coherent, terminal turn -- never an
-        unhandled exception escaping `prompt()`/`continue_()`/
-        `run_until_idle()`.
+        excludes) still produces a coherent, terminal turn -- UNLESS a
+        listener invoked during this very recovery sequence itself throws, in
+        which case pinned Pi's own bare sequential `await
+        this.processEvents(...)` chain aborts at that exact point and the
+        exception propagates uncaught, exactly reproduced here by awaiting
+        each dispatch in turn with nothing catching a failure from it
+        (`L08-R002`).
 
         Emits exactly pinned Pi's own bare sequence -- `message_start`/
-        `message_end`/`turn_end(failure, [])` -- with NO preceding
-        `turn_start` at all (`L08-R002`; an earlier revision inserted a
-        synthetic one). `TURN_END` carries an explicit override the
-        projection honors directly (see `projection.py`); the returned
-        failure message lets the caller (`_execute_run`) apply the matching
-        `agent_end(messages=[failure])` override itself, so the failure
-        message is never diluted by whatever this run's own turn/run
-        accumulators happen to hold."""
+        `message_end`/`turn_end(failure, [])`/`agent_end(messages=[failure])`
+        -- through the SAME live `AGENT_LIFECYCLE_EVENT` seam ordinary
+        turn/run progress uses, not a recovery-only special path, and with NO
+        preceding `turn_start` at all. `TURN_END` still carries an explicit
+        override the offline `project()` honors directly (see
+        `projection.py`) for callers reconstructing the log after the fact."""
         log = self.instance.log
         failure = AssistantMessage(
             content=(TextBlock(text=""),),
@@ -500,11 +581,24 @@ class AgentLoop:
             error_message=str(error),
         )
         log.append(EventKind.ASSISTANT_MESSAGE, {"message": encode_message(failure)})
-        log.append(EventKind.TURN_END, {"message": encode_message(failure)})
-        self.instance.error_message = str(error)
+        await self._dispatch_agent_event(MessageStart(message=failure))
+        await self._dispatch_agent_event(MessageEnd(message=failure))
         self.instance.streaming_message = None
+
+        log.append(EventKind.TURN_END, {"message": encode_message(failure)})
+        await self._dispatch_agent_event(TurnEnd(message=failure, tool_results=()))
+        self.instance.error_message = str(error)
         self.instance.pending_tool_calls = frozenset()
-        return "failed", failure
+
+        payload: dict[str, object] = {
+            "reason": "failed",
+            "causes": causes,
+            "messages": [encode_message(failure)],
+        }
+        log.append(EventKind.AGENT_END, payload)
+        await self._dispatch_agent_event(
+            AgentEnd(reason="failed", causes=tuple(causes), messages=(failure,))
+        )
 
     async def _should_stop(
         self,
@@ -597,7 +691,11 @@ class AgentLoop:
         Tools execute as a batch -- parallel by default, with pi's contagion
         rule serializing around an exclusive call. `context`/`config` are the
         run's own snapshot (`L08-R001`) -- never re-read from `AgentInstance`/
-        Session/`ToolRegistry` here.
+        Session/`ToolRegistry` here. `decision.messages` are NOT admitted
+        here: every call site admits (logs, dispatches, and accumulates) its
+        own turn's entering messages via `_admit_messages` before calling
+        this method (`L08-R006`) -- only `decision.system_override`/
+        `.history_window` are still read here, to shape the request itself.
         """
         log = self.instance.log
 
@@ -608,16 +706,7 @@ class AgentLoop:
         # turn, whose TURN_START `_run_inner` already appended (`L08-R006`).
         if open_turn:
             log.append(EventKind.TURN_START, {"reason": reason.value})
-
-        # After `turn/start`, matching pinned Pi exactly: what entered the turn
-        # caused it, and the model cannot see a prompt that is not yet on the
-        # surface when the request is derived. Appended to the run-local
-        # context/new-messages accumulators too (`L08-R001`) -- never re-derived
-        # from the log for request construction.
-        for message in decision.messages:
-            log.append(EventKind.USER_MESSAGE, {"message": encode_message(message)})
-            context.messages.append(message)
-            new_messages.append(message)
+            await self._dispatch_agent_event(TurnStart())
 
         components = {
             "system_base": decision.system_override
@@ -650,7 +739,11 @@ class AgentLoop:
         # Set directly from each chunk's own `partial` (`L08-R003`): the
         # already-certified Layer-02/04 `StreamChunk` carries the complete
         # partial assistant message on every variant, so no independent
-        # reconstruction from raw deltas is needed or attempted.
+        # reconstruction from raw deltas is needed or attempted. Not
+        # dispatched through `AGENT_LIFECYCLE_EVENT` (`L08-R002`): `collect()`
+        # accepts only a synchronous `on_chunk` callback, so a chunk-level
+        # listener has nothing to `await` -- log + offline `project()` remain
+        # this reply's own observability surface, unchanged from PASS 3.
         stream_opened = False
 
         def log_chunk(chunk: StreamChunk) -> None:
@@ -713,6 +806,7 @@ class AgentLoop:
             # immediately -- no tool calls are ever inspected or executed for
             # a message representing its own failure.
             log.append(EventKind.TURN_END, {})
+            await self._dispatch_agent_event(TurnEnd(message=reply, tool_results=()))
             self._span(SpanKind.STEP, "step", reason=reason.value)
             return _StepResult(
                 message=reply,
@@ -786,6 +880,8 @@ class AgentLoop:
                         "added_tool_names": list(result.added_tool_names),
                     },
                 )
+                await self._dispatch_agent_event(MessageStart(message=message))
+                await self._dispatch_agent_event(MessageEnd(message=message))
                 context.messages.append(message)
                 new_messages.append(message)
                 results.append(message)
@@ -815,6 +911,7 @@ class AgentLoop:
             tool_result_messages = tuple(results)
 
         log.append(EventKind.TURN_END, {})
+        await self._dispatch_agent_event(TurnEnd(message=reply, tool_results=tool_result_messages))
         self._span(SpanKind.STEP, "step", reason=reason.value)
         hard_terminated = outcome is not None and outcome.terminate
         has_more_tool_calls = bool(calls) and not hard_terminated

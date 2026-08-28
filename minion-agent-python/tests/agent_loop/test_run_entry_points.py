@@ -12,9 +12,15 @@ from typing import Any
 import pytest
 
 from minion_agent.agent.decisions import Enter, Reject, RunConfigUpdate, RunContext, TurnStopping
-from minion_agent.agent.events import AGENT_PRE_STEP, AGENT_PREPARE_NEXT_TURN, AGENT_TURN_STOPPING
+from minion_agent.agent.events import (
+    AGENT_LIFECYCLE_EVENT,
+    AGENT_PRE_STEP,
+    AGENT_PREPARE_NEXT_TURN,
+    AGENT_TURN_STOPPING,
+)
 from minion_agent.agent.identity import AgentStatus, ThinkingLevel
 from minion_agent.agent.instance import AgentActiveError
+from minion_agent.agent.projection import AgentEnd, MessageEnd, MessageStart, TurnEnd
 from minion_agent.llm import (
     AssistantMessage,
     ImageBlock,
@@ -518,7 +524,7 @@ async def test_failure_agent_end_messages_is_only_the_failure_message() -> None:
 
     await loop.prompt(_say("hello"))
 
-    from minion_agent.agent.projection import AgentEnd, project
+    from minion_agent.agent.projection import project
 
     events = project(loop.instance.log)
     end = next(e for e in events if isinstance(e, AgentEnd))
@@ -607,6 +613,231 @@ async def test_a_rejected_follow_up_continuation_ends_the_run() -> None:
     end = next(e for e in loop.instance.log.events if e.kind == EventKind.AGENT_END)
     assert end.data["reason"] == "rejected"
     assert end.data["detail"] == "not now"
+
+
+# -- L08-R002, PASS 4: recovery through the live, listener-bearing seam ------
+
+
+async def test_a_run_executor_failure_recovers_through_the_live_lifecycle_event_seam() -> None:
+    """`L08-R002`, PASS 4: recovery now goes through the SAME live,
+    listener-bearing `AGENT_LIFECYCLE_EVENT` seam ordinary progress uses --
+    not raw log appends a listener has no way to observe -- proven by a
+    passive (non-throwing) listener actually receiving the failure's own
+    `message_start`/`message_end`/`turn_end`/`agent_end`, live, during the
+    run, not merely reconstructible afterward via offline `project()`."""
+
+    async def boom(instance: Any, reason: Any, messages: Any, next_: Any) -> Enter:
+        raise RuntimeError("run executor failed")
+
+    seen: list[type] = []
+
+    def observe(instance: Any, event: Any) -> None:
+        if isinstance(event, MessageStart | MessageEnd | TurnEnd | AgentEnd):
+            seen.append(type(event))
+
+    loop = _loop(ScriptedResponse((), StopReason.STOP))
+    loop.instance.ctx.events.on(AGENT_PRE_STEP, boom)
+    loop.instance.ctx.events.on(AGENT_LIFECYCLE_EVENT, observe)
+
+    await loop.prompt(_say("hello"))  # must not raise -- no listener interrupted it
+
+    assert seen == [MessageStart, MessageEnd, TurnEnd, AgentEnd]
+
+
+async def test_a_post_turn_callback_failure_recovers_through_the_live_seam() -> None:
+    """`L08-R002`, PASS 4: same live seam for a failure originating from a
+    POST-turn callback (`AGENT_TURN_STOPPING`), distinct from a pre-step
+    failure -- both are "the run executor" from pinned pi's own perspective.
+    The ordinary turn's own admitted prompt and its own `turn_end` already
+    happened live before the failure; the same seam then delivers the
+    synthesized failure's own sequence too."""
+
+    def boom(*args: Any) -> TurnStopping:
+        raise RuntimeError("stopping listener exploded")
+
+    seen: list[type] = []
+
+    def observe(instance: Any, event: Any) -> None:
+        if isinstance(event, MessageStart | MessageEnd | TurnEnd | AgentEnd):
+            seen.append(type(event))
+
+    loop = _loop(ScriptedResponse((TextBlock(text="hi"),), StopReason.STOP))
+    loop.instance.ctx.events.on(AGENT_TURN_STOPPING, boom)
+    loop.instance.ctx.events.on(AGENT_LIFECYCLE_EVENT, observe)
+
+    await loop.prompt(_say("hello"))  # must not raise
+
+    assert seen == [
+        MessageStart,  # the prompt's own admission
+        MessageEnd,
+        TurnEnd,  # the ordinary turn's own close
+        MessageStart,  # the synthesized failure
+        MessageEnd,
+        TurnEnd,
+        AgentEnd,
+    ]
+
+
+async def test_failure_message_start_listener_failure_interrupts_recovery() -> None:
+    """`L08-R002`, PASS 4: a listener throwing during the failure's own
+    `message_start` aborts the rest of pinned pi's recovery sequence and
+    propagates uncaught, exactly like pinned pi's own bare sequential `await
+    this.processEvents(...)` chain -- `_run_wrapped`'s own `finally` (pinned
+    pi's `finishRun`) still settles status regardless."""
+
+    async def boom_pre_step(instance: Any, reason: Any, messages: Any, next_: Any) -> Enter:
+        raise RuntimeError("run executor failed")
+
+    seen: list[type] = []
+
+    def boom_on_message_start(instance: Any, event: Any) -> None:
+        if isinstance(event, MessageStart | MessageEnd | TurnEnd | AgentEnd):
+            seen.append(type(event))
+        if isinstance(event, MessageStart):
+            raise RuntimeError("message_start listener exploded")
+
+    loop = _loop(ScriptedResponse((), StopReason.STOP))
+    loop.instance.ctx.events.on(AGENT_PRE_STEP, boom_pre_step)
+    loop.instance.ctx.events.on(AGENT_LIFECYCLE_EVENT, boom_on_message_start)
+
+    with pytest.raises(RuntimeError, match="message_start listener exploded"):
+        await loop.prompt(_say("hello"))
+
+    assert loop.instance.status is AgentStatus.IDLE
+    assert seen == [MessageStart]
+    kinds = [e.kind for e in loop.instance.log.events]
+    # message_start's own durable "reduce" (the ASSISTANT_MESSAGE log entry)
+    # already happened before the listener that then threw -- but nothing
+    # after it (no TURN_END, no AGENT_END) does, since recovery aborted here.
+    assert kinds == [EventKind.AGENT_START, EventKind.TURN_START, EventKind.ASSISTANT_MESSAGE]
+
+
+async def test_failure_message_end_listener_failure_interrupts_recovery() -> None:
+    """`L08-R002`, PASS 4: `message_start`'s own listener succeeds; the
+    interruption happens precisely at `message_end`."""
+
+    async def boom_pre_step(instance: Any, reason: Any, messages: Any, next_: Any) -> Enter:
+        raise RuntimeError("run executor failed")
+
+    seen: list[type] = []
+
+    def boom_on_message_end(instance: Any, event: Any) -> None:
+        if isinstance(event, MessageStart | MessageEnd | TurnEnd | AgentEnd):
+            seen.append(type(event))
+        if isinstance(event, MessageEnd):
+            raise RuntimeError("message_end listener exploded")
+
+    loop = _loop(ScriptedResponse((), StopReason.STOP))
+    loop.instance.ctx.events.on(AGENT_PRE_STEP, boom_pre_step)
+    loop.instance.ctx.events.on(AGENT_LIFECYCLE_EVENT, boom_on_message_end)
+
+    with pytest.raises(RuntimeError, match="message_end listener exploded"):
+        await loop.prompt(_say("hello"))
+
+    assert loop.instance.status is AgentStatus.IDLE
+    assert seen == [MessageStart, MessageEnd]
+    kinds = [e.kind for e in loop.instance.log.events]
+    assert kinds == [EventKind.AGENT_START, EventKind.TURN_START, EventKind.ASSISTANT_MESSAGE]
+
+
+async def test_failure_turn_end_listener_failure_interrupts_recovery() -> None:
+    """`L08-R002`, PASS 4: `message_start`/`message_end` both succeed; the
+    interruption happens precisely at the failure's own `turn_end`."""
+
+    async def boom_pre_step(instance: Any, reason: Any, messages: Any, next_: Any) -> Enter:
+        raise RuntimeError("run executor failed")
+
+    seen: list[type] = []
+
+    def boom_on_turn_end(instance: Any, event: Any) -> None:
+        if isinstance(event, MessageStart | MessageEnd | TurnEnd | AgentEnd):
+            seen.append(type(event))
+        if isinstance(event, TurnEnd):
+            raise RuntimeError("turn_end listener exploded")
+
+    loop = _loop(ScriptedResponse((), StopReason.STOP))
+    loop.instance.ctx.events.on(AGENT_PRE_STEP, boom_pre_step)
+    loop.instance.ctx.events.on(AGENT_LIFECYCLE_EVENT, boom_on_turn_end)
+
+    with pytest.raises(RuntimeError, match="turn_end listener exploded"):
+        await loop.prompt(_say("hello"))
+
+    assert loop.instance.status is AgentStatus.IDLE
+    assert seen == [MessageStart, MessageEnd, TurnEnd]
+    kinds = [e.kind for e in loop.instance.log.events]
+    # turn_end's own durable "reduce" (the TURN_END log entry, carrying the
+    # failure-message override) already happened -- but no AGENT_END does.
+    assert kinds == [
+        EventKind.AGENT_START,
+        EventKind.TURN_START,
+        EventKind.ASSISTANT_MESSAGE,
+        EventKind.TURN_END,
+    ]
+
+
+async def test_failure_agent_end_listener_failure_interrupts_recovery() -> None:
+    """`L08-R002`, PASS 4: the entire failure sequence's own listeners
+    succeed up through `turn_end`; the interruption happens precisely at
+    `agent_end` -- pinned pi's own final recovery event."""
+
+    async def boom_pre_step(instance: Any, reason: Any, messages: Any, next_: Any) -> Enter:
+        raise RuntimeError("run executor failed")
+
+    seen: list[type] = []
+
+    def boom_on_agent_end(instance: Any, event: Any) -> None:
+        if isinstance(event, MessageStart | MessageEnd | TurnEnd | AgentEnd):
+            seen.append(type(event))
+        if isinstance(event, AgentEnd):
+            raise RuntimeError("agent_end listener exploded")
+
+    loop = _loop(ScriptedResponse((), StopReason.STOP))
+    loop.instance.ctx.events.on(AGENT_PRE_STEP, boom_pre_step)
+    loop.instance.ctx.events.on(AGENT_LIFECYCLE_EVENT, boom_on_agent_end)
+
+    with pytest.raises(RuntimeError, match="agent_end listener exploded"):
+        await loop.prompt(_say("hello"))
+
+    assert loop.instance.status is AgentStatus.IDLE
+    assert seen == [MessageStart, MessageEnd, TurnEnd, AgentEnd]
+    kinds = [e.kind for e in loop.instance.log.events]
+    # agent_end's own durable "reduce" (the AGENT_END log entry, carrying the
+    # failure-only messages override) already happened before its own
+    # listener threw.
+    assert kinds == [
+        EventKind.AGENT_START,
+        EventKind.TURN_START,
+        EventKind.ASSISTANT_MESSAGE,
+        EventKind.TURN_END,
+        EventKind.AGENT_END,
+    ]
+    end = next(e for e in loop.instance.log.events if e.kind == EventKind.AGENT_END)
+    assert end.data["reason"] == "failed"
+
+
+async def test_a_rejection_during_the_initial_steering_admission_ends_the_turn() -> None:
+    """The STEERING-reason pre-step dispatch for the initial claim
+    (`L08-R006`'s own second admission stage) can reject independently of the
+    prompt's own INITIAL-reason decision -- the prompt's own message was
+    already admitted before the rejected steering stage; rejection ends the
+    run, it does not retroactively undo what already happened."""
+
+    async def veto_steering_only(instance: Any, reason: Any, messages: Any, next_: Any) -> Any:
+        if reason.value == "steering":
+            return Reject(reason="no steering allowed")
+        return await next_(instance, reason, messages)
+
+    loop = _loop(ScriptedResponse((), StopReason.STOP))
+    loop.instance.ctx.events.on(AGENT_PRE_STEP, veto_steering_only)
+    loop.instance.inbox.steer(_say("steer me"))
+
+    await loop.prompt(_say("hello"))
+
+    end = next(e for e in loop.instance.log.events if e.kind == EventKind.AGENT_END)
+    assert end.data["reason"] == "rejected"
+    assert end.data["detail"] == "no steering allowed"
+    texts = [text_of(m) for m in derive_messages(loop.instance.log)]
+    assert texts == ["hello"]
 
 
 # -- L08-R003: full streaming_message fidelity --------------------------------
@@ -774,7 +1005,7 @@ async def test_message_start_precedes_message_update_for_a_streamed_reply() -> N
 
     await loop.run_until_idle()
 
-    from minion_agent.agent.projection import MessageEnd, MessageStart, MessageUpdate, project
+    from minion_agent.agent.projection import MessageUpdate, project
 
     kinds = [type(e) for e in project(loop.instance.log)]
     # The entering user message's own MessageStart/MessageEnd pair is fully
@@ -814,6 +1045,52 @@ async def test_the_initial_steering_claim_happens_after_turn_start() -> None:
     assert seen_turn_start_already_logged == [True]
 
 
+async def test_the_initial_prompt_lifecycle_precedes_the_steering_claim() -> None:
+    """`L08-R006`, PASS 4: `TURN_START` already being logged (proven above)
+    is the WEAKER condition the PASS-3 review rejected -- pinned pi's own
+    order requires the initial prompt's own COMPLETE message lifecycle
+    (`message_start` then `message_end`) to be observable, live, before the
+    steering queue is ever claimed at all. This listener-driven trace proves
+    exactly that ordering, then confirms both messages still reach the SAME
+    single first provider request -- their own lifecycle/claim timing
+    differs, but pinned pi never receives them as separate turns."""
+    loop, adapter = _loop_with_adapter(ScriptedResponse((TextBlock(text="hi"),), StopReason.STOP))
+    trace: list[str] = []
+
+    def observe_lifecycle(instance: Any, event: Any) -> None:
+        if isinstance(event, MessageStart):
+            trace.append(f"message_start:{text_of(event.message)}")
+        elif isinstance(event, MessageEnd):
+            trace.append(f"message_end:{text_of(event.message)}")
+
+    async def observe_claim(instance: Any, reason: Any, messages: Any, next_: Any) -> Any:
+        # The exact Minion-only claim marker (this pre-step dispatch's own
+        # STEERING reason) need not become pi canonical vocabulary -- what
+        # matters is that queue mutation (`_claim_step_input()`, which
+        # already ran by the time this STEERING-reason dispatch fires) is
+        # proven to occur strictly after the prompt's own lifecycle above.
+        if reason.value == "steering":
+            trace.append("steering_claim")
+        return await next_(instance, reason, messages)
+
+    loop.instance.ctx.events.on(AGENT_LIFECYCLE_EVENT, observe_lifecycle)
+    loop.instance.ctx.events.on(AGENT_PRE_STEP, observe_claim)
+    loop.instance.inbox.steer(_say("steer me"))
+
+    await loop.prompt(_say("go"))
+
+    assert trace == [
+        "message_start:go",
+        "message_end:go",
+        "steering_claim",
+        "message_start:steer me",
+        "message_end:steer me",
+    ]
+    # Prompt and steering remain inputs to the SAME first provider request --
+    # only their own lifecycle/claim timing differs, never their turn.
+    assert [text_of(m) for m in adapter.requests[0].messages] == ["go", "steer me"]
+
+
 # -- L08-R008: represented error/aborted is immediately terminal -------------
 
 
@@ -830,19 +1107,20 @@ async def test_represented_error_skips_prepare_stop_steering_and_follow_up() -> 
         stopped.append("called")
         return TurnStopping.CONTINUE
 
-    async def queue_steering_after_the_initial_claim(
-        instance: Any, reason: Any, messages: Any, next_: Any
-    ) -> Any:
-        # The initial steering poll already claimed whatever was pending
-        # before `run_until_idle()` even started -- queuing here, inside the
-        # INITIAL `AGENT_PRE_STEP` dispatch, is strictly after that claim, so
-        # this message is only ever at risk of the *steady-state* poll R008
-        # must prove never runs for a represented error/aborted turn.
-        if reason.value == "initial":
+    async def queue_steering_at_this_turns_own_turn_end(instance: Any, event: Any) -> None:
+        # `L08-R006` moved the initial steering claim to admit BEFORE this
+        # turn ever runs at all, so queuing during the INITIAL pre-step no
+        # longer proves anything about R008 (that claim happens unconditionally
+        # either way). Queuing here instead -- inside this turn's own live
+        # `TurnEnd` dispatch, which fires immediately before `_run_step`
+        # returns its terminal result to `_run_inner` -- guarantees the
+        # message is queued strictly after any admission this turn could
+        # possibly have done, so it is only ever at risk of the steady-state
+        # poll R008 must prove never runs for a represented error/aborted turn.
+        if isinstance(event, TurnEnd):
             instance.inbox.steer(_say("should not be consumed"))
-        return await next_(instance, reason, messages)
 
-    loop.instance.ctx.events.on(AGENT_PRE_STEP, queue_steering_after_the_initial_claim)
+    loop.instance.ctx.events.on(AGENT_LIFECYCLE_EVENT, queue_steering_at_this_turns_own_turn_end)
     loop.instance.ctx.events.on(AGENT_PREPARE_NEXT_TURN, observe_prepare)
     loop.instance.ctx.events.on(AGENT_TURN_STOPPING, observe_stop)
     loop.instance.inbox.followup(_say("go"))
@@ -896,7 +1174,7 @@ async def test_represented_error_agent_end_messages_uses_the_normal_accumulator(
 
     await loop.run_until_idle()
 
-    from minion_agent.agent.projection import AgentEnd, project
+    from minion_agent.agent.projection import project
 
     end = next(e for e in project(loop.instance.log) if isinstance(e, AgentEnd))
     assert [text_of(m) for m in end.messages] == ["go", ""]

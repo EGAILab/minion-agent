@@ -1,0 +1,36 @@
+name: no turn-count cap exists on the Pi-equivalent run path
+description: >
+  L08-R005 (PASS 4): pinned Pi has no `max_steps`-equivalent stop rule at
+  all, and Minion's own prior turn-counter cap has been removed from the
+  `prompt()`/`continue()` semantic path entirely -- it is not merely
+  repositioned or relabeled parity-neutral. This scenario is what the
+  removed cap used to bound (a turn that only ever calls tools) and proves
+  the opposite of what it used to prove: the run keeps going for as many
+  tool-driven turns as the model actually requests, with no host-imposed
+  stop after any fixed count. Three assistant/tool-result turns are
+  scripted, one more than the old default-2-step canonical fixture used to
+  allow -- a regression check that the removed cap would have truncated
+  this run and no longer does.
+provider_script:
+  - content: [{ type: tool_call, id: t1, name: echo, arguments: {} }]
+    stop_reason: tool_use
+  - content: [{ type: tool_call, id: t2, name: echo, arguments: {} }]
+    stop_reason: tool_use
+  - content: [{ type: tool_call, id: t3, name: echo, arguments: {} }]
+    stop_reason: tool_use
+  - content: [{ type: text, text: done }]
+    stop_reason: stop
+tools:
+  echo: { result: { text: again } }
+steps:
+  - followup: go
+  - await_idle: true
+expect_messages:
+  - { role: user, text: go }
+  - { role: assistant, text: "" }
+  - { role: tool_result, text: again }
+  - { role: assistant, text: "" }
+  - { role: tool_result, text: again }
+  - { role: assistant, text: "" }
+  - { role: tool_result, text: again }
+  - { role: assistant, text: done }

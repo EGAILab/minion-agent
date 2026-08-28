@@ -464,7 +464,6 @@ async def run_agent_scenario(document: dict[str, Any]) -> dict[str, Any]:
             name="scenario",
             model=ModelId("mock", config.get("model", "mock-1")),
             system=config.get("system", ""),
-            max_steps=config.get("max_steps", 16),
         ),
     )
     loop = ctx.agent_loop.for_instance(handle.instance)

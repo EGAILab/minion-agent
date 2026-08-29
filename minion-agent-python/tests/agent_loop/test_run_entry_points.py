@@ -20,7 +20,16 @@ from minion_agent.agent.events import (
 )
 from minion_agent.agent.identity import AgentStatus, ThinkingLevel
 from minion_agent.agent.instance import AgentActiveError
-from minion_agent.agent.projection import AgentEnd, MessageEnd, MessageStart, TurnEnd
+from minion_agent.agent.projection import (
+    AgentEnd,
+    AgentStart,
+    MessageEnd,
+    MessageStart,
+    ToolExecutionEnd,
+    ToolExecutionStart,
+    ToolExecutionUpdate,
+    TurnEnd,
+)
 from minion_agent.llm import (
     AssistantMessage,
     ImageBlock,
@@ -51,6 +60,7 @@ from minion_agent.llm.stream import (
     ToolCallStart,
 )
 from minion_agent.session import EventKind, derive_messages
+from minion_agent.tools.definition import ExecutionMode
 
 from .test_single_turn import _loop, _loop_with_adapter, _register, _say
 
@@ -893,16 +903,26 @@ async def test_a_stream_with_no_start_chunk_still_gets_a_message_start() -> None
         instance=handle.instance, llm=llm, tools=ToolRegistry(), artifacts=sessions.artifacts
     )
     seen: list[type] = []
+    streaming_at_message_start: list[Any] = []
 
     def observe(instance: Any, event: Any) -> None:
         if isinstance(event, MessageStart | MessageEnd):
             seen.append(type(event))
+        if isinstance(event, MessageStart):
+            streaming_at_message_start.append(instance.streaming_message)
 
     loop.instance.ctx.events.on(AGENT_LIFECYCLE_EVENT, observe)
 
     await loop.prompt(_say("go"))
 
     assert seen == [MessageStart, MessageEnd, MessageStart, MessageEnd]
+    # `L08-R002`, PASS 6: the fallback `MessageStart` (the second one -- the
+    # first is the prompt's own admission) reduces (`streaming_message =
+    # reply`) BEFORE its own dispatch -- an earlier revision cleared
+    # `streaming_message` and appended the transcript entry (message_end's
+    # own reduce) before this fallback `MessageStart`'s own dispatch, so a
+    # listener observed `None` here instead of the reply.
+    assert streaming_at_message_start[1] is message
 
 
 async def test_turn_end_sets_error_message_even_for_a_non_terminal_reply() -> None:
@@ -1006,9 +1026,9 @@ async def test_streaming_message_carries_the_full_partial_for_text() -> None:
     from minion_agent.agent.projection import MessageUpdate, project
 
     updates = [e for e in project(loop.instance.log) if isinstance(e, MessageUpdate)]
-    assert any(u.kind == "text_start" for u in updates)
-    assert any(u.kind == "text_delta" and text_of(u.message) == "hello" for u in updates)
-    assert any(u.kind == "text_end" for u in updates)
+    assert any(isinstance(u.event, TextStart) for u in updates)
+    assert any(isinstance(u.event, TextDelta) and text_of(u.message) == "hello" for u in updates)
+    assert any(isinstance(u.event, TextEnd) for u in updates)
 
 
 async def test_streaming_message_carries_the_full_partial_for_thinking() -> None:
@@ -1030,7 +1050,9 @@ async def test_streaming_message_carries_the_full_partial_for_thinking() -> None
     from minion_agent.agent.projection import MessageUpdate, project
 
     updates = [e for e in project(loop.instance.log) if isinstance(e, MessageUpdate)]
-    thinking_updates = [u for u in updates if u.kind.startswith("thinking")]
+    thinking_updates = [
+        u for u in updates if isinstance(u.event, ThinkingStart | ThinkingDelta | ThinkingEnd)
+    ]
     assert thinking_updates
     assert any(
         any(isinstance(b, ThinkingBlock) and b.thinking == "pondering" for b in u.message.content)
@@ -1060,7 +1082,9 @@ async def test_streaming_message_carries_the_full_partial_for_tool_calls() -> No
     from minion_agent.agent.projection import MessageUpdate, project
 
     updates = [e for e in project(loop.instance.log) if isinstance(e, MessageUpdate)]
-    toolcall_updates = [u for u in updates if u.kind.startswith("toolcall")]
+    toolcall_updates = [
+        u for u in updates if isinstance(u.event, ToolCallStart | ToolCallDelta | ToolCallEnd)
+    ]
     assert toolcall_updates
     assert any(
         any(isinstance(b, ToolCallBlock) and b.name == "echo" for b in u.message.content)
@@ -1261,3 +1285,197 @@ async def test_represented_error_agent_end_messages_uses_the_normal_accumulator(
 
     end = next(e for e in project(loop.instance.log) if isinstance(e, AgentEnd))
     assert [text_of(m) for m in end.messages] == ["go", ""]
+
+
+async def test_an_agent_start_listener_failure_settles_gracefully() -> None:
+    """`L08-R002`, PASS 6: `agent_start`'s own dispatch now lives INSIDE
+    `_execute_run`'s own `try`, sharing `_run_inner`'s exception boundary --
+    an earlier revision dispatched it BEFORE that `try` even opened, so a
+    listener failure here escaped straight past `_run_wrapped`'s own
+    `finally`, uncaught, instead of being settled like any other
+    run-executor failure."""
+
+    def boom_on_agent_start(instance: Any, event: Any) -> None:
+        if isinstance(event, AgentStart):
+            raise RuntimeError("agent_start listener exploded")
+
+    loop = _loop(ScriptedResponse((TextBlock(text="hi"),), StopReason.STOP))
+    loop.instance.ctx.events.on(AGENT_LIFECYCLE_EVENT, boom_on_agent_start)
+
+    await loop.prompt(_say("hello"))  # must not raise -- settled gracefully
+
+    assert loop.instance.status is AgentStatus.IDLE
+    ends = [e for e in loop.instance.log.events if e.kind == EventKind.AGENT_END]
+    assert [e.data["reason"] for e in ends] == ["failed"]
+
+
+async def test_a_successful_agent_end_listener_failure_settles_gracefully() -> None:
+    """`L08-R002`, PASS 6: a listener failing on an ORDINARY, successful
+    `agent_end` -- not a recovery one -- is caught the same way, producing a
+    SECOND, `failed` `AGENT_END` right after the first, successful one:
+    matching pinned Pi's own architecture exactly, `handleRunFailure` has no
+    awareness of how far the run had already reduced when its own dispatch
+    throws. An earlier revision dispatched the success path's own `agent_end`
+    entirely outside `_execute_run`'s `try`, so this failure escaped uncaught
+    instead."""
+
+    def boom_on_agent_end(instance: Any, event: Any) -> None:
+        if isinstance(event, AgentEnd) and event.reason != "failed":
+            raise RuntimeError("agent_end listener exploded")
+
+    loop = _loop(ScriptedResponse((TextBlock(text="hi"),), StopReason.STOP))
+    loop.instance.ctx.events.on(AGENT_LIFECYCLE_EVENT, boom_on_agent_end)
+
+    await loop.prompt(_say("hello"))  # must not raise -- settled gracefully
+
+    assert loop.instance.status is AgentStatus.IDLE
+    ends = [e for e in loop.instance.log.events if e.kind == EventKind.AGENT_END]
+    assert [e.data["reason"] for e in ends] == ["completed", "failed"]
+
+
+async def test_tool_execution_start_listener_failure_prevents_that_calls_own_execution() -> None:
+    """`L08-R002`, PASS 6: `ToolExecutionStart`'s own dispatch is now
+    genuinely LIVE (Layer-06's additive `on_execution_start` hook, awaited at
+    the exact point `tools/execution-start` fires -- before resolution,
+    preparation, validation, and the before-hook) -- a listener that throws
+    here now genuinely PREVENTS that call's own `execute()` from ever
+    running. PASS 5's own capture-and-replay design could not do this: the
+    tool's own side effects had already happened by the time a listener
+    could object."""
+
+    ran = False
+
+    def echo(call_id: str, args: dict[str, Any]) -> str:
+        nonlocal ran
+        ran = True
+        return "pong"
+
+    def boom_on_start(instance: Any, event: Any) -> None:
+        if isinstance(event, ToolExecutionStart):
+            raise RuntimeError("tool_execution_start listener exploded")
+
+    call = ToolCallBlock(id="t1", name="echo", arguments={})
+    loop = _loop(ScriptedResponse((call,), StopReason.TOOL_USE))
+    _register(loop, "echo", echo)
+    loop.instance.ctx.events.on(AGENT_LIFECYCLE_EVENT, boom_on_start)
+
+    await loop.prompt(_say("hello"))  # must not raise -- settled gracefully
+
+    assert not ran
+    assert loop.instance.status is AgentStatus.IDLE
+    ends = [e for e in loop.instance.log.events if e.kind == EventKind.AGENT_END]
+    assert [e.data["reason"] for e in ends] == ["failed"]
+
+
+async def test_sequential_tool_batch_delivers_live_start_end_per_call_in_order() -> None:
+    """`L08-R002`, PASS 6: sequential-mode ordering is now the REAL
+    `start A, end A, start B, end B` -- PASS 5's own capture-and-replay
+    design reordered this to `start A, start B, end A, end B` (batch-wide
+    capture, redelivered only after the whole batch settled)."""
+
+    trace: list[str] = []
+
+    def make_tool(name: str) -> Any:
+        def fn(call_id: str, args: dict[str, Any]) -> str:
+            trace.append(f"execute:{name}")
+            return name
+
+        return fn
+
+    def observe(instance: Any, event: Any) -> None:
+        if isinstance(event, ToolExecutionStart):
+            trace.append(f"start:{event.tool_name}")
+        elif isinstance(event, ToolExecutionEnd):
+            trace.append(f"end:{event.tool_name}")
+
+    calls = (
+        ToolCallBlock(id="t1", name="alpha", arguments={}),
+        ToolCallBlock(id="t2", name="beta", arguments={}),
+    )
+    loop = _loop(
+        ScriptedResponse(calls, StopReason.TOOL_USE),
+        ScriptedResponse((), StopReason.STOP),
+    )
+    _register(loop, "alpha", make_tool("alpha"), mode=ExecutionMode.SEQUENTIAL)
+    _register(loop, "beta", make_tool("beta"), mode=ExecutionMode.SEQUENTIAL)
+    loop.instance.ctx.events.on(AGENT_LIFECYCLE_EVENT, observe)
+
+    await loop.prompt(_say("hello"))
+
+    assert trace == [
+        "start:alpha",
+        "execute:alpha",
+        "end:alpha",
+        "start:beta",
+        "execute:beta",
+        "end:beta",
+    ]
+
+
+async def test_tool_execution_update_reaches_the_lifecycle_seam() -> None:
+    """`L08-R002`, PASS 6: a tool's own live partial-output report
+    (`update()`, called SYNCHRONOUSLY by `execute()` per the established
+    3-argument calling convention `_wants_update` checks for) now reaches
+    `AGENT_LIFECYCLE_EVENT` as a `ToolExecutionUpdate` -- previously missing
+    from the union entirely -- delivered before that SAME call's own
+    `ToolExecutionEnd` (captured via the existing, certified, synchronous
+    `tools/update` EMIT listener and redelivered per call, immediately
+    before that call's own live `ToolExecutionEnd` dispatch)."""
+
+    def slow_echo(call_id: str, args: dict[str, Any], update: Any) -> str:
+        update("working")
+        return "done"
+
+    seen: list[Any] = []
+
+    def observe(instance: Any, event: Any) -> None:
+        if isinstance(event, ToolExecutionUpdate | ToolExecutionEnd):
+            seen.append(event)
+
+    call = ToolCallBlock(id="t1", name="slow", arguments={"x": 1})
+    loop = _loop(
+        ScriptedResponse((call,), StopReason.TOOL_USE),
+        ScriptedResponse((), StopReason.STOP),
+    )
+    _register(loop, "slow", slow_echo)
+    loop.instance.ctx.events.on(AGENT_LIFECYCLE_EVENT, observe)
+
+    await loop.prompt(_say("hello"))
+
+    assert [type(e) for e in seen] == [ToolExecutionUpdate, ToolExecutionEnd]
+    update_event = seen[0]
+    assert (update_event.tool_call_id, update_event.tool_name) == ("t1", "slow")
+    assert update_event.arguments == {"x": 1}
+    assert update_event.partial_result == "working"
+
+
+async def test_tool_execution_end_carries_the_finalized_result() -> None:
+    """`L08-R002`, PASS 6: `ToolExecutionEnd` now carries `tool_name` and the
+    finalized `result` itself (Layer 06's own `ToolResult`), not merely
+    `is_error` derived from it -- an earlier revision exposed only
+    `tool_call_id`/`is_error`, a real payload reduction pinned Pi does not
+    have."""
+    call = ToolCallBlock(id="t1", name="echo", arguments={})
+    loop = _loop(
+        ScriptedResponse((call,), StopReason.TOOL_USE),
+        ScriptedResponse((), StopReason.STOP),
+    )
+    _register(loop, "echo", lambda call_id, args: "pong")
+
+    seen: list[ToolExecutionEnd] = []
+
+    def observe(instance: Any, event: Any) -> None:
+        if isinstance(event, ToolExecutionEnd):
+            seen.append(event)
+
+    loop.instance.ctx.events.on(AGENT_LIFECYCLE_EVENT, observe)
+
+    await loop.prompt(_say("hello"))
+
+    assert len(seen) == 1
+    end = seen[0]
+    assert end.tool_name == "echo"
+    assert end.is_error is False
+    assert end.result.tool_call_id == "t1"
+    assert end.result.tool_name == "echo"
+    assert text_of(end.result.to_message()) == "pong"

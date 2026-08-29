@@ -13,6 +13,7 @@ from minion_agent.agent.projection import (
     project,
 )
 from minion_agent.llm import AssistantMessage, StopReason, TextBlock, Usage, UserMessage
+from minion_agent.llm.stream import TextDelta
 from minion_agent.session import EventKind, SessionLog, encode_message
 
 
@@ -282,19 +283,26 @@ def _partial(text: str) -> AssistantMessage:
 
 
 def test_a_chunk_projects_to_a_message_update() -> None:
-    """Pi's tenth event, `{assistantMessageEvent, message}` -- `message` is the
-    full partial assistant message as accumulated so far (`L08-R003`), not a
-    raw delta string."""
+    """Pi's tenth event, `{assistantMessageEvent, message}` (`L08-R002`, PASS 6): `event` is the
+    raw, type-specific stream chunk -- here a `TextDelta` carrying its own `delta` -- and `message`
+    is the full partial assistant message as accumulated so far (`L08-R003`), not a raw string."""
     log = SessionLog("s1")
     partial = _partial("hi")
     log.append(
         EventKind.ASSISTANT_CHUNK,
-        {"kind": "text_delta", "content_index": 0, "partial": encode_message(partial)},
+        {
+            "kind": "text_delta",
+            "content_index": 0,
+            "partial": encode_message(partial),
+            "delta": "hi",
+        },
     )
 
     update = next(e for e in project(log) if isinstance(e, MessageUpdate))
 
-    assert (update.kind, update.message) == ("text_delta", partial)
+    assert update.message == partial
+    assert isinstance(update.event, TextDelta)
+    assert (update.event.content_index, update.event.delta) == (0, "hi")
 
 
 def test_updates_precede_the_message_they_assemble() -> None:
@@ -305,7 +313,12 @@ def test_updates_precede_the_message_they_assemble() -> None:
     log.append(EventKind.ASSISTANT_STREAM_START, {"partial": encode_message(_partial(""))})
     log.append(
         EventKind.ASSISTANT_CHUNK,
-        {"kind": "text_delta", "content_index": 0, "partial": encode_message(_partial("hi"))},
+        {
+            "kind": "text_delta",
+            "content_index": 0,
+            "partial": encode_message(_partial("hi")),
+            "delta": "hi",
+        },
     )
     log.append(EventKind.ASSISTANT_MESSAGE, {"message": encode_message(_partial("hi"))})
 

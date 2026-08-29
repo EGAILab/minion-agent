@@ -19,7 +19,14 @@ from ..llm import ToolCallBlock
 from ..runtime import Context, Scope, ScopeKey
 from .definition import ExecutionMode
 from .events import TOOLS_EXECUTION_END, TOOLS_EXECUTION_START
-from .execute import _execute_and_finalize, _preflight, _Prepared, execute_call
+from .execute import (
+    OnExecutionEnd,
+    OnExecutionStart,
+    _execute_and_finalize,
+    _preflight,
+    _Prepared,
+    execute_call,
+)
 from .registry import ToolRegistry
 from .result import ToolResult, text_result
 
@@ -76,6 +83,8 @@ async def execute_batch(
     ctx: Context,
     scope: ScopeKey | Scope | None = None,
     default_mode: ExecutionMode = ExecutionMode.PARALLEL,
+    on_execution_start: OnExecutionStart | None = None,
+    on_execution_end: OnExecutionEnd | None = None,
 ) -> BatchOutcome:
     """Run every call in `calls`, returning results in source order.
 
@@ -93,6 +102,14 @@ async def execute_batch(
     any prepared call's `execute()` begins; only calls that survive preflight run concurrently
     afterward. `_preflight`/`_execute_and_finalize` (`execute.py`) are the same two functions
     `execute_call` itself is built from -- no stage's rules are duplicated here.
+
+    `on_execution_start`/`on_execution_end`, when supplied, are awaited at the exact points
+    described in `execute.py` -- for a sequential batch, per call, in order; for a parallel batch,
+    `on_execution_start` still runs sequentially across the whole preflight barrier (never
+    concurrently with itself), and `on_execution_end` runs as each call's own concurrent
+    `execute()`+after-hook phase finishes (`L08-R002`, PASS 6). A listener that raises propagates
+    out of this function immediately, preventing any call not yet past that point from proceeding
+    -- additive: `None` (every existing caller) preserves this function's own certified behavior.
     """
     completion: list[str] = []
     scope_key = scope.key if isinstance(scope, Scope) else scope
@@ -100,7 +117,14 @@ async def execute_batch(
     if _is_sequential(calls, registry, scope, default_mode):
 
         async def run(call: ToolCallBlock) -> ToolResult:
-            result = await execute_call(call, registry=registry, ctx=ctx, scope=scope)
+            result = await execute_call(
+                call,
+                registry=registry,
+                ctx=ctx,
+                scope=scope,
+                on_execution_start=on_execution_start,
+                on_execution_end=on_execution_end,
+            )
             completion.append(result.tool_call_id)
             return result
 
@@ -108,7 +132,14 @@ async def execute_batch(
     else:
         outcomes: list[_Prepared | ToolResult] = []
         for call in calls:
-            outcome = await _preflight(call, registry=registry, ctx=ctx, scope=scope_key)
+            outcome = await _preflight(
+                call,
+                registry=registry,
+                ctx=ctx,
+                scope=scope_key,
+                on_execution_start=on_execution_start,
+                on_execution_end=on_execution_end,
+            )
             # An immediate outcome already produced its final result -- and emitted
             # tools/execution-end -- during preflight, strictly before the barrier below, so its
             # completion is recorded here, not deferred into the concurrent phase.
@@ -119,7 +150,9 @@ async def execute_batch(
         async def resolve(outcome: _Prepared | ToolResult) -> ToolResult:
             if isinstance(outcome, ToolResult):
                 return outcome
-            result = await _execute_and_finalize(outcome, ctx=ctx, scope=scope_key)
+            result = await _execute_and_finalize(
+                outcome, ctx=ctx, scope=scope_key, on_execution_end=on_execution_end
+            )
             completion.append(result.tool_call_id)
             return result
 
@@ -141,6 +174,8 @@ async def execute_length_stop_batch(
     *,
     ctx: Context,
     scope: ScopeKey | Scope | None = None,
+    on_execution_start: OnExecutionStart | None = None,
+    on_execution_end: OnExecutionEnd | None = None,
 ) -> BatchOutcome:
     """Every call in `calls` becomes the same length-stop error result; none of them run.
 
@@ -150,14 +185,17 @@ async def execute_length_stop_batch(
     unconditionally skips resolution, `prepare_arguments`, validation, the before-hook, `execute`,
     and the after-hook for every call; each becomes the identical error result, in source order.
     `tool_execution_start`/`tool_execution_end` still fire for each call, matching pinned Pi
-    exactly. `terminate` is always `False` here -- pinned Pi never folds these results through
-    `shouldTerminateToolBatch` at all.
+    exactly -- including, when supplied, awaiting `on_execution_start`/`on_execution_end` at the
+    same points `execute_batch` does (`L08-R002`, PASS 6). `terminate` is always `False` here --
+    pinned Pi never folds these results through `shouldTerminateToolBatch` at all.
     """
     scope_key = scope.key if isinstance(scope, Scope) else scope
     results: list[ToolResult] = []
     completion: list[str] = []
     for call in calls:
         ctx.events.emit(TOOLS_EXECUTION_START, call.id, call.name, call.arguments, scope=scope_key)
+        if on_execution_start is not None:
+            await on_execution_start(call.id, call.name, call.arguments)
         result = text_result(
             call.id,
             f'Tool call "{call.name}" was not executed: the response hit the output token '
@@ -167,6 +205,8 @@ async def execute_length_stop_batch(
             is_error=True,
         )
         ctx.events.emit(TOOLS_EXECUTION_END, call.id, call.name, result, scope=scope_key)
+        if on_execution_end is not None:
+            await on_execution_end(call.id, call.name, result)
         results.append(result)
         completion.append(call.id)
 

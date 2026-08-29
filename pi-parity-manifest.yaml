@@ -321,7 +321,7 @@ rows:
   - test_the_turn_is_logged_in_order
   - turn-lifecycle (legacy-shape canonical)
   - tool-round-trip (legacy-shape canonical)
-  python: src/minion_agent/agent_loop/driver.py::AgentLoop._run_once/_run_step
+  python: src/minion_agent/agent_loop/driver.py::AgentLoop._run_step
   rust: PENDING -- Layer 08 not yet implemented in Rust
   disposition: adopted
 - id: AG-002
@@ -370,7 +370,7 @@ rows:
   - test_continue_drains_steering_when_last_message_is_assistant
   - test_continue_does_not_double_drain_steering_after_pre_drain
   python: src/minion_agent/agent_loop/driver.py::AgentLoop._run_inner (staged first-turn admission), AgentLoop._admit_messages, AgentLoop.continue_ (skip_initial_steering_poll)
-  rust: PENDING -- Layer 08 not yet implemented in Rust; both the PASS-2 (L08-R006) and PASS-3 (L08-R006) candidates were independently rejected on this row, PASS 4 is the remediated candidate awaiting re-review
+  rust: PENDING -- Layer 08 not yet implemented in Rust; both the PASS-2 (L08-R006) and PASS-3 (L08-R006) candidates were independently rejected on this row, PASS 4 remediated it and it has been conformant through every re-review since (PASS 5, PASS 6)
   disposition: adopted
 - id: AG-003
   phase: 3
@@ -749,7 +749,74 @@ rows:
     Still explicitly excludes the eager, pre-stream `UnknownModelError` (a caller/config bug, not a
     run-executor failure, re-raised uncaught -- `test_an_unresolvable_model_still_raises_uncaught`,
     already-certified section-4 evidence) and remains out of scope for
-    `active-abort-provider`/`abort-settles-before-idle`-flavored Layer-09 concerns -- see `AG-007`.'
+    `active-abort-provider`/`abort-settles-before-idle`-flavored Layer-09 concerns -- see `AG-007`.
+
+    PASS 6, correcting the independent re-review of the PASS-5 candidate (`L08-R002` again): PASS 5''s
+    own disclosed narrower tool-event fidelity was rejected outright, not accepted as a documented
+    divergence -- "a disclosed known mismatch is still a PI_PARITY_DEFECT absent approved intentional
+    divergence" -- and four further defects were found: `tool_execution_update` missing from the
+    union entirely, incomplete `ToolExecutionEnd`/`MessageUpdate` payloads, the no-start stream
+    fallback reducing in the wrong order, and `agent_start`/a successful `agent_end`''s own listener
+    failures escaping `_execute_run`''s catch boundary entirely.
+
+    (1) Genuinely live tool events: Layer 06''s own `tools/execute.py`/`tools/batch.py` gained
+    additive, optional `on_execution_start`/`on_execution_end` async hooks (`OnExecutionStart`/
+    `OnExecutionEnd`), awaited at the EXACT points the existing, still-certified
+    `tools/execution-start`/`-end` EMIT events already fire -- `None` (every other caller) preserves
+    Layer 06''s own certified behavior exactly, no lower-layer contract reopened. `_run_step`''s own
+    `AgentEvent` dispatch for `ToolExecutionStart`/`ToolExecutionEnd` is now genuinely live, at real
+    execution points, not captured-and-replayed after the batch settles: a listener failure now
+    genuinely prevents that call from proceeding (proven by
+    `test_tool_execution_start_listener_failure_prevents_that_calls_own_execution`, whose tool never
+    runs), and sequential-mode ordering is the real `start A, end A, start B, end B` (proven by
+    `test_sequential_tool_batch_delivers_live_start_end_per_call_in_order`), not PASS 5''s own
+    `start A, start B, end A, end B`.
+
+    (2) `tool_execution_update`: a tool''s own `execute()` calls its `update(partial)` callback
+    SYNCHRONOUSLY, an established SDK-level calling convention (`_wants_update`, `tools/execute.py`)
+    no Layer-06 caller may redesign out from under every existing tool definition -- genuinely
+    different from PASS 5''s own Layer-06-EMIT-timing choice, which had a real live alternative
+    available and simply had not been built yet. Updates are captured via the existing, certified,
+    synchronous `tools/update` EMIT listener and redelivered per call, immediately before that SAME
+    call''s own (now-live) `ToolExecutionEnd` dispatch: `accepting_updates` (`tools/execute.py`)
+    already guarantees every one of a call''s own updates lands before that call''s own `execute()`
+    promise settles, so filtering by `call_id` at `ToolExecutionEnd` time always yields that call''s
+    complete, correctly-ordered update history (start, its own updates, end) -- proven by
+    `test_tool_execution_update_reaches_the_lifecycle_seam`. Only the interleaving of two DIFFERENT
+    concurrent calls'' updates is unreproducible without that same tool-authoring redesign -- a
+    disclosed, genuine SDK constraint, not an implementation convenience with an available fix.
+
+    (3) Complete payloads: `MessageUpdate.event` now carries pinned Pi''s own raw
+    `assistantMessageEvent` (the exact `TextStart`/`TextDelta`/`TextEnd`/`ThinkingStart`/
+    `ThinkingDelta`/`ThinkingEnd`/`ToolCallStart`/`ToolCallDelta`/`ToolCallEnd` `StreamChunk`
+    variant), not a normalized `kind`/`content_index` pair (`agent/projection.py`); `ToolExecutionEnd`
+    now carries `tool_name` and the finalized `result` (Layer 06''s own `ToolResult`) itself, not
+    merely `is_error` derived from it -- proven by `test_a_chunk_projects_to_a_message_update` and
+    `test_tool_execution_end_carries_the_finalized_result`. The offline `project()` reconstructs both
+    from the log alone: a delta chunk''s own incremental string is logged explicitly (`"delta"`,
+    `ASSISTANT_CHUNK`, only for the three delta kinds -- a start/end chunk''s own fields are already
+    derivable from `partial.content[content_index]`); a `ToolResult` is rebuilt from its own
+    `TOOL_RESULT` entry''s `ToolResultMessage` plus one extra logged field, `"terminate"` -- the one
+    `ToolResult` field `to_message()` never copies onto the message, by design, since it must never
+    reach the model.
+
+    (4) The no-start stream fallback now reduces in the right order: `streaming_message` is set to
+    the reply and `MessageStart` dispatched FIRST (when the stream never opened one of its own), THEN
+    `streaming_message` is cleared, the transcript entry appended, and `MessageEnd` dispatched -- PASS
+    5''s own revision cleared `streaming_message` and appended the transcript entry before the
+    fallback `MessageStart`''s own dispatch, observable via `streaming_message` still being `None`
+    inside a `message_start` listener instead of the reply (regression strengthened in
+    `test_a_stream_with_no_start_chunk_still_gets_a_message_start`).
+
+    (5) `agent_start`''s own dispatch and a successful run''s own `agent_end` dispatch now live INSIDE
+    `_execute_run`''s `try`, sharing `_run_inner`''s own exception boundary: a listener failure at
+    either point is, per pinned Pi''s own architecture, indistinguishable from any other run-executor
+    failure and is now caught and settled via `_settle_run_failure` the same way, instead of escaping
+    straight to `_run_wrapped`''s `finally` uncaught (proven by
+    `test_an_agent_start_listener_failure_settles_gracefully` and
+    `test_a_successful_agent_end_listener_failure_settles_gracefully` -- the latter also proving the
+    Pi-faithful "double `AGENT_END`" outcome when only the successful `agent_end`''s OWN dispatch is
+    what fails, not the reduce that preceded it).'
   tests:
   - test_a_run_executor_failure_recovers_through_the_live_lifecycle_event_seam
   - test_a_post_turn_callback_failure_recovers_through_the_live_seam
@@ -765,8 +832,15 @@ rows:
   - test_a_stream_with_no_start_chunk_still_gets_a_message_start
   - test_turn_end_sets_error_message_even_for_a_non_terminal_reply
   - test_collect_calls_on_chunk_for_every_chunk_in_order (llm/stream.py, certified evidence collect() itself still keeps)
-  python: src/minion_agent/agent_loop/driver.py::AgentLoop._execute_run (catch boundary), AgentLoop._dispatch_agent_event, AgentLoop._admit_messages, AgentLoop._settle_run_failure, AgentLoop._run_step (direct stream iteration, captured tool-execution redelivery)
-  rust: PENDING -- Layer 08 not yet implemented in Rust; the PASS-2, PASS-3, and PASS-4 candidates were each independently rejected on this row (L08-R002), PASS 5 is the remediated candidate awaiting re-review
+  - test_an_agent_start_listener_failure_settles_gracefully
+  - test_a_successful_agent_end_listener_failure_settles_gracefully
+  - test_tool_execution_start_listener_failure_prevents_that_calls_own_execution
+  - test_sequential_tool_batch_delivers_live_start_end_per_call_in_order
+  - test_tool_execution_update_reaches_the_lifecycle_seam
+  - test_tool_execution_end_carries_the_finalized_result
+  - test_a_chunk_projects_to_a_message_update (agent/test_projection.py)
+  python: src/minion_agent/agent_loop/driver.py::AgentLoop._execute_run (catch boundary), AgentLoop._dispatch_agent_event, AgentLoop._admit_messages, AgentLoop._settle_run_failure, AgentLoop._run_step (live tool-execution/update dispatch, direct stream iteration), src/minion_agent/tools/execute.py::OnExecutionStart, OnExecutionEnd, _preflight, _execute_and_finalize, _immediate, execute_call, src/minion_agent/tools/batch.py::execute_batch, execute_length_stop_batch, src/minion_agent/agent/projection.py::MessageUpdate, ToolExecutionEnd, ToolExecutionUpdate, project
+  rust: PENDING -- Layer 08 not yet implemented in Rust; the PASS-2, PASS-3, PASS-4, and PASS-5 candidates were each independently rejected on this row (L08-R002), PASS 6 is the remediated candidate awaiting re-review
   disposition: adopted
 - id: AG-010
   phase: 3

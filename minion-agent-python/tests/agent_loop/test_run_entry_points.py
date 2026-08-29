@@ -1449,6 +1449,70 @@ async def test_tool_execution_update_reaches_the_lifecycle_seam() -> None:
     assert update_event.partial_result == "working"
 
 
+async def test_pending_tool_calls_still_shows_the_call_during_its_own_update_dispatch() -> None:
+    """`L08-R002`, PASS 7: a `tool_execution_update` listener observes the call still marked
+    pending -- `on_execution_end` (which clears `pending_tool_calls`) only fires once every one of
+    that call's own scheduled update dispatches has been joined (`tools/execute.py`,
+    `OnExecutionUpdate`), matching pinned Pi's own `tool_execution_update` firing strictly before
+    `tool_execution_end`. An earlier revision cleared `pending_tool_calls` for a call BEFORE
+    redelivering its own captured updates, so a listener observed it already gone."""
+
+    def slow_echo(call_id: str, args: dict[str, Any], update: Any) -> str:
+        update("working")
+        return "done"
+
+    pending_snapshots: list[frozenset[str]] = []
+
+    def observe(instance: Any, event: Any) -> None:
+        if isinstance(event, ToolExecutionUpdate):
+            pending_snapshots.append(frozenset(instance.pending_tool_calls))
+
+    call = ToolCallBlock(id="t1", name="slow", arguments={})
+    loop = _loop(
+        ScriptedResponse((call,), StopReason.TOOL_USE),
+        ScriptedResponse((), StopReason.STOP),
+    )
+    _register(loop, "slow", slow_echo)
+    loop.instance.ctx.events.on(AGENT_LIFECYCLE_EVENT, observe)
+
+    await loop.prompt(_say("hello"))
+
+    assert pending_snapshots == [frozenset({"t1"})]
+
+
+async def test_tool_execution_update_listener_failure_is_a_genuine_run_failure() -> None:
+    """`L08-R002`, PASS 7: pinned Pi's own `tool_execution_update` dispatch
+    (`agent-loop.ts:670-711`) lets a listener's own rejection propagate straight out of
+    `executePreparedToolCall`, uncaught -- the SAME causal category as a
+    `tool_execution_start`/`tool_execution_end` listener failure, not silently absorbed into a
+    per-call tool error result. `_finalize`/`tool_execution_end` never run for that call at all."""
+
+    def slow_echo(call_id: str, args: dict[str, Any], update: Any) -> str:
+        update("working")
+        return "done"
+
+    finalized = False
+
+    def boom_on_update(instance: Any, event: Any) -> None:
+        nonlocal finalized
+        if isinstance(event, ToolExecutionUpdate):
+            raise RuntimeError("update listener exploded")
+        if isinstance(event, ToolExecutionEnd):
+            finalized = True
+
+    call = ToolCallBlock(id="t1", name="slow", arguments={})
+    loop = _loop(ScriptedResponse((call,), StopReason.TOOL_USE))
+    _register(loop, "slow", slow_echo)
+    loop.instance.ctx.events.on(AGENT_LIFECYCLE_EVENT, boom_on_update)
+
+    await loop.prompt(_say("hello"))  # must not raise -- settled gracefully via recovery
+
+    assert not finalized
+    assert loop.instance.status is AgentStatus.IDLE
+    ends = [e for e in loop.instance.log.events if e.kind == EventKind.AGENT_END]
+    assert [e.data["reason"] for e in ends] == ["failed"]
+
+
 async def test_tool_execution_end_carries_the_finalized_result() -> None:
     """`L08-R002`, PASS 6: `ToolExecutionEnd` now carries `tool_name` and the
     finalized `result` itself (Layer 06's own `ToolResult`), not merely

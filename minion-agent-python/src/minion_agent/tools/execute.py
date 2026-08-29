@@ -28,6 +28,7 @@ asked to continue from a conversation that does not make sense.
 
 from __future__ import annotations
 
+import asyncio
 import inspect
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
@@ -65,6 +66,22 @@ type OnExecutionEnd = Callable[[str, str, ToolResult], Awaitable[None]]
 `tool_execution_end` `AgentEvent` reaches `Agent.processEvents` -- for EVERY outcome, immediate
 or executed, matching the already-certified `tools/execution-end` EMIT event's own unconditional
 firing (`TOOL-017`). Additive, same as `OnExecutionStart`."""
+
+type OnExecutionUpdate = Callable[[str, str, dict[str, Any], str], Awaitable[None]]
+"""`(call_id, tool_name, arguments, partial_result) -> None` (Layer 08, PASS 7, `L08-R002`).
+Scheduled -- not awaited inline -- at the exact moment the tool's own SYNCHRONOUS `update(partial)`
+callback fires, matching pinned Pi's own `tool_execution_update` dispatch exactly
+(`executePreparedToolCall`, `agent-loop.ts:670-711`): pinned Pi's `update` callback pushes
+`emit(...)`'s own promise onto an array WITHOUT awaiting it inline, so listener delivery begins at
+CALLBACK time, concurrently with the rest of `execute()` -- only once `execute()` itself settles
+does pinned Pi `await Promise.all(updateEvents)`, letting a listener failure propagate uncaught,
+before `finalizeExecutedToolCall`/`tool_execution_end` ever runs. `_execute_and_finalize` reproduces
+this with `asyncio.ensure_future` (Python's own "start now, join later" primitive) in place of an
+unawaited promise, and an unwrapped `asyncio.gather` in place of `Promise.all` -- keeping this call
+still genuinely marked pending (`AgentInstance.pending_tool_calls`) for the whole time its own
+updates are in flight, since `OnExecutionEnd` (which clears it) fires only once every one of this
+call's own scheduled update tasks has resolved. Additive, same as `OnExecutionStart`/
+`OnExecutionEnd`."""
 
 
 class ArgumentValidationError(Exception):
@@ -385,6 +402,7 @@ async def _execute_and_finalize(
     ctx: Context,
     scope: ScopeKey | None,
     on_execution_end: OnExecutionEnd | None = None,
+    on_execution_update: OnExecutionUpdate | None = None,
 ) -> ToolResult:
     """Run `execute()` (+ live updates) and the after-hook for a call that survived preflight --
     pinned Pi's `executePreparedToolCall` + `finalizeExecutedToolCall`. Always ends by emitting
@@ -400,6 +418,7 @@ async def _execute_and_finalize(
     # produces -- success or failure -- goes through the after-hook (pinned Pi's
     # finalizeExecutedToolCall is invoked uniformly for both).
     accepting_updates = True
+    pending_updates: list[asyncio.Task[None]] = []
 
     def update(partial: str) -> None:
         # Pinned Pi: "Calls made after the tool promise settles are ignored"
@@ -414,6 +433,19 @@ async def _execute_and_finalize(
         # original call `prepareToolCall` was given, not the `prepareArguments`-shimmed or
         # validated one.
         ctx.events.emit(TOOLS_UPDATE, call.id, call.name, call.arguments, partial, scope=scope)
+        if on_execution_update is not None:
+            # `ensure_future`, not `await`: pinned Pi's own callback does not await `emit(...)`
+            # either -- it fires the promise and keeps running, joining every one of THIS call's
+            # own pending update dispatches only once `execute()` itself settles, below
+            # (`L08-R002`, PASS 7). This is what lets a slow/failing update listener run
+            # genuinely concurrently with the rest of `execute()` -- and, in a parallel batch,
+            # concurrently with every OTHER call's own in-flight work -- instead of being queued
+            # as inert data replayed after the fact.
+            pending_updates.append(
+                asyncio.ensure_future(
+                    on_execution_update(call.id, call.name, call.arguments, partial)
+                )
+            )
 
     try:
         outcome = (
@@ -442,6 +474,16 @@ async def _execute_and_finalize(
         else:
             executed = text_result(call.id, str(value), call.name)
 
+    if pending_updates:
+        # Deliberately NOT wrapped in `try`/`except`: pinned Pi's own `await
+        # Promise.all(updateEvents)` (both the success and failure branches of
+        # `executePreparedToolCall`) lets a listener's own rejection propagate straight out,
+        # uncaught -- the SAME causal category as a `tool_execution_start`/`tool_execution_end`
+        # listener failure, not converted into a per-call error result (`L08-R002`, PASS 7). This
+        # also means `_finalize`/`tool_execution_end` below never run for this call if one of its
+        # own update listeners failed, matching pinned Pi exactly.
+        await asyncio.gather(*pending_updates)
+
     try:
         finalized = await _finalize(executed, ctx, scope)
     except Exception as error:
@@ -463,6 +505,7 @@ async def execute_call(
     scope: ScopeKey | Scope | None = None,
     on_execution_start: OnExecutionStart | None = None,
     on_execution_end: OnExecutionEnd | None = None,
+    on_execution_update: OnExecutionUpdate | None = None,
 ) -> ToolResult:
     """Run `call` and return its result, whatever happens.
 
@@ -487,5 +530,9 @@ async def execute_call(
     if isinstance(outcome, ToolResult):
         return outcome
     return await _execute_and_finalize(
-        outcome, ctx=ctx, scope=scope, on_execution_end=on_execution_end
+        outcome,
+        ctx=ctx,
+        scope=scope,
+        on_execution_end=on_execution_end,
+        on_execution_update=on_execution_update,
     )

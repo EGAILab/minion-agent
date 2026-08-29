@@ -145,7 +145,6 @@ from ..session import (
 from ..telemetry import Span, SpanKind, TelemetryService
 from ..tools.batch import BatchOutcome, execute_batch, execute_length_stop_batch
 from ..tools.definition import ToolDefinition
-from ..tools.events import TOOLS_UPDATE
 from ..tools.registry import ToolRegistry
 from ..tools.result import ToolResult
 
@@ -918,38 +917,24 @@ class AgentLoop:
         if calls:
             execution_registry = _snapshot_tool_registry(context.tools)
 
-            # `on_execution_start`/`on_execution_end` are Layer-06's own additive,
-            # awaited hooks (`tools/execute.py`, PASS 6): genuinely LIVE dispatch,
-            # at the exact points `tools/execution-start`/`-end` already fire, not
-            # captured-and-replayed after the batch settles -- a listener failure
-            # here now genuinely prevents that call from proceeding, and
-            # sequential-mode ordering is the real `start A, end A, start B,
-            # end B` (`L08-R002`). `pending_tool_calls` (the reduce) is updated
-            # in the same closure, immediately before each event's own dispatch,
-            # matching pinned Pi's own `processEvents` reducer exactly.
+            # `on_execution_start`/`on_execution_end`/`on_execution_update` are Layer-06's own
+            # additive, awaited hooks (`tools/execute.py`): genuinely LIVE dispatch, at the exact
+            # points pinned Pi's own `tool_execution_start`/`_update`/`_end` fire, not
+            # captured-and-replayed after the batch settles (`L08-R002`). `pending_tool_calls`
+            # (the reduce) is updated in the same closures, immediately before each event's own
+            # dispatch, matching pinned Pi's own `processEvents` reducer exactly -- it stays set
+            # for the whole time a call's own updates are still in flight, since `on_execution_end`
+            # (which clears it) only fires once `_execute_and_finalize` has already joined every
+            # one of that call's own scheduled update dispatches (`tools/execute.py`,
+            # `OnExecutionUpdate`).
             #
-            # `tool_execution_update`, by contrast, cannot be made live this way:
-            # a tool's own `execute()` calls its `update(partial)` callback
-            # SYNCHRONOUSLY, an established SDK-level calling convention no
-            # Layer-06 caller may redesign out from under every existing tool
-            # definition. It is captured via the existing, certified, synchronous
-            # `tools/update` EMIT listener and redelivered per call, immediately
-            # before that SAME call's own (now-live) `ToolExecutionEnd`
-            # dispatch below -- `accepting_updates` (`tools/execute.py`) already
-            # guarantees every one of a call's own updates lands in the
-            # transcript before that call's own `execute()` promise settles, so
-            # filtering by `call_id` here always yields that call's complete,
-            # correctly-ordered update history, with only the interleaving of
-            # two DIFFERENT concurrent calls' updates unreproducible without
-            # that same tool-authoring redesign -- a disclosed, genuine SDK
-            # constraint, distinct from PASS 5's own Layer-06-EMIT-timing choice.
-            tool_updates: list[tuple[str, str, dict[str, object], str]] = []
-
-            def on_tools_update(
-                call_id: str, name: str, arguments: dict[str, object], partial_result: str
-            ) -> None:
-                tool_updates.append((call_id, name, arguments, partial_result))
-
+            # `on_execution_update` is scheduled (`asyncio.ensure_future`), not awaited inline, by
+            # `tools/execute.py` itself the moment a tool's own SYNCHRONOUS `update(partial)`
+            # callback fires -- matching pinned Pi's own unawaited `emit(...)` at callback time
+            # (`agent-loop.ts:670-711`) -- so two different calls' own update dispatches interleave
+            # according to real scheduling, not a batch-wide capture-and-replay order (PASS 7,
+            # correcting PASS 6's own capture-then-redeliver-per-call approximation, itself an
+            # improvement over PASS 5's batch-wide one but still not genuinely live).
             async def on_execution_start(
                 call_id: str, name: str, arguments: dict[str, object]
             ) -> None:
@@ -958,19 +943,20 @@ class AgentLoop:
                     ToolExecutionStart(tool_call_id=call_id, tool_name=name, arguments=arguments)
                 )
 
+            async def on_execution_update(
+                call_id: str, name: str, arguments: dict[str, object], partial_result: str
+            ) -> None:
+                await self._dispatch_agent_event(
+                    ToolExecutionUpdate(
+                        tool_call_id=call_id,
+                        tool_name=name,
+                        arguments=arguments,
+                        partial_result=partial_result,
+                    )
+                )
+
             async def on_execution_end(call_id: str, name: str, result: ToolResult) -> None:
                 self.instance.pending_tool_calls = self.instance.pending_tool_calls - {call_id}
-                for _, update_name, update_arguments, partial_result in (
-                    update for update in tool_updates if update[0] == call_id
-                ):
-                    await self._dispatch_agent_event(
-                        ToolExecutionUpdate(
-                            tool_call_id=call_id,
-                            tool_name=update_name,
-                            arguments=update_arguments,
-                            partial_result=partial_result,
-                        )
-                    )
                 await self._dispatch_agent_event(
                     ToolExecutionEnd(
                         tool_call_id=call_id,
@@ -980,33 +966,29 @@ class AgentLoop:
                     )
                 )
 
-            dispose_update = self.instance.ctx.events.on(
-                TOOLS_UPDATE, on_tools_update, scope=self.instance.scope.key
-            )
-            try:
-                if reply.stop_reason is StopReason.LENGTH:
-                    # A length stop means the output was cut off by the token limit, so every
-                    # tool call the message carries may itself have truncated arguments. Pinned
-                    # Pi fails them all instead of executing potentially-truncated calls
-                    # (`failToolCallsFromTruncatedMessage`, TOOL-017) -- none reach the registry.
-                    outcome = await execute_length_stop_batch(
-                        calls,
-                        ctx=self.instance.ctx,
-                        scope=self.instance.scope,
-                        on_execution_start=on_execution_start,
-                        on_execution_end=on_execution_end,
-                    )
-                else:
-                    outcome = await execute_batch(
-                        calls,
-                        registry=execution_registry,
-                        ctx=self.instance.ctx,
-                        scope=self.instance.scope,
-                        on_execution_start=on_execution_start,
-                        on_execution_end=on_execution_end,
-                    )
-            finally:
-                dispose_update()
+            if reply.stop_reason is StopReason.LENGTH:
+                # A length stop means the output was cut off by the token limit, so every
+                # tool call the message carries may itself have truncated arguments. Pinned
+                # Pi fails them all instead of executing potentially-truncated calls
+                # (`failToolCallsFromTruncatedMessage`, TOOL-017) -- none reach the registry, so
+                # none ever call `update()` -- no `on_execution_update` to supply.
+                outcome = await execute_length_stop_batch(
+                    calls,
+                    ctx=self.instance.ctx,
+                    scope=self.instance.scope,
+                    on_execution_start=on_execution_start,
+                    on_execution_end=on_execution_end,
+                )
+            else:
+                outcome = await execute_batch(
+                    calls,
+                    registry=execution_registry,
+                    ctx=self.instance.ctx,
+                    scope=self.instance.scope,
+                    on_execution_start=on_execution_start,
+                    on_execution_end=on_execution_end,
+                    on_execution_update=on_execution_update,
+                )
 
             results: list[Message] = []
             for result in outcome.results:

@@ -816,7 +816,53 @@ rows:
     `test_an_agent_start_listener_failure_settles_gracefully` and
     `test_a_successful_agent_end_listener_failure_settles_gracefully` -- the latter also proving the
     Pi-faithful "double `AGENT_END`" outcome when only the successful `agent_end`''s OWN dispatch is
-    what fails, not the reduce that preceded it).'
+    what fails, not the reduce that preceded it).
+
+    PASS 7, correcting the independent re-review of the PASS-6 candidate (`L08-R002` a third time):
+    PASS 6''s own `tool_execution_update` fix was still wrong in kind, not merely incomplete --
+    "tool_execution_update events are buffered and regrouped at each tool call''s completion. Pinned
+    Pi initiates listener delivery at callback time and drains those listeners before
+    finalization/end. This changes cross-call ordering, visible pending-tool state, and
+    listener-failure behavior." PASS 6 captured `(call_id, name, arguments, partial)` tuples as
+    inert data via the existing sync `tools/update` EMIT listener and only ever invoked the
+    Agent-level dispatch later, filtered by `call_id`, inside `on_execution_end` -- meaning (a) the
+    listener chain for an update never actually RAN until long after the tool itself had already
+    moved on, breaking real interleaving with any other concurrent call''s own progress; (b)
+    `pending_tool_calls` had already been cleared for that call (`on_execution_end`''s own first
+    line) before its own queued updates were replayed, so a listener saw the call as no longer
+    pending during its own update; (c) a failing update listener, since it ran inside
+    `on_execution_end`''s own body, before `ToolExecutionEnd`''s dispatch but not before Layer 06''s
+    OWN `_finalize`/`tools/execution-end` EMIT had already fired -- an ordering PASS 6 never
+    explicitly audited against pinned Pi''s own finalization boundary.
+
+    Re-auditing pinned Pi''s own source directly (`ref-repos/pi` @ `b7bb00b`,
+    `agent-loop.ts:670-711`, `executePreparedToolCall`) resolved the correct semantics precisely:
+    the `update` callback''s own body calls `emit(...)` -- starting listener dispatch immediately,
+    at callback time -- WITHOUT awaiting it inline, pushing the unawaited promise onto an
+    `updateEvents` array; only once `execute()` itself settles (success or failure) does pinned Pi
+    `await Promise.all(updateEvents)`, letting any listener rejection propagate uncaught, BEFORE
+    `finalizeExecutedToolCall`/`tool_execution_end` ever runs. `tools/execute.py::_execute_and_
+    finalize` now reproduces this with `asyncio.ensure_future` (schedules the live dispatch
+    immediately, returns without blocking `update()`''s own caller) collected into a
+    `pending_updates` list, joined via an UNWRAPPED `asyncio.gather` immediately after `execute()`
+    settles and before `_finalize`/`tools/execution-end`''s own EMIT -- so a listener failure there
+    propagates straight out of `_execute_and_finalize`, uncaught, the SAME causal category as a
+    `tool_execution_start`/`tool_execution_end` failure, and `_finalize`/`tool_execution_end` never
+    run for that call at all. `driver.py`''s own `on_execution_update` closure is now a THIRD live
+    hook, threaded through `execute_batch`/`execute_call` alongside `on_execution_start`/
+    `on_execution_end` (not `execute_length_stop_batch`, which never calls `execute()`), dispatching
+    `ToolExecutionUpdate` directly -- the PASS-6-era capture list, sync `tools/update` EMIT
+    listener, and per-call filtering in `on_execution_end` are all removed entirely, not layered
+    on top of. Because updates are now scheduled tasks, not inert data, two different concurrent
+    calls'' own update dispatches interleave according to real `asyncio` scheduling (proven by
+    `test_on_execution_update_does_not_block_the_tools_own_execute`, showing the tool''s own
+    synchronous continuation runs before a slow hook''s own delay elapses), and a call stays
+    genuinely marked pending for the whole time its own updates are in flight (proven by
+    `test_pending_tool_calls_still_shows_the_call_during_its_own_update_dispatch`), with a failing
+    update listener now a genuine run failure, not silently absorbed (proven by
+    `test_tool_execution_update_listener_failure_is_a_genuine_run_failure` at the Layer-08 level and
+    `test_a_failing_on_execution_update_listener_propagates_uncaught` at the Layer-06 level, the
+    latter also confirming `tools/execution-end` never fires for that call).'
   tests:
   - test_a_run_executor_failure_recovers_through_the_live_lifecycle_event_seam
   - test_a_post_turn_callback_failure_recovers_through_the_live_seam
@@ -839,8 +885,13 @@ rows:
   - test_tool_execution_update_reaches_the_lifecycle_seam
   - test_tool_execution_end_carries_the_finalized_result
   - test_a_chunk_projects_to_a_message_update (agent/test_projection.py)
-  python: src/minion_agent/agent_loop/driver.py::AgentLoop._execute_run (catch boundary), AgentLoop._dispatch_agent_event, AgentLoop._admit_messages, AgentLoop._settle_run_failure, AgentLoop._run_step (live tool-execution/update dispatch, direct stream iteration), src/minion_agent/tools/execute.py::OnExecutionStart, OnExecutionEnd, _preflight, _execute_and_finalize, _immediate, execute_call, src/minion_agent/tools/batch.py::execute_batch, execute_length_stop_batch, src/minion_agent/agent/projection.py::MessageUpdate, ToolExecutionEnd, ToolExecutionUpdate, project
-  rust: PENDING -- Layer 08 not yet implemented in Rust; the PASS-2, PASS-3, PASS-4, and PASS-5 candidates were each independently rejected on this row (L08-R002), PASS 6 is the remediated candidate awaiting re-review
+  - test_pending_tool_calls_still_shows_the_call_during_its_own_update_dispatch
+  - test_tool_execution_update_listener_failure_is_a_genuine_run_failure
+  - test_on_execution_update_is_awaited_for_every_call_in_order (tools/test_updates.py)
+  - test_a_failing_on_execution_update_listener_propagates_uncaught (tools/test_updates.py)
+  - test_on_execution_update_does_not_block_the_tools_own_execute (tools/test_updates.py)
+  python: src/minion_agent/agent_loop/driver.py::AgentLoop._execute_run (catch boundary), AgentLoop._dispatch_agent_event, AgentLoop._admit_messages, AgentLoop._settle_run_failure, AgentLoop._run_step (live tool-execution/update dispatch, direct stream iteration), src/minion_agent/tools/execute.py::OnExecutionStart, OnExecutionEnd, OnExecutionUpdate, _preflight, _execute_and_finalize, _immediate, execute_call, src/minion_agent/tools/batch.py::execute_batch, execute_length_stop_batch, src/minion_agent/agent/projection.py::MessageUpdate, ToolExecutionEnd, ToolExecutionUpdate, project
+  rust: PENDING -- Layer 08 not yet implemented in Rust; the PASS-2, PASS-3, PASS-4, PASS-5, and PASS-6 candidates were each independently rejected on this row (L08-R002), PASS 7 is the remediated candidate awaiting re-review
   disposition: adopted
 - id: AG-010
   phase: 3

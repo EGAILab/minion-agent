@@ -6,6 +6,7 @@ every intermediate chunk would inflate the log with content no request can
 ever contain, and reconstruction would have to learn to ignore it.
 """
 
+import asyncio
 from typing import Any
 
 import pytest
@@ -13,7 +14,7 @@ import pytest
 from minion_agent.runtime import Context
 from minion_agent.runtime.events import EventBus
 from minion_agent.tools.definition import ToolDefinition
-from minion_agent.tools.events import TOOLS_UPDATE, declare_tools_events
+from minion_agent.tools.events import TOOLS_EXECUTION_END, TOOLS_UPDATE, declare_tools_events
 from minion_agent.tools.execute import execute_call
 from minion_agent.tools.registry import ToolRegistry
 
@@ -150,6 +151,86 @@ async def test_no_listener_makes_updates_harmless(monkeypatch: pytest.MonkeyPatc
     update_emissions = [entry for entry in emitted if entry[0] == TOOLS_UPDATE]
     assert update_emissions == [(TOOLS_UPDATE, ("t1", "echo", {}, "nobody is listening"))]
     assert not result.is_error
+
+
+async def test_on_execution_update_is_awaited_for_every_call_in_order() -> None:
+    """`L08-R002`, PASS 7: `on_execution_update` (the Layer-08-facing live-dispatch hook,
+    additive alongside the certified `tools/update` EMIT above) receives every update, in the
+    order the tool made them, joined before `execute_call` returns -- pinned Pi's own `await
+    Promise.all(updateEvents)` (`agent-loop.ts:670-711`)."""
+    ctx = _ctx()
+    seen: list[tuple[str, str, dict[str, Any], str]] = []
+
+    async def on_execution_update(
+        call_id: str, tool_name: str, arguments: dict[str, Any], partial: str
+    ) -> None:
+        seen.append((call_id, tool_name, arguments, partial))
+
+    def chatty(tool_call_id: str, args: dict[str, Any], update: Any) -> str:
+        update("half")
+        update("most")
+        return "all"
+
+    result = await execute_call(
+        _call(), registry=_streaming(chatty), ctx=ctx, on_execution_update=on_execution_update
+    )
+
+    assert seen == [("t1", "echo", {}, "half"), ("t1", "echo", {}, "most")]
+    assert result.content
+
+
+async def test_a_failing_on_execution_update_listener_propagates_uncaught() -> None:
+    """`L08-R002`, PASS 7: pinned Pi's own `tool_execution_update` dispatch lets a listener's own
+    rejection propagate straight out, uncaught -- NOT silently converted into a per-call tool
+    error result the way an `execute()` exception is. `tools/execution-end` never fires for this
+    call at all: `_finalize`/finalization is only reached once every pending update has been
+    joined without error."""
+    ctx = _ctx()
+    end_emissions: list[Any] = []
+    ctx.events.on(TOOLS_EXECUTION_END, lambda *args: end_emissions.append(args))
+
+    async def boom_on_update(
+        call_id: str, tool_name: str, arguments: dict[str, Any], partial: str
+    ) -> None:
+        raise RuntimeError("update listener exploded")
+
+    def chatty(tool_call_id: str, args: dict[str, Any], update: Any) -> str:
+        update("x")
+        return "done"
+
+    with pytest.raises(RuntimeError, match="update listener exploded"):
+        await execute_call(
+            _call(), registry=_streaming(chatty), ctx=ctx, on_execution_update=boom_on_update
+        )
+
+    assert end_emissions == []
+
+
+async def test_on_execution_update_does_not_block_the_tools_own_execute() -> None:
+    """`L08-R002`, PASS 7: `update(partial)` schedules the live dispatch (`asyncio.ensure_future`)
+    and returns immediately -- it does not itself await the hook's own coroutine, matching pinned
+    Pi's own unawaited `emit(...)` at callback time. A tool that calls `update()` and then keeps
+    doing synchronous work before returning completes that work BEFORE a slow hook's own delay
+    elapses."""
+    ctx = _ctx()
+    order: list[str] = []
+
+    async def slow_on_execution_update(
+        call_id: str, tool_name: str, arguments: dict[str, Any], partial: str
+    ) -> None:
+        await asyncio.sleep(0)
+        order.append("hook")
+
+    def chatty(tool_call_id: str, args: dict[str, Any], update: Any) -> str:
+        update("x")
+        order.append("tool continued")
+        return "done"
+
+    await execute_call(
+        _call(), registry=_streaming(chatty), ctx=ctx, on_execution_update=slow_on_execution_update
+    )
+
+    assert order == ["tool continued", "hook"]
 
 
 async def test_a_late_update_after_the_tool_settles_is_ignored() -> None:

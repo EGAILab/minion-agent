@@ -22,6 +22,7 @@ from .events import TOOLS_EXECUTION_END, TOOLS_EXECUTION_START
 from .execute import (
     OnExecutionEnd,
     OnExecutionStart,
+    OnExecutionUpdate,
     _execute_and_finalize,
     _preflight,
     _Prepared,
@@ -85,6 +86,7 @@ async def execute_batch(
     default_mode: ExecutionMode = ExecutionMode.PARALLEL,
     on_execution_start: OnExecutionStart | None = None,
     on_execution_end: OnExecutionEnd | None = None,
+    on_execution_update: OnExecutionUpdate | None = None,
 ) -> BatchOutcome:
     """Run every call in `calls`, returning results in source order.
 
@@ -110,6 +112,13 @@ async def execute_batch(
     `execute()`+after-hook phase finishes (`L08-R002`, PASS 6). A listener that raises propagates
     out of this function immediately, preventing any call not yet past that point from proceeding
     -- additive: `None` (every existing caller) preserves this function's own certified behavior.
+
+    `on_execution_update`, when supplied, is scheduled (not awaited inline) the moment each call's
+    own `update(partial)` callback fires during `execute()`, and joined -- per call -- immediately
+    after that SAME call's own `execute()` settles, before `tool_execution_end` (`L08-R002`,
+    PASS 7; see `execute.py::OnExecutionUpdate`). In a parallel batch this means two different
+    calls' own update dispatches interleave according to real `asyncio` scheduling, not a
+    batch-wide capture-and-replay order.
     """
     completion: list[str] = []
     scope_key = scope.key if isinstance(scope, Scope) else scope
@@ -124,6 +133,7 @@ async def execute_batch(
                 scope=scope,
                 on_execution_start=on_execution_start,
                 on_execution_end=on_execution_end,
+                on_execution_update=on_execution_update,
             )
             completion.append(result.tool_call_id)
             return result
@@ -151,7 +161,11 @@ async def execute_batch(
             if isinstance(outcome, ToolResult):
                 return outcome
             result = await _execute_and_finalize(
-                outcome, ctx=ctx, scope=scope_key, on_execution_end=on_execution_end
+                outcome,
+                ctx=ctx,
+                scope=scope_key,
+                on_execution_end=on_execution_end,
+                on_execution_update=on_execution_update,
             )
             completion.append(result.tool_call_id)
             return result

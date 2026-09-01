@@ -415,6 +415,23 @@ impl LiveUpdateDispatches {
     fn take_error(&self) -> Option<ToolLifecycleError> {
         self.state.lock().first_error.take()
     }
+
+    fn has_error(&self) -> bool {
+        self.state.lock().first_error.is_some()
+    }
+
+    async fn drain(self: Arc<Self>) {
+        poll_fn(|task_context| {
+            self.waker.register(task_context.waker());
+            self.poll_once(task_context);
+            if self.is_complete() {
+                Poll::Ready(())
+            } else {
+                Poll::Pending
+            }
+        })
+        .await;
+    }
 }
 
 enum PreflightOutcome {
@@ -924,7 +941,7 @@ async fn execute_with_live_updates(
             outcome = Some(result);
         }
         updates.poll_once(task_context);
-        if outcome.is_some() && updates.is_complete() {
+        if outcome.is_some() && (updates.has_error() || updates.is_complete()) {
             Poll::Ready(())
         } else {
             Poll::Pending
@@ -932,6 +949,10 @@ async fn execute_with_live_updates(
     })
     .await;
     if let Some(error) = updates.take_error() {
+        if !updates.is_complete() {
+            let remaining = Arc::clone(&updates);
+            let _drain = tokio::spawn(remaining.drain());
+        }
         return Err(error);
     }
     Ok(outcome.expect("execution is complete when update dispatches settle"))

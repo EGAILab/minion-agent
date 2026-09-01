@@ -364,14 +364,20 @@ fn live_tool_event(
     context: Context,
     event: AgentEvent,
 ) -> BoxFuture<'static, Result<(), ToolLifecycleError>> {
-    let reduction =
-        reduce_event(&agent, &event).map_err(|error| ToolLifecycleError::new(error.to_string()));
+    let reduction = reduce_event(&agent, &event).map_err(tool_lifecycle_error);
     Box::pin(async move {
         reduction?;
         dispatch_agent_event(&context, event)
             .await
-            .map_err(|error| ToolLifecycleError::new(error.to_string()))
+            .map_err(tool_lifecycle_error)
     })
+}
+
+fn tool_lifecycle_error(error: AgentLoopError) -> ToolLifecycleError {
+    if let Some(listener) = error.listener_error() {
+        return ToolLifecycleError::new(listener.message());
+    }
+    ToolLifecycleError::new(error.to_string())
 }
 
 fn provider_thinking_level(level: AgentThinkingLevel) -> Option<LlmThinkingLevel> {
@@ -448,11 +454,13 @@ mod tests {
             UserContentBlock, UserMessage,
         },
         session::Session,
-        tools::{AgentToolResult, ToolDefinition, ToolExecutionRequest},
+        tools::{AgentToolResult, ToolDefinition, ToolExecutionError, ToolExecutionRequest},
     };
 
     use super::{AgentLoop, PromptInput, ProviderTurnDisposition};
-    use crate::agent_loop::{AgentEvent, AgentEventKind, AgentLoopError, register_agent_listener};
+    use crate::agent_loop::{
+        AgentEvent, AgentEventKind, AgentListenerError, AgentLoopError, register_agent_listener,
+    };
 
     fn run(future: impl Future<Output = ()>) {
         tokio::runtime::Builder::new_multi_thread()
@@ -1242,6 +1250,92 @@ mod tests {
                 prepared.new_messages.last(),
                 Some(Message::ToolResult(_))
             ));
+            drop((prepared, registration));
+        });
+    }
+
+    #[test]
+    fn tool_listener_failure_preserves_the_raw_listener_message() {
+        run(async {
+            let runtime = Runtime::new();
+            let plugin = PluginSpec::<Value>::new(
+                "failing-tool-listener",
+                vec![],
+                || json!({}),
+                |context, _config| async move {
+                    register_agent_listener(&context, |event| async move {
+                        match event {
+                            AgentEvent::ToolExecutionStart(_) => {
+                                Err(AgentListenerError::new("boom"))
+                            }
+                            _ => Ok(()),
+                        }
+                    })
+                    .map_err(|error| PluginInitError::new(error.to_string()))?;
+                    Ok(())
+                },
+            )
+            .erase();
+            runtime.mount(&plugin, json!({})).unwrap();
+            runtime.reconcile().await.unwrap();
+            let executions = Arc::new(AtomicUsize::new(0));
+            let registration = runtime
+                .tools()
+                .register_for_scope(
+                    None,
+                    ToolDefinition::new(
+                        "guarded",
+                        "guarded",
+                        serde_json::from_value(json!({})).unwrap(),
+                        "guarded",
+                        {
+                            let executions = Arc::clone(&executions);
+                            move |_request: ToolExecutionRequest| {
+                                executions.fetch_add(1, Ordering::SeqCst);
+                                Box::pin(async {
+                                    Ok(AgentToolResult {
+                                        content: vec![],
+                                        details: Value::Null,
+                                        usage: None,
+                                        added_tool_names: None,
+                                        terminate: None,
+                                    })
+                                })
+                            }
+                        },
+                    ),
+                )
+                .unwrap();
+            let (driver, _agent) =
+                loop_for(&runtime, Session::new("room-a", [] as [&str; 0]).unwrap());
+            let mut prepared = driver
+                .prepare_prompt_run(PromptInput::Message(user("prompt")))
+                .await
+                .unwrap();
+            let assistant = AssistantMessage::new(
+                identity(),
+                vec![AssistantContentBlock::ToolCall(ToolCall::new(
+                    "call-1",
+                    "guarded",
+                    BTreeMap::new(),
+                ))],
+                Usage::default(),
+                StopReason::ToolUse,
+                2.0,
+            );
+
+            let error = driver
+                .run_tool_calls(&mut prepared, &assistant)
+                .await
+                .unwrap_err();
+
+            assert!(matches!(
+                &error,
+                AgentLoopError::ToolExecution(ToolExecutionError::Lifecycle(error))
+                    if error.message() == "boom"
+            ));
+            assert_eq!(error.to_string(), "boom");
+            assert_eq!(executions.load(Ordering::SeqCst), 0);
             drop((prepared, registration));
         });
     }

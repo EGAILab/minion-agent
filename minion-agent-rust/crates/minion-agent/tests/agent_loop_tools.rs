@@ -5,6 +5,7 @@ use std::{
         Arc,
         atomic::{AtomicUsize, Ordering},
     },
+    task::Poll,
 };
 
 use minion_agent::{
@@ -38,6 +39,13 @@ fn result(text: &str) -> AgentToolResult {
         usage: None,
         added_tool_names: None,
         terminate: None,
+    }
+}
+
+fn text_from_result(result: &AgentToolResult) -> &str {
+    match result.content.first().unwrap() {
+        ToolResultContentBlock::Text(block) => &block.text,
+        ToolResultContentBlock::Image(_) => panic!("expected text result"),
     }
 }
 
@@ -217,6 +225,93 @@ fn update_listener_failure_propagates_before_finalization_and_end() {
 
         assert_eq!(error.to_string(), "update listener failed");
         assert_eq!(ends.load(Ordering::SeqCst), 0);
+    });
+}
+
+#[test]
+fn first_rejected_update_fails_fast_while_another_dispatch_remains_live() {
+    run(async {
+        let runtime = Runtime::new();
+        runtime
+            .tools()
+            .register_for_scope(
+                None,
+                ToolDefinition::new(
+                    "chatty",
+                    "chatty",
+                    serde_json::from_value(json!({})).unwrap(),
+                    "chatty",
+                    |request: ToolExecutionRequest| {
+                        Box::pin(async move {
+                            let update = request.on_update.unwrap();
+                            update(result("reject"));
+                            update(result("blocked"));
+                            Ok(result("final"))
+                        })
+                    },
+                ),
+            )
+            .unwrap();
+        let reject_started = Arc::new(Notify::new());
+        let blocked_started = Arc::new(Notify::new());
+        let release_blocked = Arc::new(Notify::new());
+        let blocked_finished = Arc::new(Notify::new());
+        let context = runtime.context();
+        let calls = [call("call-1", "chatty")];
+        let execution = Box::pin(execute_tool_calls(
+            &context,
+            &calls,
+            ToolExecutionOptions::new(StopReason::ToolUse, 1.0).with_execution_update({
+                let reject_started = Arc::clone(&reject_started);
+                let blocked_started = Arc::clone(&blocked_started);
+                let release_blocked = Arc::clone(&release_blocked);
+                let blocked_finished = Arc::clone(&blocked_finished);
+                move |event| {
+                    let reject_started = Arc::clone(&reject_started);
+                    let blocked_started = Arc::clone(&blocked_started);
+                    let release_blocked = Arc::clone(&release_blocked);
+                    let blocked_finished = Arc::clone(&blocked_finished);
+                    async move {
+                        match text_from_result(&event.update) {
+                            "reject" => {
+                                reject_started.notify_one();
+                                tokio::task::yield_now().await;
+                                Err(ToolLifecycleError::new("first update failed"))
+                            }
+                            "blocked" => {
+                                blocked_started.notify_one();
+                                release_blocked.notified().await;
+                                blocked_finished.notify_one();
+                                Ok(())
+                            }
+                            other => panic!("unexpected update {other}"),
+                        }
+                    }
+                }
+            }),
+        ));
+        let both_started = Box::pin(async {
+            reject_started.notified().await;
+            blocked_started.notified().await;
+        });
+        let error = match futures::future::select(both_started, execution).await {
+            futures::future::Either::Left(((), mut execution)) => {
+                match futures::poll!(execution.as_mut()) {
+                    Poll::Ready(Err(error)) => error,
+                    other => {
+                        panic!("first rejection must settle execution immediately, got {other:?}")
+                    }
+                }
+            }
+            futures::future::Either::Right((Err(error), _)) => error,
+            futures::future::Either::Right((Ok(result), _)) => {
+                panic!("first rejection unexpectedly returned a batch: {result:?}")
+            }
+        };
+        assert_eq!(error.to_string(), "first update failed");
+
+        release_blocked.notify_one();
+        blocked_finished.notified().await;
     });
 }
 

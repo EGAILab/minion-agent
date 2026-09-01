@@ -35,7 +35,7 @@ from ..llm.stream import (
     ToolCallStart,
 )
 from ..session import EventKind, SessionEvent, SessionLog, decode_message
-from ..tools.result import ToolResult
+from ..tools.result import ToolPartialResult, ToolResult
 
 
 @dataclass(frozen=True, slots=True)
@@ -146,15 +146,19 @@ class ToolExecutionUpdate:
     the unified Agent-event seam the same way pinned Pi's does. `arguments` is the ORIGINAL,
     pre-`prepare_arguments`/validation call arguments, matching pinned Pi's own
     `PreparedToolCall.toolCall.arguments` exactly (already-certified Layer-06 rule,
-    `IR-L06-005`). `partial_result` is a `ToolResult` (Layer 08, `L08-R011`) -- pinned Pi's own
-    `AgentToolUpdateCallback<T>` carries `partialResult: AgentToolResult<T>`, the SAME structured
-    shape a tool's own final result is; an earlier revision narrowed this field to `str`, a real
-    payload reduction pinned Pi does not have."""
+    `IR-L06-005`). `partial_result` is a `ToolPartialResult` (Layer 08, `L08-R011`) -- pinned Pi's
+    own `AgentToolUpdateCallback<T>` carries `partialResult: AgentToolResult<T>`: `content`/
+    `details`/`usage`/`added_tool_names`/`terminate`, with NO nested `tool_call_id`/`tool_name`/
+    `is_error` of its own -- those already live on THIS event's own `tool_call_id`/`tool_name`
+    fields, above. An earlier revision narrowed this field to `str` (a real payload reduction
+    pinned Pi does not have), then over-corrected to the pipeline-level `ToolResult` (observably
+    LARGER than Pi's own type, a genuine parity defect an independent Rust re-review caught, not a
+    harmless superset)."""
 
     tool_call_id: str
     tool_name: str
     arguments: dict[str, Any]
-    partial_result: ToolResult
+    partial_result: ToolPartialResult
 
 
 type AgentEvent = (

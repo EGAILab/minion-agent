@@ -24,19 +24,22 @@ from typing import Any, Literal
 from pydantic import BaseModel
 
 from ..llm import ConstrainedSampling, ToolSchema
-from .result import ToolResult
+from .result import ToolPartialResult, ToolResult
 
-type ToolUpdate = Callable[[ToolResult], None]
+type ToolUpdate = Callable[[ToolPartialResult], None]
 """Report a partial result. Live only -- partial output never reaches a model. Matches pinned Pi's
 own `AgentToolUpdateCallback<T> = (partialResult: AgentToolResult<T>) => void` exactly (Layer 08,
-`L08-R011`): `partialResult` is the SAME structured shape a tool's own final result is -- Pi's
-`AgentToolResult<T>` has `content`/`details`/`usage`/`addedToolNames`/`terminate`, exactly Minion's
-own `ToolResult` -- not a bare string. An earlier revision narrowed this to `Callable[[str], None]`,
-a real payload reduction pinned Pi does not have: a tool that wants to report partial STRUCTURED
-progress (e.g. partial `details` for UI rendering, matching Pi's own `AgentToolResult.details: T`)
-had no way to do so. `execute.py::_execute_and_finalize`'s own `update` closure normalizes
-`tool_call_id`/`tool_name` on the tool-supplied partial the same way it already does for the final
-result -- a tool need not (and should not) stamp its own call's real id/name onto a partial."""
+`L08-R011`): `partialResult` is `ToolPartialResult` (`tools/result.py`), pinned Pi's own
+`AgentToolResult<T>` -- `content`/`details`/`usage`/`added_tool_names`/`terminate` -- NOT
+`ToolResult` (this module's own pipeline-level FINALIZED-outcome type, which additionally carries
+`tool_call_id`/`tool_name`/`is_error`, fields Pi's own type has none of: call identity lives on the
+enclosing `tool_execution_update` event, and Pi's own `execute()` throws on failure rather than
+encoding an error inside its returned/reported value). An earlier revision narrowed this to
+`Callable[[str], None]` (a real payload reduction pinned Pi does not have), then a later one
+over-corrected to `Callable[[ToolResult], None]` (an independent Rust re-review caught this: the
+reused `ToolResult` is observably LARGER than Pi's/certified Rust's own `AgentToolResult`, not
+merely a superset with no cost -- a tool could report spoofed identity or an `is_error` pinned Pi
+has no way to express on a partial value at all)."""
 
 type ToolFn = Callable[..., Awaitable[ToolResult | str] | ToolResult | str]
 """Called with `(tool_call_id, validated_arguments)`, and with an `update` callback appended when

@@ -1872,18 +1872,81 @@ rows:
     `expect_updates[].partial` updated to that shorthand. Every Python-level test constructing a
     bare-string `update("...")` call updated to `update(text_result(...))` across
     `tests/tools/test_updates.py`, `tests/agent_loop/test_run_entry_points.py`, and the conformance
-    runner''s own `_stub`/`seen_updates` machinery (`tests/conformance/agent_runner.py`).'
+    runner''s own `_stub`/`seen_updates` machinery (`tests/conformance/agent_runner.py`).
+
+    PASS 11 (remediating the independent Rust re-review of the PASS-10 candidate), correcting
+    `L08-R011` a second time (`PARTIALLY_RESOLVED_BLOCKING`): PASS 10''s own fix reused
+    `ToolResult` -- Minion''s pipeline-level FINALIZED-outcome type -- for the partial-update
+    value, and normalized `tool_call_id`/`tool_name` onto it. The review caught this as
+    OBSERVABLY LARGER than Pi''s/certified Rust''s own `AgentToolResult<T>`, not a harmless
+    superset: `ToolResult` also carries `is_error`, which `AgentToolResult<T>` has no equivalent
+    of AT ALL (pinned Pi''s `AgentTool.execute` docstring: "Execute the tool call. Throw on
+    failure instead of encoding errors in `content`" -- a thrown/rejected `execute()` becomes an
+    error OUTCOME the pipeline itself produces, never a field a tool sets on its own returned or
+    reported value), and the candidate''s own spec text called the reused `ToolResult` "the SAME
+    shape" as Pi''s type while ALSO normatively specifying identity normalization onto it --
+    self-contradictory, since a truly identical shape would have no foreign fields to normalize.
+    A direct live-event witness (id/name spoofing, `is_error=true`, `details`, `terminate`,
+    `added_tool_names` all set on one partial) confirmed the nested identity/error subfields are
+    observable and do not exist in Pi''s/Rust''s own type. The canonical evidence was also
+    independently insufficient: schema accepted unrestricted `type: object`, but the fixture
+    decoder recognized only `{text: ...}` and the observer serialized only joined text -- none of
+    `details`/`usage`/`added_tool_names`/`terminate` presence or value was actually asserted.
+
+    Remediation: `tools/result.py` gained `ToolPartialResult`, a NEW, minimal type distinct from
+    `ToolResult` -- `content`/`details` required (matching Pi''s own required fields exactly),
+    `usage`/`added_tool_names`/`terminate` genuinely `| None = None` (not concrete defaults),
+    preserving the SAME explicit-vs-absent distinction Pi''s own optional (`?`) fields carry --
+    with NO `tool_call_id`, `tool_name`, or `is_error` field AT ALL, structurally incapable of
+    carrying what pinned Pi''s own type cannot express either. `text_partial_result(text)`
+    mirrors `text_result`''s own convenience shape. `ToolUpdate = Callable[[ToolPartialResult],
+    None]`; `_execute_and_finalize`''s own `update()` closure needs NO normalization step at all
+    now -- there is no identity/error field left to normalize away, closing the self-contradiction
+    the review caught directly, not merely rewording it. `OnExecutionUpdate`,
+    `ToolExecutionUpdate.partial_result` (Layer 08), and `tools/update`''s own EMIT payload all
+    carry `ToolPartialResult` through unchanged.
+
+    Canonical evidence expanded, not merely re-typed: the runner''s own `_partial_result()`
+    decoder now reads `details`/`terminate`/`added_tool_names` from the scenario spec (still
+    `None` when the spec omits them, preserving the same distinction); a new `_encode_partial()`
+    encoder serializes the FULL captured `ToolPartialResult` back to the scenario''s own shorthand,
+    OMITTING a key whose value is `None` (never set) rather than defaulting it, so an omitted key
+    in observed output means "never set," matching Pi''s own JSON-serialization behavior for an
+    `undefined` field exactly. `late-tool-update-ignored.yaml`''s own single `emits_updates` entry
+    now sets `details`/`terminate`/`added_tool_names` explicitly, and `expect_updates[].partial`
+    asserts the complete structured shape, not only `text` -- proving the canonical evidence is
+    genuinely discriminating for the non-text fields the review named, through the real
+    production seam, not a standalone Python-level assertion only. A new Python-level test
+    (`test_a_partial_carries_structured_details_terminate_and_added_tool_names`) additionally
+    proves the explicit-vs-absent distinction directly and that `ToolPartialResult` structurally
+    has no `tool_call_id`/`tool_name`/`is_error` attribute at all (`hasattr` on the frozen,
+    `slots=True` dataclass).
+
+    Cross-language evidence: the review''s own fresh `cargo test --workspace --all-features`
+    failed in `all_layer_06_scenarios_drive_the_real_rust_tool_executor` -- Rust''s own
+    CONFORMANCE TEST ADAPTER (not certified Rust production `AgentToolResult` semantics, already
+    correct and UNCHANGED by either PASS 10 or this pass) still parses `emits_updates[]` via
+    `Value::as_str().unwrap()`, which panics against the now-object-shaped canonical fixture. This
+    is Rust-owned adapter/evidence work this pass does NOT attempt, per this project''s own hard
+    ownership boundary (`.claude/CLAUDE.md`: "Do not modify `minion-agent-rust/**` unless the user
+    explicitly changes the ownership rule"); the shared canonical schema/scenario change is a
+    REQUIRED, correctly-scoped Pi-parity fix regardless, and Rust''s own conformance adapter
+    updating to parse it is a genuine, outstanding, blocking cross-language dependency -- NOT
+    claimed closed or unaffected here (PASS 10''s own claim to that effect was itself found false
+    by this same review; this row does not repeat it).'
   tests:
   - late-tool-update-ignored (IR-L06-005, language-neutral payload + raw-vs-prepared-arguments
-    evidence, PASS 1B; structured partial shape, L08-R011, PASS 10)
+    evidence, PASS 1B; structured partial shape, L08-R011, PASS 10; full non-text-field evidence,
+    L08-R011, PASS 11)
   - test_a_late_update_after_the_tool_settles_is_ignored
   - test_a_tool_may_report_partial_output
   - test_updates_carry_the_call_id_so_a_consumer_can_route_them
   - test_updates_carry_the_tool_name_and_original_arguments
   - test_no_listener_makes_updates_harmless
   - test_on_execution_update_is_awaited_for_every_call_in_order
-  python: src/minion_agent/tools/execute.py::execute_call (accepting_updates), _execute_and_finalize (update closure, normalization), src/minion_agent/tools/definition.py::ToolUpdate
-  rust: minion-agent-rust/crates/minion-agent/src/tools/execution.rs::ToolExecutionUpdate/execute_and_finalize_prepared; minion-agent-rust/crates/minion-agent/tests/tool_execution.rs::updates_are_emitted_live_and_ignored_after_execute_settles; minion-agent-rust/crates/minion-agent/tests/tool_execution_conformance.rs -- already used AgentToolResult for the update payload; unaffected by this pass's own Python-side correction
+  - test_a_partial_carries_structured_details_terminate_and_added_tool_names
+  python: src/minion_agent/tools/result.py::ToolPartialResult, text_partial_result, src/minion_agent/tools/execute.py::execute_call (accepting_updates), _execute_and_finalize (update closure), src/minion_agent/tools/definition.py::ToolUpdate
+  rust: minion-agent-rust/crates/minion-agent/src/tools/execution.rs::ToolExecutionUpdate/execute_and_finalize_prepared; minion-agent-rust/crates/minion-agent/tests/tool_execution.rs::updates_are_emitted_live_and_ignored_after_execute_settles -- certified production AgentToolResult semantics already correct and unchanged by PASS 10 or PASS 11; minion-agent-rust/crates/minion-agent/tests/tool_execution_conformance.rs -- BLOCKED -- its own conformance ADAPTER still parses emits_updates[] as a bare string (Value::as_str().unwrap()) and panics against the now-object-shaped canonical fixture; Rust-owned follow-up, not attempted by this pass, not claimed closed
   disposition: adopted
 - id: TOOL-020
   phase: 4

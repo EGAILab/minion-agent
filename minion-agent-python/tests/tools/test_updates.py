@@ -17,7 +17,7 @@ from minion_agent.tools.definition import ToolDefinition
 from minion_agent.tools.events import TOOLS_EXECUTION_END, TOOLS_UPDATE, declare_tools_events
 from minion_agent.tools.execute import execute_call
 from minion_agent.tools.registry import ToolRegistry
-from minion_agent.tools.result import ToolResult, text_result
+from minion_agent.tools.result import ToolPartialResult, text_partial_result
 
 from .test_execute import _call
 
@@ -42,32 +42,24 @@ def _streaming(execute: Any) -> ToolRegistry:
     return registry
 
 
-def _partial(text: str) -> ToolResult:
-    """A minimal structured partial result -- matching pinned Pi's own `AgentToolResult<T>`
-    (`L08-R011`): `tool_call_id`/`tool_name` here are placeholders, since `update()`'s own closure
-    normalizes both to the real call's own id/name, the same way it already does for the final
-    result (a tool need not stamp its own call's identity onto a partial)."""
-    return text_result("ignored", text, "ignored")
-
-
 async def test_a_tool_may_report_partial_output() -> None:
     ctx = _ctx()
-    seen: list[tuple[str, ToolResult]] = []
+    seen: list[tuple[str, ToolPartialResult]] = []
     ctx.events.on(
         TOOLS_UPDATE,
         lambda call_id, tool_name, arguments, partial: seen.append((call_id, partial)),
     )
 
     def chatty(tool_call_id: str, args: dict[str, Any], update: Any) -> str:
-        update(_partial("half"))
-        update(_partial("most"))
+        update(text_partial_result("half"))
+        update(text_partial_result("most"))
         return "all"
 
     result = await execute_call(_call(), registry=_streaming(chatty), ctx=ctx)
 
     assert seen == [
-        ("t1", text_result("t1", "half", "echo")),
-        ("t1", text_result("t1", "most", "echo")),
+        ("t1", text_partial_result("half")),
+        ("t1", text_partial_result("most")),
     ]
     assert result.content
 
@@ -103,7 +95,7 @@ async def test_updates_carry_the_call_id_so_a_consumer_can_route_them() -> None:
     )
 
     def chatty(tool_call_id: str, args: dict[str, Any], update: Any) -> str:
-        update(_partial("x"))
+        update(text_partial_result("x"))
         return "done"
 
     await execute_call(_call(), registry=_streaming(chatty), ctx=ctx)
@@ -117,7 +109,8 @@ async def test_updates_carry_the_tool_name_and_original_arguments() -> None:
     strictly less than Pi's own live event stream for no stated architectural reason. `args` is
     the ORIGINAL, pre-`prepare_arguments`/validation arguments (pinned Pi's own
     `PreparedToolCall.toolCall.arguments`, not the validated ones `execute()` actually runs
-    with)."""
+    with). `tool_call_id`/`tool_name` live ONLY on the enclosing event, never nested inside
+    `partial` itself (`L08-R011`) -- pinned Pi's own `AgentToolResult<T>` has no such fields."""
     ctx = _ctx()
     seen: list[tuple[str, dict[str, Any]]] = []
     ctx.events.on(
@@ -126,12 +119,55 @@ async def test_updates_carry_the_tool_name_and_original_arguments() -> None:
     )
 
     def chatty(tool_call_id: str, args: dict[str, Any], update: Any) -> str:
-        update(_partial("x"))
+        update(text_partial_result("x"))
         return "done"
 
     await execute_call(_call(note="original"), registry=_streaming(chatty), ctx=ctx)
 
     assert seen == [("echo", {"note": "original"})]
+
+
+async def test_a_partial_carries_structured_details_terminate_and_added_tool_names() -> None:
+    """`L08-R011`: pinned Pi's own `AgentToolResult<T>` carries `details`/`terminate`/
+    `added_tool_names`/`usage` alongside `content` -- a partial is NOT limited to text. Round-trips
+    every field exactly, with `usage`/`added_tool_names`/`terminate` left unset by one update and
+    explicitly set by the next, proving the SAME `None`-means-absent distinction pinned Pi's own
+    optional (`?`) fields carry (an explicit `False`/`()` is observably different from never having
+    been set at all)."""
+    ctx = _ctx()
+    seen: list[ToolPartialResult] = []
+    ctx.events.on(
+        TOOLS_UPDATE, lambda call_id, tool_name, arguments, partial: seen.append(partial)
+    )
+
+    def chatty(tool_call_id: str, args: dict[str, Any], update: Any) -> str:
+        update(text_partial_result("bare"))
+        update(
+            ToolPartialResult(
+                content=(),
+                details={"progress": 1},
+                terminate=True,
+                added_tool_names=("new_tool",),
+            )
+        )
+        return "done"
+
+    await execute_call(_call(), registry=_streaming(chatty), ctx=ctx)
+
+    assert seen[0].details == {}
+    assert seen[0].terminate is None
+    assert seen[0].added_tool_names is None
+    assert seen[0].usage is None
+
+    assert seen[1].details == {"progress": 1}
+    assert seen[1].terminate is True
+    assert seen[1].added_tool_names == ("new_tool",)
+
+    # `L08-R011`: pinned Pi's own `AgentToolResult<T>` has no nested call identity or error
+    # field at all -- `ToolPartialResult` structurally cannot carry one.
+    assert not hasattr(seen[1], "tool_call_id")
+    assert not hasattr(seen[1], "tool_name")
+    assert not hasattr(seen[1], "is_error")
 
 
 async def test_no_listener_makes_updates_harmless(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -155,14 +191,14 @@ async def test_no_listener_makes_updates_harmless(monkeypatch: pytest.MonkeyPatc
     monkeypatch.setattr(EventBus, "emit", spy_emit)
 
     def chatty(tool_call_id: str, args: dict[str, Any], update: Any) -> str:
-        update(_partial("nobody is listening"))
+        update(text_partial_result("nobody is listening"))
         return "done"
 
     result = await execute_call(_call(), registry=_streaming(chatty), ctx=ctx)
 
     update_emissions = [entry for entry in emitted if entry[0] == TOOLS_UPDATE]
     assert update_emissions == [
-        (TOOLS_UPDATE, ("t1", "echo", {}, text_result("t1", "nobody is listening", "echo")))
+        (TOOLS_UPDATE, ("t1", "echo", {}, text_partial_result("nobody is listening")))
     ]
     assert not result.is_error
 
@@ -173,16 +209,16 @@ async def test_on_execution_update_is_awaited_for_every_call_in_order() -> None:
     order the tool made them, joined before `execute_call` returns -- pinned Pi's own `await
     Promise.all(updateEvents)` (`agent-loop.ts:670-711`)."""
     ctx = _ctx()
-    seen: list[tuple[str, str, dict[str, Any], ToolResult]] = []
+    seen: list[tuple[str, str, dict[str, Any], ToolPartialResult]] = []
 
     async def on_execution_update(
-        call_id: str, tool_name: str, arguments: dict[str, Any], partial: ToolResult
+        call_id: str, tool_name: str, arguments: dict[str, Any], partial: ToolPartialResult
     ) -> None:
         seen.append((call_id, tool_name, arguments, partial))
 
     def chatty(tool_call_id: str, args: dict[str, Any], update: Any) -> str:
-        update(_partial("half"))
-        update(_partial("most"))
+        update(text_partial_result("half"))
+        update(text_partial_result("most"))
         return "all"
 
     result = await execute_call(
@@ -190,8 +226,8 @@ async def test_on_execution_update_is_awaited_for_every_call_in_order() -> None:
     )
 
     assert seen == [
-        ("t1", "echo", {}, text_result("t1", "half", "echo")),
-        ("t1", "echo", {}, text_result("t1", "most", "echo")),
+        ("t1", "echo", {}, text_partial_result("half")),
+        ("t1", "echo", {}, text_partial_result("most")),
     ]
     assert result.content
 
@@ -207,12 +243,12 @@ async def test_a_failing_on_execution_update_listener_propagates_uncaught() -> N
     ctx.events.on(TOOLS_EXECUTION_END, lambda *args: end_emissions.append(args))
 
     async def boom_on_update(
-        call_id: str, tool_name: str, arguments: dict[str, Any], partial: ToolResult
+        call_id: str, tool_name: str, arguments: dict[str, Any], partial: ToolPartialResult
     ) -> None:
         raise RuntimeError("update listener exploded")
 
     def chatty(tool_call_id: str, args: dict[str, Any], update: Any) -> str:
-        update(_partial("x"))
+        update(text_partial_result("x"))
         return "done"
 
     with pytest.raises(RuntimeError, match="update listener exploded"):
@@ -240,14 +276,14 @@ async def test_on_execution_update_starts_synchronously_but_does_not_block_the_t
     order: list[str] = []
 
     async def slow_on_execution_update(
-        call_id: str, tool_name: str, arguments: dict[str, Any], partial: ToolResult
+        call_id: str, tool_name: str, arguments: dict[str, Any], partial: ToolPartialResult
     ) -> None:
         order.append("listener-entered")
         await asyncio.sleep(0)
         order.append("listener-resumed")
 
     def chatty(tool_call_id: str, args: dict[str, Any], update: Any) -> str:
-        update(_partial("x"))
+        update(text_partial_result("x"))
         order.append("tool-continued")
         return "done"
 
@@ -263,19 +299,19 @@ async def test_a_late_update_after_the_tool_settles_is_ignored() -> None:
     ignored." A tool that stashes its own `update` callback and calls it again after `execute()`
     has already returned must not produce a second `tools/update` emission (`TOOL-017`)."""
     ctx = _ctx()
-    seen: list[ToolResult] = []
+    seen: list[ToolPartialResult] = []
     ctx.events.on(
         TOOLS_UPDATE, lambda call_id, tool_name, arguments, partial: seen.append(partial)
     )
     stashed: list[Any] = []
 
     def stash_then_settle(tool_call_id: str, args: dict[str, Any], update: Any) -> str:
-        update(_partial("live"))
+        update(text_partial_result("live"))
         stashed.append(update)
         return "done"
 
     result = await execute_call(_call(), registry=_streaming(stash_then_settle), ctx=ctx)
-    stashed[0](_partial("late"))
+    stashed[0](text_partial_result("late"))
 
-    assert seen == [text_result("t1", "live", "echo")]
+    assert seen == [text_partial_result("live")]
     assert not result.is_error

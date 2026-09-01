@@ -50,7 +50,7 @@ from .events import (
     TOOLS_UPDATE,
 )
 from .registry import ToolRegistry
-from .result import ToolResult, text_result
+from .result import ToolPartialResult, ToolResult, text_result
 
 type OnExecutionStart = Callable[[str, str, dict[str, Any]], Awaitable[None]]
 """`(call_id, tool_name, arguments) -> None`, awaited at the exact point pinned Pi's own
@@ -67,12 +67,16 @@ type OnExecutionEnd = Callable[[str, str, ToolResult], Awaitable[None]]
 or executed, matching the already-certified `tools/execution-end` EMIT event's own unconditional
 firing (`TOOL-017`). Additive, same as `OnExecutionStart`."""
 
-type OnExecutionUpdate = Callable[[str, str, dict[str, Any], ToolResult], Coroutine[Any, Any, None]]
+type OnExecutionUpdate = Callable[
+    [str, str, dict[str, Any], ToolPartialResult], Coroutine[Any, Any, None]
+]
 """`(call_id, tool_name, arguments, partial_result) -> None` (Layer 08, `L08-R002`/`L08-R011`).
-`partial_result` is a `ToolResult` -- matching pinned Pi's own `AgentToolUpdateCallback<T> =
-(partialResult: AgentToolResult<T>) => void` exactly, the SAME structured shape a tool's own final
-result is, not a bare string (an earlier revision narrowed it to `str`, a real payload reduction;
-see `tools/definition.py::ToolUpdate`). Typed as returning a `Coroutine`, narrower than
+`partial_result` is a `ToolPartialResult` -- matching pinned Pi's own `AgentToolUpdateCallback<T> =
+(partialResult: AgentToolResult<T>) => void` exactly, `content`/`details`/`usage`/
+`added_tool_names`/`terminate` with NO nested `tool_call_id`/`tool_name`/`is_error` of its own (an
+earlier revision narrowed it to `str`, then over-corrected to the FINALIZED-outcome `ToolResult`,
+observably larger than Pi's own type; see `tools/definition.py::ToolUpdate`,
+`tools/result.py::ToolPartialResult`). Typed as returning a `Coroutine`, narrower than
 `OnExecutionStart`/`OnExecutionEnd`'s own `Awaitable[None]`
 (PASS 8): `asyncio.eager_task_factory` requires one specifically -- any `async def` implementation
 already produces one, so this is not a new constraint on a real caller. Started
@@ -432,35 +436,26 @@ async def _execute_and_finalize(
     accepting_updates = True
     pending_updates: list[asyncio.Task[None]] = []
 
-    def update(partial: ToolResult) -> None:
+    def update(partial: ToolPartialResult) -> None:
         # Pinned Pi: "Calls made after the tool promise settles are ignored"
         # (`AgentToolUpdateCallback`). `ctx.events.emit` is synchronous here, so there is no
         # promise-drain queue to manage -- the flag alone decides late vs. live.
         if not accepting_updates:
             return
-        # Tools identify their own call only by accident; the pipeline knows -- the SAME
-        # normalization already applied to the final result below (`L08-R011`): a tool reports
-        # partial STRUCTURED progress (`tools/definition.py::ToolUpdate`, matching pinned Pi's own
-        # `AgentToolResult<T>`) without needing to stamp its own call's real id/name onto it.
-        normalized_partial = ToolResult(
-            tool_call_id=call.id,
-            content=partial.content,
-            tool_name=call.name,
-            is_error=partial.is_error,
-            details=partial.details,
-            terminate=partial.terminate,
-            added_tool_names=partial.added_tool_names,
-            usage=partial.usage,
-        )
+        # `partial` needs NO normalization (`L08-R011`): `ToolPartialResult`
+        # (`tools/result.py`) has no `tool_call_id`/`tool_name`/`is_error` fields to stamp in the
+        # first place -- pinned Pi's own `AgentToolResult<T>` has none either. Call identity is
+        # carried by this event's OWN `call.id`/`call.name` arguments, below, not nested inside
+        # the reported value -- an earlier revision reused the pipeline-level `ToolResult` here and
+        # normalized those fields onto it, which was itself the defect: a tool-supplied value that
+        # never had a legitimate identity/error field to begin with.
         # `call.arguments` -- the original, pre-prepare/validate arguments -- not `arguments`
         # (`IR-L06-005`): pinned Pi's own `tool_execution_update` payload
         # (`toolCallId`/`toolName`/`args`/`partialResult`) carries
         # `prepared.toolCall.arguments`, and `PreparedToolCall.toolCall` is the untouched
         # original call `prepareToolCall` was given, not the `prepareArguments`-shimmed or
         # validated one.
-        ctx.events.emit(
-            TOOLS_UPDATE, call.id, call.name, call.arguments, normalized_partial, scope=scope
-        )
+        ctx.events.emit(TOOLS_UPDATE, call.id, call.name, call.arguments, partial, scope=scope)
         if on_execution_update is not None:
             # `eager_task_factory`, not `ensure_future`/`create_task`, and not `await`
             # (`L08-R002`, PASS 8): a plain `Task` (whether made via `ensure_future` or
@@ -486,7 +481,7 @@ async def _execute_and_finalize(
             pending_updates.append(
                 asyncio.eager_task_factory(
                     loop,
-                    on_execution_update(call.id, call.name, call.arguments, normalized_partial),
+                    on_execution_update(call.id, call.name, call.arguments, partial),
                 )
             )
 

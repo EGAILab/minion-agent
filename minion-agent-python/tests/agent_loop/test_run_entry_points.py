@@ -61,7 +61,7 @@ from minion_agent.llm.stream import (
 )
 from minion_agent.session import EventKind, derive_messages
 from minion_agent.tools.definition import ExecutionMode
-from minion_agent.tools.result import text_result
+from minion_agent.tools.result import text_partial_result
 
 from .test_single_turn import _loop, _loop_with_adapter, _register, _say
 
@@ -1424,7 +1424,7 @@ async def test_tool_execution_update_reaches_the_lifecycle_seam() -> None:
     before that call's own live `ToolExecutionEnd` dispatch)."""
 
     def slow_echo(call_id: str, args: dict[str, Any], update: Any) -> str:
-        update(text_result(call_id, "working", "slow"))
+        update(text_partial_result("working"))
         return "done"
 
     seen: list[Any] = []
@@ -1447,7 +1447,7 @@ async def test_tool_execution_update_reaches_the_lifecycle_seam() -> None:
     update_event = seen[0]
     assert (update_event.tool_call_id, update_event.tool_name) == ("t1", "slow")
     assert update_event.arguments == {"x": 1}
-    assert update_event.partial_result == text_result("t1", "working", "slow")
+    assert update_event.partial_result == text_partial_result("working")
 
 
 async def test_pending_tool_calls_still_shows_the_call_during_its_own_update_dispatch() -> None:
@@ -1459,7 +1459,7 @@ async def test_pending_tool_calls_still_shows_the_call_during_its_own_update_dis
     redelivering its own captured updates, so a listener observed it already gone."""
 
     def slow_echo(call_id: str, args: dict[str, Any], update: Any) -> str:
-        update(text_result(call_id, "working", "slow"))
+        update(text_partial_result("working"))
         return "done"
 
     pending_snapshots: list[frozenset[str]] = []
@@ -1492,7 +1492,7 @@ async def test_two_lifecycle_listeners_each_suspend_before_the_tool_continues() 
     by the independent Rust re-review's own focused two-listener probe)."""
 
     def slow_echo(call_id: str, args: dict[str, Any], update: Any) -> str:
-        update(text_result(call_id, "working", "slow"))
+        update(text_partial_result("working"))
         order.append("tool-continued")
         return "done"
 
@@ -1528,7 +1528,7 @@ async def test_tool_execution_update_listener_failure_is_a_genuine_run_failure()
     per-call tool error result. `_finalize`/`tool_execution_end` never run for that call at all."""
 
     def slow_echo(call_id: str, args: dict[str, Any], update: Any) -> str:
-        update(text_result(call_id, "working", "slow"))
+        update(text_partial_result("working"))
         return "done"
 
     finalized = False

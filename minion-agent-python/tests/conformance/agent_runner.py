@@ -53,7 +53,7 @@ from minion_agent.tools.events import (
 from minion_agent.tools.execute import register_after_tool_call_hook
 from minion_agent.tools.plugin import tools_plugin
 from minion_agent.tools.registry import ToolRegistry
-from minion_agent.tools.result import ToolResult
+from minion_agent.tools.result import ToolPartialResult, ToolResult
 
 _ROLE = {
     UserMessage: "user",
@@ -172,15 +172,42 @@ def _prepare_arguments(spec: dict[str, Any] | None) -> Any:
     return prepare
 
 
-def _partial_result(spec: dict[str, Any]) -> ToolResult:
+def _partial_result(spec: dict[str, Any]) -> ToolPartialResult:
     """A structured partial-output value (`L08-R011`): pinned Pi's own `AgentToolUpdateCallback<T>`
-    carries `partialResult: AgentToolResult<T>`, the SAME structured shape a tool's own final
-    result is -- never a bare string. `tool_call_id`/`tool_name` here are placeholders:
-    `execute.py::_execute_and_finalize`'s own `update()` closure normalizes both to the real call's
-    own id/name, the same way it already does for the final result."""
-    return ToolResult(
-        tool_call_id="", content=(TextBlock(text=spec.get("text", "")),), tool_name=""
+    carries `partialResult: AgentToolResult<T>` -- `content`/`details`/`added_tool_names`/
+    `terminate`, with NO nested call identity or error field of its own (an independent Rust
+    re-review caught an earlier revision reusing the pipeline-level `ToolResult` here instead,
+    observably larger than Pi's own type). `details`/`terminate`/`added_tool_names` are read only
+    when the scenario spec actually sets them, left `None` otherwise -- preserving the SAME
+    explicit-vs-absent distinction pinned Pi's own optional (`?`) fields carry, not collapsed into
+    a concrete default a scenario cannot tell apart from "never set"."""
+    added = spec.get("added_tool_names")
+    return ToolPartialResult(
+        content=(TextBlock(text=spec.get("text", "")),),
+        details=spec.get("details", {}),
+        added_tool_names=tuple(added) if added is not None else None,
+        terminate=spec.get("terminate"),
     )
+
+
+def _encode_partial(partial: ToolPartialResult) -> dict[str, Any]:
+    """Encode a captured `ToolPartialResult` back to the scenario's own structured shorthand
+    (`L08-R011`) for plain, language-neutral YAML comparison. `text` is always present (joined
+    `TextBlock` content, matching pinned Pi's own `content` field); `details`/`terminate`/
+    `added_tool_names` are included ONLY when the tool actually set them (not `None`) -- an
+    omitted key in the observed dict means "never set", exactly distinguishing that from an
+    explicit falsy/empty value the same way pinned Pi's own optional (`?`) fields do, so a
+    scenario asserting the full shape is genuinely discriminating, not merely text-shorthand."""
+    encoded: dict[str, Any] = {
+        "text": "".join(b.text for b in partial.content if isinstance(b, TextBlock))
+    }
+    if partial.details:
+        encoded["details"] = partial.details
+    if partial.terminate is not None:
+        encoded["terminate"] = partial.terminate
+    if partial.added_tool_names is not None:
+        encoded["added_tool_names"] = list(partial.added_tool_names)
+    return encoded
 
 
 def _stub(
@@ -463,13 +490,7 @@ async def run_agent_scenario(document: dict[str, Any]) -> dict[str, Any]:
                 "tool_call_id": call_id,
                 "tool_name": tool_name,
                 "arguments": arguments,
-                # Encoded back to the scenario's own structured shorthand (`L08-R011`): `partial`
-                # is a real `ToolResult`, matching pinned Pi's own structured `AgentToolResult<T>`
-                # -- `text_of`-equivalent join of its own text content, not the object itself,
-                # since the scenario file compares against plain, language-neutral YAML data.
-                "partial": {
-                    "text": "".join(b.text for b in partial.content if isinstance(b, TextBlock))
-                },
+                "partial": _encode_partial(partial),
             }
         ),
     )

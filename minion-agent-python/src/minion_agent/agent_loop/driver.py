@@ -146,7 +146,7 @@ from ..telemetry import Span, SpanKind, TelemetryService
 from ..tools.batch import BatchOutcome, execute_batch, execute_length_stop_batch
 from ..tools.definition import ToolDefinition
 from ..tools.registry import ToolRegistry
-from ..tools.result import ToolResult
+from ..tools.result import ToolPartialResult, ToolResult
 
 
 def _snapshot_tool_registry(tools: tuple[ToolDefinition, ...]) -> ToolRegistry:
@@ -956,7 +956,10 @@ class AgentLoop:
                 )
 
             async def on_execution_update(
-                call_id: str, name: str, arguments: dict[str, object], partial_result: ToolResult
+                call_id: str,
+                name: str,
+                arguments: dict[str, object],
+                partial_result: ToolPartialResult,
             ) -> None:
                 await self._dispatch_agent_event(
                     ToolExecutionUpdate(

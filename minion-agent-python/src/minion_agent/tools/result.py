@@ -11,6 +11,13 @@ that must never reach the model:
 
 Frozen, so `tools/post-execute` transforms by replacement. A mutable result
 would let one listener change a value another already returned.
+
+`ToolPartialResult` (`L08-R011`) is the DIFFERENT, narrower type for a tool's own LIVE partial
+report -- pinned Pi's `AgentToolResult<T>` exactly, with no `tool_call_id`/`tool_name`/`is_error`
+of its own (those live on the enclosing event). `ToolResult` is Minion's own pipeline-level
+FINALIZED-outcome type, a superset that adds those three as pipeline bookkeeping -- do not reuse it
+for a partial value; a partial that reports `is_error`/spoofed identity would be observably
+different from pinned Pi and certified Rust, which have no such fields on this type at all.
 """
 
 from __future__ import annotations
@@ -90,3 +97,36 @@ def text_result(
         is_error=is_error,
         terminate=terminate,
     )
+
+
+@dataclass(frozen=True, slots=True)
+class ToolPartialResult:
+    """A tool's own live partial-output report (`L08-R011`) -- pinned Pi's own
+    `AgentToolResult<T>` (`packages/agent/src/types.ts:361-375`) EXACTLY: `content`/`details`
+    required, `usage`/`added_tool_names`/`terminate` genuinely optional (`None` when the tool did
+    not set them, distinguishable from an explicit falsy/empty value the same way Pi's own
+    `usage?`/`addedToolNames?`/`terminate?` are `undefined`, not defaulted, when omitted).
+
+    Deliberately NOT `ToolResult`: this type carries NO `tool_call_id`, `tool_name`, or `is_error`
+    -- pinned Pi's own `AgentToolResult<T>` has none of those either. Call identity already lives
+    on the enclosing `tool_execution_update` event (`ToolExecutionUpdate.tool_call_id`/
+    `.tool_name`), and Pi has no `isError` concept on this type at all: "Execute the tool call.
+    Throw on failure instead of encoding errors in `content`" (`AgentTool.execute`'s own
+    docstring) -- a thrown/rejected `execute()` becomes an error OUTCOME the pipeline itself
+    produces, never a field a tool sets on its own returned/reported value. An earlier revision
+    reused `ToolResult` (this module's own pipeline-level FINALIZED-outcome type, which
+    additionally carries `tool_call_id`/`tool_name`/`is_error` as Minion-specific pipeline
+    bookkeeping) for the partial-update value too -- observably larger than Pi's/certified Rust's
+    own `AgentToolResult`, and a genuine parity defect, not a superset with no cost."""
+
+    content: tuple[ToolResultContentBlock, ...]
+    details: dict[str, Any] = field(default_factory=dict)
+    usage: Usage | None = None
+    added_tool_names: tuple[str, ...] | None = None
+    terminate: bool | None = None
+
+
+def text_partial_result(text: str) -> ToolPartialResult:
+    """A partial result whose whole content is one block of text -- the common case for a tool
+    that only ever streams incremental text, matching `text_result`'s own convenience shape."""
+    return ToolPartialResult(content=(TextBlock(text=text),))

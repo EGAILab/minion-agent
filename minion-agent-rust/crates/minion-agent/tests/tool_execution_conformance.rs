@@ -41,18 +41,20 @@ fn text_result(text: impl Into<String>) -> AgentToolResult {
 
 fn partial_result(spec: &Value) -> AgentToolResult {
     let usage = spec.get("usage").map(|raw| {
-        let mut usage = Usage::default();
-        usage.input = raw.get("input").and_then(Value::as_u64).unwrap_or(0);
-        usage.output = raw.get("output").and_then(Value::as_u64).unwrap_or(0);
-        usage.cache_read = raw.get("cache_read").and_then(Value::as_u64).unwrap_or(0);
-        usage.cache_write = raw.get("cache_write").and_then(Value::as_u64).unwrap_or(0);
-        usage.cache_write_1h = raw.get("cache_write_1h").and_then(Value::as_u64);
-        usage.reasoning = raw.get("reasoning").and_then(Value::as_u64);
-        usage.total_tokens = raw.get("total_tokens").and_then(Value::as_u64).unwrap_or(0);
-        if let Some(cost) = raw.get("cost") {
-            usage.cost = serde_json::from_value::<Cost>(cost.clone()).unwrap();
+        let cost = raw
+            .get("cost")
+            .map(|cost| serde_json::from_value::<Cost>(cost.clone()).unwrap())
+            .unwrap_or_default();
+        Usage {
+            input: raw.get("input").and_then(Value::as_u64).unwrap_or(0),
+            output: raw.get("output").and_then(Value::as_u64).unwrap_or(0),
+            cache_read: raw.get("cache_read").and_then(Value::as_u64).unwrap_or(0),
+            cache_write: raw.get("cache_write").and_then(Value::as_u64).unwrap_or(0),
+            cache_write_1h: raw.get("cache_write_1h").and_then(Value::as_u64),
+            reasoning: raw.get("reasoning").and_then(Value::as_u64),
+            total_tokens: raw.get("total_tokens").and_then(Value::as_u64).unwrap_or(0),
+            cost,
         }
-        usage
     });
     AgentToolResult {
         content: vec![ToolResultContentBlock::Text(TextBlock::new(

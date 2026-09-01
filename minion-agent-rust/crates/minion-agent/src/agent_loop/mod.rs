@@ -2,6 +2,7 @@ mod context;
 mod decisions;
 mod error;
 mod events;
+mod state;
 
 pub use context::{RunConfig, RunConfigUpdate, RunContext};
 pub use decisions::{
@@ -10,3 +11,4 @@ pub use decisions::{
 };
 pub use error::{AgentListenerError, AgentLoopError};
 pub use events::{AgentEvent, AgentEventKind, dispatch_agent_event, register_agent_listener};
+pub use state::{RunSnapshot, reduce_event};

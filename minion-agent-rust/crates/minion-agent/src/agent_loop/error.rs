@@ -1,6 +1,6 @@
 use thiserror::Error;
 
-use crate::{EventError, RuntimeError};
+use crate::{EventError, RuntimeError, agent::AgentRunError, session::SessionError};
 
 /// Failure returned by a public Agent lifecycle listener.
 #[derive(Clone, Debug, Eq, Error, PartialEq)]
@@ -24,6 +24,10 @@ impl AgentListenerError {
 #[derive(Debug, Error)]
 pub enum AgentLoopError {
     #[error(transparent)]
+    Run(#[from] AgentRunError),
+    #[error(transparent)]
+    Session(#[from] SessionError),
+    #[error(transparent)]
     Runtime(#[from] RuntimeError),
     #[error(transparent)]
     Event(#[from] EventError),
@@ -35,7 +39,7 @@ impl AgentLoopError {
     pub fn listener_error(&self) -> Option<&AgentListenerError> {
         match self {
             Self::Listener(error) => Some(error),
-            Self::Runtime(_) | Self::Event(_) => None,
+            Self::Run(_) | Self::Session(_) | Self::Runtime(_) | Self::Event(_) => None,
         }
     }
 }

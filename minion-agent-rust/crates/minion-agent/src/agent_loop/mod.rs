@@ -8,7 +8,9 @@ mod state;
 pub use context::{RunConfig, RunConfigUpdate, RunContext};
 pub use decisions::{
     Enter, PreStepContext, PreStepDecision, PreStepReason, PrepareNextTurnContext, Reject,
-    ShouldStopAfterTurnContext, TurnStopping,
+    ShouldStopAfterTurnContext, TurnStopping, register_pre_step_listener,
+    register_prepare_next_turn_listener, register_should_stop_after_turn_listener,
+    resolve_stopping,
 };
 pub use driver::{AgentLoop, PromptInput};
 pub use error::{AgentListenerError, AgentLoopError};

@@ -26,9 +26,11 @@ use crate::{
     },
 };
 
+use super::decisions::{pre_step, prepare_next_turn, should_stop_after_turn};
 use super::{
-    AgentEvent, AgentLoopError, RunConfig, RunContext, RunSnapshot, dispatch_agent_event,
-    reduce_event,
+    AgentEvent, AgentLoopError, Enter, PreStepContext, PreStepDecision, PreStepReason,
+    PrepareNextTurnContext, RunConfig, RunContext, RunSnapshot, ShouldStopAfterTurnContext,
+    dispatch_agent_event, reduce_event,
 };
 
 /// Input accepted by the eventual public prompt entry point.
@@ -50,6 +52,8 @@ pub struct AgentLoop {
     agent: Arc<AgentInstance>,
     context: Context,
     llm: Arc<LlmService>,
+    next_step_policy: ClaimPolicy,
+    next_turn_policy: ClaimPolicy,
 }
 
 struct PreparedRun {
@@ -57,6 +61,7 @@ struct PreparedRun {
     context: RunContext,
     config: RunConfig,
     new_messages: Vec<Message>,
+    decision: Option<Enter>,
 }
 
 #[derive(Debug, PartialEq)]
@@ -71,6 +76,19 @@ enum ProviderTurnDisposition {
     RepresentedTerminal,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum TurnBoundary {
+    AlreadyOpen,
+    NeedsStart,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+enum LoopDecision {
+    Continue(Enter),
+    Exhausted,
+    Stop,
+}
+
 impl fmt::Debug for PreparedRun {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
@@ -78,6 +96,7 @@ impl fmt::Debug for PreparedRun {
             .field("context", &self.context)
             .field("config", &self.config)
             .field("new_messages", &self.new_messages)
+            .field("decision", &self.decision)
             .finish_non_exhaustive()
     }
 }
@@ -94,7 +113,17 @@ impl AgentLoop {
             agent,
             context,
             llm,
+            next_step_policy: ClaimPolicy::OneAtATime,
+            next_turn_policy: ClaimPolicy::OneAtATime,
         }
+    }
+
+    pub fn set_next_step_policy(&mut self, policy: ClaimPolicy) {
+        self.next_step_policy = policy;
+    }
+
+    pub fn set_next_turn_policy(&mut self, policy: ClaimPolicy) {
+        self.next_turn_policy = policy;
     }
 
     async fn prepare_prompt_run(&self, input: PromptInput) -> Result<PreparedRun, AgentLoopError> {
@@ -154,15 +183,28 @@ impl AgentLoop {
             context: snapshot.context,
             config: snapshot.config,
             new_messages: Vec::new(),
+            decision: None,
         };
         self.dispatch(AgentEvent::AgentStart).await?;
         self.dispatch(AgentEvent::TurnStart).await?;
-        self.admit(&mut prepared, entering).await?;
+        let decision = self.decide(entering, PreStepReason::Initial).await?;
+        let PreStepDecision::Enter(mut decision) = decision else {
+            return Ok(prepared);
+        };
+        self.admit(&mut prepared, decision.messages.clone()).await?;
 
         if !skip_initial_steering_poll {
             let steering = self.claim(InboxTarget::Steering);
-            self.admit(&mut prepared, steering).await?;
+            if !steering.is_empty() {
+                let steering_decision = self.decide(steering, PreStepReason::Steering).await?;
+                let PreStepDecision::Enter(next) = steering_decision else {
+                    return Ok(prepared);
+                };
+                self.admit(&mut prepared, next.messages.clone()).await?;
+                decision = next;
+            }
         }
+        prepared.decision = Some(decision);
         Ok(prepared)
     }
 
@@ -186,11 +228,33 @@ impl AgentLoop {
         &self,
         prepared: &mut PreparedRun,
     ) -> Result<ProviderTurn, AgentLoopError> {
+        let decision = prepared.decision.clone().unwrap_or_else(|| Enter {
+            messages: Vec::new(),
+            system_override: None,
+            history_window: None,
+        });
+        self.run_provider_turn_with_decision(prepared, &decision)
+            .await
+    }
+
+    async fn run_provider_turn_with_decision(
+        &self,
+        prepared: &mut PreparedRun,
+        decision: &Enter,
+    ) -> Result<ProviderTurn, AgentLoopError> {
+        let first_visible = decision.history_window.map_or(0, |window| {
+            prepared.context.messages.len().saturating_sub(window)
+        });
         let request = LlmRequest {
             model: prepared.config.model.clone(),
             context: LlmContext {
-                system_prompt: Some(prepared.context.system_prompt.clone()),
-                messages: prepared.context.messages.clone(),
+                system_prompt: Some(
+                    decision
+                        .system_override
+                        .clone()
+                        .unwrap_or_else(|| prepared.context.system_prompt.clone()),
+                ),
+                messages: prepared.context.messages[first_visible..].to_vec(),
                 tools: Some(
                     prepared
                         .context
@@ -319,6 +383,154 @@ impl AgentLoop {
         Ok(batch)
     }
 
+    async fn run_successful(
+        &self,
+        mut prepared: PreparedRun,
+    ) -> Result<Vec<Message>, AgentLoopError> {
+        let Some(mut decision) = prepared.decision.take() else {
+            return self.finish_successful_run(&prepared).await;
+        };
+        let mut boundary = TurnBoundary::AlreadyOpen;
+        loop {
+            loop {
+                if boundary == TurnBoundary::NeedsStart {
+                    self.dispatch(AgentEvent::TurnStart).await?;
+                    self.admit(&mut prepared, decision.messages.clone()).await?;
+                }
+                boundary = TurnBoundary::NeedsStart;
+
+                let turn = self
+                    .run_provider_turn_with_decision(&mut prepared, &decision)
+                    .await?;
+                if turn.disposition == ProviderTurnDisposition::RepresentedTerminal {
+                    self.dispatch(AgentEvent::TurnEnd {
+                        message: turn.message,
+                        tool_results: Vec::new(),
+                    })
+                    .await?;
+                    return self.finish_successful_run(&prepared).await;
+                }
+
+                let has_tool_calls = turn
+                    .message
+                    .content
+                    .iter()
+                    .any(|block| matches!(block, AssistantContentBlock::ToolCall(_)));
+                let batch = if has_tool_calls {
+                    self.run_tool_calls(&mut prepared, &turn.message).await?
+                } else {
+                    ToolExecutionBatchResult {
+                        messages: Vec::new(),
+                        terminate: false,
+                    }
+                };
+                let has_more_tool_calls = has_tool_calls && !batch.terminate;
+                self.dispatch(AgentEvent::TurnEnd {
+                    message: turn.message.clone(),
+                    tool_results: batch.messages.clone(),
+                })
+                .await?;
+
+                let decision_context = PrepareNextTurnContext {
+                    message: turn.message.clone(),
+                    tool_results: batch.messages.clone(),
+                    context: prepared.context.clone(),
+                    new_messages: prepared.new_messages.clone(),
+                };
+                let update = prepare_next_turn(&self.context, decision_context).await?;
+                if let Some(context) = update.context {
+                    prepared.context = context;
+                }
+                if let Some(model) = update.model {
+                    prepared.config.model = model;
+                }
+                if let Some(thinking_level) = update.thinking_level {
+                    prepared.config.thinking_level = thinking_level;
+                }
+                if should_stop_after_turn(
+                    &self.context,
+                    ShouldStopAfterTurnContext {
+                        message: turn.message,
+                        tool_results: batch.messages,
+                        context: prepared.context.clone(),
+                        new_messages: prepared.new_messages.clone(),
+                    },
+                )
+                .await?
+                {
+                    return self.finish_successful_run(&prepared).await;
+                }
+
+                match self.select_next_inner_turn(has_more_tool_calls).await? {
+                    LoopDecision::Continue(next) => decision = next,
+                    LoopDecision::Exhausted => break,
+                    LoopDecision::Stop => {
+                        return self.finish_successful_run(&prepared).await;
+                    }
+                }
+            }
+
+            match self.select_follow_up().await? {
+                LoopDecision::Continue(next) => decision = next,
+                LoopDecision::Exhausted | LoopDecision::Stop => {
+                    return self.finish_successful_run(&prepared).await;
+                }
+            }
+        }
+    }
+
+    async fn finish_successful_run(
+        &self,
+        prepared: &PreparedRun,
+    ) -> Result<Vec<Message>, AgentLoopError> {
+        let messages = prepared.new_messages.clone();
+        self.dispatch(AgentEvent::AgentEnd {
+            messages: messages.clone(),
+        })
+        .await?;
+        Ok(messages)
+    }
+
+    async fn decide(
+        &self,
+        messages: Vec<Message>,
+        reason: PreStepReason,
+    ) -> Result<PreStepDecision, AgentLoopError> {
+        pre_step(&self.context, PreStepContext { messages, reason }).await
+    }
+
+    async fn select_next_inner_turn(
+        &self,
+        has_more_tool_calls: bool,
+    ) -> Result<LoopDecision, AgentLoopError> {
+        let steering = self.claim(InboxTarget::Steering);
+        if !has_more_tool_calls && steering.is_empty() {
+            return Ok(LoopDecision::Exhausted);
+        }
+        let reason = if steering.is_empty() {
+            PreStepReason::ToolResults
+        } else {
+            PreStepReason::Steering
+        };
+        Ok(match self.decide(steering, reason).await? {
+            PreStepDecision::Enter(next) => LoopDecision::Continue(next),
+            PreStepDecision::Reject(_) => LoopDecision::Stop,
+        })
+    }
+
+    async fn select_follow_up(&self) -> Result<LoopDecision, AgentLoopError> {
+        let follow_up = self.claim(InboxTarget::FollowUp);
+        if follow_up.is_empty() {
+            return Ok(LoopDecision::Exhausted);
+        }
+        Ok(
+            match self.decide(follow_up, PreStepReason::NextTurn).await? {
+                PreStepDecision::Enter(next) => LoopDecision::Continue(next),
+                PreStepDecision::Reject(_) => LoopDecision::Stop,
+            },
+        )
+    }
+
     fn extend_run_tools(
         &self,
         prepared: &mut PreparedRun,
@@ -350,9 +562,13 @@ impl AgentLoop {
     }
 
     fn claim(&self, target: InboxTarget) -> Vec<Message> {
+        let policy = match target {
+            InboxTarget::Steering => self.next_step_policy,
+            InboxTarget::FollowUp => self.next_turn_policy,
+        };
         self.agent
             .inbox()
-            .claim(target, ClaimPolicy::OneAtATime)
+            .claim(target, policy)
             .into_iter()
             .map(|envelope| envelope.message)
             .collect()
@@ -445,7 +661,7 @@ mod tests {
 
     use crate::{
         DynPluginSpec, PluginInitError, PluginSpec, Runtime,
-        agent::{AgentDefinition, AgentInstance, AgentStatus},
+        agent::{AgentDefinition, AgentInstance, AgentStatus, ClaimPolicy},
         llm::{
             AssistantContentBlock, AssistantMessage, DoneReason, ErrorReason, ImageBlock,
             LlmService, LlmStartError, Message, ModelIdentity, Script, ScriptItem, ScriptedAdapter,
@@ -459,7 +675,11 @@ mod tests {
 
     use super::{AgentLoop, PromptInput, ProviderTurnDisposition};
     use crate::agent_loop::{
-        AgentEvent, AgentEventKind, AgentListenerError, AgentLoopError, register_agent_listener,
+        AgentEvent, AgentEventKind, AgentListenerError, AgentLoopError, Enter, PreStepContext,
+        PreStepDecision, PreStepReason, PrepareNextTurnContext, RunConfigUpdate, RunContext,
+        ShouldStopAfterTurnContext, TurnStopping, register_agent_listener,
+        register_pre_step_listener, register_prepare_next_turn_listener,
+        register_should_stop_after_turn_listener,
     };
 
     fn run(future: impl Future<Output = ()>) {
@@ -554,6 +774,146 @@ mod tests {
                         async move {
                             hook(event);
                             Ok(())
+                        }
+                    })
+                    .map_err(|error| PluginInitError::new(error.to_string()))?;
+                    Ok(())
+                }
+            },
+        )
+        .erase()
+    }
+
+    fn text_turn(text: &str) -> Script {
+        let message = AssistantMessage::new(
+            identity(),
+            vec![AssistantContentBlock::Text(TextBlock::new(text))],
+            Usage::default(),
+            StopReason::Stop,
+            2.0,
+        );
+        Script::new([ScriptItem::Chunk(Box::new(StreamChunk::Done {
+            reason: DoneReason::Stop,
+            message,
+        }))])
+    }
+
+    fn tool_turn(call_id: &str, tool_name: &str) -> Script {
+        let message = AssistantMessage::new(
+            identity(),
+            vec![AssistantContentBlock::ToolCall(ToolCall::new(
+                call_id,
+                tool_name,
+                BTreeMap::new(),
+            ))],
+            Usage::default(),
+            StopReason::ToolUse,
+            2.0,
+        );
+        Script::new([ScriptItem::Chunk(Box::new(StreamChunk::Done {
+            reason: DoneReason::ToolUse,
+            message,
+        }))])
+    }
+
+    fn tool_output(text: &str) -> AgentToolResult {
+        AgentToolResult {
+            content: vec![ToolResultContentBlock::Text(TextBlock::new(text))],
+            details: Value::Null,
+            usage: None,
+            added_tool_names: None,
+            terminate: None,
+        }
+    }
+
+    fn message_text(message: &AssistantMessage) -> &str {
+        match message.content.first() {
+            Some(AssistantContentBlock::Text(block)) => &block.text,
+            Some(AssistantContentBlock::Thinking(_))
+            | Some(AssistantContentBlock::ToolCall(_))
+            | None => "",
+        }
+    }
+
+    fn decision_plugin<P, S>(prepare: P, stop: S) -> DynPluginSpec
+    where
+        P: Fn(PrepareNextTurnContext) -> RunConfigUpdate + Send + Sync + 'static,
+        S: Fn(ShouldStopAfterTurnContext) -> TurnStopping + Send + Sync + 'static,
+    {
+        let prepare = Arc::new(prepare);
+        let stop = Arc::new(stop);
+        PluginSpec::<Value>::new(
+            "decision-listeners",
+            vec![],
+            || json!({}),
+            move |context, _config| {
+                let prepare = Arc::clone(&prepare);
+                let stop = Arc::clone(&stop);
+                async move {
+                    register_prepare_next_turn_listener(&context, move |current, _next| {
+                        let update = prepare(current);
+                        async move { Ok(update) }
+                    })
+                    .map_err(|error| PluginInitError::new(error.to_string()))?;
+                    register_should_stop_after_turn_listener(&context, move |current| {
+                        let decision = stop(current);
+                        async move { Ok(decision) }
+                    })
+                    .map_err(|error| PluginInitError::new(error.to_string()))?;
+                    Ok(())
+                }
+            },
+        )
+        .erase()
+    }
+
+    fn prepare_once_plugin(update: RunConfigUpdate) -> DynPluginSpec {
+        let update = Arc::new(Mutex::new(Some(update)));
+        decision_plugin(
+            move |_context| update.lock().take().unwrap_or_default(),
+            |_context| TurnStopping::Continue,
+        )
+    }
+
+    fn counting_decision_plugin(count: Arc<AtomicUsize>) -> DynPluginSpec {
+        decision_plugin(
+            {
+                let count = Arc::clone(&count);
+                move |_context| {
+                    count.fetch_add(1, Ordering::SeqCst);
+                    RunConfigUpdate::default()
+                }
+            },
+            move |_context| {
+                count.fetch_add(1, Ordering::SeqCst);
+                TurnStopping::Continue
+            },
+        )
+    }
+
+    fn pre_step_plugin<F>(listener: F) -> DynPluginSpec
+    where
+        F: Fn(PreStepContext) -> Option<Vec<Message>> + Send + Sync + 'static,
+    {
+        let listener = Arc::new(listener);
+        PluginSpec::<Value>::new(
+            "pre-step-listener",
+            vec![],
+            || json!({}),
+            move |context, _config| {
+                let listener = Arc::clone(&listener);
+                async move {
+                    register_pre_step_listener(&context, move |current, next| {
+                        let replacement = listener(current.clone());
+                        async move {
+                            match replacement {
+                                Some(messages) => Ok(PreStepDecision::Enter(Enter {
+                                    messages,
+                                    system_override: None,
+                                    history_window: None,
+                                })),
+                                None => next.call(None).await,
+                            }
                         }
                     })
                     .map_err(|error| PluginInitError::new(error.to_string()))?;
@@ -1530,6 +1890,656 @@ mod tests {
                 [ToolResultContentBlock::Text(block)] if block.text == "old"
             ));
             drop((prepared, replacement));
+        });
+    }
+
+    #[test]
+    fn successful_run_continues_for_tools_steering_and_follow_up_in_pi_order() {
+        run(async {
+            let runtime = Runtime::new();
+            let trace = Arc::new(Mutex::new(Vec::<String>::new()));
+            let scripts = [
+                tool_turn("call-1", "echo"),
+                text_turn("after-steering"),
+                text_turn("after-follow-up"),
+            ];
+            let adapter = Arc::new(ScriptedAdapter::new(scripts));
+            let llm = Arc::new(LlmService::new());
+            llm.register(identity(), adapter.clone());
+            runtime
+                .tools()
+                .register_for_scope(
+                    None,
+                    ToolDefinition::new(
+                        "echo",
+                        "echo",
+                        serde_json::from_value(json!({})).unwrap(),
+                        "echo",
+                        |_request: ToolExecutionRequest| {
+                            Box::pin(async { Ok(tool_output("done")) })
+                        },
+                    ),
+                )
+                .unwrap();
+            runtime
+                .mount(
+                    &decision_plugin(
+                        {
+                            let trace = Arc::clone(&trace);
+                            move |context| {
+                                trace
+                                    .lock()
+                                    .push(format!("prepare:{}", message_text(&context.message)));
+                                RunConfigUpdate::default()
+                            }
+                        },
+                        {
+                            let trace = Arc::clone(&trace);
+                            move |context| {
+                                trace
+                                    .lock()
+                                    .push(format!("stop:{}", message_text(&context.message)));
+                                TurnStopping::Continue
+                            }
+                        },
+                    ),
+                    json!({}),
+                )
+                .unwrap();
+            runtime
+                .mount(
+                    &PluginSpec::<Value>::new("turn-end-listener", vec![], || json!({}), {
+                        let trace = Arc::clone(&trace);
+                        move |context, _config| {
+                            let trace = Arc::clone(&trace);
+                            async move {
+                                register_agent_listener(&context, move |event| {
+                                    let trace = Arc::clone(&trace);
+                                    async move {
+                                        if event.kind() == AgentEventKind::TurnEnd {
+                                            trace.lock().push("turn_end".into());
+                                        }
+                                        Ok(())
+                                    }
+                                })
+                                .map_err(|error| PluginInitError::new(error.to_string()))?;
+                                Ok(())
+                            }
+                        }
+                    })
+                    .erase(),
+                    json!({}),
+                )
+                .unwrap();
+            runtime.reconcile().await.unwrap();
+            let (mut driver, agent) = loop_for_with_llm(
+                &runtime,
+                Session::new("room-a", [] as [&str; 0]).unwrap(),
+                llm,
+            );
+            driver.set_next_step_policy(ClaimPolicy::OneAtATime);
+            driver.set_next_turn_policy(ClaimPolicy::OneAtATime);
+            agent.follow_up(user("follow"), None);
+            let prepared = driver
+                .prepare_prompt_run(PromptInput::Message(user("prompt")))
+                .await
+                .unwrap();
+            agent.steer(user("steer"), None);
+
+            let messages = driver.run_successful(prepared).await.unwrap();
+
+            assert_eq!(adapter.requests().len(), 3);
+            assert_eq!(messages.len(), 7);
+            assert_eq!(agent.status(), AgentStatus::Idle);
+            assert!(!agent.has_queued_messages());
+            assert_eq!(
+                trace.lock().as_slice(),
+                [
+                    "turn_end",
+                    "prepare:",
+                    "stop:",
+                    "turn_end",
+                    "prepare:after-steering",
+                    "stop:after-steering",
+                    "turn_end",
+                    "prepare:after-follow-up",
+                    "stop:after-follow-up",
+                ]
+            );
+        });
+    }
+
+    #[test]
+    fn prepare_next_turn_replaces_context_model_and_thinking_for_this_run_only() {
+        run(async {
+            let runtime = Runtime::new();
+            let replacement_model = ModelIdentity::new("provider", "api", "replacement").unwrap();
+            let replacement_adapter = Arc::new(ScriptedAdapter::new([text_turn("replacement")]));
+            let initial_adapter = Arc::new(ScriptedAdapter::new([tool_turn("call-1", "echo")]));
+            let llm = Arc::new(LlmService::new());
+            llm.register(identity(), initial_adapter.clone());
+            llm.register(replacement_model.clone(), replacement_adapter.clone());
+            runtime
+                .tools()
+                .register_for_scope(
+                    None,
+                    ToolDefinition::new(
+                        "echo",
+                        "echo",
+                        serde_json::from_value(json!({})).unwrap(),
+                        "echo",
+                        |_request: ToolExecutionRequest| {
+                            Box::pin(async { Ok(tool_output("done")) })
+                        },
+                    ),
+                )
+                .unwrap();
+            let replacement_context = RunContext {
+                system_prompt: "replacement-system".into(),
+                messages: vec![user("replacement-history")],
+                tools: Vec::new(),
+            };
+            runtime
+                .mount(
+                    &prepare_once_plugin(RunConfigUpdate {
+                        context: Some(replacement_context.clone()),
+                        model: Some(replacement_model.clone()),
+                        thinking_level: Some(crate::agent::ThinkingLevel::High),
+                    }),
+                    json!({}),
+                )
+                .unwrap();
+            runtime.reconcile().await.unwrap();
+            let (driver, agent) = loop_for_with_llm(
+                &runtime,
+                Session::new("room-a", [] as [&str; 0]).unwrap(),
+                llm,
+            );
+            let prepared = driver
+                .prepare_prompt_run(PromptInput::Message(user("prompt")))
+                .await
+                .unwrap();
+
+            driver.run_successful(prepared).await.unwrap();
+
+            let replacement_requests = replacement_adapter.requests();
+            assert_eq!(replacement_requests.len(), 1);
+            assert_eq!(replacement_requests[0].model, replacement_model);
+            assert_eq!(
+                replacement_requests[0].context.system_prompt.as_deref(),
+                Some("replacement-system")
+            );
+            assert_eq!(
+                replacement_requests[0].context.messages,
+                replacement_context.messages
+            );
+            assert!(
+                replacement_requests[0]
+                    .context
+                    .tools
+                    .as_ref()
+                    .unwrap()
+                    .is_empty()
+            );
+            assert_eq!(
+                replacement_requests[0].options.reasoning,
+                Some(LlmThinkingLevel::High)
+            );
+            assert_eq!(agent.system_prompt(), "system");
+            assert_eq!(agent.model(), identity());
+            assert_eq!(agent.thinking_level(), crate::agent::ThinkingLevel::Off);
+        });
+    }
+
+    #[test]
+    fn represented_terminals_skip_every_post_turn_decision_and_leave_queues_unclaimed() {
+        run(async {
+            for reason in [ErrorReason::Error, ErrorReason::Aborted] {
+                let runtime = Runtime::new();
+                let decisions = Arc::new(AtomicUsize::new(0));
+                runtime
+                    .mount(&counting_decision_plugin(Arc::clone(&decisions)), json!({}))
+                    .unwrap();
+                runtime.reconcile().await.unwrap();
+                let mut terminal = AssistantMessage::pending(identity(), 2.0);
+                terminal.stop_reason = match reason {
+                    ErrorReason::Error => StopReason::Error,
+                    ErrorReason::Aborted => StopReason::Aborted,
+                };
+                let adapter = Arc::new(ScriptedAdapter::new([Script::new([ScriptItem::Chunk(
+                    Box::new(StreamChunk::Error {
+                        reason,
+                        error: terminal,
+                    }),
+                )])]));
+                let llm = Arc::new(LlmService::new());
+                llm.register(identity(), adapter);
+                let (driver, agent) = loop_for_with_llm(
+                    &runtime,
+                    Session::new("room-a", [] as [&str; 0]).unwrap(),
+                    llm,
+                );
+                agent.follow_up(user("queued-follow-up"), None);
+                let prepared = driver
+                    .prepare_prompt_run(PromptInput::Message(user("prompt")))
+                    .await
+                    .unwrap();
+                agent.steer(user("queued-steering"), None);
+
+                driver.run_successful(prepared).await.unwrap();
+
+                assert_eq!(decisions.load(Ordering::SeqCst), 0);
+                assert!(agent.has_queued_messages());
+            }
+        });
+    }
+
+    #[test]
+    fn twenty_one_tool_turns_are_not_capped() {
+        run(async {
+            let runtime = Runtime::new();
+            runtime
+                .tools()
+                .register_for_scope(
+                    None,
+                    ToolDefinition::new(
+                        "echo",
+                        "echo",
+                        serde_json::from_value(json!({})).unwrap(),
+                        "echo",
+                        |_request: ToolExecutionRequest| {
+                            Box::pin(async { Ok(tool_output("done")) })
+                        },
+                    ),
+                )
+                .unwrap();
+            let scripts = (0..21)
+                .map(|index| tool_turn(&format!("call-{index}"), "echo"))
+                .chain([text_turn("finished")]);
+            let adapter = Arc::new(ScriptedAdapter::new(scripts));
+            let llm = Arc::new(LlmService::new());
+            llm.register(identity(), adapter.clone());
+            let (driver, _agent) = loop_for_with_llm(
+                &runtime,
+                Session::new("room-a", [] as [&str; 0]).unwrap(),
+                llm,
+            );
+            let prepared = driver
+                .prepare_prompt_run(PromptInput::Message(user("prompt")))
+                .await
+                .unwrap();
+
+            driver.run_successful(prepared).await.unwrap();
+
+            assert_eq!(adapter.requests().len(), 22);
+        });
+    }
+
+    #[test]
+    fn steering_without_tool_continuation_starts_the_next_turn() {
+        run(async {
+            let runtime = Runtime::new();
+            let adapter = Arc::new(ScriptedAdapter::new([
+                text_turn("first"),
+                text_turn("steered"),
+            ]));
+            let llm = Arc::new(LlmService::new());
+            llm.register(identity(), adapter.clone());
+            let (driver, agent) = loop_for_with_llm(
+                &runtime,
+                Session::new("room-a", [] as [&str; 0]).unwrap(),
+                llm,
+            );
+            let prepared = driver
+                .prepare_prompt_run(PromptInput::Message(user("prompt")))
+                .await
+                .unwrap();
+            agent.steer(user("late-steering"), None);
+
+            driver.run_successful(prepared).await.unwrap();
+
+            assert_eq!(adapter.requests().len(), 2);
+            assert_eq!(
+                adapter.requests()[1].context.messages.last(),
+                Some(&user("late-steering"))
+            );
+        });
+    }
+
+    #[test]
+    fn terminate_suppresses_only_tool_driven_continuation() {
+        run(async {
+            let runtime = Runtime::new();
+            runtime
+                .tools()
+                .register_for_scope(
+                    None,
+                    ToolDefinition::new(
+                        "ending",
+                        "ending",
+                        serde_json::from_value(json!({})).unwrap(),
+                        "ending",
+                        |_request: ToolExecutionRequest| {
+                            Box::pin(async {
+                                let mut output = tool_output("done");
+                                output.terminate = Some(true);
+                                Ok(output)
+                            })
+                        },
+                    ),
+                )
+                .unwrap();
+            let decisions = Arc::new(AtomicUsize::new(0));
+            runtime
+                .mount(&counting_decision_plugin(Arc::clone(&decisions)), json!({}))
+                .unwrap();
+            runtime.reconcile().await.unwrap();
+            let adapter = Arc::new(ScriptedAdapter::new([
+                tool_turn("call-1", "ending"),
+                text_turn("steered"),
+            ]));
+            let llm = Arc::new(LlmService::new());
+            llm.register(identity(), adapter.clone());
+            let (driver, agent) = loop_for_with_llm(
+                &runtime,
+                Session::new("room-a", [] as [&str; 0]).unwrap(),
+                llm,
+            );
+            let prepared = driver
+                .prepare_prompt_run(PromptInput::Message(user("prompt")))
+                .await
+                .unwrap();
+            agent.steer(user("late-steering"), None);
+
+            driver.run_successful(prepared).await.unwrap();
+
+            assert_eq!(adapter.requests().len(), 2);
+            assert_eq!(decisions.load(Ordering::SeqCst), 4);
+        });
+    }
+
+    #[test]
+    fn stop_precedes_queue_claim_and_leaves_follow_up_pending() {
+        run(async {
+            let runtime = Runtime::new();
+            runtime
+                .mount(
+                    &decision_plugin(
+                        |_context| RunConfigUpdate::default(),
+                        |_context| TurnStopping::Stop,
+                    ),
+                    json!({}),
+                )
+                .unwrap();
+            runtime.reconcile().await.unwrap();
+            let adapter = Arc::new(ScriptedAdapter::new([text_turn("first")]));
+            let llm = Arc::new(LlmService::new());
+            llm.register(identity(), adapter.clone());
+            let (driver, agent) = loop_for_with_llm(
+                &runtime,
+                Session::new("room-a", [] as [&str; 0]).unwrap(),
+                llm,
+            );
+            agent.follow_up(user("later"), None);
+            let prepared = driver
+                .prepare_prompt_run(PromptInput::Message(user("prompt")))
+                .await
+                .unwrap();
+
+            driver.run_successful(prepared).await.unwrap();
+
+            assert_eq!(adapter.requests().len(), 1);
+            assert!(agent.has_queued_messages());
+        });
+    }
+
+    #[test]
+    fn steering_and_follow_up_use_independently_configurable_all_policies() {
+        run(async {
+            let runtime = Runtime::new();
+            let adapter = Arc::new(ScriptedAdapter::new([
+                text_turn("first"),
+                text_turn("after-steering"),
+                text_turn("after-follow-up"),
+            ]));
+            let llm = Arc::new(LlmService::new());
+            llm.register(identity(), adapter.clone());
+            let (mut driver, agent) = loop_for_with_llm(
+                &runtime,
+                Session::new("room-a", [] as [&str; 0]).unwrap(),
+                llm,
+            );
+            driver.set_next_step_policy(ClaimPolicy::All);
+            driver.set_next_turn_policy(ClaimPolicy::All);
+            agent.follow_up(user("follow-1"), None);
+            agent.follow_up(user("follow-2"), None);
+            let prepared = driver
+                .prepare_prompt_run(PromptInput::Message(user("prompt")))
+                .await
+                .unwrap();
+            agent.steer(user("steer-1"), None);
+            agent.steer(user("steer-2"), None);
+
+            driver.run_successful(prepared).await.unwrap();
+
+            let requests = adapter.requests();
+            assert_eq!(requests.len(), 3);
+            assert_eq!(
+                &requests[1].context.messages[requests[1].context.messages.len() - 2..],
+                [user("steer-1"), user("steer-2")]
+            );
+            assert_eq!(
+                &requests[2].context.messages[requests[2].context.messages.len() - 2..],
+                [user("follow-1"), user("follow-2")]
+            );
+        });
+    }
+
+    #[test]
+    fn pre_step_observes_reasons_and_can_replace_admitted_messages() {
+        run(async {
+            let runtime = Runtime::new();
+            let reasons = Arc::new(Mutex::new(Vec::new()));
+            runtime
+                .mount(
+                    &pre_step_plugin({
+                        let reasons = Arc::clone(&reasons);
+                        move |context| {
+                            reasons.lock().push(context.reason);
+                            (context.reason == PreStepReason::Steering)
+                                .then(|| vec![user("rewritten-steering")])
+                        }
+                    }),
+                    json!({}),
+                )
+                .unwrap();
+            runtime.reconcile().await.unwrap();
+            let adapter = Arc::new(ScriptedAdapter::new([
+                text_turn("first"),
+                text_turn("second"),
+            ]));
+            let llm = Arc::new(LlmService::new());
+            llm.register(identity(), adapter.clone());
+            let (driver, agent) = loop_for_with_llm(
+                &runtime,
+                Session::new("room-a", [] as [&str; 0]).unwrap(),
+                llm,
+            );
+            let prepared = driver
+                .prepare_prompt_run(PromptInput::Message(user("prompt")))
+                .await
+                .unwrap();
+            agent.steer(user("original-steering"), None);
+
+            driver.run_successful(prepared).await.unwrap();
+
+            assert_eq!(
+                reasons.lock().as_slice(),
+                [PreStepReason::Initial, PreStepReason::Steering]
+            );
+            assert_eq!(
+                adapter.requests()[1].context.messages.last(),
+                Some(&user("rewritten-steering"))
+            );
+            assert!(
+                !agent
+                    .messages()
+                    .unwrap()
+                    .contains(&user("original-steering"))
+            );
+        });
+    }
+
+    #[test]
+    fn dynamically_added_tool_is_available_to_the_next_turn_only_through_run_growth() {
+        run(async {
+            let runtime = Runtime::new();
+            let introduced_executions = Arc::new(AtomicUsize::new(0));
+            runtime
+                .tools()
+                .register_for_scope(
+                    None,
+                    ToolDefinition::new(
+                        "introducer",
+                        "introducer",
+                        serde_json::from_value(json!({})).unwrap(),
+                        "introducer",
+                        |_request: ToolExecutionRequest| {
+                            Box::pin(async {
+                                let mut output = tool_output("introduced");
+                                output.added_tool_names = Some(vec!["introduced".into()]);
+                                Ok(output)
+                            })
+                        },
+                    ),
+                )
+                .unwrap();
+            let adapter = Arc::new(ScriptedAdapter::new([
+                tool_turn("call-1", "introducer"),
+                tool_turn("call-2", "introduced"),
+                text_turn("finished"),
+            ]));
+            let llm = Arc::new(LlmService::new());
+            llm.register(identity(), adapter.clone());
+            let (driver, _agent) = loop_for_with_llm(
+                &runtime,
+                Session::new("room-a", [] as [&str; 0]).unwrap(),
+                llm,
+            );
+            let prepared = driver
+                .prepare_prompt_run(PromptInput::Message(user("prompt")))
+                .await
+                .unwrap();
+            let introduced = runtime
+                .tools()
+                .register_for_scope(
+                    None,
+                    ToolDefinition::new(
+                        "introduced",
+                        "introduced",
+                        serde_json::from_value(json!({})).unwrap(),
+                        "introduced",
+                        {
+                            let introduced_executions = Arc::clone(&introduced_executions);
+                            move |_request: ToolExecutionRequest| {
+                                let introduced_executions = Arc::clone(&introduced_executions);
+                                Box::pin(async move {
+                                    introduced_executions.fetch_add(1, Ordering::SeqCst);
+                                    Ok(tool_output("used"))
+                                })
+                            }
+                        },
+                    ),
+                )
+                .unwrap();
+
+            driver.run_successful(prepared).await.unwrap();
+
+            assert_eq!(introduced_executions.load(Ordering::SeqCst), 1);
+            assert_eq!(
+                adapter.requests()[1]
+                    .context
+                    .tools
+                    .as_ref()
+                    .unwrap()
+                    .iter()
+                    .map(|tool| tool.name.as_str())
+                    .collect::<Vec<_>>(),
+                vec!["introducer", "introduced"]
+            );
+            drop(introduced);
+        });
+    }
+
+    #[test]
+    fn prepare_next_turn_replacement_does_not_leak_to_a_later_run_snapshot() {
+        run(async {
+            let runtime = Runtime::new();
+            runtime
+                .tools()
+                .register_for_scope(
+                    None,
+                    ToolDefinition::new(
+                        "echo",
+                        "echo",
+                        serde_json::from_value(json!({})).unwrap(),
+                        "echo",
+                        |_request: ToolExecutionRequest| {
+                            Box::pin(async { Ok(tool_output("done")) })
+                        },
+                    ),
+                )
+                .unwrap();
+            let replacement_model = ModelIdentity::new("provider", "api", "replacement").unwrap();
+            let replacement_adapter = Arc::new(ScriptedAdapter::new([text_turn("replacement")]));
+            let original_adapter = Arc::new(ScriptedAdapter::new([
+                tool_turn("call-1", "echo"),
+                text_turn("second-run"),
+            ]));
+            let llm = Arc::new(LlmService::new());
+            llm.register(identity(), original_adapter.clone());
+            llm.register(replacement_model.clone(), replacement_adapter);
+            runtime
+                .mount(
+                    &prepare_once_plugin(RunConfigUpdate {
+                        context: Some(RunContext {
+                            system_prompt: "replacement-system".into(),
+                            messages: vec![user("replacement-history")],
+                            tools: Vec::new(),
+                        }),
+                        model: Some(replacement_model),
+                        thinking_level: Some(crate::agent::ThinkingLevel::Max),
+                    }),
+                    json!({}),
+                )
+                .unwrap();
+            runtime.reconcile().await.unwrap();
+            let (driver, _agent) = loop_for_with_llm(
+                &runtime,
+                Session::new("room-a", [] as [&str; 0]).unwrap(),
+                llm,
+            );
+            let first = driver
+                .prepare_prompt_run(PromptInput::Message(user("first")))
+                .await
+                .unwrap();
+            driver.run_successful(first).await.unwrap();
+            let second = driver
+                .prepare_prompt_run(PromptInput::Message(user("second")))
+                .await
+                .unwrap();
+            driver.run_successful(second).await.unwrap();
+
+            let requests = original_adapter.requests();
+            assert_eq!(requests.len(), 2);
+            assert_eq!(requests[1].model, identity());
+            assert_eq!(requests[1].context.system_prompt.as_deref(), Some("system"));
+            assert!(requests[1].context.messages.contains(&user("second")));
+            assert_ne!(
+                requests[1].context.messages,
+                vec![user("replacement-history")]
+            );
+            assert_eq!(requests[1].options.reasoning, None);
         });
     }
 }

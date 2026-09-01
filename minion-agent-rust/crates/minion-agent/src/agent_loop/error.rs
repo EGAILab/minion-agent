@@ -2,6 +2,7 @@ use thiserror::Error;
 
 use crate::{
     EventError, RuntimeError, agent::AgentRunError, llm::LlmStartError, session::SessionError,
+    tools::ToolExecutionError,
 };
 
 /// Failure returned by a public Agent lifecycle listener.
@@ -47,6 +48,8 @@ pub enum AgentLoopError {
     Listener(#[from] AgentListenerError),
     #[error(transparent)]
     LlmStart(#[from] LlmStartError),
+    #[error(transparent)]
+    ToolExecution(#[from] ToolExecutionError),
 }
 
 impl AgentLoopError {
@@ -61,7 +64,8 @@ impl AgentLoopError {
             | Self::Session(_)
             | Self::Runtime(_)
             | Self::Event(_)
-            | Self::LlmStart(_) => None,
+            | Self::LlmStart(_)
+            | Self::ToolExecution(_) => None,
         }
     }
 }

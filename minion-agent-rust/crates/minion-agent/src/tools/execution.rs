@@ -1,13 +1,17 @@
 use std::{
     collections::BTreeMap,
     future::Future,
-    sync::{
-        Arc,
-        atomic::{AtomicBool, Ordering},
-    },
+    mem,
+    sync::Arc,
+    task::{Context as TaskContext, Poll},
 };
 
-use futures::{FutureExt, StreamExt, stream::FuturesUnordered};
+use futures::{
+    FutureExt, StreamExt,
+    future::{BoxFuture, poll_fn},
+    stream::FuturesUnordered,
+    task::{AtomicWaker, noop_waker_ref},
+};
 use serde_json::Value;
 use thiserror::Error;
 
@@ -28,6 +32,10 @@ pub struct ToolExecutionOptions {
     pub default_mode: ExecutionMode,
     pub signal: Option<Arc<dyn ToolExecutionSignal>>,
     pub timestamp: f64,
+    execution_tools: Option<Vec<Arc<ToolDefinition>>>,
+    on_execution_start: Option<ToolExecutionStartCallback>,
+    on_execution_update: Option<ToolExecutionUpdateCallback>,
+    on_execution_end: Option<ToolExecutionEndCallback>,
 }
 
 impl ToolExecutionOptions {
@@ -37,6 +45,10 @@ impl ToolExecutionOptions {
             default_mode: ExecutionMode::Parallel,
             signal: None,
             timestamp,
+            execution_tools: None,
+            on_execution_start: None,
+            on_execution_update: None,
+            on_execution_end: None,
         }
     }
 
@@ -48,6 +60,79 @@ impl ToolExecutionOptions {
     pub fn with_signal(mut self, signal: Arc<dyn ToolExecutionSignal>) -> Self {
         self.signal = Some(signal);
         self
+    }
+
+    /// Uses an already-resolved run-local tool snapshot for this batch.
+    ///
+    /// The default remains the live Layer-05 registry so existing Layer-06
+    /// callers retain their certified behavior.
+    pub fn with_execution_tools(mut self, tools: Vec<Arc<ToolDefinition>>) -> Self {
+        self.execution_tools = Some(tools);
+        self
+    }
+
+    pub fn with_execution_start<F, Fut>(mut self, callback: F) -> Self
+    where
+        F: Fn(ToolExecutionStart) -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = Result<(), ToolLifecycleError>> + Send + 'static,
+    {
+        self.on_execution_start = Some(Arc::new(move |event| callback(event).boxed()));
+        self
+    }
+
+    pub fn with_execution_update<F, Fut>(mut self, callback: F) -> Self
+    where
+        F: Fn(ToolExecutionUpdate) -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = Result<(), ToolLifecycleError>> + Send + 'static,
+    {
+        self.on_execution_update = Some(Arc::new(move |event| callback(event).boxed()));
+        self
+    }
+
+    pub fn with_execution_end<F, Fut>(mut self, callback: F) -> Self
+    where
+        F: Fn(ToolExecutionEnd) -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = Result<(), ToolLifecycleError>> + Send + 'static,
+    {
+        self.on_execution_end = Some(Arc::new(move |event| callback(event).boxed()));
+        self
+    }
+}
+
+pub type ToolExecutionStartCallback = Arc<
+    dyn Fn(ToolExecutionStart) -> BoxFuture<'static, Result<(), ToolLifecycleError>>
+        + Send
+        + Sync
+        + 'static,
+>;
+pub type ToolExecutionUpdateCallback = Arc<
+    dyn Fn(ToolExecutionUpdate) -> BoxFuture<'static, Result<(), ToolLifecycleError>>
+        + Send
+        + Sync
+        + 'static,
+>;
+pub type ToolExecutionEndCallback = Arc<
+    dyn Fn(ToolExecutionEnd) -> BoxFuture<'static, Result<(), ToolLifecycleError>>
+        + Send
+        + Sync
+        + 'static,
+>;
+
+#[derive(Clone, Debug, Error, Eq, PartialEq)]
+#[error("{message}")]
+pub struct ToolLifecycleError {
+    message: String,
+}
+
+impl ToolLifecycleError {
+    pub fn new(message: impl Into<String>) -> Self {
+        Self {
+            message: message.into(),
+        }
+    }
+
+    pub fn message(&self) -> &str {
+        &self.message
     }
 }
 
@@ -63,6 +148,8 @@ pub enum ToolExecutionError {
     Runtime(#[from] RuntimeError),
     #[error(transparent)]
     Event(#[from] EventError),
+    #[error(transparent)]
+    Lifecycle(#[from] ToolLifecycleError),
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -199,6 +286,137 @@ struct PreparedToolCall {
     arguments: Value,
 }
 
+struct UpdateDispatchState {
+    accepting: bool,
+    reservations: usize,
+    pending: Vec<BoxFuture<'static, Result<(), ToolLifecycleError>>>,
+    first_error: Option<ToolLifecycleError>,
+}
+
+impl Default for UpdateDispatchState {
+    fn default() -> Self {
+        Self {
+            accepting: true,
+            reservations: 0,
+            pending: Vec::new(),
+            first_error: None,
+        }
+    }
+}
+
+struct LiveUpdateDispatches {
+    state: parking_lot::Mutex<UpdateDispatchState>,
+    waker: AtomicWaker,
+}
+
+struct UpdateDispatchReservation {
+    owner: Arc<LiveUpdateDispatches>,
+    completed: bool,
+}
+
+impl UpdateDispatchReservation {
+    fn dispatch(mut self, mut future: BoxFuture<'static, Result<(), ToolLifecycleError>>) {
+        let mut task_context = TaskContext::from_waker(noop_waker_ref());
+        let result = future.as_mut().poll(&mut task_context);
+        self.owner.finish_reservation(result, future);
+        self.completed = true;
+    }
+}
+
+impl Drop for UpdateDispatchReservation {
+    fn drop(&mut self) {
+        if !self.completed {
+            self.owner.finish_empty_reservation();
+        }
+    }
+}
+
+impl LiveUpdateDispatches {
+    fn new() -> Self {
+        Self {
+            state: parking_lot::Mutex::new(UpdateDispatchState::default()),
+            waker: AtomicWaker::new(),
+        }
+    }
+
+    fn reserve(self: &Arc<Self>) -> Option<UpdateDispatchReservation> {
+        let mut state = self.state.lock();
+        if !state.accepting {
+            return None;
+        }
+        state.reservations += 1;
+        Some(UpdateDispatchReservation {
+            owner: Arc::clone(self),
+            completed: false,
+        })
+    }
+
+    fn close(&self) {
+        self.state.lock().accepting = false;
+        self.waker.wake();
+    }
+
+    fn is_complete(&self) -> bool {
+        let state = self.state.lock();
+        state.reservations == 0 && state.pending.is_empty()
+    }
+
+    fn poll_once(&self, task_context: &mut TaskContext<'_>) {
+        let mut current = {
+            let mut state = self.state.lock();
+            mem::take(&mut state.pending)
+        };
+        let mut still_pending = Vec::with_capacity(current.len());
+        for mut future in current.drain(..) {
+            match future.as_mut().poll(task_context) {
+                Poll::Ready(result) => self.record_result(result),
+                Poll::Pending => still_pending.push(future),
+            }
+        }
+        let mut state = self.state.lock();
+        still_pending.append(&mut state.pending);
+        state.pending = still_pending;
+    }
+
+    fn finish_reservation(
+        &self,
+        result: Poll<Result<(), ToolLifecycleError>>,
+        future: BoxFuture<'static, Result<(), ToolLifecycleError>>,
+    ) {
+        let mut state = self.state.lock();
+        state.reservations -= 1;
+        match result {
+            Poll::Ready(Ok(())) => {}
+            Poll::Ready(Err(error)) => {
+                if state.first_error.is_none() {
+                    state.first_error = Some(error);
+                }
+            }
+            Poll::Pending => state.pending.push(future),
+        }
+        drop(state);
+        self.waker.wake();
+    }
+
+    fn finish_empty_reservation(&self) {
+        self.state.lock().reservations -= 1;
+        self.waker.wake();
+    }
+
+    fn record_result(&self, result: Result<(), ToolLifecycleError>) {
+        if let Err(error) = result {
+            let mut state = self.state.lock();
+            if state.first_error.is_none() {
+                state.first_error = Some(error);
+            }
+        }
+    }
+
+    fn take_error(&self) -> Option<ToolLifecycleError> {
+        self.state.lock().first_error.take()
+    }
+}
+
 enum PreflightOutcome {
     Immediate((usize, ToolResultMessage, bool)),
     Prepared(PreparedToolCall),
@@ -315,21 +533,31 @@ pub async fn execute_tool_calls(
     if options.stop_reason == StopReason::Length {
         let mut messages = Vec::with_capacity(calls.len());
         for call in calls {
-            emit_start(events, &start_spec, call, scope.as_ref())?;
+            emit_start(
+                events,
+                &start_spec,
+                call,
+                scope.as_ref(),
+                options.on_execution_start.as_ref(),
+            )
+            .await?;
             let message = format!(
                 "Tool call \"{}\" was not executed: the response hit the output token limit, so its arguments may be truncated. Re-issue the tool call with complete arguments.",
                 call.name
             );
             let result = immediate_error(call, &message);
-            events.emit(
+            emit_end(
+                events,
                 &end_spec,
-                &ToolExecutionEnd {
+                ToolExecutionEnd {
                     tool_call_id: call.id.clone(),
                     tool_name: call.name.clone(),
                     result: result.clone(),
                 },
                 scope.as_ref(),
-            )?;
+                options.on_execution_end.as_ref(),
+            )
+            .await?;
             messages.push(result.into_message(options.timestamp));
         }
         return Ok(ToolExecutionBatchResult {
@@ -340,7 +568,10 @@ pub async fn execute_tool_calls(
 
     let resolved: Vec<_> = calls
         .iter()
-        .map(|call| registry.resolve(&call.name, scope.as_ref()))
+        .map(|call| match options.execution_tools.as_ref() {
+            Some(tools) => tools.iter().find(|tool| tool.name() == call.name).cloned(),
+            None => registry.resolve(&call.name, scope.as_ref()),
+        })
         .collect();
     let sequential = options.default_mode == ExecutionMode::Sequential
         || resolved
@@ -350,8 +581,15 @@ pub async fn execute_tool_calls(
     let mut indexed = Vec::with_capacity(calls.len());
     if sequential {
         for (index, call) in calls.iter().cloned().enumerate() {
-            emit_start(events, &start_spec, &call, scope.as_ref())?;
-            let tool = registry.resolve(&call.name, scope.as_ref());
+            emit_start(
+                events,
+                &start_spec,
+                &call,
+                scope.as_ref(),
+                options.on_execution_start.as_ref(),
+            )
+            .await?;
+            let tool = resolved[index].clone();
             match preflight_one(
                 index,
                 call,
@@ -360,6 +598,7 @@ pub async fn execute_tool_calls(
                 scope.clone(),
                 before_spec.clone(),
                 end_spec.clone(),
+                options.on_execution_end.clone(),
                 options.timestamp,
             )
             .await?
@@ -375,6 +614,8 @@ pub async fn execute_tool_calls(
                             update_spec.clone(),
                             end_spec.clone(),
                             options.signal.clone(),
+                            options.on_execution_update.clone(),
+                            options.on_execution_end.clone(),
                             options.timestamp,
                         )
                         .await?,
@@ -385,8 +626,15 @@ pub async fn execute_tool_calls(
     } else {
         let mut prepared = Vec::new();
         for (index, call) in calls.iter().cloned().enumerate() {
-            emit_start(events, &start_spec, &call, scope.as_ref())?;
-            let tool = registry.resolve(&call.name, scope.as_ref());
+            emit_start(
+                events,
+                &start_spec,
+                &call,
+                scope.as_ref(),
+                options.on_execution_start.as_ref(),
+            )
+            .await?;
+            let tool = resolved[index].clone();
             match preflight_one(
                 index,
                 call,
@@ -395,6 +643,7 @@ pub async fn execute_tool_calls(
                 scope.clone(),
                 before_spec.clone(),
                 end_spec.clone(),
+                options.on_execution_end.clone(),
                 options.timestamp,
             )
             .await?
@@ -414,6 +663,8 @@ pub async fn execute_tool_calls(
                     update_spec.clone(),
                     end_spec.clone(),
                     options.signal.clone(),
+                    options.on_execution_update.clone(),
+                    options.on_execution_end.clone(),
                     options.timestamp,
                 )
                 .boxed(),
@@ -441,19 +692,24 @@ async fn preflight_one(
     scope: Option<ScopeHandle>,
     before_spec: EventSpec<BeforeToolCallContext, BeforeHookOutcome>,
     end_spec: EventSpec<ToolExecutionEnd, ()>,
+    on_execution_end: Option<ToolExecutionEndCallback>,
     timestamp: f64,
 ) -> Result<PreflightOutcome, ToolExecutionError> {
     let tool = match tool {
         None => {
-            return Ok(PreflightOutcome::Immediate(finish_immediate(
-                index,
-                call.clone(),
-                &format!("Tool {} not found", call.name),
-                events,
-                scope,
-                end_spec,
-                timestamp,
-            )?));
+            return Ok(PreflightOutcome::Immediate(
+                finish_immediate(
+                    index,
+                    call.clone(),
+                    &format!("Tool {} not found", call.name),
+                    events,
+                    scope,
+                    end_spec,
+                    on_execution_end,
+                    timestamp,
+                )
+                .await?,
+            ));
         }
         Some(tool) => tool,
     };
@@ -463,9 +719,19 @@ async fn preflight_one(
             Ok(prepared) => params = prepared,
             Err(error) => {
                 let message = error.message().to_owned();
-                return Ok(PreflightOutcome::Immediate(finish_immediate(
-                    index, call, &message, events, scope, end_spec, timestamp,
-                )?));
+                return Ok(PreflightOutcome::Immediate(
+                    finish_immediate(
+                        index,
+                        call,
+                        &message,
+                        events,
+                        scope,
+                        end_spec,
+                        on_execution_end,
+                        timestamp,
+                    )
+                    .await?,
+                ));
             }
         }
     }
@@ -473,30 +739,38 @@ async fn preflight_one(
     let validator = match jsonschema::validator_for(&schema) {
         Ok(validator) => validator,
         Err(error) => {
-            return Ok(PreflightOutcome::Immediate(finish_immediate(
-                index,
-                call.clone(),
-                &format!(
-                    "invalid arguments for tool \"{}\": invalid schema: {error}",
-                    call.name
-                ),
-                events,
-                scope,
-                end_spec,
-                timestamp,
-            )?));
+            return Ok(PreflightOutcome::Immediate(
+                finish_immediate(
+                    index,
+                    call.clone(),
+                    &format!(
+                        "invalid arguments for tool \"{}\": invalid schema: {error}",
+                        call.name
+                    ),
+                    events,
+                    scope,
+                    end_spec,
+                    on_execution_end,
+                    timestamp,
+                )
+                .await?,
+            ));
         }
     };
     if let Err(error) = validator.validate(&params) {
-        return Ok(PreflightOutcome::Immediate(finish_immediate(
-            index,
-            call.clone(),
-            &format!("invalid arguments for tool \"{}\": {error}", call.name),
-            events,
-            scope,
-            end_spec,
-            timestamp,
-        )?));
+        return Ok(PreflightOutcome::Immediate(
+            finish_immediate(
+                index,
+                call.clone(),
+                &format!("invalid arguments for tool \"{}\": {error}", call.name),
+                events,
+                scope,
+                end_spec,
+                on_execution_end,
+                timestamp,
+            )
+            .await?,
+        ));
     }
     let before = BeforeToolCallContext {
         tool_call_id: call.id.clone(),
@@ -509,9 +783,19 @@ async fn preflight_one(
     {
         BeforeHookOutcome::Proceed(current) => current,
         BeforeHookOutcome::Blocked(message) | BeforeHookOutcome::Failed(message) => {
-            return Ok(PreflightOutcome::Immediate(finish_immediate(
-                index, call, &message, events, scope, end_spec, timestamp,
-            )?));
+            return Ok(PreflightOutcome::Immediate(
+                finish_immediate(
+                    index,
+                    call,
+                    &message,
+                    events,
+                    scope,
+                    end_spec,
+                    on_execution_end,
+                    timestamp,
+                )
+                .await?,
+            ));
         }
     };
     Ok(PreflightOutcome::Prepared(PreparedToolCall {
@@ -531,6 +815,8 @@ async fn execute_and_finalize_prepared(
     update_spec: EventSpec<ToolExecutionUpdate, ()>,
     end_spec: EventSpec<ToolExecutionEnd, ()>,
     signal: Option<Arc<dyn ToolExecutionSignal>>,
+    on_execution_update: Option<ToolExecutionUpdateCallback>,
+    on_execution_end: Option<ToolExecutionEndCallback>,
     timestamp: f64,
 ) -> Result<(usize, ToolResultMessage, bool), ToolExecutionError> {
     let PreparedToolCall {
@@ -540,27 +826,29 @@ async fn execute_and_finalize_prepared(
         arguments,
     } = prepared;
     let executed = {
-        let accepting_updates = Arc::new(AtomicBool::new(true));
+        let live_updates = Arc::new(LiveUpdateDispatches::new());
         let update_callback = {
-            let accepting_updates = Arc::clone(&accepting_updates);
+            let live_updates = Arc::clone(&live_updates);
             let events = events.clone();
             let update_spec = update_spec.clone();
             let scope = scope.clone();
+            let on_execution_update = on_execution_update.clone();
             let tool_call_id = call.id.clone();
             let tool_name = call.name.clone();
             let original_arguments = arguments_value(&call.arguments);
             Arc::new(move |update: AgentToolResult| {
-                if accepting_updates.load(Ordering::Acquire) {
-                    let _ = events.emit(
-                        &update_spec,
-                        &ToolExecutionUpdate {
-                            tool_call_id: tool_call_id.clone(),
-                            tool_name: tool_name.clone(),
-                            arguments: original_arguments.clone(),
-                            update,
-                        },
-                        scope.as_ref(),
-                    );
+                let Some(reservation) = live_updates.reserve() else {
+                    return;
+                };
+                let event = ToolExecutionUpdate {
+                    tool_call_id: tool_call_id.clone(),
+                    tool_name: tool_name.clone(),
+                    arguments: original_arguments.clone(),
+                    update,
+                };
+                let _ = events.emit(&update_spec, &event, scope.as_ref());
+                if let Some(callback) = on_execution_update.as_ref() {
+                    reservation.dispatch(callback(event));
                 }
             })
         };
@@ -570,8 +858,8 @@ async fn execute_and_finalize_prepared(
             signal,
             on_update: Some(update_callback),
         };
-        let outcome = (tool.execute())(request).await;
-        accepting_updates.store(false, Ordering::Release);
+        let outcome =
+            execute_with_live_updates((tool.execute())(request), Arc::clone(&live_updates)).await?;
         match outcome {
             Ok(result) => AfterToolCallResult {
                 tool_call_id: call.id.clone(),
@@ -606,55 +894,106 @@ async fn execute_and_finalize_prepared(
         Err(EventError::Waterfall(error)) => immediate_error(&call, &error.to_string()),
         Err(error) => return Err(error.into()),
     };
-    events.emit(
+    emit_end(
+        &events,
         &end_spec,
-        &ToolExecutionEnd {
+        ToolExecutionEnd {
             tool_call_id: call.id.clone(),
             tool_name: call.name.clone(),
             result: finalized.clone(),
         },
         scope.as_ref(),
-    )?;
+        on_execution_end.as_ref(),
+    )
+    .await?;
     let terminate = finalized.terminate.unwrap_or(false);
     Ok((index, finalized.into_message(timestamp), terminate))
 }
 
-fn emit_start(
+async fn execute_with_live_updates(
+    mut execution: BoxFuture<'static, Result<AgentToolResult, super::ToolCapabilityError>>,
+    updates: Arc<LiveUpdateDispatches>,
+) -> Result<Result<AgentToolResult, super::ToolCapabilityError>, ToolLifecycleError> {
+    let mut outcome = None;
+    poll_fn(|task_context| {
+        updates.waker.register(task_context.waker());
+        if outcome.is_none()
+            && let Poll::Ready(result) = execution.as_mut().poll(task_context)
+        {
+            updates.close();
+            outcome = Some(result);
+        }
+        updates.poll_once(task_context);
+        if outcome.is_some() && updates.is_complete() {
+            Poll::Ready(())
+        } else {
+            Poll::Pending
+        }
+    })
+    .await;
+    if let Some(error) = updates.take_error() {
+        return Err(error);
+    }
+    Ok(outcome.expect("execution is complete when update dispatches settle"))
+}
+
+async fn emit_start(
     events: &EventBus,
     start_spec: &EventSpec<ToolExecutionStart, ()>,
     call: &ToolCall,
     scope: Option<&ScopeHandle>,
-) -> Result<(), EventError> {
-    events.emit(
-        start_spec,
-        &ToolExecutionStart {
-            tool_call_id: call.id.clone(),
-            tool_name: call.name.clone(),
-            arguments: arguments_value(&call.arguments),
-        },
-        scope,
-    )
+    callback: Option<&ToolExecutionStartCallback>,
+) -> Result<(), ToolExecutionError> {
+    let event = ToolExecutionStart {
+        tool_call_id: call.id.clone(),
+        tool_name: call.name.clone(),
+        arguments: arguments_value(&call.arguments),
+    };
+    events.emit(start_spec, &event, scope)?;
+    if let Some(callback) = callback {
+        callback(event).await?;
+    }
+    Ok(())
 }
 
-fn finish_immediate(
+async fn emit_end(
+    events: &EventBus,
+    end_spec: &EventSpec<ToolExecutionEnd, ()>,
+    event: ToolExecutionEnd,
+    scope: Option<&ScopeHandle>,
+    callback: Option<&ToolExecutionEndCallback>,
+) -> Result<(), ToolExecutionError> {
+    events.emit(end_spec, &event, scope)?;
+    if let Some(callback) = callback {
+        callback(event).await?;
+    }
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn finish_immediate(
     index: usize,
     call: ToolCall,
     message: &str,
     events: EventBus,
     scope: Option<ScopeHandle>,
     end_spec: EventSpec<ToolExecutionEnd, ()>,
+    on_execution_end: Option<ToolExecutionEndCallback>,
     timestamp: f64,
 ) -> Result<(usize, ToolResultMessage, bool), ToolExecutionError> {
     let result = immediate_error(&call, message);
-    events.emit(
+    emit_end(
+        &events,
         &end_spec,
-        &ToolExecutionEnd {
+        ToolExecutionEnd {
             tool_call_id: call.id,
             tool_name: call.name,
             result: result.clone(),
         },
         scope.as_ref(),
-    )?;
+        on_execution_end.as_ref(),
+    )
+    .await?;
     Ok((index, result.into_message(timestamp), false))
 }
 
@@ -732,3 +1071,23 @@ impl AfterToolCallResult {
 
 #[allow(dead_code)]
 fn _scope_type_guard(_: Option<&ScopeHandle>) {}
+
+#[cfg(test)]
+mod live_update_tests {
+    use std::sync::Arc;
+
+    use super::LiveUpdateDispatches;
+
+    #[test]
+    fn an_update_reserved_before_execute_settles_keeps_the_join_open() {
+        let updates = Arc::new(LiveUpdateDispatches::new());
+        let reservation = updates.reserve().expect("updates initially accepted");
+
+        updates.close();
+
+        assert!(!updates.is_complete());
+        drop(reservation);
+        assert!(updates.is_complete());
+        assert!(updates.reserve().is_none());
+    }
+}

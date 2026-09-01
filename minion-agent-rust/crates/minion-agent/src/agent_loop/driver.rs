@@ -8,7 +8,7 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use futures::StreamExt;
+use futures::{StreamExt, future::BoxFuture};
 
 use crate::{
     Context,
@@ -17,9 +17,12 @@ use crate::{
         ThinkingLevel as AgentThinkingLevel,
     },
     llm::{
-        AssistantMessage, ImageBlock, LlmContext, LlmRequest, LlmService, Message,
-        SimpleStreamOptions, StopReason, StreamChunk, TextBlock, ThinkingLevel as LlmThinkingLevel,
-        UserContent, UserContentBlock, UserMessage,
+        AssistantContentBlock, AssistantMessage, ImageBlock, LlmContext, LlmRequest, LlmService,
+        Message, SimpleStreamOptions, StopReason, StreamChunk, TextBlock,
+        ThinkingLevel as LlmThinkingLevel, UserContent, UserContentBlock, UserMessage,
+    },
+    tools::{
+        ToolExecutionBatchResult, ToolExecutionOptions, ToolLifecycleError, execute_tool_calls,
     },
 };
 
@@ -261,6 +264,86 @@ impl AgentLoop {
         unreachable!("AssistantStream emits a terminal chunk before it fuses")
     }
 
+    async fn run_tool_calls(
+        &self,
+        prepared: &mut PreparedRun,
+        assistant: &AssistantMessage,
+    ) -> Result<ToolExecutionBatchResult, AgentLoopError> {
+        let calls = assistant
+            .content
+            .iter()
+            .filter_map(|block| match block {
+                AssistantContentBlock::ToolCall(call) => Some(call.clone()),
+                AssistantContentBlock::Text(_) | AssistantContentBlock::Thinking(_) => None,
+            })
+            .collect::<Vec<_>>();
+        let start_agent = Arc::clone(&self.agent);
+        let start_context = self.context.clone();
+        let update_agent = Arc::clone(&self.agent);
+        let update_context = self.context.clone();
+        let end_agent = Arc::clone(&self.agent);
+        let end_context = self.context.clone();
+        let options = ToolExecutionOptions::new(assistant.stop_reason, now_millis())
+            .with_execution_tools(prepared.context.tools.clone())
+            .with_execution_start(move |event| {
+                live_tool_event(
+                    Arc::clone(&start_agent),
+                    start_context.clone(),
+                    AgentEvent::ToolExecutionStart(event),
+                )
+            })
+            .with_execution_update(move |event| {
+                live_tool_event(
+                    Arc::clone(&update_agent),
+                    update_context.clone(),
+                    AgentEvent::ToolExecutionUpdate(event),
+                )
+            })
+            .with_execution_end(move |event| {
+                live_tool_event(
+                    Arc::clone(&end_agent),
+                    end_context.clone(),
+                    AgentEvent::ToolExecutionEnd(event),
+                )
+            });
+        let batch = execute_tool_calls(&self.context, &calls, options).await?;
+
+        for message in &batch.messages {
+            self.admit(
+                prepared,
+                vec![Message::ToolResult(Box::new(message.clone()))],
+            )
+            .await?;
+            self.extend_run_tools(prepared, message.added_tool_names.as_deref())?;
+        }
+        Ok(batch)
+    }
+
+    fn extend_run_tools(
+        &self,
+        prepared: &mut PreparedRun,
+        added_tool_names: Option<&[String]>,
+    ) -> Result<(), AgentLoopError> {
+        let Some(added_tool_names) = added_tool_names else {
+            return Ok(());
+        };
+        let registry = self.context.tools()?;
+        for name in added_tool_names {
+            if prepared
+                .context
+                .tools
+                .iter()
+                .any(|tool| tool.name() == name)
+            {
+                continue;
+            }
+            if let Some(tool) = registry.resolve(name, self.context.scope()) {
+                prepared.context.tools.push(tool);
+            }
+        }
+        Ok(())
+    }
+
     async fn dispatch(&self, event: AgentEvent) -> Result<(), AgentLoopError> {
         reduce_event(&self.agent, &event)?;
         dispatch_agent_event(&self.context, event).await
@@ -274,6 +357,21 @@ impl AgentLoop {
             .map(|envelope| envelope.message)
             .collect()
     }
+}
+
+fn live_tool_event(
+    agent: Arc<AgentInstance>,
+    context: Context,
+    event: AgentEvent,
+) -> BoxFuture<'static, Result<(), ToolLifecycleError>> {
+    let reduction =
+        reduce_event(&agent, &event).map_err(|error| ToolLifecycleError::new(error.to_string()));
+    Box::pin(async move {
+        reduction?;
+        dispatch_agent_event(&context, event)
+            .await
+            .map_err(|error| ToolLifecycleError::new(error.to_string()))
+    })
 }
 
 fn provider_thinking_level(level: AgentThinkingLevel) -> Option<LlmThinkingLevel> {
@@ -329,7 +427,10 @@ fn now_millis() -> f64 {
 mod tests {
     use std::{
         collections::BTreeMap,
-        sync::Arc,
+        sync::{
+            Arc,
+            atomic::{AtomicUsize, Ordering},
+        },
         time::{SystemTime, UNIX_EPOCH},
     };
 
@@ -1018,6 +1119,323 @@ mod tests {
                 drop(prepared);
                 assert_eq!(agent.status(), AgentStatus::Idle);
             }
+        });
+    }
+
+    #[test]
+    fn tool_events_are_live_and_pending_state_spans_the_update_window() {
+        run(async {
+            let runtime = Runtime::new();
+            let trace = Arc::new(Mutex::new(Vec::new()));
+            let agent_slot = Arc::new(Mutex::new(None::<Arc<AgentInstance>>));
+            runtime
+                .mount(
+                    &listener_plugin({
+                        let trace = Arc::clone(&trace);
+                        let agent_slot = Arc::clone(&agent_slot);
+                        Arc::new(move |event| {
+                            let agent = agent_slot.lock().as_ref().unwrap().clone();
+                            match event {
+                                AgentEvent::ToolExecutionStart(start) => {
+                                    assert!(
+                                        agent.pending_tool_calls().contains(&start.tool_call_id)
+                                    );
+                                    trace.lock().push("start");
+                                }
+                                AgentEvent::ToolExecutionUpdate(update) => {
+                                    assert_eq!(update.update.details, json!({"progress": 1}));
+                                    assert!(
+                                        agent.pending_tool_calls().contains(&update.tool_call_id)
+                                    );
+                                    trace.lock().push("update");
+                                }
+                                AgentEvent::ToolExecutionEnd(end) => {
+                                    assert!(
+                                        !agent.pending_tool_calls().contains(&end.tool_call_id)
+                                    );
+                                    trace.lock().push("end");
+                                }
+                                _ => {}
+                            }
+                        })
+                    }),
+                    json!({}),
+                )
+                .unwrap();
+            runtime.reconcile().await.unwrap();
+            let executions = Arc::new(AtomicUsize::new(0));
+            let registration = runtime
+                .tools()
+                .register_for_scope(
+                    None,
+                    ToolDefinition::new(
+                        "chatty",
+                        "chatty",
+                        serde_json::from_value(json!({})).unwrap(),
+                        "chatty",
+                        {
+                            let trace = Arc::clone(&trace);
+                            let executions = Arc::clone(&executions);
+                            move |request: ToolExecutionRequest| {
+                                let trace = Arc::clone(&trace);
+                                let executions = Arc::clone(&executions);
+                                Box::pin(async move {
+                                    executions.fetch_add(1, Ordering::SeqCst);
+                                    request.on_update.unwrap()(AgentToolResult {
+                                        content: vec![ToolResultContentBlock::Text(
+                                            TextBlock::new("partial"),
+                                        )],
+                                        details: json!({"progress": 1}),
+                                        usage: None,
+                                        added_tool_names: None,
+                                        terminate: None,
+                                    });
+                                    trace.lock().push("tool-continued");
+                                    Ok(AgentToolResult {
+                                        content: vec![ToolResultContentBlock::Text(
+                                            TextBlock::new("done"),
+                                        )],
+                                        details: Value::Null,
+                                        usage: None,
+                                        added_tool_names: None,
+                                        terminate: None,
+                                    })
+                                })
+                            }
+                        },
+                    ),
+                )
+                .unwrap();
+            let (driver, agent) =
+                loop_for(&runtime, Session::new("room-a", [] as [&str; 0]).unwrap());
+            *agent_slot.lock() = Some(Arc::clone(&agent));
+            let mut prepared = driver
+                .prepare_prompt_run(PromptInput::Message(user("prompt")))
+                .await
+                .unwrap();
+            trace.lock().clear();
+            let assistant = AssistantMessage::new(
+                identity(),
+                vec![AssistantContentBlock::ToolCall(ToolCall::new(
+                    "call-1",
+                    "chatty",
+                    BTreeMap::new(),
+                ))],
+                Usage::default(),
+                StopReason::ToolUse,
+                2.0,
+            );
+
+            let batch = driver
+                .run_tool_calls(&mut prepared, &assistant)
+                .await
+                .unwrap();
+
+            assert_eq!(executions.load(Ordering::SeqCst), 1);
+            assert_eq!(
+                trace.lock().as_slice(),
+                ["start", "update", "tool-continued", "end"]
+            );
+            assert!(agent.pending_tool_calls().is_empty());
+            assert_eq!(batch.messages.len(), 1);
+            assert!(matches!(
+                prepared.new_messages.last(),
+                Some(Message::ToolResult(_))
+            ));
+            drop((prepared, registration));
+        });
+    }
+
+    #[test]
+    fn added_tool_names_extend_only_the_run_local_snapshot_in_order() {
+        run(async {
+            let runtime = Runtime::new();
+            let initial = runtime
+                .tools()
+                .register_for_scope(
+                    None,
+                    ToolDefinition::new(
+                        "initial",
+                        "initial",
+                        serde_json::from_value(json!({})).unwrap(),
+                        "initial",
+                        |_request: ToolExecutionRequest| {
+                            Box::pin(async {
+                                Ok(AgentToolResult {
+                                    content: vec![],
+                                    details: Value::Null,
+                                    usage: None,
+                                    added_tool_names: Some(vec![
+                                        "introduced".into(),
+                                        "initial".into(),
+                                        "missing".into(),
+                                        "introduced".into(),
+                                    ]),
+                                    terminate: None,
+                                })
+                            })
+                        },
+                    ),
+                )
+                .unwrap();
+            let (driver, agent) =
+                loop_for(&runtime, Session::new("room-a", [] as [&str; 0]).unwrap());
+            let mut prepared = driver
+                .prepare_prompt_run(PromptInput::Message(user("prompt")))
+                .await
+                .unwrap();
+            assert_eq!(
+                prepared
+                    .context
+                    .tools
+                    .iter()
+                    .map(|tool| tool.name())
+                    .collect::<Vec<_>>(),
+                vec!["initial"]
+            );
+            let introduced = runtime
+                .tools()
+                .register_for_scope(None, tool("introduced"))
+                .unwrap();
+            let unrelated = runtime
+                .tools()
+                .register_for_scope(None, tool("unrelated"))
+                .unwrap();
+            let assistant = AssistantMessage::new(
+                identity(),
+                vec![AssistantContentBlock::ToolCall(ToolCall::new(
+                    "call-1",
+                    "initial",
+                    BTreeMap::new(),
+                ))],
+                Usage::default(),
+                StopReason::ToolUse,
+                2.0,
+            );
+
+            driver
+                .run_tool_calls(&mut prepared, &assistant)
+                .await
+                .unwrap();
+
+            assert_eq!(
+                prepared
+                    .context
+                    .tools
+                    .iter()
+                    .map(|tool| tool.name())
+                    .collect::<Vec<_>>(),
+                vec!["initial", "introduced"]
+            );
+            assert_eq!(
+                agent
+                    .tools()
+                    .iter()
+                    .map(|tool| tool.name())
+                    .collect::<Vec<_>>(),
+                vec!["initial", "introduced", "unrelated"]
+            );
+            drop((prepared, initial, introduced, unrelated));
+        });
+    }
+
+    #[test]
+    fn tool_execution_uses_the_run_snapshot_after_live_registry_replacement() {
+        run(async {
+            let runtime = Runtime::new();
+            let old_executions = Arc::new(AtomicUsize::new(0));
+            let old = runtime
+                .tools()
+                .register_for_scope(
+                    None,
+                    ToolDefinition::new(
+                        "versioned",
+                        "old",
+                        serde_json::from_value(json!({})).unwrap(),
+                        "old",
+                        {
+                            let old_executions = Arc::clone(&old_executions);
+                            move |_request: ToolExecutionRequest| {
+                                let old_executions = Arc::clone(&old_executions);
+                                Box::pin(async move {
+                                    old_executions.fetch_add(1, Ordering::SeqCst);
+                                    Ok(AgentToolResult {
+                                        content: vec![ToolResultContentBlock::Text(
+                                            TextBlock::new("old"),
+                                        )],
+                                        details: Value::Null,
+                                        usage: None,
+                                        added_tool_names: None,
+                                        terminate: None,
+                                    })
+                                })
+                            }
+                        },
+                    ),
+                )
+                .unwrap();
+            let (driver, _agent) =
+                loop_for(&runtime, Session::new("room-a", [] as [&str; 0]).unwrap());
+            let mut prepared = driver
+                .prepare_prompt_run(PromptInput::Message(user("prompt")))
+                .await
+                .unwrap();
+            old.withdraw();
+            let new_executions = Arc::new(AtomicUsize::new(0));
+            let replacement = runtime
+                .tools()
+                .register_for_scope(
+                    None,
+                    ToolDefinition::new(
+                        "versioned",
+                        "new",
+                        serde_json::from_value(json!({})).unwrap(),
+                        "new",
+                        {
+                            let new_executions = Arc::clone(&new_executions);
+                            move |_request: ToolExecutionRequest| {
+                                let new_executions = Arc::clone(&new_executions);
+                                Box::pin(async move {
+                                    new_executions.fetch_add(1, Ordering::SeqCst);
+                                    Ok(AgentToolResult {
+                                        content: vec![ToolResultContentBlock::Text(
+                                            TextBlock::new("new"),
+                                        )],
+                                        details: Value::Null,
+                                        usage: None,
+                                        added_tool_names: None,
+                                        terminate: None,
+                                    })
+                                })
+                            }
+                        },
+                    ),
+                )
+                .unwrap();
+            let assistant = AssistantMessage::new(
+                identity(),
+                vec![AssistantContentBlock::ToolCall(ToolCall::new(
+                    "call-1",
+                    "versioned",
+                    BTreeMap::new(),
+                ))],
+                Usage::default(),
+                StopReason::ToolUse,
+                2.0,
+            );
+
+            let batch = driver
+                .run_tool_calls(&mut prepared, &assistant)
+                .await
+                .unwrap();
+
+            assert_eq!(old_executions.load(Ordering::SeqCst), 1);
+            assert_eq!(new_executions.load(Ordering::SeqCst), 0);
+            assert!(matches!(
+                batch.messages[0].content.as_slice(),
+                [ToolResultContentBlock::Text(block)] if block.text == "old"
+            ));
+            drop((prepared, replacement));
         });
     }
 }

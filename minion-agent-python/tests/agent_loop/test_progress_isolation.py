@@ -1,4 +1,13 @@
-"""Cancellation, and the guarantee that one agent cannot stall another."""
+"""The guarantee that one agent cannot stall another.
+
+Formerly also covered the local `cancel()`/`request_boundary_stop()`
+boundary-stop latch (`test_boundary_stop.py`), removed entirely at Layer 08
+PASS 5 (`L08-R009`/`L08-R010`): a public method that could alter a
+Pi-equivalent run's own observable outcome had no owner governance approval
+for that divergence, and no demonstrated product need justified keeping it
+-- the same default this project already applied to `max_steps`
+(`L08-R005`). See `assurance/layers/08-agent-loop-python.md`, PASS 5.
+"""
 
 import asyncio
 from typing import Any
@@ -10,12 +19,10 @@ from minion_agent.llm import LlmService, ModelId, TextBlock, ToolCallBlock, User
 from minion_agent.llm.adapters.mock import MockAdapter, ScriptedResponse
 from minion_agent.llm.messages import StopReason
 from minion_agent.runtime import Context
-from minion_agent.session import EventKind, SessionService
+from minion_agent.session import SessionService
 from minion_agent.tools.definition import ToolDefinition
 from minion_agent.tools.events import declare_tools_events
 from minion_agent.tools.registry import ToolRegistry
-
-from .test_single_turn import _loop, _register
 
 
 def _say(text: str) -> UserMessage:
@@ -26,56 +33,6 @@ def _tool_call() -> ScriptedResponse:
     return ScriptedResponse(
         (ToolCallBlock(id="t1", name="echo", arguments={}),), StopReason.TOOL_USE
     )
-
-
-def _cancelling_tool(loop: AgentLoop, output: str = "done") -> Any:
-    def run(tool_call_id: str, args: dict[str, Any]) -> str:
-        loop.cancel()
-        return output
-
-    return run
-
-
-async def test_cancelling_ends_the_turn_at_the_next_boundary() -> None:
-    loop = _loop(*[_tool_call() for _ in range(5)])
-    _register(loop, "echo", _cancelling_tool(loop))
-    loop.instance.inbox.followup(_say("go"))
-
-    await loop.run_until_idle()
-
-    steps = [e for e in loop.instance.log.events if e.kind == EventKind.STEP_START]
-    assert len(steps) == 1
-
-    end = next(e for e in loop.instance.log.events if e.kind == EventKind.TURN_END)
-    assert end.data["reason"] == "cancelled"
-
-
-async def test_a_cancelled_turn_still_records_its_tool_result() -> None:
-    """Cancellation stops the next request, not the work already in flight."""
-    loop = _loop(_tool_call())
-    _register(loop, "echo", _cancelling_tool(loop, "finished"))
-    loop.instance.inbox.followup(_say("go"))
-
-    await loop.run_until_idle()
-
-    results = [e for e in loop.instance.log.events if e.kind == EventKind.TOOL_RESULT]
-    assert len(results) == 1
-
-
-async def test_cancelling_clears_so_the_next_turn_runs() -> None:
-    loop = _loop(
-        _tool_call(),
-        ScriptedResponse((TextBlock(text="second turn"),), StopReason.STOP),
-    )
-    _register(loop, "echo", _cancelling_tool(loop))
-    loop.instance.inbox.followup(_say("first"))
-    await loop.run_until_idle()
-
-    loop.instance.inbox.followup(_say("second"))
-    await loop.run_until_idle()
-
-    ends = [e for e in loop.instance.log.events if e.kind == EventKind.TURN_END]
-    assert [end.data["reason"] for end in ends] == ["cancelled", "completed"]
 
 
 def _service(*responses: ScriptedResponse) -> LlmService:

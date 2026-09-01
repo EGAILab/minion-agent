@@ -1,0 +1,28 @@
+name: two runs have independently scoped agent_end.messages
+description: >
+  Layer 08, PASS 2. Two separate followup+await_idle cycles produce two
+  separate agent_start/agent_end brackets (the second followup is queued only
+  after the first run has already settled idle, so Minion's own pump starts a
+  fresh run rather than continuing the first one -- see the companion
+  mid-run-continuation scenarios for the case where a followup arrives while
+  a run is still open). Pinned pi's own agent_end.messages is invocation-local:
+  each run's own list carries only what that run itself produced or
+  consumed, never the other run's messages.
+provider_script:
+  - content: [{ type: text, text: first reply }]
+    stop_reason: stop
+  - content: [{ type: text, text: second reply }]
+    stop_reason: stop
+steps:
+  - followup: one
+  - await_idle: true
+  - followup: two
+  - await_idle: true
+expect_agent_end_messages:
+  - [one, first reply]
+  - [two, second reply]
+expect_messages:
+  - { role: user, text: one }
+  - { role: assistant, text: first reply }
+  - { role: user, text: two }
+  - { role: assistant, text: second reply }

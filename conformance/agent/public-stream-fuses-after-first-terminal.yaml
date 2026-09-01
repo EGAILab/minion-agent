@@ -19,8 +19,8 @@ expect_events:
   - turn_start
   - message_start
   - message_end
-  - message_update
   - message_start
+  - message_update
   - message_end
   - turn_end
   - agent_end

@@ -28,10 +28,6 @@
           "type": "string",
           "description": "Model name the agent requests. A name no adapter supplies exercises the eager side of the stream boundary."
         },
-        "max_steps": {
-          "type": "integer",
-          "minimum": 1
-        },
         "next_turn_policy": {
           "enum": [
             "all",
@@ -78,6 +74,16 @@
         "type": "array"
       },
       "description": "Per completed turn, the origins of the inputs that caused it. Under claim-all one turn carries several, which a singular turn origin could not express."
+    },
+    "expect_agent_end_messages": {
+      "type": "array",
+      "items": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "description": "Layer 08, PASS 2: per independently-scoped run (one list per agent_end), the text of every message that run itself produced or consumed -- pinned pi's own agent_end.messages, invocation-local, not the whole transcript."
     },
     "expect_assistant_stop_reasons": {
       "type": "array",
@@ -154,8 +160,30 @@
           "type": "object",
           "description": "The original tool-call arguments -- before prepare_arguments/validation -- matching pinned Pi's own PreparedToolCall.toolCall.arguments, not the value execute() actually runs with."
         },
-        "partial": { "type": "string" }
+        "partial": { "$ref": "#/$defs/toolPartialResult" }
       }
+    },
+    "toolPartialResult": {
+      "type": "object",
+      "required": ["text", "details"],
+      "additionalProperties": false,
+      "properties": {
+        "text": {
+          "type": "string",
+          "description": "Shorthand for a single TextBlock in `content` -- the same minimal shorthand `toolStub.result` already uses."
+        },
+        "details": {
+          "type": "object",
+          "description": "REQUIRED, matching pinned Pi's own AgentToolResult<T>.details: T exactly (L08-R011) -- never optional or omittable, even when empty ({})."
+        },
+        "usage": { "$ref": "#/$defs/usage" },
+        "terminate": { "type": "boolean" },
+        "added_tool_names": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      },
+      "description": "Pinned Pi's own AgentToolUpdateCallback<T> carries partialResult: AgentToolResult<T> -- content/details required, usage/terminate/added_tool_names genuinely optional, with NO tool_call_id/tool_name/is_error field at all (L08-R011): call identity lives only on the enclosing tool_execution_update event, and Pi's own execute() throws on failure rather than encoding an error inside its returned/reported value."
     },
     "traceEntry": {
       "type": "array",
@@ -474,12 +502,12 @@
         },
         "emits_updates": {
           "type": "array",
-          "items": { "type": "string" },
+          "items": { "$ref": "#/$defs/toolPartialResult" },
           "description": "Partial-output values the tool reports, in order, before returning (TOOL-017)."
         },
         "late_update": {
-          "type": "string",
-          "description": "A partial-output value the tool reports one cooperative scheduler tick AFTER it has already returned -- must be silently ignored (TOOL-017)."
+          "$ref": "#/$defs/toolPartialResult",
+          "description": "A structured partial-output value the tool reports one cooperative scheduler tick AFTER it has already returned -- must be silently ignored (TOOL-017)."
         }
       }
     },
@@ -503,6 +531,10 @@
         },
         "await_idle": {
           "type": "boolean"
+        },
+        "continue": {
+          "type": "boolean",
+          "description": "Pinned Pi's Agent.continue() (Layer 08, PASS 2) -- a thin call-through, same as await_idle."
         }
       }
     },

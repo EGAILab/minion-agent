@@ -1,0 +1,109 @@
+name: no turn-count cap exists on the Pi-equivalent run path
+description: >
+  L08-R005: pinned Pi has no `max_steps`-equivalent stop rule at all, and
+  Minion's own prior turn-counter cap has been removed from the
+  `prompt()`/`continue()` semantic path entirely -- it is not merely
+  repositioned or relabeled parity-neutral. This scenario is what the
+  removed cap used to bound (a turn that only ever calls tools) and proves
+  the opposite of what it used to prove: the run keeps going for as many
+  tool-driven turns as the model actually requests, with no host-imposed
+  stop after any fixed count.
+
+  Twenty assistant/tool-result turns are scripted before the final stopping
+  turn -- deliberately more than the REMOVED IMPLEMENTATION's own former
+  default (`AgentDefinition.max_steps == 16`, not any scenario-supplied
+  override a prior revision of this file compared against by mistake, which
+  proved nothing about the actual default). Against the pre-removal
+  implementation and no `config.max_steps` override, this scenario would
+  have stopped at the 16th tool turn with reason `max_steps`; it does not.
+provider_script:
+  - content: [{ type: tool_call, id: t1, name: echo, arguments: {} }]
+    stop_reason: tool_use
+  - content: [{ type: tool_call, id: t2, name: echo, arguments: {} }]
+    stop_reason: tool_use
+  - content: [{ type: tool_call, id: t3, name: echo, arguments: {} }]
+    stop_reason: tool_use
+  - content: [{ type: tool_call, id: t4, name: echo, arguments: {} }]
+    stop_reason: tool_use
+  - content: [{ type: tool_call, id: t5, name: echo, arguments: {} }]
+    stop_reason: tool_use
+  - content: [{ type: tool_call, id: t6, name: echo, arguments: {} }]
+    stop_reason: tool_use
+  - content: [{ type: tool_call, id: t7, name: echo, arguments: {} }]
+    stop_reason: tool_use
+  - content: [{ type: tool_call, id: t8, name: echo, arguments: {} }]
+    stop_reason: tool_use
+  - content: [{ type: tool_call, id: t9, name: echo, arguments: {} }]
+    stop_reason: tool_use
+  - content: [{ type: tool_call, id: t10, name: echo, arguments: {} }]
+    stop_reason: tool_use
+  - content: [{ type: tool_call, id: t11, name: echo, arguments: {} }]
+    stop_reason: tool_use
+  - content: [{ type: tool_call, id: t12, name: echo, arguments: {} }]
+    stop_reason: tool_use
+  - content: [{ type: tool_call, id: t13, name: echo, arguments: {} }]
+    stop_reason: tool_use
+  - content: [{ type: tool_call, id: t14, name: echo, arguments: {} }]
+    stop_reason: tool_use
+  - content: [{ type: tool_call, id: t15, name: echo, arguments: {} }]
+    stop_reason: tool_use
+  - content: [{ type: tool_call, id: t16, name: echo, arguments: {} }]
+    stop_reason: tool_use
+  - content: [{ type: tool_call, id: t17, name: echo, arguments: {} }]
+    stop_reason: tool_use
+  - content: [{ type: tool_call, id: t18, name: echo, arguments: {} }]
+    stop_reason: tool_use
+  - content: [{ type: tool_call, id: t19, name: echo, arguments: {} }]
+    stop_reason: tool_use
+  - content: [{ type: tool_call, id: t20, name: echo, arguments: {} }]
+    stop_reason: tool_use
+  - content: [{ type: text, text: done }]
+    stop_reason: stop
+tools:
+  echo: { result: { text: again } }
+steps:
+  - followup: go
+  - await_idle: true
+expect_messages:
+  - { role: user, text: go }
+  - { role: assistant, text: "" }
+  - { role: tool_result, text: again }
+  - { role: assistant, text: "" }
+  - { role: tool_result, text: again }
+  - { role: assistant, text: "" }
+  - { role: tool_result, text: again }
+  - { role: assistant, text: "" }
+  - { role: tool_result, text: again }
+  - { role: assistant, text: "" }
+  - { role: tool_result, text: again }
+  - { role: assistant, text: "" }
+  - { role: tool_result, text: again }
+  - { role: assistant, text: "" }
+  - { role: tool_result, text: again }
+  - { role: assistant, text: "" }
+  - { role: tool_result, text: again }
+  - { role: assistant, text: "" }
+  - { role: tool_result, text: again }
+  - { role: assistant, text: "" }
+  - { role: tool_result, text: again }
+  - { role: assistant, text: "" }
+  - { role: tool_result, text: again }
+  - { role: assistant, text: "" }
+  - { role: tool_result, text: again }
+  - { role: assistant, text: "" }
+  - { role: tool_result, text: again }
+  - { role: assistant, text: "" }
+  - { role: tool_result, text: again }
+  - { role: assistant, text: "" }
+  - { role: tool_result, text: again }
+  - { role: assistant, text: "" }
+  - { role: tool_result, text: again }
+  - { role: assistant, text: "" }
+  - { role: tool_result, text: again }
+  - { role: assistant, text: "" }
+  - { role: tool_result, text: again }
+  - { role: assistant, text: "" }
+  - { role: tool_result, text: again }
+  - { role: assistant, text: "" }
+  - { role: tool_result, text: again }
+  - { role: assistant, text: done }

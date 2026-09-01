@@ -28,12 +28,7 @@ def test_a_definition_holds_no_conversation_state() -> None:
     shared by many of them without coupling them together."""
     fields = set(AgentDefinition.__dataclass_fields__)
 
-    assert fields == {"name", "model", "system", "max_steps"}
-
-
-def test_max_steps_bounds_a_runaway_turn() -> None:
-    assert _definition().max_steps == 16
-    assert _definition(max_steps=2).max_steps == 2
+    assert fields == {"name", "model", "system"}
 
 
 def test_the_scope_name_is_derived_from_the_definition_name() -> None:

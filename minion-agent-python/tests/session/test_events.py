@@ -14,8 +14,10 @@ def test_the_surface_is_exactly_three_kinds() -> None:
 
 def test_lifecycle_events_are_not_surface() -> None:
     for kind in (
+        EventKind.AGENT_START,
+        EventKind.AGENT_END,
         EventKind.TURN_START,
-        EventKind.STEP_START,
+        EventKind.TURN_END,
         EventKind.ASSISTANT_CHUNK,
         EventKind.TOOL_CALL,
         EventKind.REQUEST_HEADER,

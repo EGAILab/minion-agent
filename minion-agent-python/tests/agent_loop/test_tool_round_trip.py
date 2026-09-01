@@ -1,6 +1,5 @@
 """The Phase 3 milestone: a tool call closes and the model is asked again."""
 
-from minion_agent.agent.identity import AgentDefinition
 from minion_agent.llm import TextBlock, ToolCallBlock, UserMessage, text_of
 from minion_agent.llm.adapters.mock import ScriptedResponse
 from minion_agent.llm.messages import StopReason
@@ -48,7 +47,7 @@ async def test_the_model_is_asked_again_after_the_result() -> None:
 
     await loop.run_until_idle()
 
-    steps = [e for e in loop.instance.log.events if e.kind == EventKind.STEP_START]
+    steps = [e for e in loop.instance.log.events if e.kind == EventKind.TURN_START]
     assert [step.data["reason"] for step in steps] == ["initial", "tool_results"]
 
 
@@ -97,22 +96,23 @@ async def test_several_calls_in_one_message_each_get_a_result() -> None:
     assert len(results) == 2
 
 
-async def test_max_steps_bounds_a_runaway_tool_loop() -> None:
-    """A model that only ever calls tools must not spin forever."""
-    loop = _loop(*[_tool_call(value="again") for _ in range(20)])
-    loop.instance.definition = AgentDefinition(
-        name="ada",
-        model=loop.instance.definition.model,
-        system="",
-        max_steps=3,
+async def test_a_long_tool_loop_is_not_bounded_by_any_turn_count() -> None:
+    """`L08-R005`: pinned Pi has no `max_steps`-equivalent stop rule, and the
+    Minion-only turn-counter cap that used to bound this exact shape (a model
+    that only ever calls tools) is now fully removed from the Pi-equivalent
+    `prompt()`/`continue()` seam -- not repositioned, not parity-neutral.
+    Regression: the old default cap (formerly `AgentDefinition.max_steps`,
+    default 16) would have stopped this run at its 16th turn; it does not."""
+    loop = _loop(
+        *[_tool_call(value="again") for _ in range(20)], ScriptedResponse((), StopReason.STOP)
     )
     _register(loop, "echo", lambda tool_call_id, args: "again")
     loop.instance.inbox.followup(_say("ping"))
 
     await loop.run_until_idle()
 
-    steps = [e for e in loop.instance.log.events if e.kind == EventKind.STEP_START]
-    assert len(steps) == 3
+    steps = [e for e in loop.instance.log.events if e.kind == EventKind.TURN_START]
+    assert len(steps) == 21  # 20 tool-calling turns + the final stopping turn
 
-    end = next(e for e in loop.instance.log.events if e.kind == EventKind.TURN_END)
-    assert end.data["reason"] == "max_steps"
+    end = next(e for e in loop.instance.log.events if e.kind == EventKind.AGENT_END)
+    assert end.data["reason"] == "completed"

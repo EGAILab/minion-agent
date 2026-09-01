@@ -52,7 +52,7 @@ async def test_every_turn_is_bracketed(turns: int) -> None:
 
 @given(turn_counts)
 @settings(suppress_health_check=[HealthCheck.function_scoped_fixture], deadline=None)
-async def test_a_turn_records_exactly_the_causes_it_claimed(turns: int) -> None:
+async def test_a_run_records_exactly_the_causes_it_claimed(turns: int) -> None:
     loop = _loop(*[ScriptedResponse((), StopReason.STOP) for _ in range(turns)])
     sent = [
         loop.instance.inbox.followup(_say(f"turn {index}"), origin=index).id
@@ -64,7 +64,7 @@ async def test_a_turn_records_exactly_the_causes_it_claimed(turns: int) -> None:
     recorded = [
         cause["id"]
         for event in loop.instance.log.events
-        if event.kind == EventKind.TURN_START
+        if event.kind == EventKind.AGENT_START
         for cause in event.data["causes"]
     ]
     assert recorded == sent

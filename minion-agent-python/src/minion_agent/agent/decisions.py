@@ -12,7 +12,9 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from enum import StrEnum
 
-from ..llm import Message
+from ..llm import Message, ModelId
+from ..tools import ToolDefinition
+from .identity import ThinkingLevel
 
 
 @dataclass(frozen=True, slots=True)
@@ -78,3 +80,56 @@ def resolve_stopping(decisions: Iterable[TurnStopping]) -> TurnStopping:
         if decision is not TurnStopping.NO_OPINION:
             return decision
     return TurnStopping.CONTINUE
+
+
+@dataclass
+class RunContext:
+    """Pinned Pi's `AgentContext`: the run-local, mutable transcript/tool
+    visibility snapshot the provider actually sees on every request within
+    one run (Layer 08, PASS 3 -- `L08-R001`). Taken once at run start
+    (`Agent.createContextSnapshot()`'s own shallow top-level-array-copy
+    semantics exactly: `messages`/`tools` are each a fresh top-level copy,
+    never a deep clone), then locally extended in place as the run's own
+    turns append messages -- never re-read from the certified Layer-07
+    `AgentInstance`/Session/`ToolRegistry` mid-run, so an outside caller
+    mutating any of those after this run started does not retroactively
+    affect it. `prepareNextTurn` may replace this object wholesale for the
+    next request only (`RunConfigUpdate.context`); a replacement is never
+    persisted back to `AgentInstance`, matching pinned Pi's own
+    `currentContext = nextTurnSnapshot.context ?? currentContext` -- a
+    whole-object swap, not a per-field merge."""
+
+    system_prompt: str
+    messages: list[Message]
+    tools: tuple[ToolDefinition, ...]
+
+
+@dataclass
+class RunConfig:
+    """Pinned Pi's own `model`/`reasoning` half of `AgentLoopConfig`, kept
+    as an object separate from `RunContext` exactly as pinned Pi's own
+    `createContextSnapshot()`/`createLoopConfig()` split does (Layer 08,
+    PASS 3 -- `L08-R001`)."""
+
+    model: ModelId
+    thinking_level: ThinkingLevel
+
+
+@dataclass(frozen=True, slots=True)
+class RunConfigUpdate:
+    """Pinned Pi's `AgentLoopTurnUpdate` (`prepareNextTurn`'s return value):
+    an optional WHOLE replacement for `context` (`RunContext`, Layer 08,
+    PASS 3 correction -- an earlier revision truncated this to a
+    `system_prompt`-only override, contradicting pinned Pi's own
+    `context?: AgentContext` field, which can replace `messages`/`tools`
+    too), plus independent optional replacements for `model`/
+    `thinking_level`. `None` on any field means "keep the current run-local
+    value" -- the terminal `RunConfigUpdate()` (all fields `None`) is a pure
+    pass-through, exactly like `Enter`'s own "no override" shape. Never
+    persisted back to the certified Layer-07 `AgentInstance`: pinned Pi's
+    own `prepareNextTurn` only ever affects the local `config`/
+    `currentContext` a single `runLoop` call keeps, not `Agent._state`."""
+
+    context: RunContext | None = None
+    model: ModelId | None = None
+    thinking_level: ThinkingLevel | None = None

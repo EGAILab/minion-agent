@@ -41,7 +41,7 @@ def _tool(name: str, *, terminate: bool) -> ToolDefinition:
 
 
 def _steps(loop: Any) -> int:
-    return len([e for e in loop.instance.log.events if e.kind == EventKind.STEP_START])
+    return len([e for e in loop.instance.log.events if e.kind == EventKind.TURN_START])
 
 
 async def test_a_unanimous_batch_ends_the_turn() -> None:
@@ -52,7 +52,7 @@ async def test_a_unanimous_batch_ends_the_turn() -> None:
     await loop.run_until_idle()
 
     assert _steps(loop) == 1
-    end = next(e for e in loop.instance.log.events if e.kind == EventKind.TURN_END)
+    end = next(e for e in loop.instance.log.events if e.kind == EventKind.AGENT_END)
     assert end.data["reason"] == "terminated"
 
 
@@ -69,10 +69,18 @@ async def test_one_dissenting_result_continues_the_turn() -> None:
     assert _steps(loop) == 2
 
 
-async def test_turn_stopping_is_not_dispatched_when_terminate_fires() -> None:
-    """Hard termination precedes the decision and is not overridable: a
-    listener that could answer Continue here would defeat a loop invariant
-    inherited from pi (design spec section 6)."""
+async def test_terminate_is_not_overridable_even_though_the_decision_still_fires() -> None:
+    """Layer 08, PASS 2: hard termination is not overridable, but it is NOT
+    reached by skipping the stop decision -- pinned pi's own `shouldStopAfterTurn`
+    still runs after every turn regardless of `hasMoreToolCalls`/`terminate`
+    (confirmed directly against `runLoop`); `terminate` only ever affects
+    whether the tool-driven inner loop has more work. A listener answering
+    CONTINUE here is asked, and still cannot manufacture a second request:
+    with no more tool calls and nothing steered, the inner loop exhausts on
+    its own regardless of the listener's answer. An earlier revision of this
+    test (and the `agent/turn-stopping` docstring it was pinning) claimed the
+    decision was skipped entirely -- that was never actually true of pinned
+    Pi."""
     loop = _loop(_calls("stop"), ScriptedResponse((), StopReason.STOP))
     loop.tools.register(_tool("stop", terminate=True))
     asked: list[str] = []
@@ -86,13 +94,13 @@ async def test_turn_stopping_is_not_dispatched_when_terminate_fires() -> None:
 
     await loop.run_until_idle()
 
-    assert asked == []
+    assert asked == ["asked"]
     assert _steps(loop) == 1
     # Strengthened beyond the brief: a turn can also end at one step for an
     # unrelated reason (e.g. max_steps == 1), which would likewise leave
     # `asked` empty without proving termination fired. Pinning the reason
     # rules that confound out -- default max_steps is 16, far above 1.
-    end = next(e for e in loop.instance.log.events if e.kind == EventKind.TURN_END)
+    end = next(e for e in loop.instance.log.events if e.kind == EventKind.AGENT_END)
     assert end.data["reason"] == "terminated"
 
 
@@ -116,7 +124,7 @@ async def test_a_terminating_batch_still_logs_its_results() -> None:
     results = [e for e in loop.instance.log.events if e.kind == EventKind.TOOL_RESULT]
     assert len(results) == 1
     assert _steps(loop) == 1
-    end = next(e for e in loop.instance.log.events if e.kind == EventKind.TURN_END)
+    end = next(e for e in loop.instance.log.events if e.kind == EventKind.AGENT_END)
     assert end.data["reason"] == "terminated"
 
 
@@ -128,5 +136,5 @@ async def test_a_step_with_no_tools_never_terminates() -> None:
 
     await loop.run_until_idle()
 
-    end = next(e for e in loop.instance.log.events if e.kind == EventKind.TURN_END)
+    end = next(e for e in loop.instance.log.events if e.kind == EventKind.AGENT_END)
     assert end.data["reason"] == "completed"

@@ -99,10 +99,13 @@ async def test_a_rejection_closes_the_turn_with_no_step() -> None:
 
     await loop.run_until_idle()
 
+    # `TURN_START` legitimately precedes the rejection (`L08-R006`: pinned
+    # pi's own `runAgentLoop` emits it unconditionally before ever calling
+    # into `runLoop`'s body, where the pre-step decision is made) -- what
+    # "no step" actually means is that `_run_step` itself never ran: no
+    # `USER_MESSAGE`, `REQUEST_HEADER`, `ASSISTANT_MESSAGE`, or `TURN_END`.
     kinds = [event.kind for event in loop.instance.log.events]
-    assert EventKind.STEP_START not in kinds
-    assert kinds[0] == EventKind.TURN_START
-    assert kinds[-1] == EventKind.TURN_END
+    assert kinds == [EventKind.AGENT_START, EventKind.TURN_START, EventKind.AGENT_END]
 
 
 async def test_a_rejected_turn_still_records_that_it_happened() -> None:
@@ -122,7 +125,7 @@ async def test_a_rejected_turn_still_records_that_it_happened() -> None:
 
     await loop.run_until_idle()
 
-    end = next(e for e in loop.instance.log.events if e.kind == EventKind.TURN_END)
+    end = next(e for e in loop.instance.log.events if e.kind == EventKind.AGENT_END)
     assert end.data["reason"] == "rejected"
     assert end.data["detail"] == "quiet hours"
 
@@ -218,10 +221,10 @@ async def test_a_rejection_at_a_later_boundary_ends_the_turn() -> None:
 
     await loop.run_until_idle()
 
-    steps = [e for e in loop.instance.log.events if e.kind == EventKind.STEP_START]
+    steps = [e for e in loop.instance.log.events if e.kind == EventKind.TURN_START]
     assert len(steps) == 1
 
-    end = next(e for e in loop.instance.log.events if e.kind == EventKind.TURN_END)
+    end = next(e for e in loop.instance.log.events if e.kind == EventKind.AGENT_END)
     assert end.data["reason"] == "rejected"
 
 

@@ -28,7 +28,9 @@ asked to continue from a conversation that does not make sense.
 
 from __future__ import annotations
 
+import asyncio
 import inspect
+from collections.abc import Awaitable, Callable, Coroutine
 from dataclasses import dataclass
 from typing import Any
 
@@ -48,7 +50,54 @@ from .events import (
     TOOLS_UPDATE,
 )
 from .registry import ToolRegistry
-from .result import ToolResult, text_result
+from .result import ToolPartialResult, ToolResult, text_result
+
+type OnExecutionStart = Callable[[str, str, dict[str, Any]], Awaitable[None]]
+"""`(call_id, tool_name, arguments) -> None`, awaited at the exact point pinned Pi's own
+`tool_execution_start` `AgentEvent` reaches `Agent.processEvents` (`L08-R002`, Layer-08 PASS 6):
+before resolution/preparation/validation/the before-hook, so a listener that raises here
+genuinely prevents that call from proceeding, uncaught by any of `_preflight`'s own
+prepare/validate/before-hook error handling below it. Additive: `None` (every existing caller)
+preserves this module's own certified behavior exactly -- only a caller that supplies one opts
+into this awaited seam, which this module does not otherwise use or require."""
+
+type OnExecutionEnd = Callable[[str, str, ToolResult], Awaitable[None]]
+"""`(call_id, tool_name, result) -> None`, awaited at the exact point pinned Pi's own
+`tool_execution_end` `AgentEvent` reaches `Agent.processEvents` -- for EVERY outcome, immediate
+or executed, matching the already-certified `tools/execution-end` EMIT event's own unconditional
+firing (`TOOL-017`). Additive, same as `OnExecutionStart`."""
+
+type OnExecutionUpdate = Callable[
+    [str, str, dict[str, Any], ToolPartialResult], Coroutine[Any, Any, None]
+]
+"""`(call_id, tool_name, arguments, partial_result) -> None` (Layer 08, `L08-R002`/`L08-R011`).
+`partial_result` is a `ToolPartialResult` -- matching pinned Pi's own `AgentToolUpdateCallback<T> =
+(partialResult: AgentToolResult<T>) => void` exactly, `content`/`details`/`usage`/
+`added_tool_names`/`terminate` with NO nested `tool_call_id`/`tool_name`/`is_error` of its own (an
+earlier revision narrowed it to `str`, then over-corrected to the FINALIZED-outcome `ToolResult`,
+observably larger than Pi's own type; see `tools/definition.py::ToolUpdate`,
+`tools/result.py::ToolPartialResult`). Typed as returning a `Coroutine`, narrower than
+`OnExecutionStart`/`OnExecutionEnd`'s own `Awaitable[None]`
+(PASS 8): `asyncio.eager_task_factory` requires one specifically -- any `async def` implementation
+already produces one, so this is not a new constraint on a real caller. Started
+SYNCHRONOUSLY, in the same call stack, the exact moment the tool's own SYNCHRONOUS `update(partial)`
+callback fires -- matching pinned Pi's own `tool_execution_update` dispatch exactly
+(`executePreparedToolCall`, `agent-loop.ts:670-711`): calling a JS `async function` (`emit(...)`)
+begins running its body immediately, synchronously, up to its own first genuine suspension point,
+before returning control to `update()`'s own caller at all -- there is no Python `Task`-creation
+primitive with that property (`ensure_future`/`create_task` only ever schedule a coroutine's first
+step through `loop.call_soon`, deferred to the next event-loop iteration, tried and found wrong in
+PASS 7 -- observably reordering `tool-continued` before `listener-entered` when pinned Pi's own
+order is the reverse). `_execute_and_finalize` uses `asyncio.eager_task_factory` (stdlib since 3.12)
+instead, which DOES drive the coroutine synchronously up to its first real suspension -- verified
+empirically to reproduce pinned Pi's exact `listener-entered, tool-continued, listener-resumed`
+interleaving (PASS 8). Every one of a call's own pending update tasks is still joined only once
+`execute()` itself settles (an unwrapped `asyncio.gather`, in place of Pi's own `Promise.all`),
+letting a listener failure propagate uncaught before `finalizeExecutedToolCall`/`tool_execution_end`
+ever runs, and keeping this call still genuinely marked pending
+(`AgentInstance.pending_tool_calls`) for the whole time its own updates are in flight, since
+`OnExecutionEnd` (which clears it) fires only once every one of this call's own scheduled update
+tasks has resolved. Additive, same as `OnExecutionStart`/`OnExecutionEnd`."""
 
 
 class ArgumentValidationError(Exception):
@@ -248,12 +297,20 @@ async def _finalize(result: ToolResult, ctx: Context, scope: ScopeKey | None) ->
     )
 
 
-def _immediate(
-    call: ToolCallBlock, ctx: Context, scope: ScopeKey | None, result: ToolResult
+async def _immediate(
+    call: ToolCallBlock,
+    ctx: Context,
+    scope: ScopeKey | None,
+    result: ToolResult,
+    on_execution_end: OnExecutionEnd | None,
 ) -> ToolResult:
     """An outcome decided before `execute()` runs: emit `tool_execution_end` directly, skipping
-    the after-hook entirely (pinned Pi never invokes `afterToolCall` for these)."""
+    the after-hook entirely (pinned Pi never invokes `afterToolCall` for these). `async` since
+    `L08-R002`, PASS 6, so `on_execution_end` -- when supplied -- can be awaited at this exact
+    point, matching every other `tool_execution_end` firing, immediate or executed alike."""
     ctx.events.emit(TOOLS_EXECUTION_END, call.id, call.name, result, scope=scope)
+    if on_execution_end is not None:
+        await on_execution_end(call.id, call.name, result)
     return result
 
 
@@ -273,7 +330,13 @@ class _Prepared:
 
 
 async def _preflight(
-    call: ToolCallBlock, *, registry: ToolRegistry, ctx: Context, scope: ScopeKey | None
+    call: ToolCallBlock,
+    *,
+    registry: ToolRegistry,
+    ctx: Context,
+    scope: ScopeKey | None,
+    on_execution_start: OnExecutionStart | None = None,
+    on_execution_end: OnExecutionEnd | None = None,
 ) -> _Prepared | ToolResult:
     """Resolve, `prepare_arguments`, validate, and run the before-hook waterfall -- everything
     pinned Pi's `prepareToolCall` does before a call is eligible to run `execute()` (`IR-L06-001`).
@@ -283,16 +346,25 @@ async def _preflight(
     explicit before-hook block) -- which has already had `tools/execution-end` emitted, since none
     of those reach `execute()`/the after-hook at all. `scope` must already be a bare `ScopeKey`
     (see `execute_call`'s own normalization); this function does not accept a live `Scope`.
+
+    `on_execution_start`, when supplied, is awaited immediately after `tools/execution-start`'s own
+    EMIT, before resolution/prepare/validate/the before-hook ever run (`L08-R002`, PASS 6) --
+    deliberately OUTSIDE the `try`/`except` below, so a listener that raises here propagates
+    straight out of this function, preventing the call from proceeding at all, exactly like pinned
+    Pi's own live, awaited `tool_execution_start` dispatch.
     """
     ctx.events.emit(TOOLS_EXECUTION_START, call.id, call.name, call.arguments, scope=scope)
+    if on_execution_start is not None:
+        await on_execution_start(call.id, call.name, call.arguments)
 
     definition = registry.resolve(call.name, scope)
     if definition is None:
-        return _immediate(
+        return await _immediate(
             call,
             ctx,
             scope,
             text_result(call.id, f"Tool {call.name} not found", call.name, is_error=True),
+            on_execution_end,
         )
 
     try:
@@ -309,38 +381,50 @@ async def _preflight(
     except ArgumentValidationError as error:
         # Surfaced to the model, which chose these arguments and is the only
         # party that can choose better ones.
-        return _immediate(
+        return await _immediate(
             call,
             ctx,
             scope,
             text_result(call.id, f"invalid arguments: {error}", call.name, is_error=True),
+            on_execution_end,
         )
     except Exception as error:  # prepare_arguments or a before-hook listener raised
         # Pinned Pi surfaces error.message, never a runtime type name (L06-R002).
-        return _immediate(
-            call, ctx, scope, text_result(call.id, str(error), call.name, is_error=True)
+        return await _immediate(
+            call,
+            ctx,
+            scope,
+            text_result(call.id, str(error), call.name, is_error=True),
+            on_execution_end,
         )
 
     if isinstance(decision, Block):
-        return _immediate(
+        return await _immediate(
             call,
             ctx,
             scope,
             text_result(
                 call.id, decision.reason, call.name, is_error=True, terminate=decision.terminate
             ),
+            on_execution_end,
         )
 
     return _Prepared(call=call, definition=definition, arguments=decision.arguments)
 
 
 async def _execute_and_finalize(
-    prepared: _Prepared, *, ctx: Context, scope: ScopeKey | None
+    prepared: _Prepared,
+    *,
+    ctx: Context,
+    scope: ScopeKey | None,
+    on_execution_end: OnExecutionEnd | None = None,
+    on_execution_update: OnExecutionUpdate | None = None,
 ) -> ToolResult:
     """Run `execute()` (+ live updates) and the after-hook for a call that survived preflight --
     pinned Pi's `executePreparedToolCall` + `finalizeExecutedToolCall`. Always ends by emitting
-    `tools/execution-end`. In a parallel batch, this runs concurrently for every prepared call,
-    only after every call in the batch has finished `_preflight` (`IR-L06-001`).
+    `tools/execution-end`, then awaiting `on_execution_end` if supplied (`L08-R002`, PASS 6). In a
+    parallel batch, this runs concurrently for every prepared call, only after every call in the
+    batch has finished `_preflight` (`IR-L06-001`).
     """
     call = prepared.call
     definition = prepared.definition
@@ -350,13 +434,21 @@ async def _execute_and_finalize(
     # produces -- success or failure -- goes through the after-hook (pinned Pi's
     # finalizeExecutedToolCall is invoked uniformly for both).
     accepting_updates = True
+    pending_updates: list[asyncio.Task[None]] = []
 
-    def update(partial: str) -> None:
+    def update(partial: ToolPartialResult) -> None:
         # Pinned Pi: "Calls made after the tool promise settles are ignored"
         # (`AgentToolUpdateCallback`). `ctx.events.emit` is synchronous here, so there is no
         # promise-drain queue to manage -- the flag alone decides late vs. live.
         if not accepting_updates:
             return
+        # `partial` needs NO normalization (`L08-R011`): `ToolPartialResult`
+        # (`tools/result.py`) has no `tool_call_id`/`tool_name`/`is_error` fields to stamp in the
+        # first place -- pinned Pi's own `AgentToolResult<T>` has none either. Call identity is
+        # carried by this event's OWN `call.id`/`call.name` arguments, below, not nested inside
+        # the reported value -- an earlier revision reused the pipeline-level `ToolResult` here and
+        # normalized those fields onto it, which was itself the defect: a tool-supplied value that
+        # never had a legitimate identity/error field to begin with.
         # `call.arguments` -- the original, pre-prepare/validate arguments -- not `arguments`
         # (`IR-L06-005`): pinned Pi's own `tool_execution_update` payload
         # (`toolCallId`/`toolName`/`args`/`partialResult`) carries
@@ -364,6 +456,34 @@ async def _execute_and_finalize(
         # original call `prepareToolCall` was given, not the `prepareArguments`-shimmed or
         # validated one.
         ctx.events.emit(TOOLS_UPDATE, call.id, call.name, call.arguments, partial, scope=scope)
+        if on_execution_update is not None:
+            # `eager_task_factory`, not `ensure_future`/`create_task`, and not `await`
+            # (`L08-R002`, PASS 8): a plain `Task` (whether made via `ensure_future` or
+            # `create_task`) only schedules its very first step through `loop.call_soon` --
+            # DEFERRED to the next event-loop iteration -- so no part of the listener chain has
+            # run yet by the time `update()` returns control to the tool. Pinned Pi's own
+            # callback has no such gap: calling a JS `async function` (`emit(...)`) runs its body
+            # SYNCHRONOUSLY up to its own first genuine suspension point before returning control
+            # to the caller at all -- confirmed empirically against `ref-repos/pi`'s own observable
+            # ordering (`listener-entered` precedes `tool-continued`, which precedes
+            # `listener-resumed`). `eager_task_factory` (`asyncio`, stdlib since 3.12) is the
+            # direct structural analogue: it drives the coroutine synchronously, in this same call
+            # stack, until its own first real suspension (or full completion, if it never
+            # suspends) before `update()` itself returns -- verified empirically to reproduce the
+            # exact `listener-entered, tool-continued, listener-resumed` interleaving pinned Pi
+            # produces, not merely a same-shaped-but-differently-timed approximation. Every one of
+            # THIS call's own pending update tasks is still joined only once `execute()` itself
+            # settles, below -- unchanged from the prior revision -- so a listener that DOES
+            # genuinely suspend (real I/O, a slow downstream awaited call) still runs concurrently
+            # with the rest of `execute()`, and, in a parallel batch, with every OTHER call's own
+            # in-flight work.
+            loop = asyncio.get_running_loop()
+            pending_updates.append(
+                asyncio.eager_task_factory(
+                    loop,
+                    on_execution_update(call.id, call.name, call.arguments, partial),
+                )
+            )
 
     try:
         outcome = (
@@ -392,6 +512,16 @@ async def _execute_and_finalize(
         else:
             executed = text_result(call.id, str(value), call.name)
 
+    if pending_updates:
+        # Deliberately NOT wrapped in `try`/`except`: pinned Pi's own `await
+        # Promise.all(updateEvents)` (both the success and failure branches of
+        # `executePreparedToolCall`) lets a listener's own rejection propagate straight out,
+        # uncaught -- the SAME causal category as a `tool_execution_start`/`tool_execution_end`
+        # listener failure, not converted into a per-call error result (`L08-R002`, PASS 7). This
+        # also means `_finalize`/`tool_execution_end` below never run for this call if one of its
+        # own update listeners failed, matching pinned Pi exactly.
+        await asyncio.gather(*pending_updates)
+
     try:
         finalized = await _finalize(executed, ctx, scope)
     except Exception as error:
@@ -400,6 +530,8 @@ async def _execute_and_finalize(
         # `executed` (content, details, usage, terminate) survives; this is not a merge.
         finalized = text_result(call.id, str(error), call.name, is_error=True)
     ctx.events.emit(TOOLS_EXECUTION_END, call.id, call.name, finalized, scope=scope)
+    if on_execution_end is not None:
+        await on_execution_end(call.id, call.name, finalized)
     return finalized
 
 
@@ -409,6 +541,9 @@ async def execute_call(
     registry: ToolRegistry,
     ctx: Context,
     scope: ScopeKey | Scope | None = None,
+    on_execution_start: OnExecutionStart | None = None,
+    on_execution_end: OnExecutionEnd | None = None,
+    on_execution_update: OnExecutionUpdate | None = None,
 ) -> ToolResult:
     """Run `call` and return its result, whatever happens.
 
@@ -422,7 +557,20 @@ async def execute_call(
     # normalize once; the registry lookup below already used the richer value
     # for its own disposed-scope check (L05-R002).
     scope = scope.key if isinstance(scope, Scope) else scope
-    outcome = await _preflight(call, registry=registry, ctx=ctx, scope=scope)
+    outcome = await _preflight(
+        call,
+        registry=registry,
+        ctx=ctx,
+        scope=scope,
+        on_execution_start=on_execution_start,
+        on_execution_end=on_execution_end,
+    )
     if isinstance(outcome, ToolResult):
         return outcome
-    return await _execute_and_finalize(outcome, ctx=ctx, scope=scope)
+    return await _execute_and_finalize(
+        outcome,
+        ctx=ctx,
+        scope=scope,
+        on_execution_end=on_execution_end,
+        on_execution_update=on_execution_update,
+    )

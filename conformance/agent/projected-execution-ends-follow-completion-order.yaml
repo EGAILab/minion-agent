@@ -16,6 +16,10 @@ description: >
   completion order [t2, t1] differs from source order [t1, t2], and
   `expect_events` pins the projected `tool_execution_end` sequence directly
   rather than only the log's `tool_completion_order` side channel.
+
+  Two pi turns, not one (Layer 08): the tool-call response and its batch
+  close pi's first turn; the model is asked again inside a second, freshly
+  bracketed turn within the same run.
 provider_script:
   - content:
       - { type: tool_call, id: t1, name: slow, arguments: {} }
@@ -45,8 +49,10 @@ expect_events:
   - message_end
   - message_start
   - message_end
-  - message_update
+  - turn_end
+  - turn_start
   - message_start
+  - message_update
   - message_end
   - turn_end
   - agent_end

@@ -1,9 +1,20 @@
 """Streaming deltas are logged for fidelity, never for derivation."""
 
+from dataclasses import replace
+
 from minion_agent.agent.identity import AgentDefinition
 from minion_agent.agent.registry import AgentRegistry
 from minion_agent.agent_loop.driver import AgentLoop
-from minion_agent.llm import AssistantMessage, LlmService, ModelId, TextBlock, UserMessage, text_of
+from minion_agent.llm import (
+    AssistantMessage,
+    LlmService,
+    ModelId,
+    TextBlock,
+    ThinkingBlock,
+    ToolCallBlock,
+    UserMessage,
+    text_of,
+)
 from minion_agent.llm.adapters.mock import ScriptedResponse
 from minion_agent.llm.messages import StopReason, Usage
 from minion_agent.llm.service import Request
@@ -15,7 +26,7 @@ from minion_agent.llm.stream import (
     ToolCallDelta,
 )
 from minion_agent.runtime import Context
-from minion_agent.session import EventKind, SessionService, derive_messages
+from minion_agent.session import EventKind, SessionService, decode_message, derive_messages
 from minion_agent.tools.events import declare_tools_events
 from minion_agent.tools.registry import ToolRegistry
 
@@ -33,7 +44,8 @@ async def test_text_deltas_are_logged() -> None:
     await loop.run_until_idle()
 
     chunks = [e for e in loop.instance.log.events if e.kind == EventKind.ASSISTANT_CHUNK]
-    assert [chunk.data["delta"] for chunk in chunks] == ["streamed"]
+    partials = [decode_message(chunk.data["partial"]) for chunk in chunks]
+    assert [text_of(partial) for partial in partials] == ["streamed"]
 
 
 async def test_a_chunk_records_which_block_it_belongs_to() -> None:
@@ -109,8 +121,16 @@ class _DeltaAdapter:
             timestamp=0,
         )
         yield StreamStart(partial=pending)
-        yield ThinkingDelta(content_index=0, delta="hmm", partial=pending)
-        yield ToolCallDelta(content_index=1, delta="{}", partial=pending)
+        thinking_partial = replace(pending, content=(ThinkingBlock(thinking="hmm"),))
+        yield ThinkingDelta(content_index=0, delta="hmm", partial=thinking_partial)
+        toolcall_partial = replace(
+            thinking_partial,
+            content=(
+                *thinking_partial.content,
+                ToolCallBlock(id="t1", name="echo", arguments={}),
+            ),
+        )
+        yield ToolCallDelta(content_index=1, delta="{}", partial=toolcall_partial)
         settled = AssistantMessage(
             content=(),
             stop_reason=StopReason.STOP,
@@ -124,7 +144,9 @@ class _DeltaAdapter:
 
 async def test_thinking_and_tool_call_deltas_are_logged_too() -> None:
     """Coverage for `log_chunk`'s other two delta arms, which no scenario in
-    this plan's conformance suite ever exercises through the mock adapter."""
+    this plan's conformance suite ever exercises through the mock adapter.
+    Each logged chunk's `partial` is the full assistant message assembled so
+    far (`L08-R003`), not a raw delta string."""
     ctx = Context()
     declare_tools_events(ctx.events)
     sessions = SessionService()
@@ -146,7 +168,9 @@ async def test_thinking_and_tool_call_deltas_are_logged_too() -> None:
     await loop.run_until_idle()
 
     chunks = [e for e in loop.instance.log.events if e.kind == EventKind.ASSISTANT_CHUNK]
-    assert [(chunk.data["kind"], chunk.data["delta"]) for chunk in chunks] == [
-        ("thinking", "hmm"),
-        ("tool_call", "{}"),
-    ]
+    assert [chunk.data["kind"] for chunk in chunks] == ["thinking_delta", "toolcall_delta"]
+
+    partials = [decode_message(chunk.data["partial"]) for chunk in chunks]
+    assert isinstance(partials[0].content[0], ThinkingBlock)
+    assert partials[0].content[0].thinking == "hmm"
+    assert any(isinstance(block, ToolCallBlock) for block in partials[1].content)

@@ -862,7 +862,45 @@ rows:
     update listener now a genuine run failure, not silently absorbed (proven by
     `test_tool_execution_update_listener_failure_is_a_genuine_run_failure` at the Layer-08 level and
     `test_a_failing_on_execution_update_listener_propagates_uncaught` at the Layer-06 level, the
-    latter also confirming `tools/execution-end` never fires for that call).'
+    latter also confirming `tools/execution-end` never fires for that call).
+
+    PASS 8, correcting the independent re-review of the PASS-7 candidate (`L08-R002` a fourth time):
+    PASS 7''s own `asyncio.ensure_future` scheduling was STILL the wrong primitive, in a way PASS 7''s
+    own tests never distinguished from correct. Focused evidence from the re-review, reproduced
+    empirically before trusting it: "asyncio.ensure_future schedules update dispatch but does not
+    begin the listener coroutine before update() returns. Pinned Pi immediately executes the reducer
+    and first listener''s synchronous prefix." The PASS-7 candidate''s own observable order was
+    `tool-continued, listener-entered, listener-resumed`; pinned JS''s own order is `listener-entered,
+    tool-continued, listener-resumed`. The root cause: `asyncio.Task` (whether constructed via
+    `ensure_future` or `create_task`) schedules its OWN first step through `loop.call_soon`, always
+    DEFERRED to the next event-loop iteration -- no part of a `Task`-wrapped coroutine''s body ever
+    runs synchronously at construction time, unlike calling a JS `async function` directly, which
+    begins executing its body immediately, synchronously, up to its own first genuine suspension
+    point, before returning control to its caller at all. `PASS 7''s own `test_on_execution_update_
+    does_not_block_the_tools_own_execute` could not have caught this: its hook''s own FIRST statement
+    was `await asyncio.sleep(0)`, so the hook never appended anything observable before its own
+    suspension either way -- the test happened to pass under BOTH the wrong (`ensure_future`) and the
+    correct (`eager_task_factory`) scheduling primitive, exactly the "tests do not discriminate"
+    defect `L08-R004` names.
+
+    `asyncio.eager_task_factory` (stdlib since Python 3.12, this project''s own pinned minimum) is
+    the correct primitive: verified empirically, standalone, before use in `tools/execute.py` --
+    `asyncio.eager_task_factory(loop, coro)` drives `coro` SYNCHRONOUSLY, in the calling stack, up to
+    its own first real suspension (or full completion, if it never suspends), only THEN returning a
+    `Task` -- reproducing the exact pinned-JS `listener-entered, tool-continued, listener-resumed`
+    interleaving for a hook that does suspend, and full synchronous completion (matching a
+    non-suspending JS `async function` too) for one that does not. `update(partial)`''s own closure
+    now calls `asyncio.eager_task_factory(asyncio.get_running_loop(), on_execution_update(...))` in
+    place of `asyncio.ensure_future(...)`; `pending_updates`/the trailing `asyncio.gather` join point
+    are otherwise unchanged from PASS 7''s own design, which remains correct (uncaught listener-failure
+    propagation, joined before `_finalize`/`tools/execution-end`). `OnExecutionUpdate`''s own type
+    alias is narrowed from `Awaitable[None]` to `Coroutine[Any, Any, None]` (`eager_task_factory`
+    requires one specifically; every real `async def` implementation already produces one, so this is
+    not a new constraint on any actual caller). The rewritten test
+    (`test_on_execution_update_starts_synchronously_but_does_not_block_the_tool`, replacing PASS 7''s
+    own non-discriminating one) puts an observable append BEFORE the hook''s own suspension point,
+    asserting the full three-step order directly -- the exact discriminating coverage `L08-R004`
+    named as missing.'
   tests:
   - test_a_run_executor_failure_recovers_through_the_live_lifecycle_event_seam
   - test_a_post_turn_callback_failure_recovers_through_the_live_seam
@@ -889,9 +927,9 @@ rows:
   - test_tool_execution_update_listener_failure_is_a_genuine_run_failure
   - test_on_execution_update_is_awaited_for_every_call_in_order (tools/test_updates.py)
   - test_a_failing_on_execution_update_listener_propagates_uncaught (tools/test_updates.py)
-  - test_on_execution_update_does_not_block_the_tools_own_execute (tools/test_updates.py)
+  - test_on_execution_update_starts_synchronously_but_does_not_block_the_tool (tools/test_updates.py)
   python: src/minion_agent/agent_loop/driver.py::AgentLoop._execute_run (catch boundary), AgentLoop._dispatch_agent_event, AgentLoop._admit_messages, AgentLoop._settle_run_failure, AgentLoop._run_step (live tool-execution/update dispatch, direct stream iteration), src/minion_agent/tools/execute.py::OnExecutionStart, OnExecutionEnd, OnExecutionUpdate, _preflight, _execute_and_finalize, _immediate, execute_call, src/minion_agent/tools/batch.py::execute_batch, execute_length_stop_batch, src/minion_agent/agent/projection.py::MessageUpdate, ToolExecutionEnd, ToolExecutionUpdate, project
-  rust: PENDING -- Layer 08 not yet implemented in Rust; the PASS-2, PASS-3, PASS-4, PASS-5, and PASS-6 candidates were each independently rejected on this row (L08-R002), PASS 7 is the remediated candidate awaiting re-review
+  rust: PENDING -- Layer 08 not yet implemented in Rust; the PASS-2, PASS-3, PASS-4, PASS-5, PASS-6, and PASS-7 candidates were each independently rejected on this row (L08-R002), PASS 8 is the remediated candidate awaiting re-review
   disposition: adopted
 - id: AG-010
   phase: 3

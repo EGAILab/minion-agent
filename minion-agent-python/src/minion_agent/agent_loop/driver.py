@@ -928,13 +928,16 @@ class AgentLoop:
             # one of that call's own scheduled update dispatches (`tools/execute.py`,
             # `OnExecutionUpdate`).
             #
-            # `on_execution_update` is scheduled (`asyncio.ensure_future`), not awaited inline, by
-            # `tools/execute.py` itself the moment a tool's own SYNCHRONOUS `update(partial)`
-            # callback fires -- matching pinned Pi's own unawaited `emit(...)` at callback time
-            # (`agent-loop.ts:670-711`) -- so two different calls' own update dispatches interleave
-            # according to real scheduling, not a batch-wide capture-and-replay order (PASS 7,
-            # correcting PASS 6's own capture-then-redeliver-per-call approximation, itself an
-            # improvement over PASS 5's batch-wide one but still not genuinely live).
+            # `on_execution_update` is started SYNCHRONOUSLY (`asyncio.eager_task_factory`, PASS
+            # 8 -- `ensure_future`'s own deferred-first-step scheduling, tried in PASS 7, still
+            # observably reordered `tool-continued` before `listener-entered`), not awaited
+            # inline, by `tools/execute.py` itself the moment a tool's own SYNCHRONOUS
+            # `update(partial)` callback fires -- matching pinned Pi's own `emit(...)` at callback
+            # time exactly (`agent-loop.ts:670-711`) -- so two different calls' own update
+            # dispatches interleave according to real scheduling, not a batch-wide
+            # capture-and-replay order (PASS 7, correcting PASS 6's own
+            # capture-then-redeliver-per-call approximation, itself an improvement over PASS 5's
+            # batch-wide one but still not genuinely live).
             async def on_execution_start(
                 call_id: str, name: str, arguments: dict[str, object]
             ) -> None:

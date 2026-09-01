@@ -206,31 +206,39 @@ async def test_a_failing_on_execution_update_listener_propagates_uncaught() -> N
     assert end_emissions == []
 
 
-async def test_on_execution_update_does_not_block_the_tools_own_execute() -> None:
-    """`L08-R002`, PASS 7: `update(partial)` schedules the live dispatch (`asyncio.ensure_future`)
-    and returns immediately -- it does not itself await the hook's own coroutine, matching pinned
-    Pi's own unawaited `emit(...)` at callback time. A tool that calls `update()` and then keeps
-    doing synchronous work before returning completes that work BEFORE a slow hook's own delay
-    elapses."""
+async def test_on_execution_update_starts_synchronously_but_does_not_block_the_tool() -> None:
+    """`L08-R002`, PASS 8: `update(partial)` starts the hook's own coroutine SYNCHRONOUSLY, in the
+    same call stack, up to its own first genuine suspension point -- `asyncio.eager_task_factory`,
+    not `ensure_future`/`create_task` (tried in PASS 7: a plain `Task` only ever schedules its
+    first step through `loop.call_soon`, deferred to the next event-loop iteration, so nothing of
+    the hook had run yet by the time `update()` returned -- observably wrong against pinned Pi's
+    own `agent-loop.ts:670-711`, which runs a JS `async function` synchronously up to ITS own first
+    suspension before returning control to `update()`'s own caller). This is pinned Pi's own exact
+    three-step interleaving, reproduced empirically: `listener-entered` (before the hook's own
+    suspension), `tool-continued` (the tool's own synchronous work after calling `update()`), then
+    `listener-resumed` (once the hook's own suspended `await` settles) -- not
+    `tool-continued, listener-entered, listener-resumed`, which is what a merely-scheduled
+    (`ensure_future`) hook would have produced instead."""
     ctx = _ctx()
     order: list[str] = []
 
     async def slow_on_execution_update(
         call_id: str, tool_name: str, arguments: dict[str, Any], partial: str
     ) -> None:
+        order.append("listener-entered")
         await asyncio.sleep(0)
-        order.append("hook")
+        order.append("listener-resumed")
 
     def chatty(tool_call_id: str, args: dict[str, Any], update: Any) -> str:
         update("x")
-        order.append("tool continued")
+        order.append("tool-continued")
         return "done"
 
     await execute_call(
         _call(), registry=_streaming(chatty), ctx=ctx, on_execution_update=slow_on_execution_update
     )
 
-    assert order == ["tool continued", "hook"]
+    assert order == ["listener-entered", "tool-continued", "listener-resumed"]
 
 
 async def test_a_late_update_after_the_tool_settles_is_ignored() -> None:

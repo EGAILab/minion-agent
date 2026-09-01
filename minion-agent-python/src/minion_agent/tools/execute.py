@@ -30,7 +30,7 @@ from __future__ import annotations
 
 import asyncio
 import inspect
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Coroutine
 from dataclasses import dataclass
 from typing import Any
 
@@ -67,21 +67,29 @@ type OnExecutionEnd = Callable[[str, str, ToolResult], Awaitable[None]]
 or executed, matching the already-certified `tools/execution-end` EMIT event's own unconditional
 firing (`TOOL-017`). Additive, same as `OnExecutionStart`."""
 
-type OnExecutionUpdate = Callable[[str, str, dict[str, Any], str], Awaitable[None]]
-"""`(call_id, tool_name, arguments, partial_result) -> None` (Layer 08, PASS 7, `L08-R002`).
-Scheduled -- not awaited inline -- at the exact moment the tool's own SYNCHRONOUS `update(partial)`
-callback fires, matching pinned Pi's own `tool_execution_update` dispatch exactly
-(`executePreparedToolCall`, `agent-loop.ts:670-711`): pinned Pi's `update` callback pushes
-`emit(...)`'s own promise onto an array WITHOUT awaiting it inline, so listener delivery begins at
-CALLBACK time, concurrently with the rest of `execute()` -- only once `execute()` itself settles
-does pinned Pi `await Promise.all(updateEvents)`, letting a listener failure propagate uncaught,
-before `finalizeExecutedToolCall`/`tool_execution_end` ever runs. `_execute_and_finalize` reproduces
-this with `asyncio.ensure_future` (Python's own "start now, join later" primitive) in place of an
-unawaited promise, and an unwrapped `asyncio.gather` in place of `Promise.all` -- keeping this call
-still genuinely marked pending (`AgentInstance.pending_tool_calls`) for the whole time its own
-updates are in flight, since `OnExecutionEnd` (which clears it) fires only once every one of this
-call's own scheduled update tasks has resolved. Additive, same as `OnExecutionStart`/
-`OnExecutionEnd`."""
+type OnExecutionUpdate = Callable[[str, str, dict[str, Any], str], Coroutine[Any, Any, None]]
+"""`(call_id, tool_name, arguments, partial_result) -> None` (Layer 08, `L08-R002`). Typed as
+returning a `Coroutine`, narrower than `OnExecutionStart`/`OnExecutionEnd`'s own `Awaitable[None]`
+(PASS 8): `asyncio.eager_task_factory` requires one specifically -- any `async def` implementation
+already produces one, so this is not a new constraint on a real caller. Started
+SYNCHRONOUSLY, in the same call stack, the exact moment the tool's own SYNCHRONOUS `update(partial)`
+callback fires -- matching pinned Pi's own `tool_execution_update` dispatch exactly
+(`executePreparedToolCall`, `agent-loop.ts:670-711`): calling a JS `async function` (`emit(...)`)
+begins running its body immediately, synchronously, up to its own first genuine suspension point,
+before returning control to `update()`'s own caller at all -- there is no Python `Task`-creation
+primitive with that property (`ensure_future`/`create_task` only ever schedule a coroutine's first
+step through `loop.call_soon`, deferred to the next event-loop iteration, tried and found wrong in
+PASS 7 -- observably reordering `tool-continued` before `listener-entered` when pinned Pi's own
+order is the reverse). `_execute_and_finalize` uses `asyncio.eager_task_factory` (stdlib since 3.12)
+instead, which DOES drive the coroutine synchronously up to its first real suspension -- verified
+empirically to reproduce pinned Pi's exact `listener-entered, tool-continued, listener-resumed`
+interleaving (PASS 8). Every one of a call's own pending update tasks is still joined only once
+`execute()` itself settles (an unwrapped `asyncio.gather`, in place of Pi's own `Promise.all`),
+letting a listener failure propagate uncaught before `finalizeExecutedToolCall`/`tool_execution_end`
+ever runs, and keeping this call still genuinely marked pending
+(`AgentInstance.pending_tool_calls`) for the whole time its own updates are in flight, since
+`OnExecutionEnd` (which clears it) fires only once every one of this call's own scheduled update
+tasks has resolved. Additive, same as `OnExecutionStart`/`OnExecutionEnd`."""
 
 
 class ArgumentValidationError(Exception):
@@ -434,16 +442,30 @@ async def _execute_and_finalize(
         # validated one.
         ctx.events.emit(TOOLS_UPDATE, call.id, call.name, call.arguments, partial, scope=scope)
         if on_execution_update is not None:
-            # `ensure_future`, not `await`: pinned Pi's own callback does not await `emit(...)`
-            # either -- it fires the promise and keeps running, joining every one of THIS call's
-            # own pending update dispatches only once `execute()` itself settles, below
-            # (`L08-R002`, PASS 7). This is what lets a slow/failing update listener run
-            # genuinely concurrently with the rest of `execute()` -- and, in a parallel batch,
-            # concurrently with every OTHER call's own in-flight work -- instead of being queued
-            # as inert data replayed after the fact.
+            # `eager_task_factory`, not `ensure_future`/`create_task`, and not `await`
+            # (`L08-R002`, PASS 8): a plain `Task` (whether made via `ensure_future` or
+            # `create_task`) only schedules its very first step through `loop.call_soon` --
+            # DEFERRED to the next event-loop iteration -- so no part of the listener chain has
+            # run yet by the time `update()` returns control to the tool. Pinned Pi's own
+            # callback has no such gap: calling a JS `async function` (`emit(...)`) runs its body
+            # SYNCHRONOUSLY up to its own first genuine suspension point before returning control
+            # to the caller at all -- confirmed empirically against `ref-repos/pi`'s own observable
+            # ordering (`listener-entered` precedes `tool-continued`, which precedes
+            # `listener-resumed`). `eager_task_factory` (`asyncio`, stdlib since 3.12) is the
+            # direct structural analogue: it drives the coroutine synchronously, in this same call
+            # stack, until its own first real suspension (or full completion, if it never
+            # suspends) before `update()` itself returns -- verified empirically to reproduce the
+            # exact `listener-entered, tool-continued, listener-resumed` interleaving pinned Pi
+            # produces, not merely a same-shaped-but-differently-timed approximation. Every one of
+            # THIS call's own pending update tasks is still joined only once `execute()` itself
+            # settles, below -- unchanged from the prior revision -- so a listener that DOES
+            # genuinely suspend (real I/O, a slow downstream awaited call) still runs concurrently
+            # with the rest of `execute()`, and, in a parallel batch, with every OTHER call's own
+            # in-flight work.
+            loop = asyncio.get_running_loop()
             pending_updates.append(
-                asyncio.ensure_future(
-                    on_execution_update(call.id, call.name, call.arguments, partial)
+                asyncio.eager_task_factory(
+                    loop, on_execution_update(call.id, call.name, call.arguments, partial)
                 )
             )
 

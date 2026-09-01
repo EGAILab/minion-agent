@@ -1,5 +1,5 @@
-// Task 4 deliberately stages these private transactions before Task 5 wires
-// their only production caller (the complete public provider-backed entries).
+// Tasks 4-5 deliberately stage private admission and provider-turn
+// transactions before Task 8 wires the complete public run entries.
 #![allow(dead_code)]
 
 use std::{
@@ -8,10 +8,19 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
+use futures::StreamExt;
+
 use crate::{
     Context,
-    agent::{AgentInstance, AgentRunError, AgentStatus, ClaimPolicy, InboxTarget},
-    llm::{ImageBlock, LlmService, Message, TextBlock, UserContent, UserContentBlock, UserMessage},
+    agent::{
+        AgentInstance, AgentRunError, AgentStatus, ClaimPolicy, InboxTarget,
+        ThinkingLevel as AgentThinkingLevel,
+    },
+    llm::{
+        AssistantMessage, ImageBlock, LlmContext, LlmRequest, LlmService, Message,
+        SimpleStreamOptions, StopReason, StreamChunk, TextBlock, ThinkingLevel as LlmThinkingLevel,
+        UserContent, UserContentBlock, UserMessage,
+    },
 };
 
 use super::{
@@ -37,7 +46,7 @@ pub enum PromptInput {
 pub struct AgentLoop {
     agent: Arc<AgentInstance>,
     context: Context,
-    _llm: Arc<LlmService>,
+    llm: Arc<LlmService>,
 }
 
 struct PreparedRun {
@@ -45,6 +54,18 @@ struct PreparedRun {
     context: RunContext,
     config: RunConfig,
     new_messages: Vec<Message>,
+}
+
+#[derive(Debug, PartialEq)]
+struct ProviderTurn {
+    message: AssistantMessage,
+    disposition: ProviderTurnDisposition,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ProviderTurnDisposition {
+    Continue,
+    RepresentedTerminal,
 }
 
 impl fmt::Debug for PreparedRun {
@@ -69,7 +90,7 @@ impl AgentLoop {
         Self {
             agent,
             context,
-            _llm: llm,
+            llm,
         }
     }
 
@@ -158,6 +179,88 @@ impl AgentLoop {
         Ok(())
     }
 
+    async fn run_provider_turn(
+        &self,
+        prepared: &mut PreparedRun,
+    ) -> Result<ProviderTurn, AgentLoopError> {
+        let request = LlmRequest {
+            model: prepared.config.model.clone(),
+            context: LlmContext {
+                system_prompt: Some(prepared.context.system_prompt.clone()),
+                messages: prepared.context.messages.clone(),
+                tools: Some(
+                    prepared
+                        .context
+                        .tools
+                        .iter()
+                        .map(|tool| tool.schema())
+                        .collect(),
+                ),
+            },
+            options: SimpleStreamOptions {
+                reasoning: provider_thinking_level(prepared.config.thinking_level),
+                ..SimpleStreamOptions::default()
+            },
+        };
+        let mut stream = self.llm.stream(request)?;
+        let mut started = false;
+
+        while let Some(event) = stream.next().await {
+            let partial = event.partial().clone();
+            match event {
+                StreamChunk::Start { .. } => {
+                    self.dispatch(AgentEvent::MessageStart(Message::Assistant(Box::new(
+                        partial,
+                    ))))
+                    .await?;
+                    started = true;
+                }
+                StreamChunk::Done { .. } | StreamChunk::Error { .. } => {
+                    let message = partial;
+                    if !started {
+                        self.dispatch(AgentEvent::MessageStart(Message::Assistant(Box::new(
+                            message.clone(),
+                        ))))
+                        .await?;
+                    }
+                    self.dispatch(AgentEvent::MessageEnd(Message::Assistant(Box::new(
+                        message.clone(),
+                    ))))
+                    .await?;
+                    prepared
+                        .context
+                        .messages
+                        .push(Message::Assistant(Box::new(message.clone())));
+                    prepared
+                        .new_messages
+                        .push(Message::Assistant(Box::new(message.clone())));
+                    let disposition = match message.stop_reason {
+                        StopReason::Error | StopReason::Aborted => {
+                            ProviderTurnDisposition::RepresentedTerminal
+                        }
+                        StopReason::Pending
+                        | StopReason::Stop
+                        | StopReason::Length
+                        | StopReason::ToolUse
+                        | StopReason::Deferred => ProviderTurnDisposition::Continue,
+                    };
+                    return Ok(ProviderTurn {
+                        message,
+                        disposition,
+                    });
+                }
+                event => {
+                    if started {
+                        self.dispatch(AgentEvent::MessageUpdate { event, partial })
+                            .await?;
+                    }
+                }
+            }
+        }
+
+        unreachable!("AssistantStream emits a terminal chunk before it fuses")
+    }
+
     async fn dispatch(&self, event: AgentEvent) -> Result<(), AgentLoopError> {
         reduce_event(&self.agent, &event)?;
         dispatch_agent_event(&self.context, event).await
@@ -170,6 +273,18 @@ impl AgentLoop {
             .into_iter()
             .map(|envelope| envelope.message)
             .collect()
+    }
+}
+
+fn provider_thinking_level(level: AgentThinkingLevel) -> Option<LlmThinkingLevel> {
+    match level {
+        AgentThinkingLevel::Off => None,
+        AgentThinkingLevel::Minimal => Some(LlmThinkingLevel::Minimal),
+        AgentThinkingLevel::Low => Some(LlmThinkingLevel::Low),
+        AgentThinkingLevel::Medium => Some(LlmThinkingLevel::Medium),
+        AgentThinkingLevel::High => Some(LlmThinkingLevel::High),
+        AgentThinkingLevel::XHigh => Some(LlmThinkingLevel::Xhigh),
+        AgentThinkingLevel::Max => Some(LlmThinkingLevel::Max),
     }
 }
 
@@ -213,6 +328,7 @@ fn now_millis() -> f64 {
 #[cfg(test)]
 mod tests {
     use std::{
+        collections::BTreeMap,
         sync::Arc,
         time::{SystemTime, UNIX_EPOCH},
     };
@@ -224,15 +340,18 @@ mod tests {
         DynPluginSpec, PluginInitError, PluginSpec, Runtime,
         agent::{AgentDefinition, AgentInstance, AgentStatus},
         llm::{
-            AssistantContentBlock, AssistantMessage, ImageBlock, LlmService, Message,
-            ModelIdentity, StopReason, TextBlock, ToolResultContentBlock, ToolResultMessage, Usage,
-            UserContent, UserContentBlock, UserMessage,
+            AssistantContentBlock, AssistantMessage, DoneReason, ErrorReason, ImageBlock,
+            LlmService, LlmStartError, Message, ModelIdentity, Script, ScriptItem, ScriptedAdapter,
+            StopReason, StreamChunk, TextBlock, ThinkingBlock, ThinkingLevel as LlmThinkingLevel,
+            ToolCall, ToolResultContentBlock, ToolResultMessage, Usage, UserContent,
+            UserContentBlock, UserMessage,
         },
         session::Session,
+        tools::{AgentToolResult, ToolDefinition, ToolExecutionRequest},
     };
 
-    use super::{AgentLoop, PromptInput};
-    use crate::agent_loop::{AgentEvent, AgentEventKind, register_agent_listener};
+    use super::{AgentLoop, PromptInput, ProviderTurnDisposition};
+    use crate::agent_loop::{AgentEvent, AgentEventKind, AgentLoopError, register_agent_listener};
 
     fn run(future: impl Future<Output = ()>) {
         tokio::runtime::Builder::new_multi_thread()
@@ -271,6 +390,14 @@ mod tests {
     }
 
     fn loop_for(runtime: &Runtime, session: Session) -> (AgentLoop, Arc<AgentInstance>) {
+        loop_for_with_llm(runtime, session, Arc::new(LlmService::new()))
+    }
+
+    fn loop_for_with_llm(
+        runtime: &Runtime,
+        session: Session,
+        llm: Arc<LlmService>,
+    ) -> (AgentLoop, Arc<AgentInstance>) {
         let context = runtime.context();
         let agent = Arc::new(AgentInstance::new(
             "room-a",
@@ -279,8 +406,28 @@ mod tests {
             Some(context.clone()),
             None,
         ));
-        let driver = AgentLoop::new(Arc::clone(&agent), context, Arc::new(LlmService::new()));
+        let driver = AgentLoop::new(Arc::clone(&agent), context, llm);
         (driver, agent)
+    }
+
+    fn tool(name: &str) -> ToolDefinition {
+        ToolDefinition::new(
+            name,
+            format!("{name} description"),
+            serde_json::from_value(json!({"type": "object"})).unwrap(),
+            name,
+            |_request: ToolExecutionRequest| {
+                Box::pin(async {
+                    Ok(AgentToolResult {
+                        content: vec![],
+                        details: Value::Null,
+                        usage: None,
+                        added_tool_names: None,
+                        terminate: None,
+                    })
+                })
+            },
+        )
     }
 
     type EventHook = Arc<dyn Fn(AgentEvent) + Send + Sync>;
@@ -583,6 +730,294 @@ mod tests {
 
             assert_eq!(prepared.context.messages, vec![history, steering.clone()]);
             assert_eq!(prepared.new_messages, vec![steering]);
+        });
+    }
+
+    #[test]
+    fn provider_turn_uses_the_prepared_snapshot_and_forwards_every_complete_partial() {
+        run(async {
+            let runtime = Runtime::new();
+            let first_tool = runtime
+                .tools()
+                .register_for_scope(None, tool("first"))
+                .unwrap();
+            let start = AssistantMessage::pending(identity(), 10.0);
+            let mut text_partial = start.clone();
+            text_partial.response_id = Some("response-1".into());
+            text_partial.content = vec![AssistantContentBlock::Text(
+                TextBlock::new("answer").with_signature("text-signature"),
+            )];
+            let mut thinking_partial = text_partial.clone();
+            thinking_partial
+                .content
+                .push(AssistantContentBlock::Thinking(
+                    ThinkingBlock::new("reason").with_signature("thinking-signature"),
+                ));
+            let mut tool_call = ToolCall::new(
+                "call-1",
+                "first",
+                BTreeMap::from([("query".into(), json!("rust"))]),
+            )
+            .with_namespace("fixture");
+            tool_call.thought_signature = Some("tool-signature".into());
+            let mut tool_partial = thinking_partial.clone();
+            tool_partial
+                .content
+                .push(AssistantContentBlock::ToolCall(tool_call.clone()));
+            tool_partial.response_model = Some("provider-model".into());
+            tool_partial.raw_stop_reason = Some("tool_calls".into());
+            tool_partial.end_turn = Some(false);
+            let mut final_message = tool_partial.clone();
+            final_message.stop_reason = StopReason::ToolUse;
+            final_message.usage.input = 11;
+            final_message.usage.output = 7;
+            final_message.usage.total_tokens = 18;
+            let updates = [
+                StreamChunk::TextDelta {
+                    content_index: 0,
+                    delta: "answer".into(),
+                    partial: text_partial.clone(),
+                },
+                StreamChunk::ThinkingDelta {
+                    content_index: 1,
+                    delta: "reason".into(),
+                    partial: thinking_partial.clone(),
+                },
+                StreamChunk::ToolCallEnd {
+                    content_index: 2,
+                    tool_call,
+                    partial: tool_partial.clone(),
+                },
+            ];
+            let script = Script::new(
+                [ScriptItem::Chunk(Box::new(StreamChunk::Start {
+                    partial: start.clone(),
+                }))]
+                .into_iter()
+                .chain(
+                    updates
+                        .iter()
+                        .cloned()
+                        .map(|chunk| ScriptItem::Chunk(Box::new(chunk))),
+                )
+                .chain([ScriptItem::Chunk(Box::new(StreamChunk::Done {
+                    reason: DoneReason::ToolUse,
+                    message: final_message.clone(),
+                }))]),
+            );
+            let adapter = Arc::new(ScriptedAdapter::new([script]));
+            let llm = Arc::new(LlmService::new());
+            llm.register(identity(), adapter.clone());
+            let events = Arc::new(Mutex::new(Vec::new()));
+            let reductions = Arc::new(Mutex::new(Vec::new()));
+            let agent_slot = Arc::new(Mutex::new(None::<Arc<AgentInstance>>));
+            let observed_events = Arc::clone(&events);
+            let observed_reductions = Arc::clone(&reductions);
+            let observed_agent = Arc::clone(&agent_slot);
+            let plugin = listener_plugin(Arc::new(move |event| {
+                let agent = observed_agent.lock().clone().unwrap();
+                observed_reductions.lock().push((
+                    event.kind(),
+                    agent.streaming_message(),
+                    agent.messages().unwrap(),
+                ));
+                observed_events.lock().push(event);
+            }));
+            runtime.mount(&plugin, json!({})).unwrap();
+            runtime.reconcile().await.unwrap();
+            let (driver, agent) = loop_for_with_llm(
+                &runtime,
+                Session::new("room-a", [] as [&str; 0]).unwrap(),
+                llm,
+            );
+            *agent_slot.lock() = Some(Arc::clone(&agent));
+            agent.set_thinking_level(crate::agent::ThinkingLevel::High);
+            let prompt = user("prompt");
+            let mut prepared = driver
+                .prepare_prompt_run(PromptInput::Message(prompt.clone()))
+                .await
+                .unwrap();
+
+            agent.set_system_prompt("changed-after-entry");
+            agent.set_model(ModelIdentity::new("provider", "api", "changed").unwrap());
+            agent.set_thinking_level(crate::agent::ThinkingLevel::Off);
+            agent
+                .session()
+                .append_message(user("external-late"))
+                .unwrap();
+            let second_tool = runtime
+                .tools()
+                .register_for_scope(None, tool("second"))
+                .unwrap();
+
+            let turn = driver.run_provider_turn(&mut prepared).await.unwrap();
+
+            assert_eq!(turn.message, final_message);
+            assert_eq!(turn.disposition, ProviderTurnDisposition::Continue);
+            assert_eq!(
+                prepared.context.messages,
+                vec![
+                    prompt.clone(),
+                    Message::Assistant(Box::new(final_message.clone()))
+                ]
+            );
+            assert_eq!(
+                prepared.new_messages,
+                vec![
+                    prompt.clone(),
+                    Message::Assistant(Box::new(final_message.clone()))
+                ]
+            );
+            let requests = adapter.requests();
+            assert_eq!(requests.len(), 1);
+            assert_eq!(requests[0].model, identity());
+            assert_eq!(requests[0].context.system_prompt.as_deref(), Some("system"));
+            assert_eq!(requests[0].context.messages, vec![prompt.clone()]);
+            assert_eq!(
+                requests[0]
+                    .context
+                    .tools
+                    .as_ref()
+                    .unwrap()
+                    .iter()
+                    .map(|schema| schema.name.as_str())
+                    .collect::<Vec<_>>(),
+                vec!["first"]
+            );
+            assert_eq!(requests[0].options.reasoning, Some(LlmThinkingLevel::High));
+
+            let events = events.lock();
+            assert!(
+                matches!(&events[4], AgentEvent::MessageStart(message) if message == &Message::Assistant(Box::new(start.clone())))
+            );
+            for (offset, expected) in updates.iter().enumerate() {
+                assert!(matches!(
+                    &events[5 + offset],
+                    AgentEvent::MessageUpdate { event, partial }
+                        if event == expected && partial == expected.partial()
+                ));
+            }
+            assert!(
+                matches!(&events[8], AgentEvent::MessageEnd(message) if message == &Message::Assistant(Box::new(final_message.clone())))
+            );
+            drop(events);
+
+            let reductions = reductions.lock();
+            assert_eq!(reductions[4].1, Some(Message::Assistant(Box::new(start))));
+            assert_eq!(reductions[4].2, vec![prompt.clone(), user("external-late")]);
+            assert_eq!(
+                reductions[5].1,
+                Some(Message::Assistant(Box::new(text_partial)))
+            );
+            assert_eq!(
+                reductions[6].1,
+                Some(Message::Assistant(Box::new(thinking_partial)))
+            );
+            assert_eq!(
+                reductions[7].1,
+                Some(Message::Assistant(Box::new(tool_partial)))
+            );
+            assert_eq!(reductions[8].1, None);
+            assert_eq!(
+                reductions[8].2,
+                vec![
+                    prompt,
+                    user("external-late"),
+                    Message::Assistant(Box::new(final_message))
+                ]
+            );
+            drop(reductions);
+            assert_eq!(agent.status(), AgentStatus::Running);
+            drop(prepared);
+            assert_eq!(agent.status(), AgentStatus::Idle);
+            drop((first_tool, second_tool));
+        });
+    }
+
+    #[test]
+    fn represented_error_and_aborted_results_are_classified_without_post_turn_work() {
+        run(async {
+            for (reason, error_reason) in [
+                (StopReason::Error, ErrorReason::Error),
+                (StopReason::Aborted, ErrorReason::Aborted),
+            ] {
+                let runtime = Runtime::new();
+                let mut final_message = AssistantMessage::pending(identity(), 4.0);
+                final_message.stop_reason = reason;
+                final_message.error_message = Some(format!("{reason:?}"));
+                let adapter = Arc::new(ScriptedAdapter::new([Script::new([ScriptItem::Chunk(
+                    Box::new(StreamChunk::Error {
+                        reason: error_reason,
+                        error: final_message.clone(),
+                    }),
+                )])]));
+                let llm = Arc::new(LlmService::new());
+                llm.register(identity(), adapter);
+                let (driver, agent) = loop_for_with_llm(
+                    &runtime,
+                    Session::new("room-a", [] as [&str; 0]).unwrap(),
+                    llm,
+                );
+                let mut prepared = driver
+                    .prepare_prompt_run(PromptInput::Message(user("prompt")))
+                    .await
+                    .unwrap();
+
+                let turn = driver.run_provider_turn(&mut prepared).await.unwrap();
+
+                assert_eq!(turn.message, final_message);
+                assert_eq!(
+                    turn.disposition,
+                    ProviderTurnDisposition::RepresentedTerminal
+                );
+                assert_eq!(prepared.new_messages.len(), 2);
+                assert_eq!(agent.messages().unwrap().len(), 2);
+                assert_eq!(agent.status(), AgentStatus::Running);
+                drop(prepared);
+                assert_eq!(agent.status(), AgentStatus::Idle);
+            }
+        });
+    }
+
+    #[test]
+    fn eager_llm_start_errors_remain_typed_and_settle_without_assistant_events() {
+        run(async {
+            for registered_but_exhausted in [false, true] {
+                let runtime = Runtime::new();
+                let llm = Arc::new(LlmService::new());
+                if registered_but_exhausted {
+                    llm.register(identity(), Arc::new(ScriptedAdapter::new([])));
+                }
+                let (driver, agent) = loop_for_with_llm(
+                    &runtime,
+                    Session::new("room-a", [] as [&str; 0]).unwrap(),
+                    llm,
+                );
+                let prompt = user("prompt");
+                let mut prepared = driver
+                    .prepare_prompt_run(PromptInput::Message(prompt.clone()))
+                    .await
+                    .unwrap();
+
+                let error = driver.run_provider_turn(&mut prepared).await.unwrap_err();
+
+                if registered_but_exhausted {
+                    assert!(matches!(
+                        error,
+                        AgentLoopError::LlmStart(LlmStartError::AdapterStart(_))
+                    ));
+                } else {
+                    assert!(matches!(
+                        error,
+                        AgentLoopError::LlmStart(LlmStartError::UnknownModel { .. })
+                    ));
+                }
+                assert_eq!(agent.messages().unwrap(), vec![prompt]);
+                assert_eq!(prepared.new_messages.len(), 1);
+                assert_eq!(agent.status(), AgentStatus::Running);
+                drop(prepared);
+                assert_eq!(agent.status(), AgentStatus::Idle);
+            }
         });
     }
 }

@@ -316,12 +316,20 @@ rows:
     real evidence exists via the already-passing legacy-shape scenarios and focused tests listed
     below. Filling the placeholder itself (a differently-shaped, `family`/`given`/`when`/`expect`
     unified scenario) is left as separate, explicitly flagged follow-up work, not silently
-    dropped.'
+    dropped.
+
+    PASS 10 (remediating the contract-convergence final review), correcting `L08-R013`: this row''s own `python`
+    evidence pointer cited `AgentLoop._run_step`, which owns subsequent provider/tool turns, not
+    the initial prompt lifecycle this row''s own rule/surface describes. The rule and its own
+    tests were always correct; only the pointer was wrong -- `agent_start -> turn_start -> initial
+    prompt message lifecycle` is implemented by `AgentLoop._execute_run` (dispatches `agent_start`)
+    / `_run_inner` (dispatches `turn_start`, then admits the initial prompt) / `_admit_messages`
+    (the prompt''s own `message_start`/`message_end` pair), corrected below.'
   tests:
   - test_the_turn_is_logged_in_order
   - turn-lifecycle (legacy-shape canonical)
   - tool-round-trip (legacy-shape canonical)
-  python: src/minion_agent/agent_loop/driver.py::AgentLoop._run_step
+  python: src/minion_agent/agent_loop/driver.py::AgentLoop._execute_run/_run_inner/_admit_messages
   rust: PENDING -- Layer 08 not yet implemented in Rust
   disposition: adopted
 - id: AG-002
@@ -655,7 +663,24 @@ rows:
     `agent_end` -- it persists across an idle period after a failed run and is cleared only at the
     NEXT run''s start (`_run_wrapped`) or via the already-certified Layer-07 `reset()`, exactly
     matching pinned Pi''s own `processEvents`/`finishRun` behavior (`finishRun` never touches
-    `errorMessage`; only `runWithLifecycle`''s own next-run entry does).'
+    `errorMessage`; only `runWithLifecycle`''s own next-run entry does).
+
+    PASS 10 (remediating the contract-convergence final review), correcting `L08-R012`: this row''s own
+    `streaming_message` paragraph above opened with "non-`None` for exactly the duration of one
+    provider request" -- internally contradicted by `_admit_messages`'' own already-implemented,
+    already-tested behavior (unchanged since PASS 4/5: `streaming_message` is set at EVERY admitted
+    message''s own `message_start`, not only the assistant''s own streamed reply) and by the
+    Layer-08 spec section''s own correct text describing that same complete rule. The row''s own
+    "PASS 2... non-`None` for exactly the duration of one provider request" framing was never
+    updated once `_admit_messages` started setting `streaming_message` for every admitted message
+    (PASS 4 onward) -- a documentation-only staleness, not a behavioral regression: the
+    IMPLEMENTATION and its own already-cited tests were always correct; only this row''s own
+    opening sentence was not. Corrected statement: `streaming_message` is non-`None` for exactly
+    the duration of one MESSAGE''s own `message_start` -> `message_end` window (assistant reply,
+    admitted prompt/steering, follow-up, or tool result alike); the assistant''s own genuinely-
+    streamed reply additionally carries full content fidelity across intervening `message_update`s,
+    a property specific to that one message, not to "one provider request" as a distinct scoping
+    concept. `spec/agent.md`''s own "Runtime-state transition timing" section corrected identically.'
   tests:
   - test_a_pre_step_listener_failure_settles_gracefully
   - test_a_turn_stopping_listener_failure_settles_gracefully
@@ -665,8 +690,8 @@ rows:
   - test_streaming_message_carries_the_full_partial_for_tool_calls
   - test_streaming_message_clears_after_the_message_finalizes
   - test_message_start_precedes_message_update_for_a_streamed_reply
-  python: src/minion_agent/agent_loop/driver.py::AgentLoop._run_wrapped/_run_step (streaming_message/pending_tool_calls/error_message writes)
-  rust: PENDING -- Layer 08 not yet implemented in Rust; the PASS-2 candidate's independent review rejected this row (L08-R003), PASS 3 is the remediated candidate awaiting re-review
+  python: src/minion_agent/agent_loop/driver.py::AgentLoop._run_wrapped/_run_step/_admit_messages (streaming_message/pending_tool_calls/error_message writes)
+  rust: PENDING -- Layer 08 not yet implemented in Rust; the PASS-2 candidate's independent review rejected this row (L08-R003), PASS 3 remediated it, and it has been conformant through every re-review since (PASS 4 through PASS 9, with a documentation-only correction in PASS 10 for L08-R012)
   disposition: adopted
 - id: AG-009
   phase: 3
@@ -1823,16 +1848,42 @@ rows:
     ORIGINAL `{raw: 1}` -- without `prepared` -- proving the update event reports pre-preparation
     arguments even though execute() itself receives the prepared, merged value. The conformance
     schema''s expect_updates item shape changed from a bare [tool_call_id, partial] pair to this
-    object, since the pair could not express tool_name/arguments at all.'
+    object, since the pair could not express tool_name/arguments at all.
+
+    PASS 10 (remediating the Layer-08 contract-convergence final review), correcting `L08-R011`
+    (`PI_PARITY_DEFECT` and `CONTRACT_ASSURANCE_DEFECT`): `partial` itself was narrowed to a bare
+    `str` -- `tools/definition.py::ToolUpdate = Callable[[str], None]` -- while pinned Pi''s own
+    `AgentToolUpdateCallback<T> = (partialResult: AgentToolResult<T>) => void`
+    (`packages/agent/src/types.ts:361-383`) carries a STRUCTURED `AgentToolResult<T>`: the SAME
+    shape (`content`/`details`/`usage`/`addedToolNames`/`terminate`) a tool''s own final result is,
+    mapping directly onto Minion''s own `ToolResult`. Certified Rust Layer 06 already used
+    `AgentToolResult` for `ToolUpdateCallback`/`ToolExecutionUpdate.update` -- Python was the
+    narrower, wrong side of a cross-language divergence, not Rust. Remediation: `ToolUpdate =
+    Callable[[ToolResult], None]`; `execute.py::_execute_and_finalize`''s own `update()` closure
+    now accepts a `ToolResult` and normalizes its `tool_call_id`/`tool_name` to the real call''s own
+    identity, the SAME normalization already applied to the final result (a tool need not stamp
+    its own call''s real id/name onto a partial); `tools/update`''s own EMIT payload and
+    `OnExecutionUpdate`/`ToolExecutionUpdate.partial_result` (Layer 08) all carry the structured
+    `ToolResult` through unchanged. Canonical: `expect_updates[].partial`,
+    `toolStub.emits_updates[]`, and `toolStub.late_update` all changed from `type: string` to
+    `type: object` in `agent-scenario.schema.json`, using the SAME minimal `{text: "..."}`
+    shorthand `toolStub.result` already used -- a genuinely structured object at the schema level,
+    not a hidden string; `late-tool-update-ignored.yaml`''s own `emits_updates`/`late_update`/
+    `expect_updates[].partial` updated to that shorthand. Every Python-level test constructing a
+    bare-string `update("...")` call updated to `update(text_result(...))` across
+    `tests/tools/test_updates.py`, `tests/agent_loop/test_run_entry_points.py`, and the conformance
+    runner''s own `_stub`/`seen_updates` machinery (`tests/conformance/agent_runner.py`).'
   tests:
   - late-tool-update-ignored (IR-L06-005, language-neutral payload + raw-vs-prepared-arguments
-    evidence, PASS 1B)
+    evidence, PASS 1B; structured partial shape, L08-R011, PASS 10)
   - test_a_late_update_after_the_tool_settles_is_ignored
   - test_a_tool_may_report_partial_output
   - test_updates_carry_the_call_id_so_a_consumer_can_route_them
   - test_updates_carry_the_tool_name_and_original_arguments
-  python: src/minion_agent/tools/execute.py::execute_call (accepting_updates)
-  rust: minion-agent-rust/crates/minion-agent/src/tools/execution.rs::ToolExecutionUpdate/execute_and_finalize_prepared; minion-agent-rust/crates/minion-agent/tests/tool_execution.rs::updates_are_emitted_live_and_ignored_after_execute_settles; minion-agent-rust/crates/minion-agent/tests/tool_execution_conformance.rs
+  - test_no_listener_makes_updates_harmless
+  - test_on_execution_update_is_awaited_for_every_call_in_order
+  python: src/minion_agent/tools/execute.py::execute_call (accepting_updates), _execute_and_finalize (update closure, normalization), src/minion_agent/tools/definition.py::ToolUpdate
+  rust: minion-agent-rust/crates/minion-agent/src/tools/execution.rs::ToolExecutionUpdate/execute_and_finalize_prepared; minion-agent-rust/crates/minion-agent/tests/tool_execution.rs::updates_are_emitted_live_and_ignored_after_execute_settles; minion-agent-rust/crates/minion-agent/tests/tool_execution_conformance.rs -- already used AgentToolResult for the update payload; unaffected by this pass's own Python-side correction
   disposition: adopted
 - id: TOOL-020
   phase: 4

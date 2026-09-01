@@ -67,9 +67,13 @@ type OnExecutionEnd = Callable[[str, str, ToolResult], Awaitable[None]]
 or executed, matching the already-certified `tools/execution-end` EMIT event's own unconditional
 firing (`TOOL-017`). Additive, same as `OnExecutionStart`."""
 
-type OnExecutionUpdate = Callable[[str, str, dict[str, Any], str], Coroutine[Any, Any, None]]
-"""`(call_id, tool_name, arguments, partial_result) -> None` (Layer 08, `L08-R002`). Typed as
-returning a `Coroutine`, narrower than `OnExecutionStart`/`OnExecutionEnd`'s own `Awaitable[None]`
+type OnExecutionUpdate = Callable[[str, str, dict[str, Any], ToolResult], Coroutine[Any, Any, None]]
+"""`(call_id, tool_name, arguments, partial_result) -> None` (Layer 08, `L08-R002`/`L08-R011`).
+`partial_result` is a `ToolResult` -- matching pinned Pi's own `AgentToolUpdateCallback<T> =
+(partialResult: AgentToolResult<T>) => void` exactly, the SAME structured shape a tool's own final
+result is, not a bare string (an earlier revision narrowed it to `str`, a real payload reduction;
+see `tools/definition.py::ToolUpdate`). Typed as returning a `Coroutine`, narrower than
+`OnExecutionStart`/`OnExecutionEnd`'s own `Awaitable[None]`
 (PASS 8): `asyncio.eager_task_factory` requires one specifically -- any `async def` implementation
 already produces one, so this is not a new constraint on a real caller. Started
 SYNCHRONOUSLY, in the same call stack, the exact moment the tool's own SYNCHRONOUS `update(partial)`
@@ -428,19 +432,35 @@ async def _execute_and_finalize(
     accepting_updates = True
     pending_updates: list[asyncio.Task[None]] = []
 
-    def update(partial: str) -> None:
+    def update(partial: ToolResult) -> None:
         # Pinned Pi: "Calls made after the tool promise settles are ignored"
         # (`AgentToolUpdateCallback`). `ctx.events.emit` is synchronous here, so there is no
         # promise-drain queue to manage -- the flag alone decides late vs. live.
         if not accepting_updates:
             return
+        # Tools identify their own call only by accident; the pipeline knows -- the SAME
+        # normalization already applied to the final result below (`L08-R011`): a tool reports
+        # partial STRUCTURED progress (`tools/definition.py::ToolUpdate`, matching pinned Pi's own
+        # `AgentToolResult<T>`) without needing to stamp its own call's real id/name onto it.
+        normalized_partial = ToolResult(
+            tool_call_id=call.id,
+            content=partial.content,
+            tool_name=call.name,
+            is_error=partial.is_error,
+            details=partial.details,
+            terminate=partial.terminate,
+            added_tool_names=partial.added_tool_names,
+            usage=partial.usage,
+        )
         # `call.arguments` -- the original, pre-prepare/validate arguments -- not `arguments`
         # (`IR-L06-005`): pinned Pi's own `tool_execution_update` payload
         # (`toolCallId`/`toolName`/`args`/`partialResult`) carries
         # `prepared.toolCall.arguments`, and `PreparedToolCall.toolCall` is the untouched
         # original call `prepareToolCall` was given, not the `prepareArguments`-shimmed or
         # validated one.
-        ctx.events.emit(TOOLS_UPDATE, call.id, call.name, call.arguments, partial, scope=scope)
+        ctx.events.emit(
+            TOOLS_UPDATE, call.id, call.name, call.arguments, normalized_partial, scope=scope
+        )
         if on_execution_update is not None:
             # `eager_task_factory`, not `ensure_future`/`create_task`, and not `await`
             # (`L08-R002`, PASS 8): a plain `Task` (whether made via `ensure_future` or
@@ -465,7 +485,8 @@ async def _execute_and_finalize(
             loop = asyncio.get_running_loop()
             pending_updates.append(
                 asyncio.eager_task_factory(
-                    loop, on_execution_update(call.id, call.name, call.arguments, partial)
+                    loop,
+                    on_execution_update(call.id, call.name, call.arguments, normalized_partial),
                 )
             )
 

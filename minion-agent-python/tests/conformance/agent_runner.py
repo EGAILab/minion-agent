@@ -172,6 +172,17 @@ def _prepare_arguments(spec: dict[str, Any] | None) -> Any:
     return prepare
 
 
+def _partial_result(spec: dict[str, Any]) -> ToolResult:
+    """A structured partial-output value (`L08-R011`): pinned Pi's own `AgentToolUpdateCallback<T>`
+    carries `partialResult: AgentToolResult<T>`, the SAME structured shape a tool's own final
+    result is -- never a bare string. `tool_call_id`/`tool_name` here are placeholders:
+    `execute.py::_execute_and_finalize`'s own `update()` closure normalizes both to the real call's
+    own id/name, the same way it already does for the final result."""
+    return ToolResult(
+        tool_call_id="", content=(TextBlock(text=spec.get("text", "")),), tool_name=""
+    )
+
+
 def _stub(
     spec: dict[str, Any],
     registry: ToolRegistry,
@@ -207,12 +218,12 @@ def _stub(
         if raises:
             raise RuntimeError(raises)
         for partial in updates:
-            update(partial)
+            update(_partial_result(partial))
         if late_update is not None:
 
-            async def _fire_late(partial: str = late_update) -> None:
+            async def _fire_late(partial: dict[str, Any] = late_update) -> None:
                 await asyncio.sleep(0)
-                update(partial)
+                update(_partial_result(partial))
 
             late_updates.append(asyncio.ensure_future(_fire_late()))
         for added_name in adds:
@@ -452,7 +463,13 @@ async def run_agent_scenario(document: dict[str, Any]) -> dict[str, Any]:
                 "tool_call_id": call_id,
                 "tool_name": tool_name,
                 "arguments": arguments,
-                "partial": partial,
+                # Encoded back to the scenario's own structured shorthand (`L08-R011`): `partial`
+                # is a real `ToolResult`, matching pinned Pi's own structured `AgentToolResult<T>`
+                # -- `text_of`-equivalent join of its own text content, not the object itself,
+                # since the scenario file compares against plain, language-neutral YAML data.
+                "partial": {
+                    "text": "".join(b.text for b in partial.content if isinstance(b, TextBlock))
+                },
             }
         ),
     )

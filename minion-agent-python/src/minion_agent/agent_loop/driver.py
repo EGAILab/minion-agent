@@ -956,7 +956,7 @@ class AgentLoop:
                 )
 
             async def on_execution_update(
-                call_id: str, name: str, arguments: dict[str, object], partial_result: str
+                call_id: str, name: str, arguments: dict[str, object], partial_result: ToolResult
             ) -> None:
                 await self._dispatch_agent_event(
                     ToolExecutionUpdate(

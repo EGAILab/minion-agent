@@ -146,12 +146,15 @@ class ToolExecutionUpdate:
     the unified Agent-event seam the same way pinned Pi's does. `arguments` is the ORIGINAL,
     pre-`prepare_arguments`/validation call arguments, matching pinned Pi's own
     `PreparedToolCall.toolCall.arguments` exactly (already-certified Layer-06 rule,
-    `IR-L06-005`)."""
+    `IR-L06-005`). `partial_result` is a `ToolResult` (Layer 08, `L08-R011`) -- pinned Pi's own
+    `AgentToolUpdateCallback<T>` carries `partialResult: AgentToolResult<T>`, the SAME structured
+    shape a tool's own final result is; an earlier revision narrowed this field to `str`, a real
+    payload reduction pinned Pi does not have."""
 
     tool_call_id: str
     tool_name: str
     arguments: dict[str, Any]
-    partial_result: str
+    partial_result: ToolResult
 
 
 type AgentEvent = (

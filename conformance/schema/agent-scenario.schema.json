@@ -160,7 +160,10 @@
           "type": "object",
           "description": "The original tool-call arguments -- before prepare_arguments/validation -- matching pinned Pi's own PreparedToolCall.toolCall.arguments, not the value execute() actually runs with."
         },
-        "partial": { "type": "string" }
+        "partial": {
+          "type": "object",
+          "description": "Pinned Pi's own AgentToolUpdateCallback<T> carries partialResult: AgentToolResult<T> -- the SAME structured shape a tool's own final result is (L08-R011), never a bare string. `{text: \"...\"}` is the same minimal shorthand `toolStub.result` already uses."
+        }
       }
     },
     "traceEntry": {
@@ -480,12 +483,15 @@
         },
         "emits_updates": {
           "type": "array",
-          "items": { "type": "string" },
+          "items": {
+            "type": "object",
+            "description": "A structured partial-output value (L08-R011): `{text: \"...\"}` is the same minimal shorthand `result` already uses -- pinned Pi's own AgentToolResult<T>, never a bare string."
+          },
           "description": "Partial-output values the tool reports, in order, before returning (TOOL-017)."
         },
         "late_update": {
-          "type": "string",
-          "description": "A partial-output value the tool reports one cooperative scheduler tick AFTER it has already returned -- must be silently ignored (TOOL-017)."
+          "type": "object",
+          "description": "A structured partial-output value (L08-R011, same shape as emits_updates) the tool reports one cooperative scheduler tick AFTER it has already returned -- must be silently ignored (TOOL-017)."
         }
       }
     },

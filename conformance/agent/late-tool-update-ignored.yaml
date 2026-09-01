@@ -14,6 +14,10 @@ description: >
   `prepared: true` key that only exists after preparation, so `expect_updates.arguments` proves
   the update event reports the call's ORIGINAL `{raw: 1}` -- without `prepared` -- even though
   `execute()` itself receives the prepared, merged arguments.
+
+  `L08-R011`: `partialResult` is structured (pinned Pi's own `AgentToolResult<T>`, the SAME shape
+  a tool's own final result is), never a bare string -- `{text: ...}` is the same minimal
+  shorthand `result` already uses.
 provider_script:
   - content: [{ type: tool_call, id: t1, name: chatty, arguments: { raw: 1 } }]
     stop_reason: tool_use
@@ -22,8 +26,8 @@ provider_script:
 tools:
   chatty:
     result: { text: finished }
-    emits_updates: [live]
-    late_update: late
+    emits_updates: [{ text: live }]
+    late_update: { text: late }
     prepare_arguments:
       set: { prepared: true }
 steps:
@@ -33,7 +37,7 @@ expect_updates:
   - tool_call_id: t1
     tool_name: chatty
     arguments: { raw: 1 }
-    partial: live
+    partial: { text: live }
 expect_messages:
   - { role: user, text: go }
   - { role: assistant, text: "" }

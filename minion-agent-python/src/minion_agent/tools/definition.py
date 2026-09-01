@@ -26,8 +26,17 @@ from pydantic import BaseModel
 from ..llm import ConstrainedSampling, ToolSchema
 from .result import ToolResult
 
-type ToolUpdate = Callable[[str], None]
-"""Report a partial result. Live only -- partial output never reaches a model."""
+type ToolUpdate = Callable[[ToolResult], None]
+"""Report a partial result. Live only -- partial output never reaches a model. Matches pinned Pi's
+own `AgentToolUpdateCallback<T> = (partialResult: AgentToolResult<T>) => void` exactly (Layer 08,
+`L08-R011`): `partialResult` is the SAME structured shape a tool's own final result is -- Pi's
+`AgentToolResult<T>` has `content`/`details`/`usage`/`addedToolNames`/`terminate`, exactly Minion's
+own `ToolResult` -- not a bare string. An earlier revision narrowed this to `Callable[[str], None]`,
+a real payload reduction pinned Pi does not have: a tool that wants to report partial STRUCTURED
+progress (e.g. partial `details` for UI rendering, matching Pi's own `AgentToolResult.details: T`)
+had no way to do so. `execute.py::_execute_and_finalize`'s own `update` closure normalizes
+`tool_call_id`/`tool_name` on the tool-supplied partial the same way it already does for the final
+result -- a tool need not (and should not) stamp its own call's real id/name onto a partial."""
 
 type ToolFn = Callable[..., Awaitable[ToolResult | str] | ToolResult | str]
 """Called with `(tool_call_id, validated_arguments)`, and with an `update` callback appended when

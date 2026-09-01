@@ -23,6 +23,16 @@ impl AgentListenerError {
 
 #[derive(Debug, Error)]
 pub enum AgentLoopError {
+    #[error(
+        "Agent is already processing a prompt. Use steer() or followUp() to queue messages, or wait for completion."
+    )]
+    PromptActive,
+    #[error("Agent is already processing. Wait for completion before continuing.")]
+    ContinueActive,
+    #[error("No messages to continue from")]
+    NoMessagesToContinue,
+    #[error("Cannot continue from message role: assistant")]
+    CannotContinueFromAssistant,
     #[error(transparent)]
     Run(#[from] AgentRunError),
     #[error(transparent)]
@@ -39,7 +49,14 @@ impl AgentLoopError {
     pub fn listener_error(&self) -> Option<&AgentListenerError> {
         match self {
             Self::Listener(error) => Some(error),
-            Self::Run(_) | Self::Session(_) | Self::Runtime(_) | Self::Event(_) => None,
+            Self::PromptActive
+            | Self::ContinueActive
+            | Self::NoMessagesToContinue
+            | Self::CannotContinueFromAssistant
+            | Self::Run(_)
+            | Self::Session(_)
+            | Self::Runtime(_)
+            | Self::Event(_) => None,
         }
     }
 }

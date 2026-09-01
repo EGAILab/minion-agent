@@ -1,5 +1,6 @@
 mod context;
 mod decisions;
+mod driver;
 mod error;
 mod events;
 mod state;
@@ -9,6 +10,7 @@ pub use decisions::{
     Enter, PreStepContext, PreStepDecision, PreStepReason, PrepareNextTurnContext, Reject,
     ShouldStopAfterTurnContext, TurnStopping,
 };
+pub use driver::{AgentLoop, PromptInput};
 pub use error::{AgentListenerError, AgentLoopError};
 pub use events::{AgentEvent, AgentEventKind, dispatch_agent_event, register_agent_listener};
 pub use state::{RunSnapshot, reduce_event};

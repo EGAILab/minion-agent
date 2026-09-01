@@ -900,7 +900,55 @@ rows:
     (`test_on_execution_update_starts_synchronously_but_does_not_block_the_tool`, replacing PASS 7''s
     own non-discriminating one) puts an observable append BEFORE the hook''s own suspension point,
     asserting the full three-step order directly -- the exact discriminating coverage `L08-R004`
-    named as missing.'
+    named as missing.
+
+    PASS 9, correcting the independent re-review of the PASS-8 candidate (`L08-R002` a fifth time;
+    `L08-R004` a fifth time) via the contract-convergence protocol
+    (`process/agent-workflow.md` section 11.8, entered after this same finding pair survived five
+    consecutive independent reviews): "PASS 8 correctly fixes the PASS-7 first-listener timing
+    defect... The exact Agent listener seam remains observably over-eager for two or more
+    synchronous listeners, however. Pinned Pi''s `await listener(...)` suspends after listener 1 even
+    when it returns a non-promise value; Minion''s eagerly-driven `EventBus.serial` continues through
+    every synchronous listener without a real suspension." Focused evidence: PASS-8 Minion produced
+    `listener-1, listener-2, tool-continued`; pinned JS `processEvents` produces
+    `listener-1, tool-continued, listener-2`.
+
+    Re-audited directly against pinned Pi source (`ref-repos/pi` @ `b7bb00b`,
+    `agent.ts:544-591::processEvents`) this pass, in full, not merely re-cited: the reducer switch
+    runs synchronously, then `for (const listener of this.listeners) { await listener(event,
+    signal); }`. A JS `await` always defers its own continuation by at least one microtask turn,
+    even for an already-settled/non-Promise operand -- this is a general JS-language property, not
+    specific to `tool_execution_update` -- so pinned Pi''s own serial dispatch suspends between
+    EVERY listener, unconditionally. Cross-checked against `runtime/events.py::EventBus.serial`
+    and `_call` (`131-157`): `_call(callback, *args)` returns synchronously for a synchronous
+    `callback` (no internal `await` reaches a genuine suspension), so `await self._call(...)`
+    inside `serial()`''s own `for` loop does not yield to the event loop AT ALL when the listener
+    performs no real async work -- a genuine, verified Python/JS `await`-semantics asymmetry
+    (Python: awaiting a coroutine that itself never suspends completes with zero scheduler turns;
+    JS: `await` always yields at least one microtask turn), not a bug in the PASS-8 candidate''s own
+    otherwise-correct `eager_task_factory` usage.
+
+    Remediation: `EventBus.serial` gained an additive, keyword-only `yield_after_each: bool = False`
+    parameter (default `False`, every OTHER existing `serial()` caller''s own certified behavior
+    unchanged -- confirmed by a full-codebase grep of every `.serial(` call site: `AgentLoop.
+    _should_stop`''s own `AGENT_TURN_STOPPING` dispatch, `tests/conformance/runner.py`''s generic
+    dispatch helper, and every existing `runtime/test_events_async.py`/`test_events_scoped.py` test
+    all omit the new parameter and are unaffected, verified both by inspection and by the full,
+    unchanged-elsewhere green test suite). When `True`, `asyncio.sleep(0)` -- Python''s own standard
+    single-tick "yield to the event loop" idiom -- runs after every listener, unconditionally,
+    verified standalone via two small reproduction scripts BEFORE integrating it (a two-listener
+    case and a three-listener case, the latter confirming the yield is genuinely per-listener, not
+    merely a single deferral after listener 1). `AgentLoop._dispatch_agent_event` is the one caller
+    that passes `yield_after_each=True`, for `AGENT_LIFECYCLE_EVENT` specifically. This is a narrow,
+    additive touch to a certified Layer-05 primitive (`spec/runtime.md` RT-016), documented there as
+    an opt-in scheduling extension to `serial` dispatch, not a new dispatch mode and not a change to
+    any other consumer''s own observable ordering/error/return-value contract.
+
+    Entered and exited via a formal contract-convergence cycle (characterization + challenge pass +
+    convergence contract checkpoint recorded at `assurance/layers/08-agent-loop-contract-
+    convergence.md`, docs commit `d06654b`) rather than another unilateral point-fix pass, per this
+    project''s own newly-adopted `process/agent-workflow.md` section 11.8 -- itself adopted this same
+    remediation cycle, directly motivated by this finding pair''s own five-pass recurrence.'
   tests:
   - test_a_run_executor_failure_recovers_through_the_live_lifecycle_event_seam
   - test_a_post_turn_callback_failure_recovers_through_the_live_seam
@@ -928,8 +976,12 @@ rows:
   - test_on_execution_update_is_awaited_for_every_call_in_order (tools/test_updates.py)
   - test_a_failing_on_execution_update_listener_propagates_uncaught (tools/test_updates.py)
   - test_on_execution_update_starts_synchronously_but_does_not_block_the_tool (tools/test_updates.py)
-  python: src/minion_agent/agent_loop/driver.py::AgentLoop._execute_run (catch boundary), AgentLoop._dispatch_agent_event, AgentLoop._admit_messages, AgentLoop._settle_run_failure, AgentLoop._run_step (live tool-execution/update dispatch, direct stream iteration), src/minion_agent/tools/execute.py::OnExecutionStart, OnExecutionEnd, OnExecutionUpdate, _preflight, _execute_and_finalize, _immediate, execute_call, src/minion_agent/tools/batch.py::execute_batch, execute_length_stop_batch, src/minion_agent/agent/projection.py::MessageUpdate, ToolExecutionEnd, ToolExecutionUpdate, project
-  rust: PENDING -- Layer 08 not yet implemented in Rust; the PASS-2, PASS-3, PASS-4, PASS-5, PASS-6, and PASS-7 candidates were each independently rejected on this row (L08-R002), PASS 8 is the remediated candidate awaiting re-review
+  - test_two_lifecycle_listeners_each_suspend_before_the_tool_continues
+  - test_serial_by_default_does_not_yield_between_synchronous_listeners (runtime/test_events_async.py)
+  - test_serial_yield_after_each_suspends_between_every_listener (runtime/test_events_async.py)
+  - test_serial_yield_after_each_suspends_after_every_listener_not_only_the_first (runtime/test_events_async.py)
+  python: src/minion_agent/agent_loop/driver.py::AgentLoop._execute_run (catch boundary), AgentLoop._dispatch_agent_event, AgentLoop._admit_messages, AgentLoop._settle_run_failure, AgentLoop._run_step (live tool-execution/update dispatch, direct stream iteration), src/minion_agent/tools/execute.py::OnExecutionStart, OnExecutionEnd, OnExecutionUpdate, _preflight, _execute_and_finalize, _immediate, execute_call, src/minion_agent/tools/batch.py::execute_batch, execute_length_stop_batch, src/minion_agent/agent/projection.py::MessageUpdate, ToolExecutionEnd, ToolExecutionUpdate, project, src/minion_agent/runtime/events.py::EventBus.serial (yield_after_each)
+  rust: PENDING -- Layer 08 not yet implemented in Rust; the PASS-2, PASS-3, PASS-4, PASS-5, PASS-6, PASS-7, and PASS-8 candidates were each independently rejected on this row (L08-R002), PASS 9 is the remediated candidate awaiting re-review
   disposition: adopted
 - id: AG-010
   phase: 3

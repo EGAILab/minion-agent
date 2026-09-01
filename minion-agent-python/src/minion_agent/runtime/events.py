@@ -148,12 +148,35 @@ class EventBus:
         if failures:
             raise ExceptionGroup(f"errors in {name!r} listeners", failures)
 
-    async def serial(self, name: str, *args: Any, scope: ScopeKey | None = None) -> Any:
-        """Invoke admitted listeners in registration order; the last value wins."""
+    async def serial(
+        self,
+        name: str,
+        *args: Any,
+        scope: ScopeKey | None = None,
+        yield_after_each: bool = False,
+    ) -> Any:
+        """Invoke admitted listeners in registration order; the last value wins.
+
+        `yield_after_each` (default `False`, every existing caller's own certified behavior
+        unchanged) reproduces pinned Pi's own serial listener loop exactly (`for (const listener
+        of listeners) { await listener(event, signal); }`, `packages/agent/src/agent.ts::
+        processEvents`): a JS `await` always defers its continuation by at least one microtask
+        turn, even for an already-settled/synchronous operand, so pinned Pi's own dispatch
+        suspends between EVERY listener -- not only when a listener itself performs real async
+        work. `_call` below returns synchronously for a synchronous callback (no `await` inside
+        its own body reaches a genuine suspension point), so without this flag two or more
+        synchronous listeners run back-to-back with no scheduler turn between them -- observably
+        different from pinned Pi for a caller (e.g. `AgentLoop._dispatch_agent_event`) driven
+        eagerly enough that its own caller can observe state after only the first listener has
+        run. When `True`, `asyncio.sleep(0)` -- the standard single-tick "yield to the event
+        loop" idiom -- runs after every listener, unconditionally, reproducing that same
+        unconditional per-listener suspension boundary (`L08-R002`)."""
         self._require_mode(name, DispatchMode.SERIAL)
         result: Any = None
         for callback in self._chain(name, scope):
             result = await self._call(callback, *args)
+            if yield_after_each:
+                await asyncio.sleep(0)
         return result
 
     async def waterfall(

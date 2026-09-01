@@ -341,16 +341,25 @@ class AgentLoop:
         """Pinned Pi's own `processEvents`: the single seam every lifecycle
         event -- ordinary turn/run progress and `handleRunFailure` recovery
         alike -- passes through, awaiting every subscribed listener in
-        registration order (`L08-R002`). `EventBus.serial` already matches
-        pinned Pi's own raw `for (const listener of this.listeners) await
+        registration order (`L08-R002`). `EventBus.serial` matches pinned
+        Pi's own raw `for (const listener of this.listeners) await
         listener(event, signal)` loop exactly: a listener that throws aborts
-        the remaining dispatch for THIS event and propagates -- no new
-        dispatch primitive was needed. Callers append the corresponding log
-        entry (the durable "reduce" step) before calling this (the "notify
-        listeners" step), matching pinned Pi's own reduce-then-dispatch
-        order."""
+        the remaining dispatch for THIS event and propagates. `yield_after_
+        each=True` (Layer 08, PASS 9, `L08-R002`, contract-convergence
+        remediation) reproduces JS's own unconditional per-`await`
+        microtask-turn deferral -- pinned Pi's dispatch suspends after EVERY
+        listener, even a fully synchronous one, before advancing to the
+        next; Python's own `await` on a listener that never itself performs
+        a genuine suspension does not share that property without this
+        explicit yield. Callers append the corresponding log entry (the
+        durable "reduce" step) before calling this (the "notify listeners"
+        step), matching pinned Pi's own reduce-then-dispatch order."""
         await self.instance.ctx.events.serial(
-            AGENT_LIFECYCLE_EVENT, self.instance, event, scope=self.instance.scope.key
+            AGENT_LIFECYCLE_EVENT,
+            self.instance,
+            event,
+            scope=self.instance.scope.key,
+            yield_after_each=True,
         )
 
     async def _admit_messages(

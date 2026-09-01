@@ -1480,6 +1480,45 @@ async def test_pending_tool_calls_still_shows_the_call_during_its_own_update_dis
     assert pending_snapshots == [frozenset({"t1"})]
 
 
+async def test_two_lifecycle_listeners_each_suspend_before_the_tool_continues() -> None:
+    """`L08-R002`, PASS 9 (contract convergence): pinned Pi's own serial listener loop
+    (`for (const listener of listeners) { await listener(event, signal); }`, `agent.ts:544-591`)
+    suspends after EVERY listener, even a fully synchronous one, because JS's `await` always defers
+    its continuation by at least one microtask turn. With two `AGENT_LIFECYCLE_EVENT` listeners
+    registered, a tool calling `update()` must observe listener 1's own effect, then resume its own
+    synchronous work, BEFORE listener 2 ever runs -- `[listener-1, tool-continued, listener-2]`, not
+    `[listener-1, listener-2, tool-continued]` (the PASS-8 candidate's own observed order, rejected
+    by the independent Rust re-review's own focused two-listener probe)."""
+
+    def slow_echo(call_id: str, args: dict[str, Any], update: Any) -> str:
+        update("working")
+        order.append("tool-continued")
+        return "done"
+
+    order: list[str] = []
+
+    def listener_a(instance: Any, event: Any) -> None:
+        if isinstance(event, ToolExecutionUpdate):
+            order.append("listener-1")
+
+    def listener_b(instance: Any, event: Any) -> None:
+        if isinstance(event, ToolExecutionUpdate):
+            order.append("listener-2")
+
+    call = ToolCallBlock(id="t1", name="slow", arguments={})
+    loop = _loop(
+        ScriptedResponse((call,), StopReason.TOOL_USE),
+        ScriptedResponse((), StopReason.STOP),
+    )
+    _register(loop, "slow", slow_echo)
+    loop.instance.ctx.events.on(AGENT_LIFECYCLE_EVENT, listener_a)
+    loop.instance.ctx.events.on(AGENT_LIFECYCLE_EVENT, listener_b)
+
+    await loop.prompt(_say("hello"))
+
+    assert order == ["listener-1", "tool-continued", "listener-2"]
+
+
 async def test_tool_execution_update_listener_failure_is_a_genuine_run_failure() -> None:
     """`L08-R002`, PASS 7: pinned Pi's own `tool_execution_update` dispatch
     (`agent-loop.ts:670-711`) lets a listener's own rejection propagate straight out of

@@ -120,7 +120,17 @@ class ToolPartialResult:
     own `AgentToolResult`, and a genuine parity defect, not a superset with no cost."""
 
     content: tuple[ToolResultContentBlock, ...]
-    details: dict[str, Any] = field(default_factory=dict)
+    details: dict[str, Any]
+    """Genuinely REQUIRED (no default), matching pinned Pi's own `AgentToolResult<T>.details: T`
+    exactly (`L08-R011`, contract-convergence characterization): an earlier revision defaulted
+    this to `{}` via `field(default_factory=dict)`, letting `ToolPartialResult(content=())`
+    construct successfully without ever supplying it -- optional-in-practice despite this type's
+    own docstring calling it required, and the paired canonical encoder then omitted an explicit
+    `{}` from observed evidence as if it had never been set, collapsing "required and empty" into
+    "absent" (the identical hazard `ToolResult.to_message()`'s own docstring already documents and
+    guards against for the FINAL result -- `details=self.details`, never `self.details or None`).
+    A convenience constructor (`text_partial_result`) may still supply `{}` explicitly; the type
+    itself no longer lets a caller omit it."""
     usage: Usage | None = None
     added_tool_names: tuple[str, ...] | None = None
     terminate: bool | None = None
@@ -129,4 +139,4 @@ class ToolPartialResult:
 def text_partial_result(text: str) -> ToolPartialResult:
     """A partial result whose whole content is one block of text -- the common case for a tool
     that only ever streams incremental text, matching `text_result`'s own convenience shape."""
-    return ToolPartialResult(content=(TextBlock(text=text),))
+    return ToolPartialResult(content=(TextBlock(text=text),), details={})

@@ -160,11 +160,30 @@
           "type": "object",
           "description": "The original tool-call arguments -- before prepare_arguments/validation -- matching pinned Pi's own PreparedToolCall.toolCall.arguments, not the value execute() actually runs with."
         },
-        "partial": {
-          "type": "object",
-          "description": "Pinned Pi's own AgentToolUpdateCallback<T> carries partialResult: AgentToolResult<T> -- the SAME structured shape a tool's own final result is (L08-R011), never a bare string. `{text: \"...\"}` is the same minimal shorthand `toolStub.result` already uses."
-        }
+        "partial": { "$ref": "#/$defs/toolPartialResult" }
       }
+    },
+    "toolPartialResult": {
+      "type": "object",
+      "required": ["text", "details"],
+      "additionalProperties": false,
+      "properties": {
+        "text": {
+          "type": "string",
+          "description": "Shorthand for a single TextBlock in `content` -- the same minimal shorthand `toolStub.result` already uses."
+        },
+        "details": {
+          "type": "object",
+          "description": "REQUIRED, matching pinned Pi's own AgentToolResult<T>.details: T exactly (L08-R011) -- never optional or omittable, even when empty ({})."
+        },
+        "usage": { "$ref": "#/$defs/usage" },
+        "terminate": { "type": "boolean" },
+        "added_tool_names": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      },
+      "description": "Pinned Pi's own AgentToolUpdateCallback<T> carries partialResult: AgentToolResult<T> -- content/details required, usage/terminate/added_tool_names genuinely optional, with NO tool_call_id/tool_name/is_error field at all (L08-R011): call identity lives only on the enclosing tool_execution_update event, and Pi's own execute() throws on failure rather than encoding an error inside its returned/reported value."
     },
     "traceEntry": {
       "type": "array",
@@ -483,15 +502,12 @@
         },
         "emits_updates": {
           "type": "array",
-          "items": {
-            "type": "object",
-            "description": "A structured partial-output value (L08-R011): `{text: \"...\"}` is the same minimal shorthand `result` already uses -- pinned Pi's own AgentToolResult<T>, never a bare string."
-          },
+          "items": { "$ref": "#/$defs/toolPartialResult" },
           "description": "Partial-output values the tool reports, in order, before returning (TOOL-017)."
         },
         "late_update": {
-          "type": "object",
-          "description": "A structured partial-output value (L08-R011, same shape as emits_updates) the tool reports one cooperative scheduler tick AFTER it has already returned -- must be silently ignored (TOOL-017)."
+          "$ref": "#/$defs/toolPartialResult",
+          "description": "A structured partial-output value the tool reports one cooperative scheduler tick AFTER it has already returned -- must be silently ignored (TOOL-017)."
         }
       }
     },

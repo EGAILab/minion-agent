@@ -1933,11 +1933,68 @@ rows:
     REQUIRED, correctly-scoped Pi-parity fix regardless, and Rust''s own conformance adapter
     updating to parse it is a genuine, outstanding, blocking cross-language dependency -- NOT
     claimed closed or unaffected here (PASS 10''s own claim to that effect was itself found false
-    by this same review; this row does not repeat it).'
+    by this same review; this row does not repeat it).
+
+    PASS 12 (remediating the independent Rust re-review of the PASS-11 candidate), correcting
+    `L08-R011` a third time (`PARTIALLY_RESOLVED_BLOCKING`, two remaining sub-issues): (1)
+    `ToolPartialResult.details` was declared "required" in PASS 11''s own docstring but the
+    dataclass field still carried `field(default_factory=dict)`, so `ToolPartialResult(content=())`
+    constructed successfully without ever supplying it -- optional in practice despite the prose --
+    and the paired `_encode_partial()` encoder used `if partial.details: encoded["details"] = ...`,
+    silently dropping an EXPLICIT `{}` from observed canonical evidence as if it had never been
+    set, collapsing "required and empty" into "absent," the identical hazard `ToolResult.
+    to_message()`''s own docstring already documents and guards against for the FINAL result. (2)
+    the canonical schema''s `toolPartialResult` shape was still an unrestricted `type: object`,
+    so it ACCEPTED forbidden shapes the spec claimed were rejected -- fresh reviewer witnesses
+    `{}`, `{"is_error": true}`, and `{"tool_call_id": "nested"}` were all schema-valid -- and
+    `usage` was never decoded, encoded, or exercised with a concrete value anywhere in canonical
+    evidence, despite being part of pinned Pi''s own `AgentToolResult<T>`.
+
+    Remediation: `tools/result.py::ToolPartialResult.details` dropped its dataclass default
+    entirely -- now a genuinely required constructor parameter, matching pinned Pi''s own
+    `details: T` (no `?`) exactly; `text_partial_result` continues to supply `{}` explicitly.
+    `tests/conformance/agent_runner.py::_encode_partial()` now serializes `"details":
+    partial.details` unconditionally (never gated on truthiness), so a required-but-empty `{}`
+    is always present in observed evidence, the same discipline `_encode_partial()`''s own
+    `usage`/`terminate`/`added_tool_names` handling already applies in the OPPOSITE direction
+    (included only when not `None`, i.e. genuinely set) -- required fields are never omitted,
+    optional-absent fields are never defaulted. `agent-scenario.schema.json` gained a new,
+    CLOSED `$defs.toolPartialResult` definition (`required: [text, details]`,
+    `additionalProperties: false`, `usage` via the existing `$defs.usage` reuse, `terminate`/
+    `added_tool_names` as plain optional properties), wired into all three consumers
+    (`toolUpdate.partial`, `toolStub.emits_updates.items`, `toolStub.late_update`), replacing
+    the old unrestricted `object`. `tests/conformance/agent_runner.py::_partial_result()`/
+    `_encode_partial()` gained `usage` decode/encode, reusing the SAME `_usage()`/
+    `_normalize_usage()` helpers already used for assistant-message usage elsewhere in the same
+    file (absent scenario key decodes to `None`, not a concrete zero-valued `Usage()`, preserving
+    the explicit-vs-absent distinction).
+
+    Canonical evidence extended, not merely re-typed: `late-tool-update-ignored.yaml` now
+    exercises TWO `emits_updates` entries -- the first with `details: {}` (proving required-but-
+    empty survives encoding), the second with a concrete `details`, a real `usage: {input: 5,
+    output: 3, total_tokens: 8}`, `terminate: false`, and `added_tool_names: [extra]`, with
+    `expect_updates[]` asserting the complete structured shape for both, including the full
+    Pi-default-filled `usage` object (`cache_read`/`cache_write`/`cache_write_1h`/`reasoning`/
+    `cost` all present per `_normalize_usage()`''s own existing convention). Confirmed genuinely
+    discriminating per this project''s own established revert-and-confirm discipline: the
+    `_encode_partial()` fix was temporarily reverted to the buggy `if partial.details:` form,
+    the extended scenario was confirmed to FAIL with a clear diff (`{"text": "bare"}` vs expected
+    `{"text": "bare", "details": {}}`), then the fix was restored and the scenario re-confirmed
+    passing. The new closed schema was independently verified against the reviewer''s own three
+    witness cases (`{}`, `{"is_error": true}`, `{"tool_call_id": "nested"}`) -- all now INVALID --
+    and against `{"text": "x"}` alone (INVALID, `details` missing) and `{"text": "x", "details":
+    {}}` (VALID).
+
+    `L08-R002`/`L08-R004`/`L08-R012`/`L08-R013` are unaffected by this pass -- no code touched by
+    PASS 12 overlaps their own surfaces. Rust cross-language status is unchanged from PASS 11:
+    the conformance test adapter dependency remains open and is NOT claimed closed here; if
+    anything the schema is now MORE precisely object-shaped than PASS 11 left it, not less, so
+    the adapter''s own required fix is unaffected in scope.'
   tests:
   - late-tool-update-ignored (IR-L06-005, language-neutral payload + raw-vs-prepared-arguments
     evidence, PASS 1B; structured partial shape, L08-R011, PASS 10; full non-text-field evidence,
-    L08-R011, PASS 11)
+    L08-R011, PASS 11; required-but-empty `details` + closed schema + concrete `usage` evidence,
+    L08-R011, PASS 12)
   - test_a_late_update_after_the_tool_settles_is_ignored
   - test_a_tool_may_report_partial_output
   - test_updates_carry_the_call_id_so_a_consumer_can_route_them
@@ -1945,8 +2002,8 @@ rows:
   - test_no_listener_makes_updates_harmless
   - test_on_execution_update_is_awaited_for_every_call_in_order
   - test_a_partial_carries_structured_details_terminate_and_added_tool_names
-  python: src/minion_agent/tools/result.py::ToolPartialResult, text_partial_result, src/minion_agent/tools/execute.py::execute_call (accepting_updates), _execute_and_finalize (update closure), src/minion_agent/tools/definition.py::ToolUpdate
-  rust: minion-agent-rust/crates/minion-agent/src/tools/execution.rs::ToolExecutionUpdate/execute_and_finalize_prepared; minion-agent-rust/crates/minion-agent/tests/tool_execution.rs::updates_are_emitted_live_and_ignored_after_execute_settles -- certified production AgentToolResult semantics already correct and unchanged by PASS 10 or PASS 11; minion-agent-rust/crates/minion-agent/tests/tool_execution_conformance.rs -- BLOCKED -- its own conformance ADAPTER still parses emits_updates[] as a bare string (Value::as_str().unwrap()) and panics against the now-object-shaped canonical fixture; Rust-owned follow-up, not attempted by this pass, not claimed closed
+  python: src/minion_agent/tools/result.py::ToolPartialResult (details required, no default, PASS 12), text_partial_result, src/minion_agent/tools/execute.py::execute_call (accepting_updates), _execute_and_finalize (update closure), src/minion_agent/tools/definition.py::ToolUpdate
+  rust: minion-agent-rust/crates/minion-agent/src/tools/execution.rs::ToolExecutionUpdate/execute_and_finalize_prepared; minion-agent-rust/crates/minion-agent/tests/tool_execution.rs::updates_are_emitted_live_and_ignored_after_execute_settles -- certified production AgentToolResult semantics already correct and unchanged by PASS 10, PASS 11, or PASS 12; minion-agent-rust/crates/minion-agent/tests/tool_execution_conformance.rs -- BLOCKED -- its own conformance ADAPTER still parses emits_updates[] as a bare string (Value::as_str().unwrap()) and panics against the now-object-shaped canonical fixture; Rust-owned follow-up, not attempted by this pass, not claimed closed
   disposition: adopted
 - id: TOOL-020
   phase: 4

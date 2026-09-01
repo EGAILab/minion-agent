@@ -174,17 +174,22 @@ def _prepare_arguments(spec: dict[str, Any] | None) -> Any:
 
 def _partial_result(spec: dict[str, Any]) -> ToolPartialResult:
     """A structured partial-output value (`L08-R011`): pinned Pi's own `AgentToolUpdateCallback<T>`
-    carries `partialResult: AgentToolResult<T>` -- `content`/`details`/`added_tool_names`/
-    `terminate`, with NO nested call identity or error field of its own (an independent Rust
-    re-review caught an earlier revision reusing the pipeline-level `ToolResult` here instead,
-    observably larger than Pi's own type). `details`/`terminate`/`added_tool_names` are read only
-    when the scenario spec actually sets them, left `None` otherwise -- preserving the SAME
+    carries `partialResult: AgentToolResult<T>` -- `content`/`details` REQUIRED,
+    `usage`/`added_tool_names`/`terminate` genuinely optional, with NO nested call identity or
+    error field of its own (an independent Rust re-review caught an earlier revision reusing the
+    pipeline-level `ToolResult` here instead, observably larger than Pi's own type).
+    `details` is always supplied (`{}` when the scenario spec omits it -- REQUIRED, matching
+    `ToolPartialResult.details`'s own now-required constructor field, never absent, distinct from
+    the genuinely optional trio below). `usage`/`terminate`/`added_tool_names` are read only when
+    the scenario spec actually sets them, left `None` otherwise -- preserving the SAME
     explicit-vs-absent distinction pinned Pi's own optional (`?`) fields carry, not collapsed into
     a concrete default a scenario cannot tell apart from "never set"."""
     added = spec.get("added_tool_names")
+    usage = spec.get("usage")
     return ToolPartialResult(
         content=(TextBlock(text=spec.get("text", "")),),
         details=spec.get("details", {}),
+        usage=_usage(usage) if usage is not None else None,
         added_tool_names=tuple(added) if added is not None else None,
         terminate=spec.get("terminate"),
     )
@@ -192,17 +197,19 @@ def _partial_result(spec: dict[str, Any]) -> ToolPartialResult:
 
 def _encode_partial(partial: ToolPartialResult) -> dict[str, Any]:
     """Encode a captured `ToolPartialResult` back to the scenario's own structured shorthand
-    (`L08-R011`) for plain, language-neutral YAML comparison. `text` is always present (joined
-    `TextBlock` content, matching pinned Pi's own `content` field); `details`/`terminate`/
-    `added_tool_names` are included ONLY when the tool actually set them (not `None`) -- an
-    omitted key in the observed dict means "never set", exactly distinguishing that from an
-    explicit falsy/empty value the same way pinned Pi's own optional (`?`) fields do, so a
+    (`L08-R011`) for plain, language-neutral YAML comparison. `text` and `details` are ALWAYS
+    present (`details` unconditionally, even `{}` -- REQUIRED means never omitted from observed
+    evidence, the exact distinction an earlier revision collapsed by omitting a falsy `{}`).
+    `usage`/`terminate`/`added_tool_names` are included ONLY when the tool actually set them (not
+    `None`) -- an omitted key in the observed dict means "never set", exactly distinguishing that
+    from an explicit falsy/empty value the same way pinned Pi's own optional (`?`) fields do, so a
     scenario asserting the full shape is genuinely discriminating, not merely text-shorthand."""
     encoded: dict[str, Any] = {
-        "text": "".join(b.text for b in partial.content if isinstance(b, TextBlock))
+        "text": "".join(b.text for b in partial.content if isinstance(b, TextBlock)),
+        "details": partial.details,
     }
-    if partial.details:
-        encoded["details"] = partial.details
+    if partial.usage is not None:
+        encoded["usage"] = _normalize_usage(partial.usage)
     if partial.terminate is not None:
         encoded["terminate"] = partial.terminate
     if partial.added_tool_names is not None:

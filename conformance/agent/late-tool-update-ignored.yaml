@@ -16,11 +16,17 @@ description: >
   `execute()` itself receives the prepared, merged arguments.
 
   `L08-R011`: `partialResult` is structured (pinned Pi's own `AgentToolResult<T>`: `content`/
-  `details`/`added_tool_names`/`terminate`, with NO nested call identity or error field of its
-  own -- those live only on the enclosing event's own `tool_call_id`/`tool_name`), never a bare
-  string and never merely a `{text: ...}` shorthand: `details`/`terminate`/`added_tool_names` are
-  asserted here too, proving canonical evidence observes the full structured shape through the
-  real production seam, not only joined text content.
+  `details` REQUIRED -- never omittable, even when empty -- `usage`/`terminate`/`added_tool_names`
+  genuinely optional, with NO nested call identity or error field of its own -- those live only on
+  the enclosing event's own `tool_call_id`/`tool_name`), never a bare string and never merely a
+  `{text: ...}` shorthand: `details`/`usage`/`terminate`/`added_tool_names` are all asserted here
+  too, proving canonical evidence observes the full structured shape through the real production
+  seam, not only joined text content, and that the schema itself REJECTS a forbidden shape
+  (`additionalProperties: false`, `required: [text, details]` -- `agent-scenario.schema.json`'s
+  own `toolPartialResult` definition). The first update's own `details: {}` is genuinely EMPTY,
+  not absent -- proving the canonical observer serializes a required-but-empty value rather than
+  collapsing it, the exact hazard an independent Rust re-review caught in an earlier revision's own
+  encoder (`if partial.details: encoded["details"] = ...`, which silently dropped `{}`).
 provider_script:
   - content: [{ type: tool_call, id: t1, name: chatty, arguments: { raw: 1 } }]
     stop_reason: tool_use
@@ -30,11 +36,14 @@ tools:
   chatty:
     result: { text: finished }
     emits_updates:
+      - text: bare
+        details: {}
       - text: live
         details: { progress: 1 }
+        usage: { input: 5, output: 3, total_tokens: 8 }
         terminate: false
         added_tool_names: [extra]
-    late_update: { text: late }
+    late_update: { text: late, details: {} }
     prepare_arguments:
       set: { prepared: true }
 steps:
@@ -45,8 +54,23 @@ expect_updates:
     tool_name: chatty
     arguments: { raw: 1 }
     partial:
+      text: bare
+      details: {}
+  - tool_call_id: t1
+    tool_name: chatty
+    arguments: { raw: 1 }
+    partial:
       text: live
       details: { progress: 1 }
+      usage:
+        input: 5
+        output: 3
+        cache_read: 0
+        cache_write: 0
+        cache_write_1h: null
+        reasoning: null
+        total_tokens: 8
+        cost: { input: 0, output: 0, cache_read: 0, cache_write: 0, total: 0 }
       terminate: false
       added_tool_names: [extra]
 expect_messages:

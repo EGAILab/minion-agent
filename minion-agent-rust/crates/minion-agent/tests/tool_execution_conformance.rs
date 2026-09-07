@@ -9,7 +9,7 @@ use std::{
 
 use minion_agent::{
     DynPluginSpec, PluginInitError, PluginSpec, Runtime,
-    llm::{StopReason, TextBlock, ToolCall, ToolResultContentBlock},
+    llm::{Cost, StopReason, TextBlock, ToolCall, ToolResultContentBlock, Usage},
     tools::{
         AfterToolCallOverride, AgentToolResult, BeforeToolCallAction, ExecutionMode,
         ToolCapabilityError, ToolDefinition, ToolExecutionEnd, ToolExecutionOptions,
@@ -37,6 +37,74 @@ fn text_result(text: impl Into<String>) -> AgentToolResult {
         added_tool_names: None,
         terminate: None,
     }
+}
+
+fn partial_result(spec: &Value) -> AgentToolResult {
+    let usage = spec.get("usage").map(|raw| {
+        let cost = raw
+            .get("cost")
+            .map(|cost| serde_json::from_value::<Cost>(cost.clone()).unwrap())
+            .unwrap_or_default();
+        Usage {
+            input: raw.get("input").and_then(Value::as_u64).unwrap_or(0),
+            output: raw.get("output").and_then(Value::as_u64).unwrap_or(0),
+            cache_read: raw.get("cache_read").and_then(Value::as_u64).unwrap_or(0),
+            cache_write: raw.get("cache_write").and_then(Value::as_u64).unwrap_or(0),
+            cache_write_1h: raw.get("cache_write_1h").and_then(Value::as_u64),
+            reasoning: raw.get("reasoning").and_then(Value::as_u64),
+            total_tokens: raw.get("total_tokens").and_then(Value::as_u64).unwrap_or(0),
+            cost,
+        }
+    });
+    AgentToolResult {
+        content: vec![ToolResultContentBlock::Text(TextBlock::new(
+            spec["text"].as_str().unwrap(),
+        ))],
+        details: spec["details"].clone(),
+        usage,
+        added_tool_names: spec.get("added_tool_names").map(|names| {
+            names
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|name| name.as_str().unwrap().to_owned())
+                .collect()
+        }),
+        terminate: spec.get("terminate").and_then(Value::as_bool),
+    }
+}
+
+fn encode_partial(partial: &AgentToolResult) -> Value {
+    let mut encoded = json!({
+        "text": content_text(&partial.content),
+        "details": partial.details,
+    });
+    if let Some(usage) = &partial.usage {
+        let usage = serde_json::to_value(usage).unwrap();
+        let usage = usage.as_object().unwrap();
+        let mut normalized = usage.clone();
+        normalized.entry("cache_write_1h").or_insert(Value::Null);
+        normalized.entry("reasoning").or_insert(Value::Null);
+        let cost = &partial.usage.as_ref().unwrap().cost;
+        normalized.insert(
+            "cost".into(),
+            json!({
+                "input": if cost.input == 0.0 { json!(0) } else { json!(cost.input) },
+                "output": if cost.output == 0.0 { json!(0) } else { json!(cost.output) },
+                "cache_read": if cost.cache_read == 0.0 { json!(0) } else { json!(cost.cache_read) },
+                "cache_write": if cost.cache_write == 0.0 { json!(0) } else { json!(cost.cache_write) },
+                "total": if cost.total == 0.0 { json!(0) } else { json!(cost.total) },
+            }),
+        );
+        encoded["usage"] = Value::Object(normalized);
+    }
+    if let Some(terminate) = partial.terminate {
+        encoded["terminate"] = json!(terminate);
+    }
+    if let Some(names) = &partial.added_tool_names {
+        encoded["added_tool_names"] = json!(names);
+    }
+    encoded
 }
 
 fn content_text(content: &[ToolResultContentBlock]) -> &str {
@@ -99,12 +167,9 @@ fn scripted_tool(
         .and_then(Value::as_array)
         .into_iter()
         .flatten()
-        .map(|value| value.as_str().unwrap().to_owned())
+        .map(partial_result)
         .collect::<Vec<_>>();
-    let late = script
-        .get("late_update")
-        .and_then(Value::as_str)
-        .map(str::to_owned);
+    let late = script.get("late_update").map(partial_result);
     let terminate = script
         .get("terminate")
         .and_then(Value::as_bool)
@@ -129,13 +194,13 @@ fn scripted_tool(
                 }
                 if let Some(update) = &request.on_update {
                     for value in updates {
-                        update(text_result(value));
+                        update(value);
                     }
                     if let Some(value) = late {
                         let update = Arc::clone(update);
                         tokio::spawn(async move {
                             tokio::task::yield_now().await;
-                            update(text_result(value));
+                            update(value);
                         });
                     }
                 }
@@ -237,7 +302,7 @@ fn observation_plugin(
                                 "tool_call_id": event.tool_call_id,
                                 "tool_name": event.tool_name,
                                 "arguments": event.arguments,
-                                "partial": content_text(&event.update.content),
+                                "partial": encode_partial(&event.update),
                             }));
                         },
                     )
@@ -253,8 +318,11 @@ fn observation_plugin(
                     let reason = listener
                         .get("reason")
                         .and_then(Value::as_str)
-                        .unwrap_or(&message)
-                        .to_owned();
+                        .map(str::to_owned);
+                    let terminate = listener
+                        .get("terminate")
+                        .and_then(Value::as_bool)
+                        .unwrap_or(false);
                     let only_tool = listener
                         .get("only_tool")
                         .and_then(Value::as_str)
@@ -284,7 +352,9 @@ fn observation_plugin(
                                 }
                                 match action.as_str() {
                                     "raise" => Err(ToolCapabilityError::new(message)),
-                                    "block" => Ok(BeforeToolCallAction::Block(reason)),
+                                    "block" => {
+                                        Ok(BeforeToolCallAction::Block { reason, terminate })
+                                    }
                                     _ => Ok(BeforeToolCallAction::Proceed(None)),
                                 }
                             }
@@ -320,7 +390,7 @@ fn observation_plugin(
     .erase()
 }
 
-fn run_scenario(document: &Value) {
+fn run_scenario(document: &Value) -> bool {
     let runtime = Runtime::new();
     let trace = Arc::new(Mutex::new(Vec::new()));
     for (name, script) in document["tools"].as_object().into_iter().flatten() {
@@ -390,6 +460,13 @@ fn run_scenario(document: &Value) {
             serde_json::to_value(updates.lock().clone()).unwrap(),
             *expected
         );
+        let observed = updates.lock();
+        assert_eq!(
+            observed[0]["partial"],
+            json!({"text": "bare", "details": {}}),
+        );
+        assert_eq!(observed[1]["partial"]["terminate"], json!(false));
+        assert_eq!(observed[1]["partial"]["usage"]["total_tokens"], json!(8));
     }
     if let Some(expected) = document.get("expect_tool_trace") {
         assert_eq!(
@@ -397,6 +474,7 @@ fn run_scenario(document: &Value) {
             *expected
         );
     }
+    batch.terminate
 }
 
 fn layer_06_scenarios() -> Vec<PathBuf> {
@@ -450,4 +528,14 @@ fn corrected_unknown_tool_cross_layer_evidence_uses_the_real_rust_tool_executor(
         .join("an-unknown-tool-does-not-serialize-a-batch.yaml");
     let document: Value = serde_yaml::from_str(&fs::read_to_string(path).unwrap()).unwrap();
     run_scenario(&document);
+}
+
+#[test]
+fn a_blocked_call_may_end_the_turn_reaches_the_real_layer_06_terminate_fold() {
+    let path = root()
+        .join("conformance/agent")
+        .join("a-blocked-call-may-end-the-turn.yaml");
+    let document: Value = serde_yaml::from_str(&fs::read_to_string(path).unwrap()).unwrap();
+
+    assert!(run_scenario(&document));
 }

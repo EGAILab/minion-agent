@@ -330,7 +330,7 @@ rows:
   - turn-lifecycle (legacy-shape canonical)
   - tool-round-trip (legacy-shape canonical)
   python: src/minion_agent/agent_loop/driver.py::AgentLoop._execute_run/_run_inner/_admit_messages
-  rust: PENDING -- Layer 08 not yet implemented in Rust
+  rust: minion-agent-rust/crates/minion-agent/src/agent_loop/driver.rs::AgentLoop::open_first_turn/prepare_first_turn/admit; minion-agent-rust/crates/minion-agent/src/agent_loop/events.rs::dispatch_agent_event; language evidence minion-agent-rust/crates/minion-agent/src/agent_loop/driver.rs::tests::prompt_is_reduced_before_dispatch_and_completed_before_steering_is_claimed; canonical evidence minion-agent-rust/crates/minion-agent/tests/agent_loop_conformance.rs::all_layer_08_scenarios_drive_the_real_rust_agent_loop (turn-lifecycle, tool-round-trip)
   disposition: adopted
 - id: AG-002
   phase: 3
@@ -378,7 +378,7 @@ rows:
   - test_continue_drains_steering_when_last_message_is_assistant
   - test_continue_does_not_double_drain_steering_after_pre_drain
   python: src/minion_agent/agent_loop/driver.py::AgentLoop._run_inner (staged first-turn admission), AgentLoop._admit_messages, AgentLoop.continue_ (skip_initial_steering_poll)
-  rust: PENDING -- Layer 08 not yet implemented in Rust; both the PASS-2 (L08-R006) and PASS-3 (L08-R006) candidates were independently rejected on this row, PASS 4 remediated it and it has been conformant through every re-review since (PASS 5, PASS 6)
+  rust: minion-agent-rust/crates/minion-agent/src/agent_loop/driver.rs::AgentLoop::prepare_first_turn/open_first_turn/admit/prepare_continue_run; language evidence minion-agent-rust/crates/minion-agent/src/agent_loop/driver.rs::tests::prompt_is_reduced_before_dispatch_and_completed_before_steering_is_claimed/assistant_last_steering_pre_drain_is_admitted_once_without_a_second_claim/assistant_last_follow_up_pre_drain_still_performs_the_initial_steering_poll
   disposition: adopted
 - id: AG-003
   phase: 3
@@ -411,7 +411,7 @@ rows:
   - test_continue_sends_full_history_when_last_message_is_not_assistant
   - continuation-excludes-the-prior-runs-messages (language-neutral canonical)
   python: src/minion_agent/agent_loop/driver.py::AgentLoop.continue_, AgentLoop._execute_run
-  rust: PENDING -- Layer 08 not yet implemented in Rust
+  rust: minion-agent-rust/crates/minion-agent/src/agent_loop/driver.rs::AgentLoop::continue_run/prepare_continue_run/run_wrapped; language evidence minion-agent-rust/crates/minion-agent/src/agent_loop/driver.rs::tests::plain_continuation_keeps_history_out_of_the_run_accumulator and minion-agent-rust/crates/minion-agent/tests/agent_loop_failure.rs::public_continue_runs_from_an_existing_non_assistant_transcript; canonical evidence minion-agent-rust/crates/minion-agent/tests/agent_loop_conformance.rs::all_layer_08_scenarios_drive_the_real_rust_agent_loop (continuation-excludes-the-prior-runs-messages)
   disposition: adopted
 - id: AG-004
   phase: 3
@@ -484,7 +484,7 @@ rows:
   - tool-round-trip (legacy-shape canonical)
   - projected-execution-ends-follow-completion-order (legacy-shape canonical)
   python: src/minion_agent/agent_loop/driver.py::AgentLoop._run_inner/_run_step/_prepare_next_turn/_should_stop
-  rust: PENDING -- Layer 08 not yet implemented in Rust; the PASS-2 (L08-R001, L08-R004) and PASS-3 (L08-R004, spec staleness) candidates were independently rejected, PASS 4 is the remediated candidate awaiting re-review
+  rust: minion-agent-rust/crates/minion-agent/src/agent_loop/driver.rs::AgentLoop::run_successful_inner/select_next_inner_turn/select_follow_up; minion-agent-rust/crates/minion-agent/src/agent_loop/decisions.rs::prepare_next_turn/should_stop_after_turn; language evidence minion-agent-rust/crates/minion-agent/src/agent_loop/driver.rs::tests::successful_run_continues_for_tools_steering_and_follow_up_in_pi_order/prepare_next_turn_replaces_context_model_and_thinking_for_this_run_only/prepare_next_turn_replacement_does_not_leak_to_a_later_run_snapshot/terminate_suppresses_only_tool_driven_continuation/twenty_one_tool_turns_are_not_capped; canonical evidence minion-agent-rust/crates/minion-agent/tests/agent_loop_conformance.rs::all_layer_08_scenarios_drive_the_real_rust_agent_loop (tool-round-trip, projected-execution-ends-follow-completion-order, no-turn-count-cap-on-pi-equivalent-run)
   disposition: adopted
 - id: AG-005
   phase: 3
@@ -516,7 +516,7 @@ rows:
   - two-runs-have-independently-scoped-agent-end-messages (language-neutral canonical)
   - tool-round-trip (language-neutral canonical -- multiple turns, one run bracket)
   python: src/minion_agent/agent_loop/driver.py::AgentLoop._run_inner (outer/inner nested loop)
-  rust: PENDING -- Layer 08 not yet implemented in Rust
+  rust: minion-agent-rust/crates/minion-agent/src/agent_loop/driver.rs::AgentLoop::run_successful_inner/select_follow_up/run_until_idle; language evidence minion-agent-rust/crates/minion-agent/tests/agent_loop_pump.rs::one_at_a_time_followups_accumulate_causes_on_the_same_run/pump_opens_a_second_run_when_should_stop_leaves_followup_pending; canonical evidence minion-agent-rust/crates/minion-agent/tests/agent_loop_conformance.rs::all_layer_08_scenarios_drive_the_real_rust_agent_loop (two-runs-have-independently-scoped-agent-end-messages, tool-round-trip)
   disposition: adopted
 - id: AG-006
   phase: 3
@@ -580,7 +580,7 @@ rows:
   - test_continue_sends_full_history_when_last_message_is_not_assistant
   - test_run_wrapped_defensive_guard_rejects_when_not_idle
   python: src/minion_agent/agent_loop/driver.py::AgentLoop.prompt/continue_/_run_wrapped
-  rust: PENDING -- Layer 08 not yet implemented in Rust; the PASS-2 candidate's independent review rejected this row (L08-R007), PASS 3 is the remediated candidate awaiting re-review
+  rust: minion-agent-rust/crates/minion-agent/src/agent_loop/driver.rs::AgentLoop::prompt/continue_run/run_wrapped/normalize_prompt_input; language evidence minion-agent-rust/crates/minion-agent/src/agent_loop/driver.rs::tests::active_entry_errors_keep_their_distinct_exact_messages/continuation_validation_is_exact_and_does_not_start_a_run/prompt_accepts_every_typed_message_variant_without_normalizing_it/text_and_images_normalize_to_one_user_message_in_exact_order and minion-agent-rust/crates/minion-agent/tests/agent_loop_failure.rs::public_entry_errors_keep_their_exact_distinct_messages/public_prompt_preserves_typed_batches_and_text_image_convenience_input
   disposition: adopted
 - id: AG-007
   phase: 3
@@ -691,7 +691,7 @@ rows:
   - test_streaming_message_clears_after_the_message_finalizes
   - test_message_start_precedes_message_update_for_a_streamed_reply
   python: src/minion_agent/agent_loop/driver.py::AgentLoop._run_wrapped/_run_step/_admit_messages (streaming_message/pending_tool_calls/error_message writes)
-  rust: PENDING -- Layer 08 not yet implemented in Rust; the PASS-2 candidate's independent review rejected this row (L08-R003), PASS 3 remediated it, and it has been conformant through every re-review since (PASS 4 through PASS 9, with a documentation-only correction in PASS 10 for L08-R012)
+  rust: minion-agent-rust/crates/minion-agent/src/agent_loop/state.rs::reduce_event; minion-agent-rust/crates/minion-agent/src/agent_loop/driver.rs::AgentLoop::run_wrapped/run_provider_turn_with_decision/run_tool_calls; language evidence minion-agent-rust/crates/minion-agent/tests/agent_loop_state.rs::message_reduction_tracks_complete_partial_and_appends_only_at_end/tool_reduction_adds_and_removes_only_the_matching_pending_call/error_persists_after_agent_end_and_finish_until_the_next_run_starts/finish_run_unconditionally_clears_transient_state_and_returns_idle and minion-agent-rust/crates/minion-agent/src/agent_loop/driver.rs::tests::provider_turn_uses_the_prepared_snapshot_and_forwards_every_complete_partial
   disposition: adopted
 - id: AG-009
   phase: 3
@@ -1107,7 +1107,7 @@ rows:
   - test_settle_run_failure_uses_the_agents_persistent_model_not_the_run_local_override
   - test_settle_run_failure_reports_the_live_persistent_model_not_a_run_start_snapshot
   python: src/minion_agent/agent_loop/driver.py::AgentLoop._execute_run (catch boundary), AgentLoop._dispatch_agent_event, AgentLoop._admit_messages, AgentLoop._settle_run_failure (live current-value self.instance.model read, no RunConfig parameter, no snapshot/cache, L08-R014), AgentLoop._run_step (live tool-execution/update dispatch, direct stream iteration), src/minion_agent/tools/execute.py::OnExecutionStart, OnExecutionEnd, OnExecutionUpdate, _preflight, _execute_and_finalize, _immediate, execute_call, src/minion_agent/tools/batch.py::execute_batch, execute_length_stop_batch, src/minion_agent/agent/projection.py::MessageUpdate, ToolExecutionEnd, ToolExecutionUpdate, project, src/minion_agent/runtime/events.py::EventBus.serial (yield_after_each)
-  rust: minion-agent-rust#14 @ d3006375dc56deda1514ee9793708a14c9dd3dfe (draft PR) -- Tasks 1-7 complete and independently reviewed, full Rust suite 238 passed at Task 7; Task 8 BLOCKED on this row's own L08-R014 finding (failure-identity source was unspecified), not committed, preserved only as a local recoverable stash; resumes once this PASS-13 candidate is independently re-reviewed and accepted
+  rust: minion-agent-rust/crates/minion-agent/src/agent_loop/events.rs::dispatch_agent_event; minion-agent-rust/crates/minion-agent/src/agent_loop/driver.rs::AgentLoop::dispatch/run_provider_turn_with_decision/run_tool_calls/run_wrapped/settle_run_failure; language evidence minion-agent-rust/crates/minion-agent/tests/agent_loop_events.rs::agent_listeners_are_awaited_serially_in_registration_order/first_agent_listener_error_prevents_later_listeners/eagerly_ready_listeners_still_have_a_scheduling_boundary_between_them, minion-agent-rust/crates/minion-agent/tests/agent_loop_tools.rs, and minion-agent-rust/crates/minion-agent/tests/agent_loop_failure.rs (including run_local_model_replacement_does_not_change_synthesized_failure_identity/persistent_model_mutation_during_run_is_read_live_by_failure_settlement)
   disposition: adopted
 - id: AG-010
   phase: 3
@@ -1156,7 +1156,7 @@ rows:
   - test_failure_agent_end_messages_is_only_the_failure_message
   - test_represented_error_agent_end_messages_uses_the_normal_accumulator
   python: src/minion_agent/agent/projection.py::project (AgentStart/AgentEnd, "messages"/"message" overrides -- offline reconstruction), src/minion_agent/agent_loop/driver.py::AgentLoop._execute_run, AgentLoop._settle_run_failure (live `AgentEnd` dispatch, `AG-009`)
-  rust: PENDING -- Layer 08 not yet implemented in Rust; the PASS-2 candidate's independent review rejected this row (L08-R002), PASS 3 (self-reported) and PASS-4 re-reviews found this row's own content coherent
+  rust: minion-agent-rust/crates/minion-agent/src/agent_loop/events.rs::AgentEvent::AgentStart/AgentEnd; minion-agent-rust/crates/minion-agent/src/agent_loop/driver.rs::PreparedRun/run_successful/finish_successful_run/settle_run_failure; language evidence minion-agent-rust/crates/minion-agent/tests/agent_loop_failure.rs::ordinary_listener_failure_recovers_without_inventing_turn_start/recovery_listener_failure_interrupts_recovery_but_guard_still_settles/every_recovery_listener_boundary_interrupts_only_after_its_own_reduction and minion-agent-rust/crates/minion-agent/tests/agent_loop_pump.rs::failure_agent_end_retains_the_run_causes; canonical evidence minion-agent-rust/crates/minion-agent/tests/agent_loop_conformance.rs::all_layer_08_scenarios_drive_the_real_rust_agent_loop (two-runs-have-independently-scoped-agent-end-messages, continuation-excludes-the-prior-runs-messages)
   disposition: adopted
 - id: AG-021
   phase: 3
@@ -1203,7 +1203,7 @@ rows:
   - test_represented_aborted_skips_prepare_stop_steering_and_follow_up
   - test_represented_error_agent_end_messages_uses_the_normal_accumulator
   python: src/minion_agent/agent_loop/driver.py::AgentLoop._run_step (_StepResult.terminal), AgentLoop._run_inner (immediate return on terminal)
-  rust: PENDING -- Layer 08 not yet implemented in Rust; the PASS-2 candidate's independent review rejected this row (L08-R008); the PASS-3 re-review found this row's own content PASS and only its evidence mechanism stale after L08-R006 (updated this pass)
+  rust: minion-agent-rust/crates/minion-agent/src/agent_loop/driver.rs::AgentLoop::run_successful_inner; language evidence minion-agent-rust/crates/minion-agent/src/agent_loop/driver.rs::tests::represented_error_and_aborted_results_are_classified_without_post_turn_work/represented_terminals_skip_every_post_turn_decision_and_leave_queues_unclaimed and minion-agent-rust/crates/minion-agent/tests/agent_loop_failure.rs::public_prompt_runs_the_complete_state_machine_and_settles_idle
   disposition: adopted
 - id: AG-011
   phase: 3

@@ -5,9 +5,10 @@ use serde_json::Value;
 use thiserror::Error;
 
 use crate::{
+    agent_loop::{RunConfig, RunContext, RunSnapshot},
     llm::{Message, ModelIdentity},
     runtime::{Context, ScopeHandle},
-    session::Session,
+    session::{Session, SessionError},
     tools::ToolDefinition,
 };
 
@@ -19,6 +20,19 @@ pub enum AgentError {
     Active,
     #[error("{0}")]
     Session(String),
+}
+
+#[derive(Debug, Eq, Error, PartialEq)]
+pub enum AgentRunError {
+    #[error("Agent is already processing.")]
+    Active,
+    #[error(transparent)]
+    Session(#[from] SessionError),
+}
+
+struct RunEntryRollback {
+    streaming_message: Option<Message>,
+    error_message: Option<String>,
 }
 
 #[derive(Clone)]
@@ -156,6 +170,74 @@ impl AgentInstance {
     pub fn set_status(&self, status: AgentStatus) {
         let _gate = self.status_gate.lock();
         self.state.lock().status = status;
+    }
+
+    pub fn try_begin_run(&self) -> Result<RunSnapshot, AgentRunError> {
+        let (system_prompt, model, thinking_level, rollback) = {
+            let _gate = self.status_gate.lock();
+            let mut state = self.state.lock();
+            if state.status != AgentStatus::Idle {
+                return Err(AgentRunError::Active);
+            }
+            let rollback = RunEntryRollback {
+                streaming_message: state.streaming_message.clone(),
+                error_message: state.error_message.clone(),
+            };
+            state.status = AgentStatus::Running;
+            state.streaming_message = None;
+            state.error_message = None;
+            (
+                state.system_prompt.clone(),
+                state.model.clone(),
+                state.thinking_level,
+                rollback,
+            )
+        };
+
+        let messages = match self.session.derive_messages() {
+            Ok(messages) => messages,
+            Err(error) => {
+                self.rollback_run_entry(rollback);
+                return Err(error.into());
+            }
+        };
+        let tools = self.tools();
+
+        Ok(RunSnapshot {
+            context: RunContext {
+                system_prompt,
+                messages,
+                tools,
+            },
+            config: RunConfig {
+                model,
+                thinking_level,
+            },
+        })
+    }
+
+    pub fn finish_run(&self) {
+        let _gate = self.status_gate.lock();
+        let mut state = self.state.lock();
+        state.status = AgentStatus::Idle;
+        state.streaming_message = None;
+        state.pending_tool_calls.clear();
+    }
+
+    pub(crate) fn add_pending_tool_call(&self, tool_call_id: String) {
+        self.state.lock().pending_tool_calls.insert(tool_call_id);
+    }
+
+    pub(crate) fn remove_pending_tool_call(&self, tool_call_id: &str) {
+        self.state.lock().pending_tool_calls.remove(tool_call_id);
+    }
+
+    fn rollback_run_entry(&self, rollback: RunEntryRollback) {
+        let _gate = self.status_gate.lock();
+        let mut state = self.state.lock();
+        state.status = AgentStatus::Idle;
+        state.streaming_message = rollback.streaming_message;
+        state.error_message = rollback.error_message;
     }
 
     pub fn messages(&self) -> Result<Vec<Message>, AgentError> {

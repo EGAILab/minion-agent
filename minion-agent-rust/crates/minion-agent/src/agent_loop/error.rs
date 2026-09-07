@@ -68,4 +68,27 @@ impl AgentLoopError {
             | Self::ToolExecution(_) => None,
         }
     }
+
+    pub(crate) fn is_eager(&self) -> bool {
+        matches!(self, Self::LlmStart(LlmStartError::UnknownModel { .. }))
+    }
+
+    pub(crate) fn failure_message(&self) -> String {
+        match self {
+            Self::Listener(error) => error.message().to_owned(),
+            Self::Event(EventError::Waterfall(crate::WaterfallError::ListenerFailed(message))) => {
+                message.clone()
+            }
+            Self::PromptActive
+            | Self::ContinueActive
+            | Self::NoMessagesToContinue
+            | Self::CannotContinueFromAssistant
+            | Self::Run(_)
+            | Self::Session(_)
+            | Self::Runtime(_)
+            | Self::Event(_)
+            | Self::LlmStart(_)
+            | Self::ToolExecution(_) => self.to_string(),
+        }
+    }
 }

@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 
 from ..llm import Message, ModelId
-from ..runtime import Context, ScopeKey
+from ..runtime import Context, RunSignal, ScopeKey
 from ..session import SessionLog, derive_messages
 from ..session import reset as reset_session_log
 from ..tools import ToolDefinition, ToolRegistry
@@ -65,6 +65,16 @@ class AgentInstance:
         self.streaming_message: Message | None = None
         self.pending_tool_calls: frozenset[str] = frozenset()
         self.error_message: str | None = None
+
+        # Layer 09 (`L09-C001`..`L09-C003`): pinned Pi's own `Agent.signal` getter reads
+        # `this.activeRun?.abortController.signal` -- `undefined` while idle, a NEW
+        # `AbortController` per run. `signal` is a plain attribute for the same reason
+        # `streaming_message`/`pending_tool_calls`/`error_message` above are: Layer 07 owns
+        # only its vocabulary and idle value (`None`, matching Pi's `undefined`); Layer 08
+        # owns creating a fresh `RunSignal()` at run start and clearing it back to `None` at
+        # run settlement (`AgentLoop._run_wrapped`), mirroring `runWithLifecycle`'s own
+        # `abortController`/`finishRun` lifecycle exactly.
+        self.signal: RunSignal | None = None
 
         declare_agent_events(ctx.events)
         self.scope = ctx.scope(instance_scope_key(definition, instance_id))
@@ -130,6 +140,20 @@ class AgentInstance:
         self._ctx.events.emit(AGENT_STATUS, self, status, scope=self.scope.key)
         if self.on_status_change is not None:
             self.on_status_change(status)
+
+    def abort(self) -> None:
+        """Request cancellation of the active run, if any (Layer 09).
+
+        Pinned Pi's `Agent.abort()`: `this.activeRun?.abortController.abort()` -- a no-op,
+        never raising, when no run is active (`self.signal is None`). Aborting only flips the
+        CURRENT run's own signal; it does not forcibly interrupt any listener, tool, hook, or
+        provider stream -- every consumer decides cooperatively whether to react (see
+        `assurance/layers/09-active-abort-contract-checkpoint.md`). Calling `abort()` does not
+        by itself make `reset()` legal: `reset()` still rejects until the run has actually
+        settled (`status` back to `IDLE`), exactly as it does for a non-aborted active run.
+        """
+        if self.signal is not None:
+            self.signal.abort()
 
     def reset(self) -> None:
         """Clear runtime state, messages, and both queues in place (`AG-016`, `L07-R003`).

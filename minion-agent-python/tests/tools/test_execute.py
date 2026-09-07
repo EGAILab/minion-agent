@@ -5,7 +5,7 @@ from typing import Any
 from pydantic import BaseModel
 
 from minion_agent.llm import ToolCallBlock, text_of
-from minion_agent.runtime import Context
+from minion_agent.runtime import Context, RunSignal
 from minion_agent.tools.decisions import Block, Proceed
 from minion_agent.tools.definition import ToolDefinition
 from minion_agent.tools.events import TOOLS_PRE_EXECUTE, declare_tools_events
@@ -373,3 +373,206 @@ async def test_prepare_arguments_can_invalidate_previously_valid_raw_schema_argu
 
     assert ran == []
     assert result.is_error
+
+
+# -- Layer 09, `L09-C002`: preflight abort/error priority ---------------------
+
+
+async def test_unknown_tool_wins_over_an_aborted_signal() -> None:
+    """Checked before the try block and before any signal read (`prepareToolCall`,
+    `agent-loop.ts:607-613`) -- wins unconditionally, even already aborted."""
+    signal = RunSignal()
+    signal.abort()
+
+    result = await execute_call(
+        _call(name="missing", value="x"), registry=_registry(), ctx=_ctx(), signal=signal
+    )
+
+    assert result.is_error
+    assert "not found" in text_of(result.to_message())
+
+
+async def test_argument_validation_failure_wins_over_an_aborted_signal() -> None:
+    """Prepare/validate runs before the before-hook, which is the only place abort is checked --
+    a validation failure keeps its own message regardless of abort state."""
+    signal = RunSignal()
+    signal.abort()
+    definition = _echo(execute=lambda tool_call_id, args: "should not run")
+
+    result = await execute_call(
+        _call(missing_field="x"), registry=_registry(definition), ctx=_ctx(), signal=signal
+    )
+
+    assert result.is_error
+    assert "Operation aborted" not in text_of(result.to_message())
+
+
+async def test_a_throwing_before_hook_wins_over_an_aborted_signal() -> None:
+    """A before-hook that THROWS is caught by the same outer catch prepare/validate exceptions
+    use, before any abort check is reached -- its own message wins, not "Operation aborted"."""
+    ctx = _ctx()
+    signal = RunSignal()
+    signal.abort()
+
+    async def exploding(call: Any, definition: Any, arguments: Any, next_: Any) -> Block:
+        raise RuntimeError("hook exploded")
+
+    ctx.events.on(TOOLS_PRE_EXECUTE, exploding)
+    definition = _echo(execute=lambda tool_call_id, args: "should not run")
+
+    result = await execute_call(
+        _call(value="x"), registry=_registry(definition), ctx=ctx, signal=signal
+    )
+
+    assert result.is_error
+    assert "hook exploded" in text_of(result.to_message())
+
+
+async def test_an_aborted_signal_wins_over_a_returned_block_decision() -> None:
+    """The discriminating witness (`L09-C002`): a before-hook that RETURNS `Block(True)` -- not
+    one that throws -- loses to an already-aborted signal. `block: False` would not distinguish
+    this from the ordinary "proceed" path, since it would reach `execute()` regardless."""
+    ctx = _ctx()
+    signal = RunSignal()
+    signal.abort()
+    ran: list[str] = []
+
+    async def veto(call: Any, definition: Any, arguments: Any, next_: Any) -> Block:
+        return Block(reason="not permitted", terminate=True)
+
+    ctx.events.on(TOOLS_PRE_EXECUTE, veto)
+    definition = _echo(execute=lambda tool_call_id, args: ran.append("ran") or "ok")
+
+    result = await execute_call(
+        _call(value="x"), registry=_registry(definition), ctx=ctx, signal=signal
+    )
+
+    assert ran == []
+    assert result.is_error
+    assert text_of(result.to_message()) == "Operation aborted"
+    assert not result.terminate  # the hook's own terminate:True never took effect
+
+
+async def test_no_before_hook_and_an_aborted_signal_produces_operation_aborted() -> None:
+    """Pi's own SECOND abort check covers "no beforeToolCall configured" -- Minion's single
+    checkpoint (right after the always-running `TOOLS_PRE_EXECUTE` waterfall, whether or not any
+    listener is registered) covers the same case."""
+    signal = RunSignal()
+    signal.abort()
+    ran: list[str] = []
+    definition = _echo(execute=lambda tool_call_id, args: ran.append("ran") or "ok")
+
+    result = await execute_call(
+        _call(value="x"), registry=_registry(definition), ctx=_ctx(), signal=signal
+    )
+
+    assert ran == []
+    assert result.is_error
+    assert text_of(result.to_message()) == "Operation aborted"
+
+
+async def test_a_call_proceeds_normally_when_the_signal_is_not_aborted() -> None:
+    """No consumer forces a stop merely because a signal object exists and is unset -- the
+    all-consumers-ignore-abort case, at the smallest possible scale."""
+    signal = RunSignal()
+
+    result = await execute_call(
+        _call(value="pong"), registry=_registry(_echo()), ctx=_ctx(), signal=signal
+    )
+
+    assert not result.is_error
+    assert text_of(result.to_message()) == "pong"
+
+
+# -- Layer 09: `execute()`'s own cooperative signal parameter -----------------
+
+
+async def test_a_four_parameter_tool_receives_the_active_signal() -> None:
+    """Matches pinned Pi's own `execute(toolCallId, params, signal, onUpdate)` positional order
+    -- a tool declaring a fourth parameter receives `signal`, `update` cooperatively; Minion
+    never inspects or acts on it itself."""
+    signal = RunSignal()
+    seen: list[Any] = []
+
+    def execute(tool_call_id: str, args: Any, signal: Any, update: Any) -> str:
+        seen.append(signal)
+        return "ok"
+
+    definition = _echo(execute=execute)
+
+    result = await execute_call(
+        _call(value="x"), registry=_registry(definition), ctx=_ctx(), signal=signal
+    )
+
+    assert not result.is_error
+    assert seen == [signal]
+
+
+async def test_a_three_parameter_tools_own_meaning_is_unchanged() -> None:
+    """A pre-existing 3-parameter tool still means `(tool_call_id, arguments, update)`, not
+    `(tool_call_id, arguments, signal)` -- Layer 09 does not reinterpret it."""
+    seen: list[Any] = []
+
+    def execute(tool_call_id: str, args: Any, update: Any) -> str:
+        seen.append(update)
+        return "ok"
+
+    definition = _echo(execute=execute)
+
+    result = await execute_call(
+        _call(value="x"),
+        registry=_registry(definition),
+        ctx=_ctx(),
+        signal=RunSignal(),
+    )
+
+    assert not result.is_error
+    assert len(seen) == 1
+    assert callable(seen[0])  # the update callback, not a RunSignal
+
+
+async def test_execute_is_not_forcibly_interrupted_by_an_aborted_signal() -> None:
+    """Pi never forcibly interrupts `execute()` -- a tool that ignores the signal runs to
+    completion and its result is used normally."""
+    signal = RunSignal()
+
+    def execute(tool_call_id: str, args: Any, signal_param: Any, update: Any) -> str:
+        signal.abort()  # aborts mid-execution; this tool does not check it
+        return "finished anyway"
+
+    definition = _echo(execute=execute)
+
+    result = await execute_call(
+        _call(value="x"), registry=_registry(definition), ctx=_ctx(), signal=signal
+    )
+
+    assert not result.is_error
+    assert text_of(result.to_message()) == "finished anyway"
+
+
+async def test_after_hook_runs_unconditionally_despite_an_aborted_signal() -> None:
+    """`finalizeExecutedToolCall` has no abort short-circuit at all -- an already-executed call
+    is always finalized, and its own after-hook always runs, regardless of abort state."""
+    from minion_agent.tools.execute import register_after_tool_call_hook
+
+    ctx = _ctx()
+    signal = RunSignal()
+    ran: list[str] = []
+
+    def after_hook(result: ToolResult) -> None:
+        ran.append("after")
+
+    register_after_tool_call_hook(ctx, after_hook)
+
+    def execute(tool_call_id: str, args: Any, signal_param: Any, update: Any) -> str:
+        signal.abort()
+        return "ok"
+
+    definition = _echo(execute=execute)
+
+    result = await execute_call(
+        _call(value="x"), registry=_registry(definition), ctx=ctx, signal=signal
+    )
+
+    assert not result.is_error
+    assert ran == ["after"]

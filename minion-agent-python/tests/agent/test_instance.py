@@ -6,7 +6,7 @@ from minion_agent.agent.envelope import InboxTarget
 from minion_agent.agent.identity import AgentDefinition, AgentStatus, ThinkingLevel
 from minion_agent.agent.instance import AgentActiveError, AgentInstance, instance_scope_key
 from minion_agent.llm import ModelId, TextBlock, UserMessage
-from minion_agent.runtime import Context, FiberState, scope_of
+from minion_agent.runtime import Context, FiberState, RunSignal, scope_of
 from minion_agent.session import SessionLog
 from minion_agent.session.derive import encode_message
 from minion_agent.session.events import EventKind
@@ -401,3 +401,45 @@ def test_reset_while_running_is_rejected_atomically() -> None:
     assert instance.error_message == "boom"
     assert instance.inbox.has_pending()
     assert instance.status is AgentStatus.RUNNING
+
+
+# -- Layer 09: `signal`/`abort()` ---------------------------------------------
+
+
+def test_signal_is_none_while_idle() -> None:
+    """Matches pinned Pi's own `Agent.signal` getter: `undefined` when no run is active."""
+    assert _instance().signal is None
+
+
+def test_abort_while_idle_is_a_no_op() -> None:
+    """Pinned Pi's own `Agent.abort()`: `this.activeRun?.abortController.abort()` -- a no-op,
+    never raising, when no run is active."""
+    instance = _instance()
+    instance.abort()  # must not raise
+    assert instance.signal is None
+
+
+def test_abort_flips_the_active_signal() -> None:
+    """Layer 08 owns creating the signal per run; Layer 07's own `abort()` only flips whatever
+    signal is currently set."""
+    instance = _instance()
+    instance.signal = RunSignal()
+
+    instance.abort()
+
+    assert instance.signal is not None
+    assert instance.signal.aborted is True
+
+
+def test_abort_does_not_make_reset_legal_before_the_run_settles() -> None:
+    """`abort()` only requests cancellation -- it does not itself change `status`, so `reset()`
+    still rejects until the run has actually settled, exactly as for a non-aborted active run
+    (`assurance/layers/09-active-abort-contract-checkpoint.md`)."""
+    instance = _instance()
+    instance.signal = RunSignal()
+    instance.set_status(AgentStatus.RUNNING)
+
+    instance.abort()
+
+    with pytest.raises(AgentActiveError, match="Wait for completion before resetting"):
+        instance.reset()

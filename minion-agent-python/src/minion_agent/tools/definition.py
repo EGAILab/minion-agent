@@ -42,25 +42,23 @@ merely a superset with no cost -- a tool could report spoofed identity or an `is
 has no way to express on a partial value at all)."""
 
 type ToolFn = Callable[..., Awaitable[ToolResult | str] | ToolResult | str]
-"""Called with `(tool_call_id, validated_arguments)`, and with an `update` callback appended when
-the tool declares a third parameter (arity-detected, see `execute.py::_wants_update`).
+"""Called with `(tool_call_id, validated_arguments)`, with a `signal` third parameter and `update`
+fourth parameter appended when the tool declares them (arity-detected: 3 params means `update`
+only, unchanged since before Layer 09; 4 params means `signal` then `update`, matching pinned
+Pi's own positional order -- see `execute.py::_wants_update`/`_wants_signal`).
 
 Target capability shape, matching pinned Pi's `AgentTool.execute` (`packages/agent/src/types.ts`):
 `(tool_call_id, params, signal?, on_update?) -> AgentToolResult`. Layer 05 owns only this shape's
-existence and its association with a registered tool. Layer 06 (`TOOL-017`) closes the
-`tool_call_id` half of the gap `TOOL-F003` disclosed: every call now receives its own real
-`tool_call_id` as the first positional argument, and `on_update` is realized too (arity-detected,
-above). The `signal` (cancellation) parameter remains behaviorally unrealized in Python -- but the
-cross-language state is asymmetric, not uniformly absent (`IR-L05/06-006`, corrected here; an
-earlier revision of this docstring said "no `AbortSignal`-equivalent type exists anywhere in this
-codebase yet, in either language," which was already false for Rust when it was written): certified
-Rust Layer 05 already reserves a structural signal seam (`ToolExecutionSignal`,
-`ToolExecutionRequest.signal` in `minion-agent-rust/crates/minion-agent/src/tools/definition.rs`)
-without exercising cancellation behavior. Python has no `AbortSignal`-equivalent abstraction at
-all yet; Rust has one, unused. Layer 06 certifies **non-cancelled** execution semantics only in
-both languages; assurance Layer 09 owns cancellation/abort propagation, timing, and result
-semantics, and can add that behavior without requiring Rust to discard or redesign its existing
-signal-bearing capability seam."""
+existence and its association with a registered tool. Layer 06 (`TOOL-017`) closed the
+`tool_call_id` half of the gap `TOOL-F003` disclosed: every call receives its own real
+`tool_call_id` as the first positional argument. Layer 09 (`L09-C001`..`L09-C003`) closes the
+`signal` half: `RunSignal` (`runtime/signal.py`) is Python's own `AbortSignal`-equivalent,
+propagated cooperatively -- a tool receives it and decides for itself whether to react; Pi never
+forcibly interrupts `execute()`, and neither does Minion. Certified Rust Layer 05's own
+already-reserved `ToolExecutionSignal`/`ToolExecutionRequest.signal`
+(`minion-agent-rust/crates/minion-agent/src/tools/definition.rs`) is the matching seam Rust
+implements cancellation behavior against; Layer 06 continues to certify **non-cancelled**
+execution semantics in both languages independent of whichever layer realizes propagation."""
 
 type PrepareArguments = Callable[[dict[str, Any]], dict[str, Any]]
 """Pi's optional `AgentTool.prepareArguments?: (args: unknown) => Static<TParameters>` --

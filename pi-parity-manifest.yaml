@@ -297,6 +297,43 @@ rows:
     it is not inside transform_messages() itself. Merged PR #7 @ 439651e;
     tests/llm_transform.rs::legacy_null_content_is_normalized_by_the_library_before_typed_transformation.'
   disposition: adopted
+- id: AI-027
+  phase: 2
+  pi: packages/agent/src/agent-loop.ts::streamAssistantResponse (streamFunction(model, context, {...config, signal}))
+  surface: optional active-run cancellation-signal capability at the generic LLM request/adapter seam
+  rule: 'Layer 09 (`assurance/layers/09-active-abort-rust-checkpoint-rereview.md`, targeted
+    re-review, `L09-C001`..`L09-C003` all `PROVISIONALLY CLOSED`): resolved as a Layer-09-owned,
+    ADDITIVE post-certification delta to already-certified Layer 02 -- NOT a Layer-02 semantic
+    reopen, and NOT requiring `process/agent-workflow.md` §11.7 owner escalation. Reasoning,
+    independently confirmed: `AG-007` already explicitly deferred active propagation to Layer 09;
+    `PROV-004` already records adopted transport-abort parity for the later real-provider phase;
+    the certified Layer-02 contract governs NON-CANCELLED stream vocabulary/settlement and does not
+    prohibit an optional signal capability; omitting the new capability preserves every existing
+    caller and every existing non-cancelled behavior exactly, the same "default preserves certified
+    behavior" shape Layer 08 PASS 6 already used for `on_execution_start`/`on_execution_end`.
+
+    The shared contract specifies the LANGUAGE-NEUTRAL rule -- one optional active-run signal
+    reaches the generic LLM request/adapter seam -- not Python''s exact method signature. Python:
+    `llm/service.py::Request` gains an optional `signal: RunSignal | None = None` field, matching
+    pinned Pi''s own `streamFunction(model, context, {...config, signal})` -- the SAME per-run
+    signal reaches the adapter-call boundary. `LlmService.stream()`/`_settled()` never inspect or
+    act on it themselves; it is carried through to `adapter.stream(request)` unexamined, exactly
+    like `model`/`system`/`messages`/`tools`. An adapter MAY poll `request.signal.aborted` and
+    represent `StopReason.ABORTED` in its own returned stream, cooperatively -- this project''s
+    existing `MockAdapter`/`ScriptedAdapter` do not need to (a scenario scripts `StopReason.ABORTED`
+    directly, already-certified Layer-08 evidence, unchanged by this row).
+
+    Rust may add an optional signal to its own typed `LlmRequest`/adapter boundary; either
+    satisfies the contract. ACTUAL transport cancellation remains deferred to `PROV-004` (or an
+    explicitly later real-provider phase) -- this project has no real network transport yet; this
+    row certifies generic signal PROPAGATION to the adapter-call boundary, not that any real
+    transport was cancelled.'
+  tests:
+  - test_the_active_runs_signal_reaches_the_llm_request (agent_loop/test_active_abort.py)
+  - test_a_represented_aborted_terminal_is_unaffected_by_layer_09 (agent_loop/test_active_abort.py, regression)
+  python: src/minion_agent/llm/service.py::Request.signal (additive field, never inspected by LlmService/_settled itself)
+  rust: NOT_APPLICABLE -- Python/shared candidate awaiting independent Rust contract review
+  disposition: adopted
 - id: AG-001
   phase: 3
   pi: packages/agent/src/agent-loop.ts::runAgentLoop
@@ -607,11 +644,85 @@ rows:
     Pi-equivalent run''s own observable outcome with no owner governance approval for the divergence,
     and no demonstrated product need justified keeping it, the same default already applied to
     `max_steps` (`L08-R005`). Layer 08 now has no local cancel/boundary-stop mechanism of any kind;
-    this row''s own deferral to Layer 09 is unqualified again.'
-  tests: []
-  python: NOT_APPLICABLE -- deferred to Layer 09
-  rust: NOT_APPLICABLE -- deferred to Layer 09
-  disposition: deferred parity
+    this row''s own deferral to Layer 09 is unqualified again.
+
+    Layer 09, PASS 1 (contract-first checkpoint per `process/agent-workflow.md` §4.1, then
+    implementation once the checkpoint was independently agreed -- `assurance/layers/09-active-
+    abort-contract-checkpoint.md`, revisions 1-2, targeted re-review `PROVISIONALLY CLOSED @
+    ecb8097` for `L09-C001`/`L09-C002`/`L09-C003`, `CONVERGENCE CONTRACT AGREED FOR PYTHON
+    IMPLEMENTATION`): this row''s own deferred surface is now realized.
+
+    `AgentInstance.signal: RunSignal | None` (`agent/instance.py`) -- `None` while idle, matching
+    pinned Pi''s own `Agent.signal` getter returning `undefined` with no active run.
+    `AgentInstance.abort() -> None` (Layer 07) -- a no-op, never raising, when idle; flips the
+    active run''s own signal otherwise, never forcing a status change of its own (`reset()` still
+    rejects until the run has actually settled, unaffected by `abort()` alone). One NEW
+    `RunSignal()` (`runtime/signal.py`, RT-024) per run, created/cleared at the SAME points
+    `AgentLoop._run_wrapped` already performs its other three unconditional entry/exit writes
+    (`L08-R008`/`AG-008`, unchanged) -- matching pinned Pi''s own `new AbortController()`/
+    `finishRun()` lifecycle exactly, live for the run''s entire duration including
+    `_settle_run_failure`''s own recovery dispatch and `agent_end` listener settlement.
+
+    `RunSignal` is deliberately NOT built on `asyncio.Task.cancel()`/`CancelledError`: pinned Pi''s
+    own `signal?.aborted` is polled cooperatively everywhere in `agent-loop.ts`, never a forced
+    interrupt of in-flight synchronous/asynchronous work, and certified Rust Layer 06 already
+    reserves a structurally equivalent poll-based `ToolExecutionSignal` trait
+    (`fn is_cancelled(&self) -> bool`) rather than a push/interrupt mechanism. A forced-cancellation
+    design would have been an unapproved observable divergence from Pi, not a value-neutral
+    implementation choice (`assurance/layers/09-active-abort-contract-checkpoint.md`''s own "Why
+    this is a genuine, not merely mechanical, contract question" section).
+
+    The SAME per-run signal reaches every consumer pinned Pi''s own `agent-loop.ts` threads it to:
+    `AGENT_LIFECYCLE_EVENT`/`AGENT_PREPARE_NEXT_TURN`/`AGENT_TURN_STOPPING` listeners (via
+    `instance.signal`, already reachable through `instance`, each listener''s own first argument --
+    an intentional Minion architectural mapping: pinned Pi threads `signal` as an explicit
+    parameter to these because its own `subscribe`/wrapping-closure design has no `instance`-
+    equivalent object to hang it on; Minion''s own established convention already passes `instance`
+    to every one of these listeners, so no new parameter was needed there), the LLM request
+    (`AI-027`), and the tool-execution seam (`TOOL-024`, which has no `instance` access at all,
+    architecturally below Layer 07, and so needs it threaded explicitly). Every consumer may IGNORE
+    the signal, and if all of them do, the run completes exactly as if `abort()` had never been
+    called -- the load-bearing rule `L09-C003`''s own re-review named as missing from the first
+    checkpoint draft.
+
+    Four abort-adjacent outcomes are distinguished (`L09-C003`): (1) a represented provider
+    `StopReason.ABORTED` terminal -- already Layer-08-owned, no new code; (2) an exception escaping
+    ordinary run execution while the signal happens to be aborted AT THE MOMENT `_settle_run_
+    failure` reads it -- classified `aborted`, not `error`, purely from current signal state, with
+    NO causal requirement the exception was actually caused by the abort (matching pinned Pi''s own
+    `abortController.signal.aborted` read at `handleRunFailure` catch time exactly); (3) a
+    cooperative tool''s own outcome after observing the signal -- ordinary, already-certified
+    Layer-06 execute/finalize semantics, after-hook still running unconditionally; (4) abort
+    requested while `agent_end` listeners are still being awaited -- that already-in-flight
+    dispatch''s own listener settlement still completes normally before the Agent becomes idle.
+
+    Explicitly out of THIS pass''s own scope: actual network-transport cancellation, deferred to
+    `PROV-004` (this project has no real provider transport yet) -- Layer 09 certifies generic
+    signal PROPAGATION to the adapter-call boundary through the existing scripted/mock adapter, not
+    that any real transport was cancelled. `active-abort-provider`/`active-abort-tool`/`abort-
+    settles-before-idle` remain unfilled canonical placeholders this pass: the discriminating
+    witnesses (the parallel A/B/C trace, the six-outcome preflight priority matrix, the complete
+    consumer/settlement matrix, the reset-stays-illegal-while-settling case) are instead closed as
+    permanent Python-level explicit-language regression evidence (`tests:` below) -- the SAME
+    "canonical OR explicit language test" standard the independent Layer-08 review itself accepted
+    for `L08-R014`, not a lower bar invented for this layer.'
+  tests:
+  - test_a_fresh_signal_is_not_aborted (runtime/test_signal.py)
+  - test_abort_sets_aborted (runtime/test_signal.py)
+  - test_abort_is_idempotent (runtime/test_signal.py)
+  - test_two_signals_are_independent (runtime/test_signal.py)
+  - test_signal_is_none_while_idle (agent/test_instance.py)
+  - test_abort_while_idle_is_a_no_op (agent/test_instance.py)
+  - test_abort_flips_the_active_signal (agent/test_instance.py)
+  - test_abort_does_not_make_reset_legal_before_the_run_settles (agent/test_instance.py)
+  - test_signal_is_none_before_and_after_a_run (agent_loop/test_active_abort.py)
+  - test_the_active_runs_signal_reaches_the_llm_request (agent_loop/test_active_abort.py)
+  - test_reset_stays_illegal_while_an_aborted_run_is_still_settling (agent_loop/test_active_abort.py)
+  - test_abort_mid_parallel_tool_batch_truncates_through_the_real_loop (agent_loop/test_active_abort.py)
+  - test_a_represented_aborted_terminal_is_unaffected_by_layer_09 (agent_loop/test_active_abort.py)
+  python: src/minion_agent/runtime/signal.py::RunSignal, src/minion_agent/agent/instance.py::AgentInstance.signal/abort, src/minion_agent/agent_loop/driver.py::AgentLoop._run_wrapped (signal create/clear), _run_step (Request.signal)
+  rust: NOT_APPLICABLE -- Python/shared candidate awaiting independent Rust contract review; certified Rust Layer 06''s own ToolExecutionSignal seam remains reserved, unexercised
+  disposition: adopted
 - id: AG-008
   phase: 3
   pi: packages/agent/src/agent.ts::AgentState
@@ -1796,6 +1907,91 @@ rows:
   - tool-batch-parallel (unchanged; proves phase 2 remains concurrent)
   python: src/minion_agent/tools/execute.py::_preflight, _execute_and_finalize, _Prepared; src/minion_agent/tools/batch.py::execute_batch
   rust: minion-agent-rust/crates/minion-agent/src/tools/execution.rs::preflight_one/execute_and_finalize_prepared/execute_tool_calls; minion-agent-rust/crates/minion-agent/tests/tool_execution.rs::parallel_preflight_settles_in_source_order_before_any_prepared_execute/parallel_batch_preflights_every_valid_call_before_either_execute_begins; minion-agent-rust/crates/minion-agent/tests/tool_execution_conformance.rs::all_layer_06_scenarios_drive_the_real_rust_tool_executor
+  disposition: adopted
+- id: TOOL-024
+  phase: 4
+  pi: packages/agent/src/agent-loop.ts::prepareToolCall, executeToolCallsSequential, executeToolCallsParallel
+  surface: active-run signal propagation into tool preflight/execute/batch (Layer 09)
+  rule: 'Layer 09 (`assurance/layers/09-active-abort-contract-checkpoint.md`, revisions 1-2;
+    targeted re-review `assurance/layers/09-active-abort-rust-checkpoint-rereview.md`,
+    `L09-C001`/`L09-C002` `PROVISIONALLY CLOSED @ ecb8097`): builds ON TOP of TOOL-023''s own
+    already-certified sequential-preflight/concurrent-execution barrier, adding the active run''s
+    own cancellation signal at the exact points pinned Pi''s own `prepareToolCall`/
+    `executeToolCallsSequential`/`executeToolCallsParallel` check it -- neither reopens TOOL-023''s
+    own certified barrier rule.
+
+    `L09-C002`, preflight abort/error priority (`prepareToolCall`, `agent-loop.ts:600-668`): the
+    signal is checked EXACTLY ONCE per call, immediately after the before-hook waterfall resolves
+    (whichever decision), before that decision is examined, in this priority order (earlier wins):
+    (1) tool not found; (2) prepare/validate throws; (3) a before-hook listener throws; (4) the
+    waterfall resolves AND the signal is aborted -> "Operation aborted", winning over the
+    waterfall''s own `Block` decision (the discriminating witness is `block: true` + aborted, not
+    `block: false` + aborted, since the latter would reach step 6 regardless); (5) the waterfall
+    resolves to `Block`, not aborted -> the Block''s own reason/terminate; (6) neither aborted nor
+    blocked -> proceeds to `execute()`. Steps 1-3 are checked/raised BEFORE the signal is ever
+    read, so an unknown tool, a validation failure, or a throwing before-hook keep their own
+    specific error regardless of abort state. Pinned Pi''s own `prepareToolCall` has an
+    INDEPENDENT second abort check for its own "no `beforeToolCall` configured at all" case (its
+    single, nullable hook creates a genuine bypass of its first check); Minion''s `tools/
+    pre-execute` waterfall always runs the same code path whether zero or more listeners are
+    registered, so this module''s ONE checkpoint covers both of Pi''s two -- an intentional,
+    disclosed architectural mapping (the two Pi-distinguishable states, "hook absent" and "hook ran
+    without blocking/aborting," are the same code path in Minion), not an observable divergence.
+
+    `L09-C001`, sequential vs. parallel batch abort algorithms (`batch.py::execute_batch`): a
+    generic "stop the batch" rule is wrong for either mode alone. Sequential:
+    `if signal.aborted: break` runs AFTER a call''s own COMPLETE preflight-through-finalize
+    lifecycle, before starting the next call -- a call already started always finishes; unreached
+    calls are simply never attempted (`results` can be shorter than `calls`). Parallel: preflight
+    remains fully sequential (TOOL-023, unchanged); the SAME check runs after EACH call''s own
+    preflight OUTCOME (immediate or prepared) is recorded, deciding whether to preflight the NEXT
+    source call -- NOT after execution. Every prepared outcome retained BEFORE the poll still
+    starts its own `execute()`/after-hook phase afterward, via TOOL-023''s own concurrent barrier,
+    receiving the already-aborted signal cooperatively; an abort arising DURING one prepared call''s
+    own execution cannot stop a sibling already committed to that barrier. The independent
+    re-review''s own required regression witness (source calls A/B/C; A prepared with no
+    before-hook issue; B''s own before-hook calls `abort()` and returns -- a RETURNING hook, the
+    discriminating case per `L09-C002`, not a throwing or blocking one): `tool_execution_start(A)`,
+    `tool_execution_start(B)`, B finalizes INLINE as `Operation aborted` during the sequential
+    preflight phase, the for-loop poll sees the signal aborted and stops -- C''s own
+    `tool_execution_start` never fires -- then A''s own retained closure starts via the barrier and
+    completes/finalizes normally, never checking the signal itself; returned results: A, B in
+    source order, C entirely absent.
+
+    `execute()`''s own cooperative signal parameter (`_execute_and_finalize`): a tool declaring a
+    FOURTH parameter receives `(tool_call_id, arguments, signal, update)`, matching pinned Pi''s own
+    `execute(toolCallId, params, signal, onUpdate)` positional order exactly; a pre-existing
+    3-parameter tool''s own third parameter continues to mean `update`, UNCHANGED since before
+    Layer 09 (`_wants_update`) -- a disclosed, minor Minion-specific arity-dispatch constraint
+    relative to Pi''s own fully-independent optional parameters, since a tool wanting only `signal`
+    without `update` still must declare (and may ignore) a fourth parameter. Whether a tool
+    actually reacts is its own cooperative choice; neither Pi nor Minion forcibly interrupts
+    `execute()`. `afterToolCall`/`tools/post-execute` runs UNCONDITIONALLY once `execute()` has been
+    reached, regardless of the signal''s state at any point during or after it -- unchanged,
+    verified by a dedicated regression, not merely asserted.
+
+    No canonical scenario filled this pass: `active-abort-tool`/`active-abort-provider`/`abort-
+    settles-before-idle` remain unfilled placeholders (`conformance/agent/`) -- the discriminating
+    witnesses above are instead closed as permanent Python-level explicit-language regression
+    evidence, the same "canonical OR explicit language test" standard the independent Layer-08
+    review itself accepted for `L08-R014`.'
+  tests:
+  - test_unknown_tool_wins_over_an_aborted_signal
+  - test_argument_validation_failure_wins_over_an_aborted_signal
+  - test_a_throwing_before_hook_wins_over_an_aborted_signal
+  - test_an_aborted_signal_wins_over_a_returned_block_decision
+  - test_no_before_hook_and_an_aborted_signal_produces_operation_aborted
+  - test_a_call_proceeds_normally_when_the_signal_is_not_aborted
+  - test_a_four_parameter_tool_receives_the_active_signal
+  - test_a_three_parameter_tools_own_meaning_is_unchanged
+  - test_execute_is_not_forcibly_interrupted_by_an_aborted_signal
+  - test_after_hook_runs_unconditionally_despite_an_aborted_signal
+  - test_sequential_abort_after_a_call_completes_skips_the_rest_of_the_batch (tools/test_batch.py)
+  - test_parallel_abort_witness_matches_the_discriminating_trace (tools/test_batch.py)
+  - test_a_batch_completes_normally_when_the_signal_is_never_aborted (tools/test_batch.py)
+  - test_abort_mid_parallel_tool_batch_truncates_through_the_real_loop (agent_loop/test_active_abort.py)
+  python: src/minion_agent/tools/execute.py::_preflight (signal priority check), _execute_and_finalize (execute() signal passthrough), _wants_signal; src/minion_agent/tools/batch.py::execute_batch (sequential/parallel abort polling)
+  rust: NOT_APPLICABLE -- Python/shared candidate awaiting independent Rust contract review; certified Rust Layer 06''s own ToolExecutionSignal seam (TOOL-019''s own rust field) remains reserved, unexercised
   disposition: adopted
 - id: TOOL-007
   phase: 4

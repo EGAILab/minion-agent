@@ -134,6 +134,7 @@ from ..llm import (
     UserContentBlock,
     UserMessage,
 )
+from ..runtime import RunSignal
 from ..session import (
     ArtifactStore,
     EventKind,
@@ -326,6 +327,14 @@ class AgentLoop:
         self.instance.set_status(AgentStatus.RUNNING)
         self.instance.streaming_message = None
         self.instance.error_message = None
+        # Layer 09: a NEW `RunSignal` per run, matching pinned Pi's own `new
+        # AbortController()` inside `runWithLifecycle` (`agent.ts:491`) -- created here,
+        # at the SAME point as the other three unconditional entry writes above, and
+        # cleared back to `None` in `finally` below, at the SAME point `finishRun()`
+        # clears `activeRun` (and therefore `Agent.signal`). Live for the run's entire
+        # duration, including `_settle_run_failure`'s own recovery dispatch and
+        # `agent_end` listener settlement -- never reassigned mid-run.
+        self.instance.signal = RunSignal()
         try:
             await self._execute_run(
                 entering=entering,
@@ -336,6 +345,7 @@ class AgentLoop:
             self.instance.set_status(AgentStatus.IDLE)
             self.instance.streaming_message = None
             self.instance.pending_tool_calls = frozenset()
+            self.instance.signal = None
 
     async def _dispatch_agent_event(self, event: AgentEvent) -> None:
         """Pinned Pi's own `processEvents`: the single seam every lifecycle
@@ -820,6 +830,7 @@ class AgentLoop:
             system=assemble_system(components),
             messages=tuple(history),
             tools=schemas,
+            signal=self.instance.signal,
         )
 
         # Streamed assistant reply lifecycle, fully live (`L08-R002`, PASS 5):
@@ -1024,6 +1035,7 @@ class AgentLoop:
                     on_execution_start=on_execution_start,
                     on_execution_end=on_execution_end,
                     on_execution_update=on_execution_update,
+                    signal=self.instance.signal,
                 )
 
             results: list[Message] = []

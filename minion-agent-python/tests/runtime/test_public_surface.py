@@ -15,6 +15,7 @@ EXPECTED = {
     "InactiveFiberError",
     "PluginRegistry",
     "PluginSpec",
+    "RunSignal",
     "RuntimeError_",
     "Scope",
     "ScopeKey",

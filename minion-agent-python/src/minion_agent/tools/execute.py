@@ -39,7 +39,7 @@ from jsonschema.exceptions import ValidationError as JsonSchemaValidationError
 from pydantic import ValidationError as PydanticValidationError
 
 from ..llm import ToolCallBlock
-from ..runtime import Context, Scope, ScopeKey
+from ..runtime import Context, RunSignal, Scope, ScopeKey
 from .decisions import AfterToolCallOverride, Block, PreExecuteDecision, Proceed
 from .definition import ToolDefinition
 from .events import (
@@ -159,6 +159,24 @@ def _wants_update(execute: Any) -> bool:
     except (TypeError, ValueError):  # pragma: no cover - builtins are not tools
         return False
     return len(signature.parameters) >= 3
+
+
+def _wants_signal(execute: Any) -> bool:
+    """Whether the tool declared a fourth parameter, for the active run's cancellation flag
+    (Layer 09). Matches pinned Pi's own `execute(toolCallId, params, signal, onUpdate)`
+    positional order -- `signal` before `onUpdate` -- for a tool that wants both, WITHOUT
+    reinterpreting the meaning of an EXISTING 3-parameter tool's own third parameter (already
+    `update`, per `_wants_update`, since before this layer existed): arity-based dispatch here
+    is a disclosed, minor Minion-specific constraint relative to Pi's fully-independent optional
+    parameters -- a tool that wants the signal but genuinely has no use for `update` still
+    declares (and may ignore) a fourth parameter, rather than Pi's own `execute(id, params,
+    signal)` three-parameter shape, which would collide with the existing update-only meaning of
+    three parameters here."""
+    try:
+        signature = inspect.signature(execute)
+    except (TypeError, ValueError):  # pragma: no cover - builtins are not tools
+        return False
+    return len(signature.parameters) >= 4
 
 
 def _merge_override(current: ToolResult, override: AfterToolCallOverride | None) -> ToolResult:
@@ -337,21 +355,39 @@ async def _preflight(
     scope: ScopeKey | None,
     on_execution_start: OnExecutionStart | None = None,
     on_execution_end: OnExecutionEnd | None = None,
+    signal: RunSignal | None = None,
 ) -> _Prepared | ToolResult:
     """Resolve, `prepare_arguments`, validate, and run the before-hook waterfall -- everything
     pinned Pi's `prepareToolCall` does before a call is eligible to run `execute()` (`IR-L06-001`).
 
     Returns a `_Prepared` for a call that may proceed, or the call's already-final `ToolResult`
-    for an "immediate" outcome (unknown tool, a prepare/validate/before-hook exception, or an
-    explicit before-hook block) -- which has already had `tools/execution-end` emitted, since none
-    of those reach `execute()`/the after-hook at all. `scope` must already be a bare `ScopeKey`
-    (see `execute_call`'s own normalization); this function does not accept a live `Scope`.
+    for an "immediate" outcome (unknown tool, a prepare/validate/before-hook exception, an
+    explicit before-hook block, or an aborted signal -- see below) -- which has already had
+    `tools/execution-end` emitted, since none of those reach `execute()`/the after-hook at all.
+    `scope` must already be a bare `ScopeKey` (see `execute_call`'s own normalization); this
+    function does not accept a live `Scope`.
 
     `on_execution_start`, when supplied, is awaited immediately after `tools/execution-start`'s own
     EMIT, before resolution/prepare/validate/the before-hook ever run (`L08-R002`, PASS 6) --
     deliberately OUTSIDE the `try`/`except` below, so a listener that raises here propagates
     straight out of this function, preventing the call from proceeding at all, exactly like pinned
     Pi's own live, awaited `tool_execution_start` dispatch.
+
+    `signal` (Layer 09, `L09-C002`): checked ONCE, immediately after the `TOOLS_PRE_EXECUTE`
+    waterfall resolves successfully (whether the decision is `Proceed` or `Block`), BEFORE that
+    decision is examined -- an aborted signal produces `"Operation aborted"` and WINS over a
+    `Block` decision, matching pinned Pi's own priority exactly (`prepareToolCall`,
+    `agent-loop.ts:600-668`): an unknown tool, a prepare/validate exception, and a THROWN
+    before-hook error all keep their own specific error regardless of abort state (they return/
+    raise before this point is ever reached), and only a decision the waterfall actually RETURNED
+    (Proceed or Block) yields to abort. This is a single Minion-architectural check point, not
+    Pi's own two (`agent.ts`'s `beforeToolCall` is independently nullable, producing a genuine
+    "no hook at all" bypass of its first check; Minion's `TOOLS_PRE_EXECUTE` waterfall always
+    executes, with zero listeners behaving identically to Pi's own "hook absent" case, so the
+    SAME one checkpoint here covers both of Pi's two -- an intentional, disclosed architectural
+    mapping, not an observable divergence: the two Pi-distinguishable states ("hook absent" and
+    "hook ran without blocking/aborting") are, in Minion, the SAME code path reaching the SAME
+    check).
     """
     ctx.events.emit(TOOLS_EXECUTION_START, call.id, call.name, call.arguments, scope=scope)
     if on_execution_start is not None:
@@ -398,6 +434,15 @@ async def _preflight(
             on_execution_end,
         )
 
+    if signal is not None and signal.aborted:
+        return await _immediate(
+            call,
+            ctx,
+            scope,
+            text_result(call.id, "Operation aborted", call.name, is_error=True),
+            on_execution_end,
+        )
+
     if isinstance(decision, Block):
         return await _immediate(
             call,
@@ -419,12 +464,20 @@ async def _execute_and_finalize(
     scope: ScopeKey | None,
     on_execution_end: OnExecutionEnd | None = None,
     on_execution_update: OnExecutionUpdate | None = None,
+    signal: RunSignal | None = None,
 ) -> ToolResult:
     """Run `execute()` (+ live updates) and the after-hook for a call that survived preflight --
     pinned Pi's `executePreparedToolCall` + `finalizeExecutedToolCall`. Always ends by emitting
     `tools/execution-end`, then awaiting `on_execution_end` if supplied (`L08-R002`, PASS 6). In a
     parallel batch, this runs concurrently for every prepared call, only after every call in the
     batch has finished `_preflight` (`IR-L06-001`).
+
+    `signal` (Layer 09), when the tool's own `execute` declares a fourth parameter
+    (`_wants_signal`), is passed through DIRECTLY -- matching pinned Pi's own `execute(toolCallId,
+    params, signal, onUpdate)` third positional argument exactly. Whether the tool actually stops
+    is entirely its own cooperative choice; this function never inspects `signal` itself or skips
+    `execute()`/the after-hook because it is aborted (`afterToolCall` runs unconditionally in
+    pinned Pi too -- see the contract checkpoint).
     """
     call = prepared.call
     definition = prepared.definition
@@ -486,11 +539,12 @@ async def _execute_and_finalize(
             )
 
     try:
-        outcome = (
-            definition.execute(call.id, arguments, update)
-            if _wants_update(definition.execute)
-            else definition.execute(call.id, arguments)
-        )
+        if _wants_signal(definition.execute):
+            outcome = definition.execute(call.id, arguments, signal, update)
+        elif _wants_update(definition.execute):
+            outcome = definition.execute(call.id, arguments, update)
+        else:
+            outcome = definition.execute(call.id, arguments)
         value = await outcome if inspect.isawaitable(outcome) else outcome
     except Exception as error:  # surfaced to the model, not raised
         accepting_updates = False
@@ -544,6 +598,7 @@ async def execute_call(
     on_execution_start: OnExecutionStart | None = None,
     on_execution_end: OnExecutionEnd | None = None,
     on_execution_update: OnExecutionUpdate | None = None,
+    signal: RunSignal | None = None,
 ) -> ToolResult:
     """Run `call` and return its result, whatever happens.
 
@@ -564,6 +619,7 @@ async def execute_call(
         scope=scope,
         on_execution_start=on_execution_start,
         on_execution_end=on_execution_end,
+        signal=signal,
     )
     if isinstance(outcome, ToolResult):
         return outcome
@@ -573,4 +629,5 @@ async def execute_call(
         scope=scope,
         on_execution_end=on_execution_end,
         on_execution_update=on_execution_update,
+        signal=signal,
     )

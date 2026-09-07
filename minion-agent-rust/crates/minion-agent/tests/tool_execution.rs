@@ -1078,7 +1078,10 @@ fn parallel_preflight_settles_in_source_order_before_any_prepared_execute() {
                                 .lock()
                                 .push(format!("before:{}", current.tool_call_id));
                             if current.tool_call_id == "b" {
-                                Ok(BeforeToolCallAction::Block("blocked".into()))
+                                Ok(BeforeToolCallAction::Block {
+                                    reason: Some("blocked".into()),
+                                    terminate: false,
+                                })
                             } else {
                                 Ok(BeforeToolCallAction::Proceed(None))
                             }
@@ -1559,5 +1562,149 @@ fn signal_and_execution_metadata_pass_through_without_namespace_lookup_semantics
             Some(["alpha".to_owned()].as_slice())
         );
         assert!(batch.terminate);
+    });
+}
+
+#[test]
+fn before_hook_block_termination_reaches_end_events_and_the_nonempty_batch_fold() {
+    run(async {
+        let runtime = Runtime::new();
+        let executions = Arc::new(AtomicUsize::new(0));
+        let after_calls = Arc::new(AtomicUsize::new(0));
+        for name in ["hard", "soft"] {
+            runtime
+                .tools()
+                .register_for_scope(
+                    None,
+                    ToolDefinition::new(
+                        name,
+                        name,
+                        serde_json::from_value(json!({})).unwrap(),
+                        name,
+                        {
+                            let executions = Arc::clone(&executions);
+                            move |_request| {
+                                executions.fetch_add(1, Ordering::SeqCst);
+                                Box::pin(async { Ok(result("must not execute")) })
+                            }
+                        },
+                    ),
+                )
+                .unwrap();
+        }
+        let plugin = PluginSpec::<Value>::new("block-termination", vec![], || json!({}), {
+            let after_calls = Arc::clone(&after_calls);
+            move |context, _config| {
+                let after_calls = Arc::clone(&after_calls);
+                async move {
+                    register_before_tool_call_hook(&context, |current| async move {
+                        Ok(BeforeToolCallAction::Block {
+                            reason: Some(format!("{} stop", current.tool_name)),
+                            terminate: current.tool_name == "hard",
+                        })
+                    })
+                    .map_err(|error| PluginInitError::new(error.to_string()))?;
+                    register_after_tool_call_hook(&context, move |_current| {
+                        let after_calls = Arc::clone(&after_calls);
+                        async move {
+                            after_calls.fetch_add(1, Ordering::SeqCst);
+                            Ok(None)
+                        }
+                    })
+                    .map_err(|error| PluginInitError::new(error.to_string()))?;
+                    Ok(())
+                }
+            }
+        })
+        .erase();
+        runtime.mount(&plugin, json!({})).unwrap();
+        runtime.reconcile().await.unwrap();
+        let ended = Arc::new(parking_lot::Mutex::new(Vec::new()));
+
+        let hard = execute_tool_calls(
+            &runtime.context(),
+            &[call("hard-1", "hard", json!({}))],
+            ToolExecutionOptions::new(StopReason::ToolUse, 0.0).with_execution_end({
+                let ended = Arc::clone(&ended);
+                move |event| {
+                    let ended = Arc::clone(&ended);
+                    async move {
+                        ended.lock().push(event);
+                        Ok(())
+                    }
+                }
+            }),
+        )
+        .await
+        .unwrap();
+        assert!(hard.terminate);
+        assert_eq!(text(&hard.messages[0]), "hard stop");
+
+        let soft = execute_tool_calls(
+            &runtime.context(),
+            &[call("soft-1", "soft", json!({}))],
+            ToolExecutionOptions::new(StopReason::ToolUse, 0.0),
+        )
+        .await
+        .unwrap();
+        assert!(!soft.terminate);
+
+        let mixed = execute_tool_calls(
+            &runtime.context(),
+            &[
+                call("hard-2", "hard", json!({})),
+                call("soft-2", "soft", json!({})),
+            ],
+            ToolExecutionOptions::new(StopReason::ToolUse, 0.0),
+        )
+        .await
+        .unwrap();
+        assert!(!mixed.terminate);
+
+        let ended = ended.lock();
+        assert_eq!(ended.len(), 1);
+        assert_eq!(ended[0].tool_call_id, "hard-1");
+        assert_eq!(ended[0].result.terminate, Some(true));
+        assert!(ended[0].result.is_error);
+        assert_eq!(ended[0].result.details, Some(json!({})));
+        assert_eq!(executions.load(Ordering::SeqCst), 0);
+        assert_eq!(after_calls.load(Ordering::SeqCst), 0);
+    });
+}
+
+#[test]
+fn before_hook_block_without_reason_or_termination_uses_pis_defaults() {
+    run(async {
+        let runtime = Runtime::new();
+        runtime
+            .tools()
+            .register_for_scope(None, tool("blocked"))
+            .unwrap();
+        let plugin = PluginSpec::<Value>::new("default-block", vec![], || json!({}), {
+            move |context, _config| async move {
+                register_before_tool_call_hook(&context, |_current| async move {
+                    Ok(BeforeToolCallAction::Block {
+                        reason: None,
+                        terminate: false,
+                    })
+                })
+                .map_err(|error| PluginInitError::new(error.to_string()))?;
+                Ok(())
+            }
+        })
+        .erase();
+        runtime.mount(&plugin, json!({})).unwrap();
+        runtime.reconcile().await.unwrap();
+
+        let batch = execute_tool_calls(
+            &runtime.context(),
+            &[call("t1", "blocked", json!({}))],
+            ToolExecutionOptions::new(StopReason::ToolUse, 0.0),
+        )
+        .await
+        .unwrap();
+
+        assert!(!batch.terminate);
+        assert_eq!(text(&batch.messages[0]), "Tool execution was blocked");
     });
 }

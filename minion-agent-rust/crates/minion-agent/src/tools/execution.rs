@@ -208,13 +208,16 @@ pub struct BeforeToolCallContext {
 #[derive(Clone, Debug, PartialEq)]
 pub enum BeforeToolCallAction {
     Proceed(Option<Value>),
-    Block(String),
+    Block {
+        reason: Option<String>,
+        terminate: bool,
+    },
 }
 
 #[derive(Clone)]
 enum BeforeHookOutcome {
     Proceed(BeforeToolCallContext),
-    Blocked(String),
+    Blocked { message: String, terminate: bool },
     Failed(String),
 }
 
@@ -249,7 +252,12 @@ where
                     };
                     next.call(Some(replacement)).await
                 }
-                Ok(BeforeToolCallAction::Block(message)) => Ok(BeforeHookOutcome::Blocked(message)),
+                Ok(BeforeToolCallAction::Block { reason, terminate }) => {
+                    let message = reason
+                        .filter(|reason| !reason.is_empty())
+                        .unwrap_or_else(|| "Tool execution was blocked".to_owned());
+                    Ok(BeforeHookOutcome::Blocked { message, terminate })
+                }
                 Err(error) => Ok(BeforeHookOutcome::Failed(error.message().to_owned())),
             }
         }
@@ -724,6 +732,7 @@ async fn preflight_one(
                     end_spec,
                     on_execution_end,
                     timestamp,
+                    false,
                 )
                 .await?,
             ));
@@ -746,6 +755,7 @@ async fn preflight_one(
                         end_spec,
                         on_execution_end,
                         timestamp,
+                        false,
                     )
                     .await?,
                 ));
@@ -769,6 +779,7 @@ async fn preflight_one(
                     end_spec,
                     on_execution_end,
                     timestamp,
+                    false,
                 )
                 .await?,
             ));
@@ -785,6 +796,7 @@ async fn preflight_one(
                 end_spec,
                 on_execution_end,
                 timestamp,
+                false,
             )
             .await?,
         ));
@@ -799,7 +811,7 @@ async fn preflight_one(
         .await?
     {
         BeforeHookOutcome::Proceed(current) => current,
-        BeforeHookOutcome::Blocked(message) | BeforeHookOutcome::Failed(message) => {
+        BeforeHookOutcome::Blocked { message, terminate } => {
             return Ok(PreflightOutcome::Immediate(
                 finish_immediate(
                     index,
@@ -810,6 +822,23 @@ async fn preflight_one(
                     end_spec,
                     on_execution_end,
                     timestamp,
+                    terminate,
+                )
+                .await?,
+            ));
+        }
+        BeforeHookOutcome::Failed(message) => {
+            return Ok(PreflightOutcome::Immediate(
+                finish_immediate(
+                    index,
+                    call,
+                    &message,
+                    events,
+                    scope,
+                    end_spec,
+                    on_execution_end,
+                    timestamp,
+                    false,
                 )
                 .await?,
             ));
@@ -1001,8 +1030,10 @@ async fn finish_immediate(
     end_spec: EventSpec<ToolExecutionEnd, ()>,
     on_execution_end: Option<ToolExecutionEndCallback>,
     timestamp: f64,
+    terminate: bool,
 ) -> Result<(usize, ToolResultMessage, bool), ToolExecutionError> {
-    let result = immediate_error(&call, message);
+    let mut result = immediate_error(&call, message);
+    result.terminate = terminate.then_some(true);
     emit_end(
         &events,
         &end_spec,
@@ -1015,7 +1046,7 @@ async fn finish_immediate(
         on_execution_end.as_ref(),
     )
     .await?;
-    Ok((index, result.into_message(timestamp), false))
+    Ok((index, result.into_message(timestamp), terminate))
 }
 
 fn immediate_error(call: &ToolCall, message: &str) -> AfterToolCallResult {

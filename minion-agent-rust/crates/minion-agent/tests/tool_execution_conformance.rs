@@ -318,8 +318,11 @@ fn observation_plugin(
                     let reason = listener
                         .get("reason")
                         .and_then(Value::as_str)
-                        .unwrap_or(&message)
-                        .to_owned();
+                        .map(str::to_owned);
+                    let terminate = listener
+                        .get("terminate")
+                        .and_then(Value::as_bool)
+                        .unwrap_or(false);
                     let only_tool = listener
                         .get("only_tool")
                         .and_then(Value::as_str)
@@ -349,7 +352,9 @@ fn observation_plugin(
                                 }
                                 match action.as_str() {
                                     "raise" => Err(ToolCapabilityError::new(message)),
-                                    "block" => Ok(BeforeToolCallAction::Block(reason)),
+                                    "block" => {
+                                        Ok(BeforeToolCallAction::Block { reason, terminate })
+                                    }
                                     _ => Ok(BeforeToolCallAction::Proceed(None)),
                                 }
                             }
@@ -385,7 +390,7 @@ fn observation_plugin(
     .erase()
 }
 
-fn run_scenario(document: &Value) {
+fn run_scenario(document: &Value) -> bool {
     let runtime = Runtime::new();
     let trace = Arc::new(Mutex::new(Vec::new()));
     for (name, script) in document["tools"].as_object().into_iter().flatten() {
@@ -469,6 +474,7 @@ fn run_scenario(document: &Value) {
             *expected
         );
     }
+    batch.terminate
 }
 
 fn layer_06_scenarios() -> Vec<PathBuf> {
@@ -522,4 +528,14 @@ fn corrected_unknown_tool_cross_layer_evidence_uses_the_real_rust_tool_executor(
         .join("an-unknown-tool-does-not-serialize-a-batch.yaml");
     let document: Value = serde_yaml::from_str(&fs::read_to_string(path).unwrap()).unwrap();
     run_scenario(&document);
+}
+
+#[test]
+fn a_blocked_call_may_end_the_turn_reaches_the_real_layer_06_terminate_fold() {
+    let path = root()
+        .join("conformance/agent")
+        .join("a-blocked-call-may-end-the-turn.yaml");
+    let document: Value = serde_yaml::from_str(&fs::read_to_string(path).unwrap()).unwrap();
+
+    assert!(run_scenario(&document));
 }

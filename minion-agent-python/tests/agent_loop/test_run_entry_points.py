@@ -691,6 +691,86 @@ async def test_a_post_turn_callback_failure_recovers_through_the_live_seam() -> 
     ]
 
 
+async def test_settle_run_failure_uses_the_agents_persistent_model_not_the_run_local_override() -> (
+    None
+):
+    """`L08-R014`: pinned Pi's own `handleRunFailure` (`agent.ts:511-517`) synthesizes the
+    failure `AssistantMessage`'s `api`/`provider`/`model` from `this._state.model` -- the
+    Agent's own PERSISTENT model, set once at construction and never reassigned anywhere in
+    `agent.ts` (confirmed by direct source re-inspection: no `this._state.model = ...`
+    assignment exists at all). `prepareNextTurn`'s own returned `model` only ever replaces the
+    LOCAL `config` a single `run()` call keeps (`agent-loop.ts:230-238`, `config = {...config,
+    model: nextTurnSnapshot.model ?? config.model}` -- a plain local reassignment, not a write
+    to `this._state`).
+
+    An earlier revision read `config.model` in `_settle_run_failure` instead of
+    `self.instance.model` -- the run-local `RunConfig` a `AGENT_PREPARE_NEXT_TURN` listener may
+    already have replaced by the time a LATER listener throws, producing model B where pinned Pi
+    would report model A. An independent Rust Layer-08 implementation pass surfaced this exact
+    A (persistent) -> run-local B (`prepareNextTurn`) -> failure witness (`L08-R014`): Rust could
+    not choose a failure-identity source without an explicit shared-contract answer, since both
+    readings are plausible from the pre-`L08-R014` spec text and produce different observable
+    output for this case."""
+    from minion_agent.agent.identity import AgentDefinition
+    from minion_agent.agent.registry import AgentRegistry
+    from minion_agent.llm import LlmService
+    from minion_agent.runtime import Context
+    from minion_agent.session import SessionService
+    from minion_agent.tools.events import declare_tools_events
+    from minion_agent.tools.registry import ToolRegistry
+
+    ctx = Context()
+    declare_tools_events(ctx.events)
+    sessions = SessionService()
+    llm = LlmService()
+    adapter = _MultiModelAdapter(
+        AssistantMessage(
+            content=(ToolCallBlock(id="t1", name="echo", arguments={}),),
+            stop_reason=StopReason.TOOL_USE,
+            usage=Usage(),
+            model="mock-1",
+            provider="mock",
+            timestamp=0,
+        )
+    )
+    llm.register(adapter)
+    registry = AgentRegistry(ctx=ctx, sessions=sessions)
+    handle = registry.create("room-a", AgentDefinition(name="ada", model=ModelId("mock", "mock-1")))
+    from minion_agent.agent_loop.driver import AgentLoop
+
+    loop = AgentLoop(
+        instance=handle.instance, llm=llm, tools=ToolRegistry(), artifacts=sessions.artifacts
+    )
+    _register(loop, "echo", lambda tool_call_id, args: "pong")
+    other_model = ModelId("mock", "mock-2")
+
+    async def prepare(instance: Any, *args: Any, **kwargs: Any) -> RunConfigUpdate:
+        return RunConfigUpdate(model=other_model)
+
+    def boom(*args: Any) -> TurnStopping:
+        raise RuntimeError("stopping listener exploded after the run-local model was replaced")
+
+    failure_messages: list[AssistantMessage] = []
+
+    def observe(instance: Any, event: Any) -> None:
+        if isinstance(event, MessageStart):
+            failure_messages.append(event.message)
+
+    # AGENT_PREPARE_NEXT_TURN fires (and its own model replacement lands on the run-local
+    # `config`) before AGENT_TURN_STOPPING is even consulted for the same turn -- so by the time
+    # `boom` throws, `config.model` is already `other_model` (`mock-2`), while the Agent's own
+    # persistent `instance.model` is still `mock-1`.
+    loop.instance.ctx.events.on(AGENT_PREPARE_NEXT_TURN, prepare)
+    loop.instance.ctx.events.on(AGENT_TURN_STOPPING, boom)
+    loop.instance.ctx.events.on(AGENT_LIFECYCLE_EVENT, observe)
+
+    await loop.prompt(_say("go"))  # must not raise -- boom is not part of recovery itself
+
+    failure = failure_messages[-1]
+    assert failure.stop_reason is StopReason.ERROR
+    assert (failure.provider, failure.model) == ("mock", "mock-1")  # persistent A, not run-local B
+
+
 async def test_failure_message_start_listener_failure_interrupts_recovery() -> None:
     """`L08-R002`, PASS 4: a listener throwing during the failure's own
     `message_start` aborts the rest of pinned pi's recovery sequence and

@@ -973,7 +973,62 @@ rows:
     convergence contract checkpoint recorded at `assurance/layers/08-agent-loop-contract-
     convergence.md`, docs commit `d06654b`) rather than another unilateral point-fix pass, per this
     project''s own newly-adopted `process/agent-workflow.md` section 11.8 -- itself adopted this same
-    remediation cycle, directly motivated by this finding pair''s own five-pass recurrence.'
+    remediation cycle, directly motivated by this finding pair''s own five-pass recurrence.
+
+    PASS 13, correcting `L08-R014` (`PI_PARITY_DEFECT`, `CONTRACT_ASSURANCE_DEFECT`): an independent
+    Rust Layer-08 implementation pass (Tasks 1-7 complete, draft PR `minion-agent-rust#14` @
+    `d3006375dc56deda1514ee9793708a14c9dd3dfe`) stopped on Task 8 with a genuine cross-language
+    ambiguity this manifest row and `spec/agent.md` had never actually specified: which model source
+    `handleRunFailure`''s own synthesized failure `AssistantMessage` reports. Discriminating witness:
+    start a run with persistent Agent model A; a `prepareNextTurn` listener replaces the RUN-LOCAL
+    model with B for a later turn; a further lifecycle listener throws after that replacement has
+    landed. Pinned Pi (`agent.ts:511-517`, re-audited directly) synthesizes `api`/`provider`/`model`
+    from `this._state.model` -- confirmed by full-file inspection to be the Agent''s own PERSISTENT
+    model, set once at construction, with NO `this._state.model = ...` assignment anywhere in
+    `agent.ts` -- so `handleRunFailure` reports A, never B, regardless of any `prepareNextTurn`
+    replacement already in effect for the run currently failing (`prepareNextTurn`''s own returned
+    `model` only ever reassigns the LOCAL `config` a single `run()` call keeps, `agent-loop.ts:
+    230-238`, never `this._state`). The merged Python candidate''s own `_settle_run_failure` instead
+    read `config.model` -- the run-local `RunConfig` parameter passed in from `_execute_run`, which
+    `AGENT_PREPARE_NEXT_TURN`''s own handling (`config.model = update.model`, matching pinned Pi''s
+    own local reassignment exactly) may already have replaced by the time a later listener throws --
+    producing B where pinned Pi produces A, for exactly this ordering. The shared contract was
+    genuinely silent on which source was correct: two reasonable independent implementations could
+    read `AG-009`''s prior text and choose either, exactly the risk `process/agent-workflow.md`
+    section 7''s own contract-quality rule warns against.
+
+    Remediation: `spec/agent.md` gained explicit normative text in both the `handleRunFailure` seam
+    section and the Python-mapping section, naming `self.instance.model`
+    (`AgentInstance`''s own PERSISTENT model, Minion''s architectural analogue of `this._state.model`)
+    as the failure-identity source, and explicitly stating the run-local `RunConfig`/`prepareNextTurn`
+    override is NOT that source, with the concrete A -> run-local B -> failure witness spelled out
+    normatively so a second independent implementation does not have to rediscover it from source
+    inspection. `driver.py::AgentLoop._settle_run_failure` now reads `self.instance.model.model`/
+    `self.instance.model.provider` instead of `config.model.model`/`config.model.provider`, and its
+    own `config: RunConfig` parameter is REMOVED entirely (not merely unread) since the run-local
+    config carried no other legitimate use in this method; the one call site
+    (`_execute_run`''s own `except Exception` handler) updated to match. A new, genuinely
+    discriminating Python-level test
+    (`test_settle_run_failure_uses_the_agents_persistent_model_not_the_run_local_override`,
+    `tests/agent_loop/test_run_entry_points.py`) reproduces the exact A -> run-local B -> failure
+    witness via the existing `_MultiModelAdapter`/`AGENT_PREPARE_NEXT_TURN` test machinery already
+    used by `test_prepare_next_turn_can_replace_model_and_thinking_level` (`AG-001`/`L08-R001`),
+    combined with a throwing `AGENT_TURN_STOPPING` listener (the same mechanism
+    `test_a_post_turn_callback_failure_recovers_through_the_live_seam` already uses to trigger
+    `_settle_run_failure`) -- confirmed genuinely discriminating by running it against the reverted
+    (`config.model`-reading) implementation first, where it fails asserting failure identity
+    `(mock, mock-2)` against the expected `(mock, mock-1)`, then restoring the fix and
+    re-confirming it passes. No canonical
+    (language-neutral) scenario was added this pass: the conformance schema/runner currently has no
+    vocabulary for injecting a `prepareNextTurn` model override alongside a throwing lifecycle
+    listener and asserting synthesized-failure identity, and building that vocabulary is a
+    genuinely separate, larger addition than this narrow fix warrants -- the review''s own
+    remediation guidance explicitly accepted "canonical OR explicit language test" for this finding.
+
+    Cross-language status: Rust''s own Tasks 1-7 (`minion-agent-rust#14` @ `d3006375d`) are
+    unaffected by this finding and remain independently reviewed; Task 8 was blocked specifically on
+    this row''s own missing contract answer and can resume once this candidate is independently
+    re-reviewed and accepted.'
   tests:
   - test_a_run_executor_failure_recovers_through_the_live_lifecycle_event_seam
   - test_a_post_turn_callback_failure_recovers_through_the_live_seam
@@ -1005,8 +1060,9 @@ rows:
   - test_serial_by_default_does_not_yield_between_synchronous_listeners (runtime/test_events_async.py)
   - test_serial_yield_after_each_suspends_between_every_listener (runtime/test_events_async.py)
   - test_serial_yield_after_each_suspends_after_every_listener_not_only_the_first (runtime/test_events_async.py)
-  python: src/minion_agent/agent_loop/driver.py::AgentLoop._execute_run (catch boundary), AgentLoop._dispatch_agent_event, AgentLoop._admit_messages, AgentLoop._settle_run_failure, AgentLoop._run_step (live tool-execution/update dispatch, direct stream iteration), src/minion_agent/tools/execute.py::OnExecutionStart, OnExecutionEnd, OnExecutionUpdate, _preflight, _execute_and_finalize, _immediate, execute_call, src/minion_agent/tools/batch.py::execute_batch, execute_length_stop_batch, src/minion_agent/agent/projection.py::MessageUpdate, ToolExecutionEnd, ToolExecutionUpdate, project, src/minion_agent/runtime/events.py::EventBus.serial (yield_after_each)
-  rust: PENDING -- Layer 08 not yet implemented in Rust; the PASS-2, PASS-3, PASS-4, PASS-5, PASS-6, PASS-7, and PASS-8 candidates were each independently rejected on this row (L08-R002), PASS 9 is the remediated candidate awaiting re-review
+  - test_settle_run_failure_uses_the_agents_persistent_model_not_the_run_local_override
+  python: src/minion_agent/agent_loop/driver.py::AgentLoop._execute_run (catch boundary), AgentLoop._dispatch_agent_event, AgentLoop._admit_messages, AgentLoop._settle_run_failure (persistent instance.model, no RunConfig parameter, L08-R014), AgentLoop._run_step (live tool-execution/update dispatch, direct stream iteration), src/minion_agent/tools/execute.py::OnExecutionStart, OnExecutionEnd, OnExecutionUpdate, _preflight, _execute_and_finalize, _immediate, execute_call, src/minion_agent/tools/batch.py::execute_batch, execute_length_stop_batch, src/minion_agent/agent/projection.py::MessageUpdate, ToolExecutionEnd, ToolExecutionUpdate, project, src/minion_agent/runtime/events.py::EventBus.serial (yield_after_each)
+  rust: minion-agent-rust#14 @ d3006375dc56deda1514ee9793708a14c9dd3dfe (draft PR) -- Tasks 1-7 complete and independently reviewed, full Rust suite 238 passed at Task 7; Task 8 BLOCKED on this row's own L08-R014 finding (failure-identity source was unspecified), not committed, preserved only as a local recoverable stash; resumes once this PASS-13 candidate is independently re-reviewed and accepted
   disposition: adopted
 - id: AG-010
   phase: 3

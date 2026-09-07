@@ -478,7 +478,7 @@ class AgentLoop:
             # `AGENT_END` right after it -- matching pinned Pi exactly:
             # `handleRunFailure` has no awareness of how far the run had
             # already reduced when its own dispatch throws.
-            await self._settle_run_failure(error, config, causes)
+            await self._settle_run_failure(error, causes)
 
     async def _run_inner(
         self,
@@ -603,7 +603,7 @@ class AgentLoop:
             await self._admit_messages(decision.messages, context, new_messages)
 
     async def _settle_run_failure(
-        self, error: BaseException, config: RunConfig, causes: list[dict[str, object]]
+        self, error: BaseException, causes: list[dict[str, object]]
     ) -> None:
         """Pinned Pi's `handleRunFailure`: an unexpected exception from the
         run executor (any of it -- listener dispatch, an adapter breaking its
@@ -632,14 +632,27 @@ class AgentLoop:
         entry is appended at `message_end` time, between the two dispatches,
         not before either; `error_message` is set as part of `turn_end`'s own
         reduce, before that event's own dispatch (an earlier revision set it
-        only after `turn_end`'s listeners had already run)."""
+        only after `turn_end`'s listeners had already run).
+
+        The failure's own `api`/`provider`/`model` come from `self.instance.model`
+        -- the Agent's PERSISTENT model (pinned Pi's own `this._state.model`,
+        `agent.ts:515-517`) -- never from the run-local `RunConfig` a
+        `AGENT_PREPARE_NEXT_TURN` listener may already have replaced by the time a
+        later listener throws (`L08-R014`): pinned Pi's own `prepareNextTurn`
+        return value only ever reassigns the LOCAL `config` a single `run()` call
+        keeps (`agent-loop.ts:230-238`), never `this._state.model` itself -- there
+        is no such assignment anywhere in `agent.ts`. An earlier revision took a
+        `config: RunConfig` parameter here and read `config.model`, producing the
+        run-local, possibly-already-replaced model instead of the Agent's own
+        persistent one; `config` carried no other use in this method, so it is
+        removed rather than kept unread."""
         log = self.instance.log
         failure = AssistantMessage(
             content=(TextBlock(text=""),),
             stop_reason=StopReason.ERROR,
             usage=Usage(),
-            model=config.model.model,
-            provider=config.model.provider,
+            model=self.instance.model.model,
+            provider=self.instance.model.provider,
             timestamp=0,
             error_message=str(error),
         )

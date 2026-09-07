@@ -14,5 +14,8 @@ pub use decisions::{
 };
 pub use driver::{AgentLoop, PromptInput};
 pub use error::{AgentListenerError, AgentLoopError};
-pub use events::{AgentEvent, AgentEventKind, dispatch_agent_event, register_agent_listener};
+pub use events::{
+    AgentEndReason, AgentEvent, AgentEventKind, RunCause, dispatch_agent_event,
+    register_agent_listener,
+};
 pub use state::{RunSnapshot, reduce_event};

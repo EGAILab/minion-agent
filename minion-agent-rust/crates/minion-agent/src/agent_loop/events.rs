@@ -11,6 +11,26 @@ use crate::{
 
 use super::{AgentListenerError, AgentLoopError};
 
+/// Provenance for one queued input that caused or extended a run.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct RunCause {
+    pub id: String,
+    pub origin: Option<serde_json::Value>,
+}
+
+/// Why one complete run settled.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AgentEndReason {
+    Completed,
+    Terminated,
+    Stopped,
+    Rejected,
+    Error,
+    Aborted,
+    Failed,
+}
+
 /// Complete live Agent lifecycle vocabulary.
 ///
 /// The complete owned stream event and partial are intentionally kept in the
@@ -18,7 +38,9 @@ use super::{AgentListenerError, AgentLoopError};
 #[allow(clippy::large_enum_variant)]
 #[derive(Clone, Debug, PartialEq)]
 pub enum AgentEvent {
-    AgentStart,
+    AgentStart {
+        causes: Vec<RunCause>,
+    },
     TurnStart,
     MessageStart(Message),
     MessageUpdate {
@@ -34,6 +56,8 @@ pub enum AgentEvent {
         tool_results: Vec<ToolResultMessage>,
     },
     AgentEnd {
+        reason: AgentEndReason,
+        causes: Vec<RunCause>,
         messages: Vec<Message>,
     },
 }
@@ -56,7 +80,7 @@ pub enum AgentEventKind {
 impl AgentEvent {
     pub fn kind(&self) -> AgentEventKind {
         match self {
-            Self::AgentStart => AgentEventKind::AgentStart,
+            Self::AgentStart { .. } => AgentEventKind::AgentStart,
             Self::TurnStart => AgentEventKind::TurnStart,
             Self::MessageStart(_) => AgentEventKind::MessageStart,
             Self::MessageUpdate { .. } => AgentEventKind::MessageUpdate,

@@ -169,11 +169,11 @@ fn message_is_failure(event: &AgentEvent) -> bool {
             message.stop_reason == StopReason::Error
         }
         AgentEvent::TurnEnd { message, .. } => message.stop_reason == StopReason::Error,
-        AgentEvent::AgentEnd { messages } => matches!(
+        AgentEvent::AgentEnd { messages, .. } => matches!(
             messages.as_slice(),
             [Message::Assistant(message)] if message.stop_reason == StopReason::Error
         ),
-        AgentEvent::AgentStart
+        AgentEvent::AgentStart { .. }
         | AgentEvent::TurnStart
         | AgentEvent::MessageStart(_)
         | AgentEvent::MessageUpdate { .. }
@@ -544,7 +544,7 @@ fn ordinary_agent_end_listener_failure_is_recovered_inside_the_run_boundary() {
                 &listener_plugin("agent-end-listener", {
                     let failed = Arc::clone(&failed);
                     Arc::new(move |event| {
-                        if matches!(event, AgentEvent::AgentEnd { ref messages } if messages.len() > 1)
+                        if matches!(event, AgentEvent::AgentEnd { ref messages, .. } if messages.len() > 1)
                             && !failed.swap(true, Ordering::SeqCst)
                         {
                             return Err(AgentListenerError::new("agent-end failed"));

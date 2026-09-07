@@ -6,9 +6,10 @@ use minion_agent::{
     DynPluginSpec, PluginInitError, PluginSpec, Runtime,
     agent::ThinkingLevel,
     agent_loop::{
-        AgentEvent, AgentEventKind, AgentListenerError, Enter, PreStepContext, PreStepDecision,
-        PreStepReason, PrepareNextTurnContext, Reject, RunConfig, RunConfigUpdate, RunContext,
-        ShouldStopAfterTurnContext, TurnStopping, dispatch_agent_event, register_agent_listener,
+        AgentEndReason, AgentEvent, AgentEventKind, AgentListenerError, Enter, PreStepContext,
+        PreStepDecision, PreStepReason, PrepareNextTurnContext, Reject, RunConfig, RunConfigUpdate,
+        RunContext, ShouldStopAfterTurnContext, TurnStopping, dispatch_agent_event,
+        register_agent_listener,
     },
     llm::{
         AssistantContentBlock, AssistantMessage, Message, ModelIdentity, StreamChunk, TextBlock,
@@ -193,6 +194,27 @@ fn run_and_decision_vocabulary_uses_owned_typed_snapshots_and_exact_wire_names()
         serde_json::to_value(TurnStopping::Stop).unwrap(),
         json!("stop")
     );
+    assert_eq!(
+        [
+            AgentEndReason::Completed,
+            AgentEndReason::Terminated,
+            AgentEndReason::Stopped,
+            AgentEndReason::Rejected,
+            AgentEndReason::Error,
+            AgentEndReason::Aborted,
+            AgentEndReason::Failed,
+        ]
+        .map(|reason| serde_json::to_value(reason).unwrap()),
+        [
+            json!("completed"),
+            json!("terminated"),
+            json!("stopped"),
+            json!("rejected"),
+            json!("error"),
+            json!("aborted"),
+            json!("failed"),
+        ]
+    );
 }
 
 #[test]
@@ -237,7 +259,7 @@ fn every_agent_event_variant_preserves_its_complete_typed_payload() {
     let result = tool_result("result");
     let message = assistant("answer");
     let events = vec![
-        AgentEvent::AgentStart,
+        AgentEvent::AgentStart { causes: vec![] },
         AgentEvent::TurnStart,
         AgentEvent::MessageStart(user("prompt")),
         AgentEvent::MessageUpdate {
@@ -253,6 +275,8 @@ fn every_agent_event_variant_preserves_its_complete_typed_payload() {
             tool_results: vec![result.clone()],
         },
         AgentEvent::AgentEnd {
+            reason: minion_agent::agent_loop::AgentEndReason::Completed,
+            causes: vec![],
             messages: vec![
                 user("prompt"),
                 Message::Assistant(Box::new(message.clone())),
@@ -313,7 +337,7 @@ fn every_agent_event_variant_preserves_its_complete_typed_payload() {
     ));
     assert!(matches!(
         &events[9],
-        AgentEvent::AgentEnd { messages }
+        AgentEvent::AgentEnd { messages, .. }
             if messages == &vec![user("prompt"), Message::Assistant(Box::new(message))]
     ));
 }
@@ -433,9 +457,12 @@ fn first_agent_listener_error_prevents_later_listeners() {
         runtime.mount(&plugin, json!({})).unwrap();
         runtime.reconcile().await.unwrap();
 
-        let error = dispatch_agent_event(&runtime.context(), AgentEvent::AgentStart)
-            .await
-            .unwrap_err();
+        let error = dispatch_agent_event(
+            &runtime.context(),
+            AgentEvent::AgentStart { causes: vec![] },
+        )
+        .await
+        .unwrap_err();
         assert_eq!(
             error.listener_error().unwrap().message(),
             "listener exploded"

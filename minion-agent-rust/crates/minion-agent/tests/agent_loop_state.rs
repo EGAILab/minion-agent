@@ -292,7 +292,15 @@ fn error_persists_after_agent_end_and_finish_until_the_next_run_starts() {
         },
     )
     .unwrap();
-    reduce_event(&agent, &AgentEvent::AgentEnd { messages: vec![] }).unwrap();
+    reduce_event(
+        &agent,
+        &AgentEvent::AgentEnd {
+            reason: minion_agent::agent_loop::AgentEndReason::Completed,
+            causes: vec![],
+            messages: vec![],
+        },
+    )
+    .unwrap();
     assert_eq!(agent.error_message().as_deref(), Some("provider failed"));
 
     agent.finish_run();

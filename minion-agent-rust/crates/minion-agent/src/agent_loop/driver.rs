@@ -9,7 +9,7 @@ use futures::{StreamExt, future::BoxFuture};
 use crate::{
     Context,
     agent::{
-        AgentInstance, AgentRunError, AgentStatus, ClaimPolicy, InboxTarget,
+        AgentInstance, AgentRunError, AgentStatus, ClaimPolicy, InboxTarget, InputEnvelope,
         ThinkingLevel as AgentThinkingLevel,
     },
     llm::{
@@ -24,9 +24,9 @@ use crate::{
 
 use super::decisions::{pre_step, prepare_next_turn, should_stop_after_turn};
 use super::{
-    AgentEvent, AgentLoopError, Enter, PreStepContext, PreStepDecision, PreStepReason,
-    PrepareNextTurnContext, RunConfig, RunContext, RunSnapshot, ShouldStopAfterTurnContext,
-    dispatch_agent_event, reduce_event,
+    AgentEndReason, AgentEvent, AgentLoopError, Enter, PreStepContext, PreStepDecision,
+    PreStepReason, PrepareNextTurnContext, RunCause, RunConfig, RunContext, RunSnapshot,
+    ShouldStopAfterTurnContext, dispatch_agent_event, reduce_event,
 };
 
 /// Input accepted by the public prompt entry point.
@@ -57,6 +57,7 @@ struct PreparedRun {
     context: RunContext,
     config: RunConfig,
     new_messages: Vec<Message>,
+    causes: Vec<RunCause>,
     decision: Option<Enter>,
 }
 
@@ -92,6 +93,7 @@ impl fmt::Debug for PreparedRun {
             .field("context", &self.context)
             .field("config", &self.config)
             .field("new_messages", &self.new_messages)
+            .field("causes", &self.causes)
             .field("decision", &self.decision)
             .finish_non_exhaustive()
     }
@@ -104,12 +106,13 @@ impl Drop for PreparedRun {
 }
 
 impl PreparedRun {
-    fn new(agent: Arc<AgentInstance>, snapshot: RunSnapshot) -> Self {
+    fn new(agent: Arc<AgentInstance>, snapshot: RunSnapshot, causes: Vec<RunCause>) -> Self {
         Self {
             agent,
             context: snapshot.context,
             config: snapshot.config,
             new_messages: Vec::new(),
+            causes,
             decision: None,
         }
     }
@@ -142,7 +145,7 @@ impl AgentLoop {
         let entering = normalize_prompt_input(input);
         let snapshot = self.agent.try_begin_run().map_err(map_prompt_entry_error)?;
         self.run_wrapped(
-            PreparedRun::new(Arc::clone(&self.agent), snapshot),
+            PreparedRun::new(Arc::clone(&self.agent), snapshot, Vec::new()),
             entering,
             false,
         )
@@ -171,7 +174,7 @@ impl AgentLoop {
         if !assistant_last {
             return self
                 .run_wrapped(
-                    PreparedRun::new(Arc::clone(&self.agent), snapshot),
+                    PreparedRun::new(Arc::clone(&self.agent), snapshot, Vec::new()),
                     Vec::new(),
                     false,
                 )
@@ -180,20 +183,22 @@ impl AgentLoop {
 
         let steering = self.claim(InboxTarget::Steering);
         if !steering.is_empty() {
+            let causes = envelope_causes(&steering);
             return self
                 .run_wrapped(
-                    PreparedRun::new(Arc::clone(&self.agent), snapshot),
-                    steering,
+                    PreparedRun::new(Arc::clone(&self.agent), snapshot, causes),
+                    envelope_messages(&steering),
                     true,
                 )
                 .await;
         }
         let follow_up = self.claim(InboxTarget::FollowUp);
         if !follow_up.is_empty() {
+            let causes = envelope_causes(&follow_up);
             return self
                 .run_wrapped(
-                    PreparedRun::new(Arc::clone(&self.agent), snapshot),
-                    follow_up,
+                    PreparedRun::new(Arc::clone(&self.agent), snapshot, causes),
+                    envelope_messages(&follow_up),
                     false,
                 )
                 .await;
@@ -205,6 +210,30 @@ impl AgentLoop {
         Err(AgentLoopError::CannotContinueFromAssistant)
     }
 
+    /// Runs queued follow-up input until the next-turn queue is empty.
+    ///
+    /// This Minion host pump opens one complete run for each batch it must
+    /// claim. A run may itself consume later follow-ups before returning.
+    pub async fn run_until_idle(&self) -> Result<(), AgentLoopError> {
+        while !self.agent.inbox().pending(InboxTarget::FollowUp).is_empty() {
+            let claimed = self.claim(InboxTarget::FollowUp);
+            if claimed.is_empty() {
+                continue;
+            }
+            let causes = envelope_causes(&claimed);
+            let entering = envelope_messages(&claimed);
+            let snapshot = self.agent.try_begin_run()?;
+            self.run_wrapped(
+                PreparedRun::new(Arc::clone(&self.agent), snapshot, causes),
+                entering,
+                false,
+            )
+            .await?;
+        }
+        self.agent.inbox().take_wake();
+        Ok(())
+    }
+
     #[cfg(test)]
     async fn prepare_prompt_run(&self, input: PromptInput) -> Result<PreparedRun, AgentLoopError> {
         if self.agent.status() != AgentStatus::Idle {
@@ -212,7 +241,8 @@ impl AgentLoop {
         }
         let entering = normalize_prompt_input(input);
         let snapshot = self.agent.try_begin_run().map_err(map_prompt_entry_error)?;
-        self.prepare_first_turn(snapshot, entering, false).await
+        self.prepare_first_turn(snapshot, entering, false, Vec::new())
+            .await
     }
 
     #[cfg(test)]
@@ -235,16 +265,24 @@ impl AgentLoop {
             .try_begin_run()
             .map_err(map_continue_entry_error)?;
         if !assistant_last {
-            return self.prepare_first_turn(snapshot, Vec::new(), false).await;
+            return self
+                .prepare_first_turn(snapshot, Vec::new(), false, Vec::new())
+                .await;
         }
 
         let steering = self.claim(InboxTarget::Steering);
         if !steering.is_empty() {
-            return self.prepare_first_turn(snapshot, steering, true).await;
+            let causes = envelope_causes(&steering);
+            return self
+                .prepare_first_turn(snapshot, envelope_messages(&steering), true, causes)
+                .await;
         }
         let follow_up = self.claim(InboxTarget::FollowUp);
         if !follow_up.is_empty() {
-            return self.prepare_first_turn(snapshot, follow_up, false).await;
+            let causes = envelope_causes(&follow_up);
+            return self
+                .prepare_first_turn(snapshot, envelope_messages(&follow_up), false, causes)
+                .await;
         }
 
         // Another claimant may have drained the observed queue between the
@@ -259,8 +297,9 @@ impl AgentLoop {
         snapshot: RunSnapshot,
         entering: Vec<Message>,
         skip_initial_steering_poll: bool,
+        causes: Vec<RunCause>,
     ) -> Result<PreparedRun, AgentLoopError> {
-        let mut prepared = PreparedRun::new(Arc::clone(&self.agent), snapshot);
+        let mut prepared = PreparedRun::new(Arc::clone(&self.agent), snapshot, causes);
         self.open_first_turn(&mut prepared, entering, skip_initial_steering_poll)
             .await?;
         Ok(prepared)
@@ -272,7 +311,10 @@ impl AgentLoop {
         entering: Vec<Message>,
         skip_initial_steering_poll: bool,
     ) -> Result<(), AgentLoopError> {
-        self.dispatch(AgentEvent::AgentStart).await?;
+        self.dispatch(AgentEvent::AgentStart {
+            causes: prepared.causes.clone(),
+        })
+        .await?;
         self.dispatch(AgentEvent::TurnStart).await?;
         let decision = self.decide(entering, PreStepReason::Initial).await?;
         let PreStepDecision::Enter(mut decision) = decision else {
@@ -283,7 +325,9 @@ impl AgentLoop {
         if !skip_initial_steering_poll {
             let steering = self.claim(InboxTarget::Steering);
             if !steering.is_empty() {
-                let steering_decision = self.decide(steering, PreStepReason::Steering).await?;
+                let steering_decision = self
+                    .decide(envelope_messages(&steering), PreStepReason::Steering)
+                    .await?;
                 let PreStepDecision::Enter(next) = steering_decision else {
                     return Ok(());
                 };
@@ -484,9 +528,12 @@ impl AgentLoop {
         prepared: &mut PreparedRun,
     ) -> Result<Vec<Message>, AgentLoopError> {
         let Some(mut decision) = prepared.decision.take() else {
-            return self.finish_successful_run(prepared).await;
+            return self
+                .finish_successful_run(prepared, AgentEndReason::Rejected)
+                .await;
         };
         let mut boundary = TurnBoundary::AlreadyOpen;
+        let mut last_terminated: bool;
         loop {
             loop {
                 if boundary == TurnBoundary::NeedsStart {
@@ -499,12 +546,21 @@ impl AgentLoop {
                     .run_provider_turn_with_decision(prepared, &decision)
                     .await?;
                 if turn.disposition == ProviderTurnDisposition::RepresentedTerminal {
+                    let reason = match turn.message.stop_reason {
+                        StopReason::Error => AgentEndReason::Error,
+                        StopReason::Aborted => AgentEndReason::Aborted,
+                        StopReason::Pending
+                        | StopReason::Stop
+                        | StopReason::Length
+                        | StopReason::ToolUse
+                        | StopReason::Deferred => unreachable!("represented terminal is exact"),
+                    };
                     self.dispatch(AgentEvent::TurnEnd {
                         message: turn.message,
                         tool_results: Vec::new(),
                     })
                     .await?;
-                    return self.finish_successful_run(prepared).await;
+                    return self.finish_successful_run(prepared, reason).await;
                 }
 
                 let has_tool_calls = turn
@@ -521,6 +577,7 @@ impl AgentLoop {
                     }
                 };
                 let has_more_tool_calls = has_tool_calls && !batch.terminate;
+                last_terminated = batch.terminate;
                 self.dispatch(AgentEvent::TurnEnd {
                     message: turn.message.clone(),
                     tool_results: batch.messages.clone(),
@@ -554,22 +611,36 @@ impl AgentLoop {
                 )
                 .await?
                 {
-                    return self.finish_successful_run(prepared).await;
+                    return self
+                        .finish_successful_run(prepared, AgentEndReason::Stopped)
+                        .await;
                 }
 
                 match self.select_next_inner_turn(has_more_tool_calls).await? {
                     LoopDecision::Continue(next) => decision = next,
                     LoopDecision::Exhausted => break,
                     LoopDecision::Stop => {
-                        return self.finish_successful_run(prepared).await;
+                        return self
+                            .finish_successful_run(prepared, AgentEndReason::Rejected)
+                            .await;
                     }
                 }
             }
 
-            match self.select_follow_up().await? {
+            match self.select_follow_up(prepared).await? {
                 LoopDecision::Continue(next) => decision = next,
-                LoopDecision::Exhausted | LoopDecision::Stop => {
-                    return self.finish_successful_run(prepared).await;
+                LoopDecision::Exhausted => {
+                    let reason = if last_terminated {
+                        AgentEndReason::Terminated
+                    } else {
+                        AgentEndReason::Completed
+                    };
+                    return self.finish_successful_run(prepared, reason).await;
+                }
+                LoopDecision::Stop => {
+                    return self
+                        .finish_successful_run(prepared, AgentEndReason::Rejected)
+                        .await;
                 }
             }
         }
@@ -578,9 +649,12 @@ impl AgentLoop {
     async fn finish_successful_run(
         &self,
         prepared: &PreparedRun,
+        reason: AgentEndReason,
     ) -> Result<Vec<Message>, AgentLoopError> {
         let messages = prepared.new_messages.clone();
         self.dispatch(AgentEvent::AgentEnd {
+            reason,
+            causes: prepared.causes.clone(),
             messages: messages.clone(),
         })
         .await?;
@@ -603,13 +677,17 @@ impl AgentLoop {
         match outcome {
             Ok(messages) => Ok(messages),
             Err(error) if error.is_eager() => Err(error),
-            Err(error) => self.settle_run_failure(&error).await,
+            Err(error) => {
+                self.settle_run_failure(&error, prepared.causes.clone())
+                    .await
+            }
         }
     }
 
     async fn settle_run_failure(
         &self,
         error: &AgentLoopError,
+        causes: Vec<RunCause>,
     ) -> Result<Vec<Message>, AgentLoopError> {
         let mut failure = AssistantMessage::new(
             self.agent.model(),
@@ -631,6 +709,8 @@ impl AgentLoop {
         .await?;
         let messages = vec![message];
         self.dispatch(AgentEvent::AgentEnd {
+            reason: AgentEndReason::Failed,
+            causes,
             messages: messages.clone(),
         })
         .await?;
@@ -658,19 +738,28 @@ impl AgentLoop {
         } else {
             PreStepReason::Steering
         };
-        Ok(match self.decide(steering, reason).await? {
-            PreStepDecision::Enter(next) => LoopDecision::Continue(next),
-            PreStepDecision::Reject(_) => LoopDecision::Stop,
-        })
+        Ok(
+            match self.decide(envelope_messages(&steering), reason).await? {
+                PreStepDecision::Enter(next) => LoopDecision::Continue(next),
+                PreStepDecision::Reject(_) => LoopDecision::Stop,
+            },
+        )
     }
 
-    async fn select_follow_up(&self) -> Result<LoopDecision, AgentLoopError> {
+    async fn select_follow_up(
+        &self,
+        prepared: &mut PreparedRun,
+    ) -> Result<LoopDecision, AgentLoopError> {
         let follow_up = self.claim(InboxTarget::FollowUp);
         if follow_up.is_empty() {
             return Ok(LoopDecision::Exhausted);
         }
+        prepared.causes.extend(envelope_causes(&follow_up));
         Ok(
-            match self.decide(follow_up, PreStepReason::NextTurn).await? {
+            match self
+                .decide(envelope_messages(&follow_up), PreStepReason::NextTurn)
+                .await?
+            {
                 PreStepDecision::Enter(next) => LoopDecision::Continue(next),
                 PreStepDecision::Reject(_) => LoopDecision::Stop,
             },
@@ -707,18 +796,30 @@ impl AgentLoop {
         dispatch_agent_event(&self.context, event).await
     }
 
-    fn claim(&self, target: InboxTarget) -> Vec<Message> {
+    fn claim(&self, target: InboxTarget) -> Vec<InputEnvelope> {
         let policy = match target {
             InboxTarget::Steering => self.next_step_policy,
             InboxTarget::FollowUp => self.next_turn_policy,
         };
-        self.agent
-            .inbox()
-            .claim(target, policy)
-            .into_iter()
-            .map(|envelope| envelope.message)
-            .collect()
+        self.agent.inbox().claim(target, policy)
     }
+}
+
+fn envelope_messages(envelopes: &[InputEnvelope]) -> Vec<Message> {
+    envelopes
+        .iter()
+        .map(|envelope| envelope.message.clone())
+        .collect()
+}
+
+fn envelope_causes(envelopes: &[InputEnvelope]) -> Vec<RunCause> {
+    envelopes
+        .iter()
+        .map(|envelope| RunCause {
+            id: envelope.id.clone(),
+            origin: envelope.origin.clone(),
+        })
+        .collect()
 }
 
 fn live_tool_event(

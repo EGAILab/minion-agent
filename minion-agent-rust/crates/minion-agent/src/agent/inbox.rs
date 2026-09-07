@@ -2,6 +2,7 @@ use std::{collections::VecDeque, sync::Arc};
 
 use parking_lot::Mutex;
 use serde_json::Value;
+use uuid::Uuid;
 
 use crate::llm::Message;
 
@@ -19,6 +20,7 @@ pub enum ClaimPolicy {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct InputEnvelope {
+    pub id: String,
     pub target: InboxTarget,
     pub message: Message,
     pub origin: Option<Value>,
@@ -61,6 +63,7 @@ impl Inbox {
         request_wake: bool,
     ) -> InputEnvelope {
         let envelope = InputEnvelope {
+            id: Uuid::new_v4().to_string(),
             target,
             message,
             origin,
@@ -89,6 +92,15 @@ impl Inbox {
     pub fn has_pending(&self) -> bool {
         let state = self.state.lock();
         !state.steering.is_empty() || !state.follow_up.is_empty()
+    }
+
+    /// Returns a stable, non-consuming FIFO snapshot for one target.
+    pub fn pending(&self, target: InboxTarget) -> Vec<InputEnvelope> {
+        let state = self.state.lock();
+        match target {
+            InboxTarget::Steering => state.steering.iter().cloned().collect(),
+            InboxTarget::FollowUp => state.follow_up.iter().cloned().collect(),
+        }
     }
 
     pub fn clear(&self, target: InboxTarget) {

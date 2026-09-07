@@ -42,7 +42,9 @@ pub fn reduce_event(agent: &AgentInstance, event: &AgentEvent) -> Result<(), Age
         AgentEvent::AgentEnd { .. } => {
             agent.set_streaming_message(None);
         }
-        AgentEvent::AgentStart | AgentEvent::TurnStart | AgentEvent::ToolExecutionUpdate(_) => {}
+        AgentEvent::AgentStart { .. }
+        | AgentEvent::TurnStart
+        | AgentEvent::ToolExecutionUpdate(_) => {}
     }
     Ok(())
 }

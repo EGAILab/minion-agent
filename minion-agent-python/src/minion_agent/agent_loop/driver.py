@@ -634,16 +634,24 @@ class AgentLoop:
         reduce, before that event's own dispatch (an earlier revision set it
         only after `turn_end`'s listeners had already run).
 
-        The failure's own `api`/`provider`/`model` come from `self.instance.model`
-        -- the Agent's PERSISTENT model (pinned Pi's own `this._state.model`,
-        `agent.ts:515-517`) -- never from the run-local `RunConfig` a
+        The failure's own `api`/`provider`/`model` come from `self.instance.model`,
+        read LIVE right here -- the Agent's CURRENT persistent model at settlement
+        time (pinned Pi's own live read of `this._state.model`, `agent.ts:515-517`),
+        NOT a value captured once and frozen when the Agent/AgentInstance was
+        constructed. `self.instance.model` is Layer 07's own already-certified
+        mutable current value (`spec/agent.md`'s "Mutable per-instance current
+        configuration"): a caller may reassign it directly at any time, including
+        while a run is active, and this read sees that live value with no snapshot
+        in between, matching pinned Pi's own `Agent.state.model = "..."` external
+        mutation exactly. This is DIFFERENT from the run-local `RunConfig` a
         `AGENT_PREPARE_NEXT_TURN` listener may already have replaced by the time a
         later listener throws (`L08-R014`): pinned Pi's own `prepareNextTurn`
         return value only ever reassigns the LOCAL `config` a single `run()` call
-        keeps (`agent-loop.ts:230-238`), never `this._state.model` itself -- there
-        is no such assignment anywhere in `agent.ts`. An earlier revision took a
-        `config: RunConfig` parameter here and read `config.model`, producing the
-        run-local, possibly-already-replaced model instead of the Agent's own
+        keeps (`agent-loop.ts:230-238`), never `this._state.model` itself -- a
+        run-local override does NOT reach this read, while a direct persistent-
+        model mutation DOES. An earlier revision took a `config: RunConfig`
+        parameter here and read `config.model`, producing the run-local,
+        possibly-already-replaced model instead of the Agent's own current
         persistent one; `config` carried no other use in this method, so it is
         removed rather than kept unread."""
         log = self.instance.log

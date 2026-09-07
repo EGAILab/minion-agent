@@ -694,14 +694,16 @@ async def test_a_post_turn_callback_failure_recovers_through_the_live_seam() -> 
 async def test_settle_run_failure_uses_the_agents_persistent_model_not_the_run_local_override() -> (
     None
 ):
-    """`L08-R014`: pinned Pi's own `handleRunFailure` (`agent.ts:511-517`) synthesizes the
-    failure `AssistantMessage`'s `api`/`provider`/`model` from `this._state.model` -- the
-    Agent's own PERSISTENT model, set once at construction and never reassigned anywhere in
-    `agent.ts` (confirmed by direct source re-inspection: no `this._state.model = ...`
-    assignment exists at all). `prepareNextTurn`'s own returned `model` only ever replaces the
-    LOCAL `config` a single `run()` call keeps (`agent-loop.ts:230-238`, `config = {...config,
-    model: nextTurnSnapshot.model ?? config.model}` -- a plain local reassignment, not a write
-    to `this._state`).
+    """`L08-R014`, first (A/B) witness: pinned Pi's own `handleRunFailure` (`agent.ts:511-517`)
+    synthesizes the failure `AssistantMessage`'s `api`/`provider`/`model` from `this._state.model`,
+    read LIVE at settlement -- NOT a value frozen when the Agent was constructed (see the companion
+    test right below, `test_settle_run_failure_reports_the_persistent_models_current_value_not_its_
+    run_start_one`, for the C witness proving the live-read distinction matters:
+    `self.instance.model` is Layer 07's own already-certified mutable current value, and a caller
+    mutation of it DOES reach this read). `prepareNextTurn`'s own returned `model` only ever
+    replaces the LOCAL `config` a single `run()` call keeps (`agent-loop.ts:230-238`, `config =
+    {...config, model: nextTurnSnapshot.model ?? config.model}` -- a plain local reassignment, not a
+    write to `this._state`) -- this is the ONE source that does NOT reach `handleRunFailure`.
 
     An earlier revision read `config.model` in `_settle_run_failure` instead of
     `self.instance.model` -- the run-local `RunConfig` a `AGENT_PREPARE_NEXT_TURN` listener may
@@ -769,6 +771,88 @@ async def test_settle_run_failure_uses_the_agents_persistent_model_not_the_run_l
     failure = failure_messages[-1]
     assert failure.stop_reason is StopReason.ERROR
     assert (failure.provider, failure.model) == ("mock", "mock-1")  # persistent A, not run-local B
+
+
+async def test_settle_run_failure_reports_the_live_persistent_model_not_a_run_start_snapshot() -> (
+    None
+):
+    """`L08-R014`, second remediation: an independent re-review of the first PASS-13 fix found the
+    fix's own NORMATIVE PROSE wrong even though the CODE (`self.instance.model`, read live at
+    settlement) was already correct. Certified Layer 07 already adopts pinned Pi's own live,
+    freely-reassignable `AgentState.model`/`Agent.state.model = "..."` (`spec/agent.md`'s own
+    "Mutable per-instance current configuration" section) -- a caller may mutate the Agent's
+    PERSISTENT model at any time, including while a run is active, and pinned Pi's own
+    `handleRunFailure` (`agent.ts:511-517`) reads whatever `this._state.model` CURRENTLY holds at
+    settlement time, not a value frozen when the Agent was constructed. The prior PASS-13 fix's own
+    docstrings described this value as "set once at construction, never reassigned" -- true only
+    for `agent.ts`'s own internal code, false for the persistent model as a whole once Layer 07's
+    already-certified external mutation surface is accounted for, and misleading enough that a
+    second independent implementation reading it could reasonably build a construction-time
+    SNAPSHOT instead of a live read, breaking this exact case.
+
+    Full witness: persistent model A -> `prepareNextTurn` replaces the RUN-LOCAL model with B (an
+    excluded source, per the first `L08-R014` remediation, unaffected here) -> a caller/listener
+    mutates the Agent's own PERSISTENT model to C via the adopted Layer-07 surface, while the run is
+    still active -> a later listener throws. Failure identity must be C -- the CURRENT persistent
+    value at settlement -- not A (construction-time) and not B (the excluded run-local override)."""
+    from minion_agent.agent.identity import AgentDefinition
+    from minion_agent.agent.registry import AgentRegistry
+    from minion_agent.llm import LlmService
+    from minion_agent.runtime import Context
+    from minion_agent.session import SessionService
+    from minion_agent.tools.events import declare_tools_events
+    from minion_agent.tools.registry import ToolRegistry
+
+    ctx = Context()
+    declare_tools_events(ctx.events)
+    sessions = SessionService()
+    llm = LlmService()
+    adapter = _MultiModelAdapter(
+        AssistantMessage(
+            content=(ToolCallBlock(id="t1", name="echo", arguments={}),),
+            stop_reason=StopReason.TOOL_USE,
+            usage=Usage(),
+            model="mock-1",
+            provider="mock",
+            timestamp=0,
+        )
+    )
+    llm.register(adapter)
+    registry = AgentRegistry(ctx=ctx, sessions=sessions)
+    handle = registry.create("room-a", AgentDefinition(name="ada", model=ModelId("mock", "mock-1")))
+    from minion_agent.agent_loop.driver import AgentLoop
+
+    loop = AgentLoop(
+        instance=handle.instance, llm=llm, tools=ToolRegistry(), artifacts=sessions.artifacts
+    )
+    _register(loop, "echo", lambda tool_call_id, args: "pong")
+    run_local_model = ModelId("mock", "mock-2")  # B -- excluded run-local override
+    mutated_persistent_model = ModelId("mock", "mock-3")  # C -- current persistent value
+
+    async def prepare(instance: Any, *args: Any, **kwargs: Any) -> RunConfigUpdate:
+        return RunConfigUpdate(model=run_local_model)
+
+    def boom(*args: Any) -> TurnStopping:
+        # Layer 07's own adopted live-mutation surface, exercised while the run is still active --
+        # matching pinned Pi's `agent.state.model = "..."` direct property assignment exactly.
+        loop.instance.model = mutated_persistent_model
+        raise RuntimeError("stopping listener exploded after mutating the persistent model")
+
+    failure_messages: list[AssistantMessage] = []
+
+    def observe(instance: Any, event: Any) -> None:
+        if isinstance(event, MessageStart):
+            failure_messages.append(event.message)
+
+    loop.instance.ctx.events.on(AGENT_PREPARE_NEXT_TURN, prepare)
+    loop.instance.ctx.events.on(AGENT_TURN_STOPPING, boom)
+    loop.instance.ctx.events.on(AGENT_LIFECYCLE_EVENT, observe)
+
+    await loop.prompt(_say("go"))  # must not raise -- boom is not part of recovery itself
+
+    failure = failure_messages[-1]
+    assert failure.stop_reason is StopReason.ERROR
+    assert (failure.provider, failure.model) == ("mock", "mock-3")  # current persistent C
 
 
 async def test_failure_message_start_listener_failure_interrupts_recovery() -> None:

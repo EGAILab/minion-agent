@@ -1028,7 +1028,51 @@ rows:
     Cross-language status: Rust''s own Tasks 1-7 (`minion-agent-rust#14` @ `d3006375d`) are
     unaffected by this finding and remain independently reviewed; Task 8 was blocked specifically on
     this row''s own missing contract answer and can resume once this candidate is independently
-    re-reviewed and accepted.'
+    re-reviewed and accepted.
+
+    PASS 14, correcting a residual `CONTRACT_ASSURANCE_DEFECT` an independent re-review of the
+    PASS-13 candidate found: PASS 13''s own CODE fix (`self.instance.model`, read live at
+    settlement) was already correct, and the A -> run-local B -> failure witness was confirmed
+    `RESOLVED` -- but PASS 13''s own NORMATIVE PROSE described the persistent model as "set once at
+    construction" / "never reassigned," which contradicts the ALREADY-CERTIFIED Layer-07 contract in
+    this SAME document (`spec/agent.md`''s own "Mutable per-instance current configuration"
+    section): pinned Pi''s own `Agent.state` getter returns the live `AgentState` object, and a
+    caller may reassign `agent.state.model = "..."` directly at any time, including while a run is
+    active -- `this._state.model` is never reassigned INSIDE `agent.ts` (that half of PASS 13''s own
+    claim was and remains true), but IS externally reassignable through the public `state` getter,
+    and `handleRunFailure` reads whatever it currently holds, live, with no snapshot. Two
+    independent implementations reading PASS 13''s own prose in isolation could reasonably conclude
+    EITHER "read live" (correct) OR "capture once at construction/run-start" (a second,
+    independently plausible but wrong reading the prose itself invited) -- exactly the ambiguity
+    `L08-R014` was opened to close, reopened by imprecise language rather than by incorrect code.
+
+    Discriminating witness (third source, the one PASS 13''s own text omitted): persistent model A
+    -> `prepareNextTurn` replaces the RUN-LOCAL model with B (excluded, per PASS 13, unaffected here)
+    -> a caller/listener mutates the Agent''s own PERSISTENT model to C via the adopted Layer-07
+    mutation surface, while the run remains active -> a later listener throws. Pinned Pi reports C,
+    since `this._state.model` is read live and C is now its current value; PASS 13''s own
+    "set once at construction" phrasing, taken literally, would instead predict A.
+
+    Remediation: `spec/agent.md` rewrote both `L08-R014` passages (the `handleRunFailure` seam
+    section and the Python-mapping section) to describe `self.instance.model`/`this._state.model` as
+    the CURRENT persistent value read LIVE at settlement, explicitly naming THREE sources rather than
+    two -- run-local `prepareNextTurn` override (excluded), and Layer-07 direct persistent mutation
+    (included, since it changes the very value read live) -- and explicitly states that a
+    construction-time snapshot/cache is ALSO a `PI_PARITY_DEFECT`, not merely an alternative reading,
+    since it would report A instead of C in the new witness. `driver.py::_settle_run_failure`''s own
+    docstring received the identical correction; NO PRODUCTION CODE CHANGED THIS PASS -- the
+    reviewer''s own evidence section confirmed the existing `self.instance.model` read already
+    satisfies the C witness, since it is a live read with no intervening snapshot to begin with. A
+    new, genuinely discriminating Python-level test
+    (`test_settle_run_failure_reports_the_live_persistent_model_not_a_run_start_snapshot`,
+    `tests/agent_loop/test_run_entry_points.py`) directly mutates `loop.instance.model` to C from
+    inside the SAME throwing `AGENT_TURN_STOPPING` listener used by PASS 13''s own A/B test, closing
+    the contract branch the review named -- confirmed to pass against the UNCHANGED production code,
+    proving this pass is a pure contract/evidence correction, not a disguised behavior change.
+
+    Cross-language status unchanged from PASS 13: Rust''s own Tasks 1-7 remain unaffected and
+    independently reviewed; Task 8 remains blocked pending independent re-review of this narrowed
+    PASS-14 diff.'
   tests:
   - test_a_run_executor_failure_recovers_through_the_live_lifecycle_event_seam
   - test_a_post_turn_callback_failure_recovers_through_the_live_seam
@@ -1061,7 +1105,8 @@ rows:
   - test_serial_yield_after_each_suspends_between_every_listener (runtime/test_events_async.py)
   - test_serial_yield_after_each_suspends_after_every_listener_not_only_the_first (runtime/test_events_async.py)
   - test_settle_run_failure_uses_the_agents_persistent_model_not_the_run_local_override
-  python: src/minion_agent/agent_loop/driver.py::AgentLoop._execute_run (catch boundary), AgentLoop._dispatch_agent_event, AgentLoop._admit_messages, AgentLoop._settle_run_failure (persistent instance.model, no RunConfig parameter, L08-R014), AgentLoop._run_step (live tool-execution/update dispatch, direct stream iteration), src/minion_agent/tools/execute.py::OnExecutionStart, OnExecutionEnd, OnExecutionUpdate, _preflight, _execute_and_finalize, _immediate, execute_call, src/minion_agent/tools/batch.py::execute_batch, execute_length_stop_batch, src/minion_agent/agent/projection.py::MessageUpdate, ToolExecutionEnd, ToolExecutionUpdate, project, src/minion_agent/runtime/events.py::EventBus.serial (yield_after_each)
+  - test_settle_run_failure_reports_the_live_persistent_model_not_a_run_start_snapshot
+  python: src/minion_agent/agent_loop/driver.py::AgentLoop._execute_run (catch boundary), AgentLoop._dispatch_agent_event, AgentLoop._admit_messages, AgentLoop._settle_run_failure (live current-value self.instance.model read, no RunConfig parameter, no snapshot/cache, L08-R014), AgentLoop._run_step (live tool-execution/update dispatch, direct stream iteration), src/minion_agent/tools/execute.py::OnExecutionStart, OnExecutionEnd, OnExecutionUpdate, _preflight, _execute_and_finalize, _immediate, execute_call, src/minion_agent/tools/batch.py::execute_batch, execute_length_stop_batch, src/minion_agent/agent/projection.py::MessageUpdate, ToolExecutionEnd, ToolExecutionUpdate, project, src/minion_agent/runtime/events.py::EventBus.serial (yield_after_each)
   rust: minion-agent-rust#14 @ d3006375dc56deda1514ee9793708a14c9dd3dfe (draft PR) -- Tasks 1-7 complete and independently reviewed, full Rust suite 238 passed at Task 7; Task 8 BLOCKED on this row's own L08-R014 finding (failure-identity source was unspecified), not committed, preserved only as a local recoverable stash; resumes once this PASS-13 candidate is independently re-reviewed and accepted
   disposition: adopted
 - id: AG-010

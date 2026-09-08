@@ -118,18 +118,44 @@ class Inbox:
             return claimed
         return (queue.pop(0),)
 
-    def restore(self, target: InboxTarget, envelopes: tuple[InputEnvelope, ...]) -> None:
-        """Put `envelopes` back at the front of `target`, ahead of whatever is already queued
-        there (Layer 09, `L09-R007` convergence): a run-entry attempt that failed before a run
-        ever validly began must leave `claim()`'d input exactly as if the claim had never
-        happened, even if something else was enqueued at the same target in the meantime (a
-        failing status-notification observer, for example, that itself calls `steer()`/
-        `followup()` before raising) -- the restored batch precedes that later input, never
-        replaces or interleaves with it. `wake_requested` is untouched: `claim()` never reads or
-        writes it either, so restoring what `claim()` removed does not need to touch it."""
-        if not envelopes:
-            return
-        self._queues[target][0:0] = envelopes
+    def peek(self, target: InboxTarget, policy: ClaimPolicy) -> tuple[InputEnvelope, ...]:
+        """What `claim(target, policy)` would currently return, WITHOUT removing anything (Layer
+        09, `L09-R010`). Read-only and side-effect-free -- part of the public API, unlike
+        `_commit_claim` below -- so it cannot itself violate `AG-011`'s exactly-once invariant no
+        matter how a caller uses it.
+
+        Exists so a run-entry attempt (`AgentLoop._run_wrapped`, via `continue_()`/
+        `run_until_idle()`) can inspect what it would claim BEFORE committing to actually removing
+        it: pair with `_commit_claim(target, peek(...))`, called synchronously with no intervening
+        `await`, to defer the destructive removal until a run has actually validly begun. An
+        earlier revision (`L09-R007` convergence, PASS 5) instead claimed eagerly and exposed a
+        PUBLIC `restore(target, envelopes)` to reverse it on failure -- an independent Rust review
+        found that method callable by anyone with any envelope tuple, including one still queued
+        and never claimed, or the same envelope repeatedly, manufacturing duplicate queue entries
+        that shared an id (`L09-R010`, `CONTRACT_ASSURANCE_DEFECT`). `peek`/`_commit_claim` closes
+        that authority gap structurally rather than by convention alone: nothing is ever removed
+        until a caller is certain it should be, so a failed run-entry attempt needs no restoration
+        step at all -- there is nothing to undo, because nothing was ever removed."""
+        queue = self._queues[target]
+        if not queue:
+            return ()
+        if policy is ClaimPolicy.ALL:
+            return tuple(queue)
+        return (queue[0],)
+
+    def _commit_claim(self, target: InboxTarget, envelopes: tuple[InputEnvelope, ...]) -> None:
+        """Remove exactly `envelopes` -- the exact prefix a PRIOR `peek(target, ...)` call on
+        this SAME `Inbox` just returned, with no intervening `await` -- from `target` (Layer 08
+        only, `AgentLoop._run_wrapped`'s own run-entry commit, `L09-R010`). Not part of this
+        class's own public API, the same "Layer 07 owns vocabulary, Layer 08 owns per-run
+        lifecycle" split already established for `AgentInstance._start_run_signal`/`_end_run_
+        signal`. Removal-only, by COUNT from the front -- unlike the removed public `restore()`,
+        this method can never INSERT an envelope, so it structurally cannot manufacture a
+        duplicate id no matter how or how often it is called; calling it again (misuse, or a
+        caller that bypasses the `_` convention) only ever removes more of whatever is CURRENTLY
+        at the front, never duplicates anything."""
+        queue = self._queues[target]
+        queue[: len(envelopes)] = []
 
     def clear(self, target: InboxTarget) -> None:
         """Discard whatever is queued at `target`, unclaimed (pinned Pi's

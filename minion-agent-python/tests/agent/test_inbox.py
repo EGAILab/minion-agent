@@ -90,59 +90,117 @@ def test_the_two_queues_are_independent() -> None:
     assert len(inbox.pending(InboxTarget.NEXT_TURN)) == 1
 
 
-# -- Layer 09, `L09-R007` convergence: restore() undoes a claim() ------------------------------
+# -- Layer 09, `L09-R010`: peek()/`_commit_claim()` replace the removed public restore() --------
 
 
-def test_restore_puts_a_claimed_envelope_back() -> None:
+def test_peek_returns_what_claim_would_without_removing_it() -> None:
     inbox = Inbox()
     envelope = inbox.followup(_message("only"))
-    claimed = inbox.claim(InboxTarget.NEXT_TURN, ClaimPolicy.ONE_AT_A_TIME)
 
-    inbox.restore(InboxTarget.NEXT_TURN, claimed)
+    peeked = inbox.peek(InboxTarget.NEXT_TURN, ClaimPolicy.ONE_AT_A_TIME)
 
-    pending = inbox.pending(InboxTarget.NEXT_TURN)
-    assert len(pending) == 1
-    assert pending[0].id == envelope.id
-    assert pending[0].message == envelope.message
-    assert pending[0].origin == envelope.origin
+    assert peeked == (envelope,)
+    assert inbox.pending(InboxTarget.NEXT_TURN) == (envelope,)  # still queued -- peek is read-only
 
 
-def test_restore_precedes_input_enqueued_after_the_claim() -> None:
-    """The restored batch goes to the FRONT, ahead of anything enqueued in the meantime -- FIFO
-    order as if the claim had never happened."""
+def test_peek_matches_claim_for_all_policy() -> None:
     inbox = Inbox()
     inbox.followup(_message("A"))
     inbox.followup(_message("B"))
-    claimed = inbox.claim(InboxTarget.NEXT_TURN, ClaimPolicy.ALL)
-    inbox.followup(_message("C"))
 
-    inbox.restore(InboxTarget.NEXT_TURN, claimed)
+    peeked = inbox.peek(InboxTarget.NEXT_TURN, ClaimPolicy.ALL)
+
+    assert [text_of(envelope.message) for envelope in peeked] == ["A", "B"]
+    assert len(inbox.pending(InboxTarget.NEXT_TURN)) == 2  # still queued
+
+
+def test_peek_on_an_empty_target_returns_nothing() -> None:
+    inbox = Inbox()
+
+    assert inbox.peek(InboxTarget.NEXT_TURN, ClaimPolicy.ONE_AT_A_TIME) == ()
+    assert inbox.peek(InboxTarget.NEXT_TURN, ClaimPolicy.ALL) == ()
+
+
+def test_commit_claim_removes_exactly_the_peeked_envelopes() -> None:
+    inbox = Inbox()
+    inbox.followup(_message("A"))
+    inbox.followup(_message("B"))
+    peeked = inbox.peek(InboxTarget.NEXT_TURN, ClaimPolicy.ALL)
+
+    inbox._commit_claim(InboxTarget.NEXT_TURN, peeked)
+
+    assert inbox.pending(InboxTarget.NEXT_TURN) == ()
+
+
+def test_peek_then_commit_behaves_exactly_like_claim() -> None:
+    inbox = Inbox()
+    envelope = inbox.followup(_message("only"))
+    peeked = inbox.peek(InboxTarget.NEXT_TURN, ClaimPolicy.ONE_AT_A_TIME)
+
+    inbox._commit_claim(InboxTarget.NEXT_TURN, peeked)
+
+    assert peeked == (envelope,)
+    assert inbox.pending(InboxTarget.NEXT_TURN) == ()
+
+
+def test_a_failed_commit_never_happening_leaves_peeked_input_exactly_as_queued() -> None:
+    """The whole point of peek/commit (`L09-R010`): if a caller peeks but never commits (the
+    Layer-09 RUNNING-notification-failure case), nothing was ever removed -- there is no
+    restoration step to get wrong, because there is nothing to restore."""
+    inbox = Inbox()
+    envelope = inbox.followup(_message("only"))
+
+    inbox.peek(InboxTarget.NEXT_TURN, ClaimPolicy.ONE_AT_A_TIME)
+    # ... caller decides not to commit ...
+
+    assert inbox.pending(InboxTarget.NEXT_TURN) == (envelope,)
+
+
+def test_the_old_public_restore_method_no_longer_exists() -> None:
+    """`L09-R010`: an independent Rust review found the PASS-5 candidate's public `Inbox.restore
+    (target, envelopes)` callable by ANY caller with ANY envelope tuple -- including one still
+    queued and never claimed, or the same envelope repeatedly -- manufacturing duplicate queue
+    entries that shared an id, contradicting this row's own exactly-once invariant
+    (`CONTRACT_ASSURANCE_DEFECT`). Remediation removes the method entirely rather than merely
+    restricting it: `peek()` (public, read-only, cannot corrupt anything) plus `_commit_claim()`
+    (private, removal-only, cannot insert -- so it cannot manufacture a duplicate id no matter how
+    it is called) replace it."""
+    inbox = Inbox()
+    assert not hasattr(inbox, "restore")
+
+
+def test_the_reviewers_duplicate_id_witness_is_no_longer_expressible() -> None:
+    """The exact discriminating witness the independent review executed against the PASS-5
+    candidate: `inbox.restore(target, (envelope,))` on an envelope that was never claimed
+    produced two entries sharing the same id; calling it again produced three. That attack is no
+    longer expressible through any public `Inbox` operation at all."""
+    inbox = Inbox()
+    envelope = inbox.followup(_message("A"))
+
+    with pytest.raises(AttributeError):
+        inbox.restore(InboxTarget.NEXT_TURN, (envelope,))  # type: ignore[attr-defined]
+
+    assert [item.id for item in inbox.pending(InboxTarget.NEXT_TURN)] == [envelope.id]
+
+
+def test_calling_commit_claim_repeatedly_only_removes_never_duplicates() -> None:
+    """Even a caller that bypasses the `_` convention and calls the private commit method
+    directly, more than once, can only ever REMOVE queue items -- `_commit_claim` has no way to
+    INSERT an envelope, so, unlike the removed public `restore()`, it cannot manufacture a
+    duplicate id no matter how or how often it is called."""
+    inbox = Inbox()
+    a = inbox.followup(_message("A"))
+    b = inbox.followup(_message("B"))
+    peeked = inbox.peek(InboxTarget.NEXT_TURN, ClaimPolicy.ONE_AT_A_TIME)
+
+    inbox._commit_claim(InboxTarget.NEXT_TURN, peeked)
+    inbox._commit_claim(InboxTarget.NEXT_TURN, peeked)  # called again -- still only removes
 
     pending = inbox.pending(InboxTarget.NEXT_TURN)
-    assert [text_of(envelope.message) for envelope in pending] == ["A", "B", "C"]
-
-
-def test_restoring_an_empty_batch_is_a_harmless_no_op() -> None:
-    inbox = Inbox()
-    inbox.followup(_message("untouched"))
-
-    inbox.restore(InboxTarget.NEXT_TURN, ())
-
-    pending = inbox.pending(InboxTarget.NEXT_TURN)
-    assert len(pending) == 1
-    assert pending[0].message == _message("untouched")
-
-
-def test_restore_does_not_affect_the_wake_signal() -> None:
-    """`claim()` never touches `wake_requested`; `restore()` must not either."""
-    inbox = Inbox()
-    inbox.followup(_message("only"))
-    claimed = inbox.claim(InboxTarget.NEXT_TURN, ClaimPolicy.ONE_AT_A_TIME)
-    inbox.take_wake()
-
-    inbox.restore(InboxTarget.NEXT_TURN, claimed)
-
-    assert not inbox.wake_requested
+    ids = [envelope.id for envelope in pending]
+    assert len(ids) == len(set(ids))  # no duplicate ids, ever
+    assert a.id not in ids
+    assert b.id not in ids
 
 
 def test_every_envelope_gets_a_unique_id() -> None:

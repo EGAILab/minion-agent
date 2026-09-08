@@ -242,6 +242,11 @@ class AgentLoop:
         steering poll, so the same batch is never claimed twice) or, failing
         that, eligible follow-up; with neither queued, rejects. Otherwise runs
         a plain continuation: no entering messages, full history still sent.
+
+        `Inbox.peek()` (Layer 09, `L09-R010`), not `claim()`: entering input is only PEEKED here,
+        never removed -- `_run_wrapped` commits the actual removal itself, via `commit_entry_
+        claim`, only once the run has validly begun (see `_run_wrapped`). A RUNNING-notification
+        failure then needs no restoration step: nothing was ever removed in the first place.
         """
         if self.instance.status is not AgentStatus.IDLE:
             raise AgentActiveError(
@@ -252,23 +257,23 @@ class AgentLoop:
             raise AgentActiveError("No messages to continue from")
 
         if isinstance(messages[-1], AssistantMessage):
-            steering = self.instance.inbox.claim(InboxTarget.NEXT_STEP, self.next_step_policy)
+            steering = self.instance.inbox.peek(InboxTarget.NEXT_STEP, self.next_step_policy)
             if steering:
                 await self._run_wrapped(
                     entering=tuple(envelope.message for envelope in steering),
                     causes=[{"id": e.id, "origin": e.origin} for e in steering],
                     skip_initial_steering_poll=True,
-                    restore_on_entry_failure=lambda: self.instance.inbox.restore(
+                    commit_entry_claim=lambda: self.instance.inbox._commit_claim(
                         InboxTarget.NEXT_STEP, steering
                     ),
                 )
                 return
-            followups = self.instance.inbox.claim(InboxTarget.NEXT_TURN, self.next_turn_policy)
+            followups = self.instance.inbox.peek(InboxTarget.NEXT_TURN, self.next_turn_policy)
             if followups:
                 await self._run_wrapped(
                     entering=tuple(envelope.message for envelope in followups),
                     causes=[{"id": e.id, "origin": e.origin} for e in followups],
-                    restore_on_entry_failure=lambda: self.instance.inbox.restore(
+                    commit_entry_claim=lambda: self.instance.inbox._commit_claim(
                         InboxTarget.NEXT_TURN, followups
                     ),
                 )
@@ -283,21 +288,23 @@ class AgentLoop:
         Each claimed batch gets its own `_run_wrapped` call -- its own
         `AGENT_START`/`AGENT_END` bracket and its own `is_streaming`
         true/false toggle, matching pi's own per-invocation lifecycle, not
-        one shared bracket spanning every batch this pump happens to drain."""
+        one shared bracket spanning every batch this pump happens to drain.
+
+        Peeks, not claims (`L09-R010`) -- see `continue_()`'s own docstring."""
         inbox = self.instance.inbox
         while inbox.pending(InboxTarget.NEXT_TURN):
-            claimed = inbox.claim(InboxTarget.NEXT_TURN, self.next_turn_policy)
+            claimed = inbox.peek(InboxTarget.NEXT_TURN, self.next_turn_policy)
             causes: list[dict[str, object]] = [
                 {"id": envelope.id, "origin": envelope.origin} for envelope in claimed
             ]
 
-            def restore_claimed(claimed: tuple[InputEnvelope, ...] = claimed) -> None:
-                inbox.restore(InboxTarget.NEXT_TURN, claimed)
+            def commit_claim(claimed: tuple[InputEnvelope, ...] = claimed) -> None:
+                inbox._commit_claim(InboxTarget.NEXT_TURN, claimed)
 
             await self._run_wrapped(
                 entering=tuple(envelope.message for envelope in claimed),
                 causes=causes,
-                restore_on_entry_failure=restore_claimed,
+                commit_entry_claim=commit_claim,
             )
         inbox.take_wake()
 
@@ -319,7 +326,7 @@ class AgentLoop:
         entering: tuple[Message, ...],
         causes: list[dict[str, object]],
         skip_initial_steering_poll: bool = False,
-        restore_on_entry_failure: Callable[[], None] | None = None,
+        commit_entry_claim: Callable[[], None] | None = None,
     ) -> None:
         """One pi-equivalent run's full lifecycle: three unconditional state
         writes at entry, matching pinned Pi's own `runWithLifecycle` exactly
@@ -330,12 +337,17 @@ class AgentLoop:
         regardless of success or a run-executor failure this pass already
         settles gracefully (see `_settle_run_failure`).
 
-        `restore_on_entry_failure`, when supplied (Layer 09, `L09-R007` convergence): called ONLY
-        if the RUNNING notification below raises, to put back any input a caller already
-        destructively claimed from `Inbox` before calling this method (`continue_()`'s steering/
-        follow-up branches, `run_until_idle()`'s follow-up claim) -- `prompt()` supplies `None`,
-        since it never claims from `Inbox` at all. See the RUNNING-failure branch below for why
-        this is needed and what "the run never validly started" requires of it.
+        `commit_entry_claim`, when supplied (Layer 09, `L09-R010`): called ONLY once `set_status
+        (RUNNING)` has succeeded, to commit a caller-side `Inbox.peek()` into an actual removal
+        (`Inbox._commit_claim`) -- `continue_()`'s steering/follow-up branches and `run_until_
+        idle()`'s follow-up claim each PEEK, never destructively `claim()`, before calling this
+        method, so a RUNNING-notification failure needs no restoration step at all: nothing was
+        ever removed from `Inbox` in the first place. `prompt()` supplies `None`, since it never
+        reads from `Inbox` at all. An earlier revision claimed eagerly and exposed a PUBLIC
+        `Inbox.restore()` to reverse a failed claim -- an independent Rust review found that
+        method let any caller manufacture duplicate queue entries (`L09-R010`,
+        `CONTRACT_ASSURANCE_DEFECT`); peek-then-commit removes the entire restoration surface
+        instead of merely restricting it.
         """
         if self.instance.status is not AgentStatus.IDLE:
             # Pinned Pi's own `runWithLifecycle` guard -- a third, distinct
@@ -369,15 +381,16 @@ class AgentLoop:
             # `handleRunFailure`, invoked only once a run has genuinely begun) and leaves no trace:
             # the freshly-created signal is discarded, `status` is forced back to `IDLE` directly
             # (NOT via `set_status` again, which would re-invoke the SAME failing listener chain),
-            # any input a caller already destructively claimed from `Inbox` before calling this
-            # method is restored so it is not silently lost, and the observer's own original
-            # exception propagates unconverted -- a subsequent `prompt()`/`continue_()` call then
-            # succeeds normally, exactly as if this attempt had never been made.
+            # `commit_entry_claim` is never called so any input a caller already PEEKED from
+            # `Inbox` is simply never removed (`L09-R010` -- no restoration step is needed), and
+            # the observer's own original exception propagates unconverted -- a subsequent
+            # `prompt()`/`continue_()` call then succeeds normally, exactly as if this attempt had
+            # never been made.
             self.instance._end_run_signal()
             self.instance._force_idle_after_failed_entry_notification()
-            if restore_on_entry_failure is not None:
-                restore_on_entry_failure()
             raise
+        if commit_entry_claim is not None:
+            commit_entry_claim()
         self.instance.streaming_message = None
         self.instance.error_message = None
         try:

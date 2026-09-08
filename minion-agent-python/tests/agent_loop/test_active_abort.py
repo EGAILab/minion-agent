@@ -14,6 +14,7 @@ from typing import Any
 import pytest
 
 from minion_agent.agent.events import AGENT_LIFECYCLE_EVENT, AGENT_TRANSFORM_CONTEXT
+from minion_agent.agent.identity import AgentStatus
 from minion_agent.agent.instance import AgentActiveError
 from minion_agent.agent.projection import MessageStart
 from minion_agent.llm import StopReason, TextBlock, ToolCallBlock, UserMessage
@@ -255,6 +256,35 @@ async def test_a_transform_listener_cannot_redirect_a_later_listener_to_a_replac
 
     assert seen[0] is not forged  # NOT the forgery listener A delegated with
     assert seen[0] is adapter.requests[0].signal  # the SAME signal the real request received
+
+
+async def test_the_running_status_observer_sees_a_live_signal_and_the_idle_observer_sees_none() -> (
+    None
+):
+    """`L09-R007`: `AgentInstance.set_status` emits `agent/status`/calls `on_status_change`
+    SYNCHRONOUSLY -- an observer reading `instance.signal` (or calling `instance.abort()`) during
+    the RUNNING transition must see the run's own real, live signal, not `None`; one reading it
+    during the IDLE transition must see `None`, not the just-finished run's stale signal. An
+    independent review's own witness found the opposite: the controller was installed/removed
+    AFTER each status publish, so a RUNNING observer's own `abort()` call was a no-op (no
+    controller existed yet) and an IDLE observer saw the previous run's still-live signal."""
+    loop, adapter = _loop_with_adapter(ScriptedResponse((), StopReason.STOP))
+    observations: list[tuple[str, bool]] = []
+
+    def on_status_change(status: AgentStatus) -> None:
+        if status is AgentStatus.RUNNING:
+            observations.append(("running", loop.instance.signal is not None))
+            loop.instance.abort()
+        elif status is AgentStatus.IDLE:
+            observations.append(("idle", loop.instance.signal is None))
+
+    loop.instance.on_status_change = on_status_change
+
+    await loop.prompt(_say("hello"))
+
+    assert observations == [("running", True), ("idle", True)]
+    assert adapter.requests[0].signal is not None
+    assert adapter.requests[0].signal.aborted is True  # the RUNNING observer's own abort() landed
 
 
 async def test_a_represented_aborted_terminal_is_unaffected_by_layer_09() -> None:

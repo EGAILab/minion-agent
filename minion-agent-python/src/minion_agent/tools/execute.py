@@ -204,39 +204,56 @@ def _merge_override(current: ToolResult, override: AfterToolCallOverride | None)
 
 
 type AfterToolCallHook = Any
-"""`Callable[[ToolResult], AfterToolCallOverride | None]` (sync or async) -- see
-`register_after_tool_call_hook`. Spelled `Any` rather than a `Callable[...]` alias so a hook may
-freely be a plain function, a bound method, or an async function without fighting `Awaitable`
-variance; `_finalize` awaits the result only when it actually is one."""
+"""`Callable[[ToolResult], AfterToolCallOverride | None]` or `Callable[[ToolResult, RunSignal |
+None], AfterToolCallOverride | None]` (sync or async) -- see `register_after_tool_call_hook`.
+Spelled `Any` rather than a `Callable[...]` alias so a hook may freely be a plain function, a
+bound method, or an async function without fighting `Awaitable`/overload variance; `_finalize`
+awaits the result only when it actually is one."""
+
+
+def _hook_wants_signal(hook: AfterToolCallHook) -> bool:
+    """Whether `hook` declared a second parameter for the active run's signal (Layer 09,
+    `L09-R008`). Arity alone is unambiguous here -- unlike a tool's own `execute()`
+    (`_wants_signal`/`_wants_update`, `L09-R003`), a hook has only ONE optional second slot, with
+    no `update`-shaped alternative it could be confused with -- so no separate declared-capability
+    flag is needed."""
+    return _arity(hook) >= 2
 
 
 def register_after_tool_call_hook(
     ctx: Context, hook: AfterToolCallHook, *, scope: ScopeKey | None = None
 ) -> Any:
-    """The recommended way to extend `tools/post-execute` (`L06-R003`/`L06-R006`).
+    """The recommended way to extend `tools/post-execute` (`L06-R003`/`L06-R006`/`L09-R008`).
 
-    `hook` receives the current, already-merged `ToolResult` (read-only) and may return an
-    `AfterToolCallOverride` (or `None`/nothing for no change) -- never the whole result, so a
-    hook written against this API cannot even attempt to replace execution identity or
-    `added_tool_names`. Multiple hooks compose as a deterministic, registration-ordered fold
-    (`TOOL-005`): each sees the result exactly as merged by every earlier hook, mirroring pinned
-    Pi's own single-callback semantics for the zero/one-hook cases and extending it, for N hooks,
-    as an intentional Minion architectural divergence -- not something pinned Pi itself defines.
+    `hook` receives the current, already-merged `ToolResult` (read-only) -- and, when declared as
+    its own second parameter, the active run's `RunSignal | None` (Layer 09, `L09-R008`: an
+    independent Rust review found this helper delivered signal to raw `tools/post-execute`
+    listeners but not to hooks registered through this recommended path, so a caller using the
+    intended constrained API could not observe cancellation at all) -- and may return an
+    `AfterToolCallOverride` (or `None`/nothing for no change) -- never the whole result, so a hook
+    written against this API cannot even attempt to replace execution identity or
+    `added_tool_names`. A one-parameter hook (every hook written before this pass) is called
+    exactly as before, unaffected. Multiple hooks compose as a deterministic, registration-ordered
+    fold (`TOOL-005`): each sees the result exactly as merged by every earlier hook, mirroring
+    pinned Pi's own single-callback semantics for the zero/one-hook cases and extending it, for N
+    hooks, as an intentional Minion architectural divergence -- not something pinned Pi itself
+    defines.
 
     This helper's own constraint is a convenience, not the authoritative boundary:
     `tools/post-execute` remains a public Runtime event, so a caller may also register a raw
     listener directly via `ctx.events.on(TOOLS_POST_EXECUTE, ...)` and return a whole,
     differently-identified `ToolResult`. `_finalize`'s restoration of `tool_call_id`/`tool_name`/
-    `added_tool_names` -- at every listener-to-listener handoff, not only once the whole chain
-    finishes (`L06-R003`) -- is what actually makes identity/`added_tool_names` replacement
-    impossible, regardless of which registration path produced a given listener's output, and
-    regardless of whether another listener runs afterward to observe it.
+    `added_tool_names`/`signal` -- at every listener-to-listener handoff, not only once the whole
+    chain finishes (`L06-R003`, `L09-R006`) -- is what actually makes identity/`added_tool_names`/
+    `signal` replacement impossible, regardless of which registration path produced a given
+    listener's output, and regardless of whether another listener runs afterward to observe it.
 
     Returns the same disposer `EventBus.on` returns.
     """
+    hook_wants_signal = _hook_wants_signal(hook)
 
     async def listener(result: ToolResult, signal: RunSignal | None, next_: Any) -> ToolResult:
-        outcome = hook(result)
+        outcome = hook(result, signal) if hook_wants_signal else hook(result)
         override = await outcome if inspect.isawaitable(outcome) else outcome
         # No need to re-supply `signal` (`L09-R006`): `_finalize`'s own `normalize_step`
         # restores it to the original authoritative value regardless of what is passed here.

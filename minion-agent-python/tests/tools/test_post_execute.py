@@ -20,7 +20,7 @@ from unittest.mock import patch
 import pytest
 
 from minion_agent.llm import TextBlock, text_of
-from minion_agent.runtime import Context, EventBus
+from minion_agent.runtime import Context, EventBus, RunAbortController
 from minion_agent.tools.decisions import AfterToolCallOverride
 from minion_agent.tools.events import TOOLS_POST_EXECUTE, declare_tools_events
 from minion_agent.tools.execute import execute_call, register_after_tool_call_hook
@@ -507,3 +507,66 @@ async def test_reversed_mixed_registration_order_shares_the_same_authority() -> 
     assert text_of(outcome.to_message()) == "tagged"
     assert outcome.tool_call_id == "t1"
     assert outcome.tool_name == "echo"
+
+
+# -- Layer 09, `L09-R008`: the recommended helper delivers the active signal too ----------------
+
+
+async def test_a_two_parameter_helper_hook_receives_the_active_signal() -> None:
+    """`L09-R008`: an independent Rust review found `register_after_tool_call_hook` delivered
+    `signal` to raw `tools/post-execute` listeners (`L09-R001`) but not to hooks registered
+    through this recommended, constrained path -- a caller using the intended API could not
+    observe cancellation through its after-hook at all. A hook declaring a second parameter now
+    receives the SAME signal the surrounding call itself received."""
+    ctx = _ctx()
+    signal = RunAbortController().signal
+    seen: list[Any] = []
+
+    def observe(result: ToolResult, received_signal: Any) -> None:
+        seen.append(received_signal)
+        return None
+
+    register_after_tool_call_hook(ctx, observe)
+
+    outcome = await execute_call(
+        _call(value="x"), registry=_registry(_echo()), ctx=ctx, signal=signal
+    )
+
+    assert not outcome.is_error
+    assert seen == [signal]
+
+
+async def test_a_one_parameter_helper_hook_is_unaffected() -> None:
+    """Regression: every hook written before this pass declares only `result` -- it must keep
+    working exactly as before, never called with a `signal` it never asked for."""
+    ctx = _ctx()
+    signal = RunAbortController().signal
+
+    def audit(result: ToolResult) -> AfterToolCallOverride:
+        return AfterToolCallOverride(details={"audited": True})
+
+    register_after_tool_call_hook(ctx, audit)
+
+    outcome = await execute_call(
+        _call(value="x"), registry=_registry(_echo()), ctx=ctx, signal=signal
+    )
+
+    assert outcome.details == {"audited": True}
+
+
+async def test_a_two_parameter_helper_hook_receives_none_while_idle() -> None:
+    """The signal-aware helper form sees `None`, not an error, when no signal is active at all --
+    matching every other consumer's own "signal is optional context, never required" contract."""
+    ctx = _ctx()
+    seen: list[Any] = []
+
+    def observe(result: ToolResult, received_signal: Any) -> None:
+        seen.append(received_signal)
+        return None
+
+    register_after_tool_call_hook(ctx, observe)
+
+    outcome = await execute_call(_call(value="x"), registry=_registry(_echo()), ctx=ctx)
+
+    assert not outcome.is_error
+    assert seen == [None]

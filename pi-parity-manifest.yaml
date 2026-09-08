@@ -630,7 +630,15 @@ rows:
   phase: 3
   pi: packages/agent/src/agent.ts::Agent.abort
   surface: active cancellation
-  rule: 'DEFERRED to Layer 09 (cancellation), not Layer 08''s ownership -- corrected this pass.
+  rule: 'CURRENT STATUS (as of Layer 09 PASS 4; the "DEFERRED" wording immediately below describes
+    this row''s OWN Layer-08-era state, before Layer 09 existed, and is historical, not current --
+    audited for exactly this ambiguity by an independent Rust review, `L09-R009`): this deferral
+    is REALIZED. `disposition: adopted` at the bottom of this row reflects the CURRENT, Layer-09-
+    implemented state -- see "Layer 09, PASS 1" onward below for the actual signal/`abort()` rule,
+    and PASS 4''s own paragraph at the end of this row for the most recent remediation
+    (`L09-R007`).
+
+    DEFERRED to Layer 09 (cancellation), not Layer 08''s ownership -- corrected this pass.
     Section 1''s audit: this row''s prior text (`disposition: adopted`) was wrong on its face, not
     merely under-evidenced -- active abort-signal propagation into provider/tools/hooks was never
     attempted by any Layer-08 pass, and per the already-certified Layer-07 contract (`spec/agent.md`
@@ -795,7 +803,33 @@ rows:
     PASS-2 "must re-supply or it is lost" contract `spec/tools.md` incorrectly stated is now
     corrected there to describe the authoritative-restoration guarantee instead. Verified via
     revert-and-confirm: the new discriminating test was confirmed to FAIL against the PASS-2
-    candidate with `normalize_step` stripped, then to PASS once restored.'
+    candidate with `normalize_step` stripped, then to PASS once restored.
+
+    PASS 4 (final complete independent Rust contract review of the PASS-3 candidate): REJECTED FOR
+    RUST IMPLEMENTATION, `L09-R007`, a new `PI_PARITY_DEFECT` against this row''s own signal-
+    lifetime guarantee -- `L09-C001`/`L09-C002`/`L09-C003`, `L09-R002`/`L09-R004`, and the
+    transform-context portion of `L09-R005` were confirmed correct and left untouched.
+
+    `L09-R007`: this row''s own rule states `signal` is live for the run''s ENTIRE active duration
+    and `None` while idle. `AgentInstance.set_status` emits `agent/status` and calls `on_status_
+    change` SYNCHRONOUSLY (`AG-008`), so a status-transition observer runs INSIDE the same
+    synchronous call that publishes RUNNING/IDLE. PASS 1 through PASS 3''s own `_run_wrapped`
+    published RUNNING BEFORE calling `_start_run_signal()`, and published IDLE BEFORE calling
+    `_end_run_signal()` -- so a RUNNING observer saw `instance.signal is None` (its own `abort()`
+    call was consequently a no-op) and an IDLE observer saw the JUST-FINISHED run''s still-live
+    signal, not `None`. The independent review''s own executable witness: `status_observations =
+    [(''running'', True, None), (''idle'', False, False)]` -- read as "the RUNNING observer saw NO
+    signal (`True` marks the defect), and its `abort()` call left the following request
+    un-aborted; the IDLE observer saw a NON-`None` signal (`False` marks the defect)." Remediation:
+    `_run_wrapped` now calls `_start_run_signal()` BEFORE `set_status(RUNNING)`, and `_end_run_
+    signal()` BEFORE `set_status(IDLE)` -- reordering only the signal calls relative to `set_
+    status`, without changing the relative order of `set_status`/`streaming_message`/`error_
+    message`/`pending_tool_calls` themselves, which `AG-008` already certifies matches pinned Pi''s
+    own `runWithLifecycle`/`finishRun` write order. A new discriminating test registers `on_status_
+    change`, reads `instance.signal` and calls `instance.abort()` during the RUNNING callback, and
+    reads `instance.signal` during the IDLE callback -- confirmed to FAIL against the PASS-3
+    candidate (RUNNING observer saw `None`; the following request''s own signal was NOT aborted),
+    then to PASS once the reorder was applied.'
   tests:
   - test_a_fresh_controller_is_not_aborted (runtime/test_signal.py)
   - test_abort_sets_the_signal_aborted (runtime/test_signal.py)
@@ -819,8 +853,9 @@ rows:
   - test_transform_context_receives_messages_and_the_active_signal (agent_loop/test_active_abort.py)
   - test_transform_context_output_is_provider_local_not_persistent (agent_loop/test_active_abort.py)
   - test_a_transform_listener_cannot_redirect_a_later_listener_to_a_replacement_signal (agent_loop/test_active_abort.py)
+  - test_the_running_status_observer_sees_a_live_signal_and_the_idle_observer_sees_none (agent_loop/test_active_abort.py)
   - test_a_represented_aborted_terminal_is_unaffected_by_layer_09 (agent_loop/test_active_abort.py)
-  python: src/minion_agent/runtime/signal.py::RunSignal, RunAbortController; src/minion_agent/agent/instance.py::AgentInstance.signal (read-only property)/abort/_start_run_signal/_end_run_signal; src/minion_agent/agent_loop/driver.py::AgentLoop._run_wrapped (controller create/clear), _run_step (Request.signal, _transform_context), _settle_run_failure (ABORTED classification), _transform_context; src/minion_agent/agent/events.py::AGENT_TRANSFORM_CONTEXT
+  python: src/minion_agent/runtime/signal.py::RunSignal, RunAbortController; src/minion_agent/agent/instance.py::AgentInstance.signal (read-only property)/abort/_start_run_signal/_end_run_signal; src/minion_agent/agent_loop/driver.py::AgentLoop._run_wrapped (controller create/clear before/after set_status, matching L09-R007), _run_step (Request.signal, _transform_context), _settle_run_failure (ABORTED classification), _transform_context; src/minion_agent/agent/events.py::AGENT_TRANSFORM_CONTEXT
   rust: NOT_APPLICABLE -- Python/shared candidate awaiting independent Rust contract review; certified Rust Layer 06''s own ToolExecutionSignal seam remains reserved, unexercised
   disposition: adopted
 - id: AG-008
@@ -2074,7 +2109,24 @@ rows:
   phase: 4
   pi: packages/agent/src/agent-loop.ts::prepareToolCall, executeToolCallsSequential, executeToolCallsParallel
   surface: active-run signal propagation into tool preflight/execute/batch (Layer 09)
-  rule: 'Layer 09 (`assurance/layers/09-active-abort-contract-checkpoint.md`, revisions 1-2;
+  rule: 'CURRENT RULE (unambiguous statement, as of PASS 4; supersedes any conflicting phrasing in
+    the pass-by-pass chronology below, which is retained only as historical remediation record,
+    not current guidance -- `L09-R009`): `execute()` signal/update capability is declared via
+    `ToolDefinition.wants_signal: bool = False` (Layer 05) together with arity -- NOT pure arity
+    alone, and NOT a fixed four-parameter requirement. The four representable combinations:
+    `wants_signal=False, arity=2` -> neither; `wants_signal=False, arity=3` -> `update` only
+    (unchanged since before Layer 09); `wants_signal=True, arity=3` -> `signal` only;
+    `wants_signal=True, arity=4` -> both. A tool wanting ONLY `signal` declares exactly THREE
+    parameters -- no unused fourth `update` slot is required. `signal` is AUTHORITATIVE event
+    metadata on both `TOOLS_PRE_EXECUTE`/`TOOLS_POST_EXECUTE`: a `normalize_step` closure forces
+    it back to the run''s own original value at every listener-to-listener handoff, so a listener
+    never needs to re-supply it when delegating and cannot redirect or drop it for a listener
+    downstream, regardless of what it passes to `next_` (`L09-R006`). `register_after_tool_call_
+    hook`, the recommended after-hook registration path, also delivers `signal` -- to a hook that
+    declares a second parameter for it -- not only to raw `tools/post-execute` listeners
+    (`L09-R008`).
+
+    Layer 09 (`assurance/layers/09-active-abort-contract-checkpoint.md`, revisions 1-2;
     targeted re-review `assurance/layers/09-active-abort-rust-checkpoint-rereview.md`,
     `L09-C001`/`L09-C002` `PROVISIONALLY CLOSED @ ecb8097`): builds ON TOP of TOOL-023''s own
     already-certified sequential-preflight/concurrent-execution barrier, adding the active run''s
@@ -2130,7 +2182,10 @@ rows:
     actually reacts is its own cooperative choice; neither Pi nor Minion forcibly interrupts
     `execute()`. `afterToolCall`/`tools/post-execute` runs UNCONDITIONALLY once `execute()` has been
     reached, regardless of the signal''s state at any point during or after it -- unchanged,
-    verified by a dedicated regression, not merely asserted.
+    verified by a dedicated regression, not merely asserted. [PASS-1-era: the "must declare a
+    fourth parameter" framing above is SUPERSEDED as current guidance by the CURRENT RULE summary
+    at the top of this row and the `L09-R003` remediation below, which makes a genuinely
+    THREE-parameter signal-only tool representable -- `L09-R009`.]
 
     No canonical scenario filled this pass: `active-abort-tool`/`active-abort-provider`/`abort-
     settles-before-idle` remain unfilled placeholders (`conformance/agent/`) -- the discriminating
@@ -2160,7 +2215,10 @@ rows:
     length trailing tail rather than a fixed 1-tuple, so a listener that forgets to re-supply
     degrades to "no signal for later listeners" instead of raising. Every existing production and
     test listener across `execute.py`, the conformance runner, and the whole test suite updated to
-    accept the new argument.
+    accept the new argument. [PASS-2-era: this "must re-supply or degrade to no signal" behavior is
+    SUPERSEDED by the `L09-R006` remediation below, which makes `signal` authoritative and its
+    restoration automatic -- a listener never needs to re-supply it, and cannot cause it to degrade
+    for a later listener even by omission -- `L09-R009`.]
 
     `L09-R003`: PASS 1''s own PURE-ARITY dispatch (3 parameters always meant `update`; 4 always
     meant `signal` then `update`) could not represent Pi''s own genuinely signal-only
@@ -2203,7 +2261,36 @@ rows:
     still correct) were added and confirmed genuinely discriminating via revert-and-confirm: each
     was confirmed to FAIL with the corresponding `normalize_step` stripped, then to PASS once
     restored. `spec/tools.md`''s own "must re-supply or lose it" language is corrected to describe
-    this authoritative-restoration guarantee instead.'
+    this authoritative-restoration guarantee instead.
+
+    PASS 4 (final complete independent Rust contract review of the PASS-3 candidate): REJECTED FOR
+    RUST IMPLEMENTATION, `L09-R008` (`PI_PARITY_DEFECT`) and `L09-R009` (`CONTRACT_ASSURANCE_
+    DEFECT`) against this row -- `L09-C001`/`L09-C002`/`L09-R003` were confirmed correct and left
+    untouched; `L09-R001`''s raw-event-seam half was confirmed closed.
+
+    `L09-R008`: pinned Pi calls `afterToolCall(context, signal)` unconditionally -- every after-hook
+    receives the active signal. Raw `tools/post-execute` listeners do (`L09-R001`/`L09-R006`
+    above), but `register_after_tool_call_hook`, the PUBLIC, EXPORTED, documented-as-recommended
+    helper, still called `hook(result)` only -- a hook written against the intended constrained API
+    could not observe cancellation at all. The independent review''s own executable witness
+    registered a two-parameter helper hook and confirmed it received zero signal argument
+    (`TypeError: hook() missing 1 required positional argument: ''signal''`). Remediation: a new
+    `_hook_wants_signal(hook)` (arity-based -- unambiguous here, unlike `execute()`''s own
+    `wants_signal`/arity split, since a hook has only ONE optional second slot with no
+    `update`-shaped alternative to confuse it with) decides whether `listener` calls `hook(result,
+    signal)` or `hook(result)`; every existing one-parameter hook is called exactly as before,
+    unaffected.
+
+    `L09-R009`: this row''s own opening paragraphs (the PASS-1-era four-parameter description, and
+    the PASS-2-era "must re-supply or degrade" description) stated superseded designs as though
+    still current, without being clearly marked superseded -- an independent Rust implementer could
+    reasonably derive conflicting `execute()`/hook APIs from this row alone despite `spec/tools.md`
+    already containing the correct rule. Remediation: a `CURRENT RULE` summary now opens this row,
+    stating the unambiguous current dispatch table and signal-authority guarantee in one place; the
+    two superseded PASS-1/PASS-2 claims are annotated in place (not deleted -- preserving the
+    historical remediation record) pointing back to that summary and to the specific later-PASS
+    finding that superseded each one. `AG-007`''s own opening "DEFERRED to Layer 09" wording was
+    audited identically (see that row).'
   tests:
   - test_unknown_tool_wins_over_an_aborted_signal
   - test_argument_validation_failure_wins_over_an_aborted_signal
@@ -2227,7 +2314,10 @@ rows:
   - test_an_after_hook_cannot_redirect_a_later_listener_to_a_replacement_signal (tools/test_execute.py)
   - test_an_after_hook_cannot_drop_the_signal_for_a_later_listener (tools/test_execute.py)
   - test_a_helper_registered_after_hook_no_longer_needs_to_re_supply_signal (tools/test_execute.py)
-  python: src/minion_agent/tools/definition.py::ToolDefinition.wants_signal; src/minion_agent/tools/execute.py::_preflight (signal priority check, signal threaded into TOOLS_PRE_EXECUTE, _restore_signal normalize_step), _finalize (signal threaded into TOOLS_POST_EXECUTE, _restore authoritative normalize_step), _execute_and_finalize (execute() signal passthrough), register_after_tool_call_hook (no longer re-supplies signal on delegation), _wants_signal, _wants_update (definition-aware); src/minion_agent/tools/batch.py::execute_batch (sequential/parallel abort polling)
+  - test_a_two_parameter_helper_hook_receives_the_active_signal (tools/test_post_execute.py)
+  - test_a_one_parameter_helper_hook_is_unaffected (tools/test_post_execute.py)
+  - test_a_two_parameter_helper_hook_receives_none_while_idle (tools/test_post_execute.py)
+  python: src/minion_agent/tools/definition.py::ToolDefinition.wants_signal; src/minion_agent/tools/execute.py::_preflight (signal priority check, signal threaded into TOOLS_PRE_EXECUTE, _restore_signal normalize_step), _finalize (signal threaded into TOOLS_POST_EXECUTE, _restore authoritative normalize_step), _execute_and_finalize (execute() signal passthrough), register_after_tool_call_hook (_hook_wants_signal-aware, no longer re-supplies signal on delegation), _hook_wants_signal, _wants_signal, _wants_update (definition-aware); src/minion_agent/tools/batch.py::execute_batch (sequential/parallel abort polling)
   rust: NOT_APPLICABLE -- Python/shared candidate awaiting independent Rust contract review; certified Rust Layer 06''s own ToolExecutionSignal seam (TOOL-019''s own rust field) remains reserved, unexercised
   disposition: adopted
 - id: TOOL-007

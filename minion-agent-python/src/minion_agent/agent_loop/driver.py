@@ -324,19 +324,22 @@ class AgentLoop:
             # keeps it: belt-and-suspenders against a future caller that
             # skips the public guards.
             raise AgentActiveError("Agent is already processing.")
+        # Layer 09, `L09-R007`: the controller is installed BEFORE `set_status(RUNNING)` is
+        # published, and removed BEFORE `set_status(IDLE)` is published -- `set_status` emits
+        # `agent/status` and calls `on_status_change` SYNCHRONOUSLY, so a status-transition
+        # observer that reads `instance.signal` (or calls `instance.abort()`) during the RUNNING
+        # callback must see the run's real, live signal, and one reading it during the IDLE
+        # callback must see `None`, not the just-finished run's stale signal. An earlier revision
+        # installed/removed the controller AFTER publishing each transition, so the RUNNING
+        # observer's own `abort()` call was a no-op (no controller existed yet) and the IDLE
+        # observer saw the previous run's still-live signal -- an independent Rust review's own
+        # executable witness. This does not change the relative order of `set_status`/
+        # `streaming_message`/`error_message`/`pending_tool_calls` themselves, already certified
+        # (`AG-008`) to match pinned Pi's own `runWithLifecycle`/`finishRun` write order.
+        self.instance._start_run_signal()
         self.instance.set_status(AgentStatus.RUNNING)
         self.instance.streaming_message = None
         self.instance.error_message = None
-        # Layer 09: a NEW `RunAbortController` per run, matching pinned Pi's own `new
-        # AbortController()` inside `runWithLifecycle` (`agent.ts:491`) -- created here,
-        # at the SAME point as the other three unconditional entry writes above, and
-        # cleared back to `None` in `finally` below, at the SAME point `finishRun()`
-        # clears `activeRun` (and therefore `Agent.signal`). Live for the run's entire
-        # duration, including `_settle_run_failure`'s own recovery dispatch and
-        # `agent_end` listener settlement. `_start_run_signal`/`_end_run_signal` are
-        # Layer-08-only internal calls -- `instance.signal` itself has no public setter
-        # at all (`L09-R004`), so no consumer can reassign it mid-run.
-        self.instance._start_run_signal()
         try:
             await self._execute_run(
                 entering=entering,
@@ -344,10 +347,10 @@ class AgentLoop:
                 skip_initial_steering_poll=skip_initial_steering_poll,
             )
         finally:
+            self.instance._end_run_signal()
             self.instance.set_status(AgentStatus.IDLE)
             self.instance.streaming_message = None
             self.instance.pending_tool_calls = frozenset()
-            self.instance._end_run_signal()
 
     async def _dispatch_agent_event(self, event: AgentEvent) -> None:
         """Pinned Pi's own `processEvents`: the single seam every lifecycle

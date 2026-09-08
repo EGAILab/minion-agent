@@ -116,6 +116,31 @@ class ToolDefinition:
     prepare_arguments: PrepareArguments | None = None
     """Pinned Pi `AgentTool.prepareArguments?`. Field/signature only -- Layer 05 does not certify
     when or whether the pipeline invokes it (`TOOL-F002`)."""
+    wants_signal: bool = False
+    """Whether `execute` accepts the active run's cancellation signal (Layer 09, `L09-R003`).
+    Pinned Pi's own `AgentTool.execute(toolCallId, params, signal?, onUpdate?)` treats `signal`
+    and `onUpdate` as INDEPENDENT optional parameters -- a tool may want either, both, or
+    neither. Python's own arity-based `update` detection (`_wants_update`, `execute.py`) cannot
+    by itself distinguish "this 3rd parameter is `signal`" from "this 3rd parameter is `update`"
+    without breaking every existing tool's own established 3-parameter-means-`update` meaning
+    (an earlier revision tried exactly that and could not represent a tool wanting `signal`
+    without also being forced to declare an unused 4th `update` parameter it does not want --
+    `L09-R003`, `PI_PARITY_DEFECT`: Pi's own signal-only tool has no Python equivalent under that
+    design). An EXPLICIT flag, set at registration, removes the ambiguity entirely and keeps
+    every existing tool's own arity unchanged: `wants_signal=False` (the default, matching every
+    pre-Layer-09 tool) preserves `execute.py`'s own established arity dispatch exactly (2
+    parameters: neither; 3: `update` only). `wants_signal=True` shifts `execute`'s own
+    3rd-parameter meaning to `signal`; a 4th parameter, if also declared, then receives `update`.
+    The four Pi-equivalent capability combinations are therefore all representable:
+
+    ```text
+    wants_signal   arity   execute(...) receives
+    False          2       (tool_call_id, arguments)                    -- neither
+    False          3       (tool_call_id, arguments, update)             -- update only (unchanged)
+    True           3       (tool_call_id, arguments, signal)             -- signal only
+    True           4       (tool_call_id, arguments, signal, update)     -- both
+    ```
+    """
 
     def __post_init__(self) -> None:
         """Reject `None`/non-mapping `parameters` at construction, not only via typing

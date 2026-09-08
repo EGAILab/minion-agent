@@ -6,7 +6,7 @@ from minion_agent.agent.envelope import InboxTarget
 from minion_agent.agent.identity import AgentDefinition, AgentStatus, ThinkingLevel
 from minion_agent.agent.instance import AgentActiveError, AgentInstance, instance_scope_key
 from minion_agent.llm import ModelId, TextBlock, UserMessage
-from minion_agent.runtime import Context, FiberState, RunSignal, scope_of
+from minion_agent.runtime import Context, FiberState, RunAbortController, scope_of
 from minion_agent.session import SessionLog
 from minion_agent.session.derive import encode_message
 from minion_agent.session.events import EventKind
@@ -420,10 +420,11 @@ def test_abort_while_idle_is_a_no_op() -> None:
 
 
 def test_abort_flips_the_active_signal() -> None:
-    """Layer 08 owns creating the signal per run; Layer 07's own `abort()` only flips whatever
-    signal is currently set."""
+    """Layer 08 owns creating the signal per run (`_start_run_signal`, internal); Layer 07's own
+    `abort()` only flips whatever controller is currently active. `signal` itself has no public
+    setter (`L09-R004`) -- only the internal Layer-08-only lifecycle methods start/end it."""
     instance = _instance()
-    instance.signal = RunSignal()
+    instance._start_run_signal()
 
     instance.abort()
 
@@ -436,10 +437,31 @@ def test_abort_does_not_make_reset_legal_before_the_run_settles() -> None:
     still rejects until the run has actually settled, exactly as for a non-aborted active run
     (`assurance/layers/09-active-abort-contract-checkpoint.md`)."""
     instance = _instance()
-    instance.signal = RunSignal()
+    instance._start_run_signal()
     instance.set_status(AgentStatus.RUNNING)
 
     instance.abort()
 
     with pytest.raises(AgentActiveError, match="Wait for completion before resetting"):
         instance.reset()
+
+
+def test_signal_has_no_public_setter() -> None:
+    """`L09-R004`: an earlier revision let any consumer reassign `instance.signal` mid-run,
+    redirecting later requests to a caller-supplied replacement -- an independent Rust review
+    caught this as authority Pi's own type system does not permit. `signal` is now a read-only
+    property with no setter at all."""
+    instance = _instance()
+    instance._start_run_signal()
+
+    with pytest.raises(AttributeError):
+        instance.signal = RunAbortController().signal  # type: ignore[misc]
+
+
+def test_signal_is_the_same_object_across_the_whole_run() -> None:
+    """`L09-R004`'s own "stable per-run identity" requirement, observed through
+    `AgentInstance` itself."""
+    instance = _instance()
+    instance._start_run_signal()
+
+    assert instance.signal is instance.signal

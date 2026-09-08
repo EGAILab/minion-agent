@@ -21,7 +21,7 @@ from .registry import PluginRegistry
 from .scope import Scope, ScopeKey, ScopeTree, scope_of
 from .scoped_registry import ScopedRegistry
 from .service import Impl, ServiceRegistry
-from .signal import RunSignal
+from .signal import RunAbortController, RunSignal
 
 __all__ = [
     "Context",
@@ -36,6 +36,7 @@ __all__ = [
     "InactiveFiberError",
     "PluginRegistry",
     "PluginSpec",
+    "RunAbortController",
     "RunSignal",
     "RuntimeError_",
     "Scope",

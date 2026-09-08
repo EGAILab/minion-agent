@@ -13,10 +13,10 @@ from typing import Any
 
 import pytest
 
-from minion_agent.agent.events import AGENT_LIFECYCLE_EVENT
+from minion_agent.agent.events import AGENT_LIFECYCLE_EVENT, AGENT_TRANSFORM_CONTEXT
 from minion_agent.agent.instance import AgentActiveError
 from minion_agent.agent.projection import MessageStart
-from minion_agent.llm import StopReason, ToolCallBlock
+from minion_agent.llm import StopReason, TextBlock, ToolCallBlock, UserMessage
 from minion_agent.llm.adapters.mock import ScriptedResponse
 from minion_agent.tools.decisions import Proceed
 from minion_agent.tools.events import TOOLS_PRE_EXECUTE
@@ -93,7 +93,7 @@ async def test_abort_mid_parallel_tool_batch_truncates_through_the_real_loop() -
     ran: list[str] = []
 
     async def abort_from_bs_before_hook(
-        call: Any, definition: Any, arguments: Any, next_: Any
+        call: Any, definition: Any, arguments: Any, signal: Any, next_: Any
     ) -> Any:
         if call.name == "b":
             loop.instance.abort()
@@ -111,6 +111,122 @@ async def test_abort_mid_parallel_tool_batch_truncates_through_the_real_loop() -
     assert set(ran) == {"a"}  # B's own execute() never runs -- its preflight aborted it
     assert adapter.requests[1].signal is not None
     assert adapter.requests[1].signal.aborted is True  # the second turn's own request sees it
+
+
+async def test_exception_after_abort_is_settled_as_aborted_not_error() -> None:
+    """`L09-R002`: pinned Pi's own `runWithLifecycle` calls `handleRunFailure(error,
+    abortController.signal.aborted)`, and the synthesized failure's `stop_reason` is read from
+    that CURRENT boolean at settlement time -- causation is deliberately irrelevant. A listener
+    calls `instance.abort()` and then raises exactly once (guarded so it does not also fire
+    during the recovery dispatch it triggers); the synthesized failure must report
+    `StopReason.ABORTED`, not `StopReason.ERROR`, even though the raised exception has nothing to
+    do with the abort itself."""
+    loop = _loop_with_adapter(ScriptedResponse((), StopReason.STOP))[0]
+    fired = False
+
+    def abort_then_raise(instance: Any, event: Any) -> None:
+        nonlocal fired
+        if isinstance(event, MessageStart) and not fired:
+            fired = True
+            instance.abort()
+            raise RuntimeError("boom-after-abort")
+
+    loop.instance.ctx.events.on(AGENT_LIFECYCLE_EVENT, abort_then_raise)
+
+    seen: list[Any] = []
+
+    def observe_failure(instance: Any, event: Any) -> None:
+        if isinstance(event, MessageStart) and event.message.error_message is not None:
+            seen.append(event.message)
+
+    loop.instance.ctx.events.on(AGENT_LIFECYCLE_EVENT, observe_failure)
+
+    await loop.prompt(_say("hello"))  # must not raise -- the recovery dispatch settles it
+
+    assert seen[0].stop_reason is StopReason.ABORTED
+    assert seen[0].error_message == "boom-after-abort"
+
+
+async def test_an_unrelated_exception_without_abort_is_still_settled_as_error() -> None:
+    """Regression paired with the above: without any `abort()` call, the SAME kind of listener
+    failure is still classified `error`, matching pinned Pi's own default."""
+    loop = _loop_with_adapter(ScriptedResponse((), StopReason.STOP))[0]
+    fired = False
+
+    def just_raise(instance: Any, event: Any) -> None:
+        nonlocal fired
+        if isinstance(event, MessageStart) and not fired:
+            fired = True
+            raise RuntimeError("boom-no-abort")
+
+    loop.instance.ctx.events.on(AGENT_LIFECYCLE_EVENT, just_raise)
+
+    seen: list[Any] = []
+
+    def observe_failure(instance: Any, event: Any) -> None:
+        if isinstance(event, MessageStart) and event.message.error_message is not None:
+            seen.append(event.message)
+
+    loop.instance.ctx.events.on(AGENT_LIFECYCLE_EVENT, observe_failure)
+
+    await loop.prompt(_say("hello"))
+
+    assert seen[0].stop_reason is StopReason.ERROR
+    assert seen[0].error_message == "boom-no-abort"
+
+
+async def test_transform_context_receives_messages_and_the_active_signal() -> None:
+    """`L09-R005`: pinned Pi's own `transformContext(messages, signal)`, invoked immediately
+    before every provider request, with the SAME per-run signal every other consumer receives."""
+    loop = _loop_with_adapter(ScriptedResponse((), StopReason.STOP))[0]
+    seen: list[Any] = []
+
+    async def observe_transform(instance: Any, messages: Any, signal: Any, next_: Any) -> Any:
+        seen.append((messages, signal))
+        return await next_()
+
+    loop.instance.ctx.events.on(AGENT_TRANSFORM_CONTEXT, observe_transform)
+
+    await loop.prompt(_say("hello"))
+
+    assert len(seen[0][0]) == 1  # the admitted prompt
+    assert seen[0][1] is not None  # the active run's own signal, not None
+
+
+async def test_transform_context_output_is_provider_local_not_persistent() -> None:
+    """`L09-R005`'s own required discriminating witness: a transform's own replacement reaches
+    THIS request's `Request.messages`, but never the run's own persistent/run-local transcript --
+    the NEXT turn's own request starts from the UNTRANSFORMED history again, matching pinned Pi's
+    own `streamAssistantResponse` reassigning only its local `messages` variable, never
+    `currentContext.messages`."""
+    loop, adapter = _loop_with_adapter(
+        ScriptedResponse(
+            (ToolCallBlock(id="t1", name="a", arguments={}),),
+            StopReason.TOOL_USE,
+        ),
+        ScriptedResponse((), StopReason.STOP),
+    )
+    _register(loop, "a", lambda tool_call_id, args: "a")
+
+    marker = UserMessage(content=(TextBlock(text="INJECTED"),), timestamp=0)
+
+    async def inject_marker(instance: Any, messages: Any, signal: Any, next_: Any) -> Any:
+        return (*messages, marker)
+
+    loop.instance.ctx.events.on(AGENT_TRANSFORM_CONTEXT, inject_marker)
+
+    await loop.prompt(_say("go"))
+
+    # First request: the transform's own injected marker is present (provider-local for THAT
+    # request).
+    assert marker in adapter.requests[0].messages
+    # Second request (after the tool call): the transform ran again and injected its OWN marker
+    # into that request too, but the marker from the FIRST call never became part of the
+    # persistent transcript the second request's own history was built from -- it appears
+    # exactly once per request, not accumulating.
+    assert adapter.requests[1].messages.count(marker) == 1
+    # The durable, offline-visible transcript never contains the injected marker at all.
+    assert marker not in loop.instance.messages
 
 
 async def test_a_represented_aborted_terminal_is_unaffected_by_layer_09() -> None:

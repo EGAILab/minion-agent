@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 
 from ..llm import Message, ModelId
-from ..runtime import Context, RunSignal, ScopeKey
+from ..runtime import Context, RunAbortController, RunSignal, ScopeKey
 from ..session import SessionLog, derive_messages
 from ..session import reset as reset_session_log
 from ..tools import ToolDefinition, ToolRegistry
@@ -66,15 +66,22 @@ class AgentInstance:
         self.pending_tool_calls: frozenset[str] = frozenset()
         self.error_message: str | None = None
 
-        # Layer 09 (`L09-C001`..`L09-C003`): pinned Pi's own `Agent.signal` getter reads
-        # `this.activeRun?.abortController.signal` -- `undefined` while idle, a NEW
-        # `AbortController` per run. `signal` is a plain attribute for the same reason
-        # `streaming_message`/`pending_tool_calls`/`error_message` above are: Layer 07 owns
-        # only its vocabulary and idle value (`None`, matching Pi's `undefined`); Layer 08
-        # owns creating a fresh `RunSignal()` at run start and clearing it back to `None` at
-        # run settlement (`AgentLoop._run_wrapped`), mirroring `runWithLifecycle`'s own
-        # `abortController`/`finishRun` lifecycle exactly.
-        self.signal: RunSignal | None = None
+        # Layer 09 (`L09-C001`..`L09-C003`, `L09-R004`): pinned Pi's own `Agent.signal` getter
+        # reads `this.activeRun?.abortController.signal` -- `undefined` while idle, a NEW
+        # `AbortController` per run, with the controller itself PRIVATE and the getter exposing
+        # only the read-only `AbortSignal`. `_active_controller` is deliberately private (no
+        # public setter at all, unlike `streaming_message`/`pending_tool_calls`/`error_message`
+        # above): an earlier revision made `signal` a plain public attribute any consumer could
+        # reassign mid-run, redirecting later requests to a caller-supplied replacement -- an
+        # independent Rust review caught this as observable authority Pi's own type system
+        # forbids (`L09-R004`). Layer 08 owns creating a fresh `RunAbortController()` at run
+        # start and clearing it back to `None` at run settlement (`_start_run_signal`/`_end_run_
+        # signal` below, called only from `AgentLoop._run_wrapped`), mirroring `runWithLifecycle`'s
+        # own `abortController`/`finishRun` lifecycle exactly. `RunAbortController.signal` is
+        # created once per controller, not per access, so `self.signal` returns the SAME
+        # `RunSignal` object for a run's entire duration -- the "stable per-run identity"
+        # `L09-R004` also required.
+        self._active_controller: RunAbortController | None = None
 
         declare_agent_events(ctx.events)
         self.scope = ctx.scope(instance_scope_key(definition, instance_id))
@@ -141,19 +148,44 @@ class AgentInstance:
         if self.on_status_change is not None:
             self.on_status_change(status)
 
+    @property
+    def signal(self) -> RunSignal | None:
+        """The active run's read-only cancellation signal, or `None` while idle (Layer 09).
+
+        Pinned Pi's own `Agent.signal` getter, exactly: returns `undefined`/`None` with no
+        active run, and otherwise the SAME `RunSignal` object for the run's entire duration --
+        never a fresh one per access, and never assignable from outside this class (`L09-R004`:
+        an earlier revision let any consumer reassign this mid-run, redirecting later requests
+        to a caller-supplied replacement, authority Pi's own type system does not permit)."""
+        return None if self._active_controller is None else self._active_controller.signal
+
     def abort(self) -> None:
         """Request cancellation of the active run, if any (Layer 09).
 
         Pinned Pi's `Agent.abort()`: `this.activeRun?.abortController.abort()` -- a no-op,
-        never raising, when no run is active (`self.signal is None`). Aborting only flips the
-        CURRENT run's own signal; it does not forcibly interrupt any listener, tool, hook, or
-        provider stream -- every consumer decides cooperatively whether to react (see
-        `assurance/layers/09-active-abort-contract-checkpoint.md`). Calling `abort()` does not
-        by itself make `reset()` legal: `reset()` still rejects until the run has actually
-        settled (`status` back to `IDLE`), exactly as it does for a non-aborted active run.
-        """
-        if self.signal is not None:
-            self.signal.abort()
+        never raising, when no run is active. Aborting only flips the CURRENT run's own signal;
+        it does not forcibly interrupt any listener, tool, hook, or provider stream -- every
+        consumer decides cooperatively whether to react (see `assurance/layers/09-active-abort-
+        contract-checkpoint.md`). Calling `abort()` does not by itself make `reset()` legal:
+        `reset()` still rejects until the run has actually settled (`status` back to `IDLE`),
+        exactly as it does for a non-aborted active run. Note this method mutates the PRIVATE
+        `RunAbortController`, never the `RunSignal` `.signal` itself exposes -- a `RunSignal` has
+        no `abort()` of its own at all (`L09-R004`)."""
+        if self._active_controller is not None:
+            self._active_controller.abort()
+
+    def _start_run_signal(self) -> None:
+        """Layer 08 only (`AgentLoop._run_wrapped`): create a fresh `RunAbortController` for a
+        new run, matching pinned Pi's own `new AbortController()` inside `runWithLifecycle`.
+        Not part of this class's own public API -- `AgentInstance` owns the vocabulary
+        (`signal`/`abort()`) and idle value; Layer 08 owns the per-run lifecycle, the same split
+        already established for `streaming_message`/`pending_tool_calls`/`error_message`."""
+        self._active_controller = RunAbortController()
+
+    def _end_run_signal(self) -> None:
+        """Layer 08 only: clear the controller once the run has settled, matching pinned Pi's
+        own `finishRun()` clearing `activeRun` (and therefore `Agent.signal`)."""
+        self._active_controller = None
 
     def reset(self) -> None:
         """Clear runtime state, messages, and both queues in place (`AG-016`, `L07-R003`).

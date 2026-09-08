@@ -4,7 +4,7 @@ import asyncio
 from typing import Any
 
 from minion_agent.llm import ToolCallBlock, text_of
-from minion_agent.runtime import Context, RunSignal
+from minion_agent.runtime import Context, RunAbortController
 from minion_agent.tools.batch import execute_batch, execute_length_stop_batch
 from minion_agent.tools.decisions import Proceed
 from minion_agent.tools.definition import ExecutionMode, ToolDefinition
@@ -146,7 +146,9 @@ async def test_preflight_is_sequential_and_settles_before_any_execute_begins() -
 
     ctx.events.on(TOOLS_EXECUTION_START, lambda call_id, name, args: events.append(f"start_{name}"))
 
-    async def traced_before(call: Any, definition: Any, arguments: Any, next_: Any) -> Proceed:
+    async def traced_before(
+        call: Any, definition: Any, arguments: Any, signal: Any, next_: Any
+    ) -> Proceed:
         if call.name == "a":
             await asyncio.sleep(0)
         events.append(f"before_{call.name}")
@@ -181,7 +183,9 @@ async def test_an_immediate_preflight_failure_does_not_block_a_later_calls_prefl
     events: list[str] = []
     ctx.events.on(TOOLS_EXECUTION_START, lambda call_id, name, args: events.append(f"start_{name}"))
 
-    async def traced_before(call: Any, definition: Any, arguments: Any, next_: Any) -> Proceed:
+    async def traced_before(
+        call: Any, definition: Any, arguments: Any, signal: Any, next_: Any
+    ) -> Proceed:
         events.append(f"before_{call.name}")
         return Proceed(arguments=arguments)
 
@@ -439,12 +443,12 @@ async def test_sequential_abort_after_a_call_completes_skips_the_rest_of_the_bat
     starting the next call -- a call already started always finishes; unreached calls are simply
     never attempted (`results` shorter than the source `calls`)."""
     ctx = _ctx()
-    signal = RunSignal()
+    controller = RunAbortController()
     events: list[str] = []
     ctx.events.on(TOOLS_EXECUTION_START, lambda call_id, name, args: events.append(f"start_{name}"))
 
     def execute_a(tool_call_id: str, args: dict[str, Any]) -> str:
-        signal.abort()
+        controller.abort()
         return "a"
 
     def execute_b(tool_call_id: str, args: dict[str, Any]) -> str:
@@ -458,7 +462,7 @@ async def test_sequential_abort_after_a_call_completes_skips_the_rest_of_the_bat
             _tool("b", execute_b, mode=ExecutionMode.SEQUENTIAL),
         ),
         ctx=ctx,
-        signal=signal,
+        signal=controller.signal,
     )
 
     assert events == ["start_a"]
@@ -477,14 +481,16 @@ async def test_parallel_abort_witness_matches_the_discriminating_trace() -> None
     RETAINED closure still starts afterward, via the concurrent barrier, and executes/finalizes
     normally -- A never checks the signal itself."""
     ctx = _ctx()
-    signal = RunSignal()
+    controller = RunAbortController()
     events: list[str] = []
     ctx.events.on(TOOLS_EXECUTION_START, lambda call_id, name, args: events.append(f"start_{name}"))
     ctx.events.on(TOOLS_EXECUTION_END, lambda call_id, name, result: events.append(f"end_{name}"))
 
-    async def abort_from_b(call: Any, definition: Any, arguments: Any, next_: Any) -> Proceed:
+    async def abort_from_b(
+        call: Any, definition: Any, arguments: Any, signal: Any, next_: Any
+    ) -> Proceed:
         if call.name == "b":
-            signal.abort()
+            controller.abort()
         return Proceed(arguments=arguments)
 
     ctx.events.on(TOOLS_PRE_EXECUTE, abort_from_b)
@@ -504,7 +510,7 @@ async def test_parallel_abort_witness_matches_the_discriminating_trace() -> None
             _tool("c", execute_c),
         ),
         ctx=ctx,
-        signal=signal,
+        signal=controller.signal,
     )
 
     assert events == ["start_a", "start_b", "end_b", "end_a"]
@@ -527,7 +533,7 @@ async def test_a_batch_completes_normally_when_the_signal_is_never_aborted() -> 
             _tool("a", lambda tool_call_id, args: "a"), _tool("b", lambda tool_call_id, args: "b")
         ),
         ctx=_ctx(),
-        signal=RunSignal(),
+        signal=RunAbortController().signal,
     )
 
     assert [text_of(r.to_message()) for r in outcome.results] == ["a", "b"]

@@ -151,32 +151,33 @@ def _validate(definition: ToolDefinition, arguments: dict[str, Any]) -> dict[str
         raise ArgumentValidationError(str(error)) from error
 
 
-def _wants_update(execute: Any) -> bool:
-    """Whether the tool declared a third parameter (after `tool_call_id`, `arguments`) for
-    partial output."""
+def _arity(execute: Any) -> int:
     try:
-        signature = inspect.signature(execute)
+        return len(inspect.signature(execute).parameters)
     except (TypeError, ValueError):  # pragma: no cover - builtins are not tools
-        return False
-    return len(signature.parameters) >= 3
+        return 0
 
 
-def _wants_signal(execute: Any) -> bool:
-    """Whether the tool declared a fourth parameter, for the active run's cancellation flag
-    (Layer 09). Matches pinned Pi's own `execute(toolCallId, params, signal, onUpdate)`
-    positional order -- `signal` before `onUpdate` -- for a tool that wants both, WITHOUT
-    reinterpreting the meaning of an EXISTING 3-parameter tool's own third parameter (already
-    `update`, per `_wants_update`, since before this layer existed): arity-based dispatch here
-    is a disclosed, minor Minion-specific constraint relative to Pi's fully-independent optional
-    parameters -- a tool that wants the signal but genuinely has no use for `update` still
-    declares (and may ignore) a fourth parameter, rather than Pi's own `execute(id, params,
-    signal)` three-parameter shape, which would collide with the existing update-only meaning of
-    three parameters here."""
-    try:
-        signature = inspect.signature(execute)
-    except (TypeError, ValueError):  # pragma: no cover - builtins are not tools
-        return False
-    return len(signature.parameters) >= 4
+def _wants_signal(definition: ToolDefinition) -> bool:
+    """Whether `execute()` should receive the active run's cancellation signal as its own third
+    positional parameter (Layer 09, `L09-R003`). Declared EXPLICITLY via `ToolDefinition.
+    wants_signal` -- not inferred from arity alone -- since arity cannot by itself distinguish a
+    tool wanting `signal` from one wanting `update` at the same parameter count without breaking
+    an existing 3-parameter tool's own established `update`-only meaning. Requires arity >= 3 (a
+    slot for it must actually exist); `wants_signal=True` with only 2 declared parameters is
+    simply never satisfied, matching a tool that declared the capability but supplied no
+    parameter for it."""
+    return definition.wants_signal and _arity(definition.execute) >= 3
+
+
+def _wants_update(definition: ToolDefinition) -> bool:
+    """Whether `execute()` should receive the `update` callback (Layer 08, `L08-R011`, unchanged
+    in spirit, adjusted for `wants_signal`). When the tool has NOT declared `wants_signal`
+    (every pre-Layer-09 tool, and any tool that only wants live updates), a third parameter means
+    `update`, exactly as before this layer existed. When it HAS declared `wants_signal`, the
+    third parameter is `signal` instead (see `_wants_signal`), so `update` needs a FOURTH."""
+    required_arity = 4 if definition.wants_signal else 3
+    return _arity(definition.execute) >= required_arity
 
 
 def _merge_override(current: ToolResult, override: AfterToolCallOverride | None) -> ToolResult:
@@ -234,18 +235,32 @@ def register_after_tool_call_hook(
     Returns the same disposer `EventBus.on` returns.
     """
 
-    async def listener(result: ToolResult, next_: Any) -> ToolResult:
+    async def listener(result: ToolResult, signal: RunSignal | None, next_: Any) -> ToolResult:
         outcome = hook(result)
         override = await outcome if inspect.isawaitable(outcome) else outcome
-        merged: ToolResult = await next_(_merge_override(result, override))
+        # Re-supplies `signal` explicitly (`L09-R001`): `next_(*replacement)` uses EXACTLY what
+        # is passed, so a bare `next_(merged)` would silently drop `signal` for every later
+        # listener in the chain.
+        merged: ToolResult = await next_(_merge_override(result, override), signal)
         return merged
 
     return ctx.events.on(TOOLS_POST_EXECUTE, listener, scope=scope)
 
 
-async def _finalize(result: ToolResult, ctx: Context, scope: ScopeKey | None) -> ToolResult:
+async def _finalize(
+    result: ToolResult, ctx: Context, scope: ScopeKey | None, signal: RunSignal | None = None
+) -> ToolResult:
     """Run the result through every registered `tools/post-execute` hook (pinned Pi's
     `afterToolCall`, extended to N listeners -- see `register_after_tool_call_hook`).
+
+    `signal` (Layer 09, `L09-R001`): pinned Pi's own `afterToolCall(context, signal)` passes the
+    active run's signal as the hook's own second parameter; the equivalent here is the SAME
+    signal as the SECOND element of this waterfall's own payload tuple, before `next_`. A
+    listener that delegates via bare `next_()` sees it unchanged automatically (`replacement or
+    current` in `EventBus.waterfall`); a listener that delegates with an explicit replacement
+    result must re-supply `signal` alongside it (`next_(replacement, signal)`) or later
+    listeners in the same chain will not see it -- `register_after_tool_call_hook`'s own wrapper
+    does this already.
 
     The terminal is computed from the current arguments, because this event's
     terminal is "the result as currently transformed" (design spec section 3).
@@ -276,7 +291,13 @@ async def _finalize(result: ToolResult, ctx: Context, scope: ScopeKey | None) ->
     added_tool_names = result.added_tool_names
 
     def _restore(current: tuple[Any, ...]) -> tuple[Any, ...]:
-        (candidate,) = current
+        # `current[0]` is always the result; `current[1:]` is whatever trailing payload (the
+        # signal) accompanied it -- tolerated as a variable-length tail rather than a fixed
+        # 2-tuple, so a listener that forgets to re-supply `signal` when delegating with a
+        # replacement (`next_(replacement)`, 1 element) degrades to "later listeners see no
+        # signal" instead of raising here.
+        candidate = current[0]
+        rest = current[1:]
         if (
             candidate.tool_call_id == tool_call_id
             and candidate.tool_name == tool_name
@@ -294,11 +315,13 @@ async def _finalize(result: ToolResult, ctx: Context, scope: ScopeKey | None) ->
                 usage=candidate.usage,
                 terminate=candidate.terminate,
             ),
+            *rest,
         )
 
     transformed: ToolResult = await ctx.events.waterfall(
         TOOLS_POST_EXECUTE,
         result,
+        signal,
         terminal=lambda current, *_: current,
         scope=scope,
         normalize_step=_restore,
@@ -411,6 +434,7 @@ async def _preflight(
             call,
             definition,
             validated_arguments,
+            signal,
             terminal=Proceed(arguments=validated_arguments),
             scope=scope,
         )
@@ -539,9 +563,11 @@ async def _execute_and_finalize(
             )
 
     try:
-        if _wants_signal(definition.execute):
+        if _wants_signal(definition) and _wants_update(definition):
             outcome = definition.execute(call.id, arguments, signal, update)
-        elif _wants_update(definition.execute):
+        elif _wants_signal(definition):
+            outcome = definition.execute(call.id, arguments, signal)
+        elif _wants_update(definition):
             outcome = definition.execute(call.id, arguments, update)
         else:
             outcome = definition.execute(call.id, arguments)
@@ -577,7 +603,7 @@ async def _execute_and_finalize(
         await asyncio.gather(*pending_updates)
 
     try:
-        finalized = await _finalize(executed, ctx, scope)
+        finalized = await _finalize(executed, ctx, scope, signal)
     except Exception as error:
         # Pinned Pi's finalizeExecutedToolCall: an after-hook exception REPLACES the entire
         # prior result -- success or failure alike -- with a plain error result. Nothing from

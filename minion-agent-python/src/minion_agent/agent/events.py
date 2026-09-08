@@ -32,6 +32,24 @@ back to the certified Layer-07 `AgentInstance`. Not dispatched for a represented
 assistant message (`L08-R008`, PASS 3): pinned Pi returns immediately after that turn's own
 `turn_end`."""
 
+AGENT_TRANSFORM_CONTEXT = "agent/transform-context"
+"""Waterfall returning `tuple[Message, ...]`, terminal the messages UNCHANGED (Layer 09,
+`L09-R005`). Listener signature: `(instance, messages, signal, next_) -> tuple[Message, ...]`,
+matching pinned Pi's own `config.transformContext(messages, signal)`
+(`agent-loop.ts:290-292::streamAssistantResponse`) -- an OPTIONAL per-request projection of the
+run's own message history, invoked immediately before every provider request (once per turn, not
+once per run), with the SAME active-run signal every other consumer receives. Genuinely NEW to
+Minion: no prior layer had an equivalent extensibility point at this exact seam.
+`AGENT_PRE_STEP` is NOT equivalent -- it runs once, at INPUT ADMISSION boundaries, and its own
+decision changes what gets durably admitted into the run's own accumulated transcript; this event
+runs on every REQUEST, is purely a read-transform of the OUTGOING provider-local projection, and
+never mutates the persistent/run-local transcript itself, matching pinned Pi's own
+`streamAssistantResponse` calling it on a LOCAL `messages` variable that is never written back to
+`currentContext.messages`. An independent Rust contract review named this omission from the
+original checkpoint's own consumer matrix explicitly (`L09-R005`, `CONTRACT_ASSURANCE_DEFECT`):
+zero listeners (the default, matching every caller before this event existed) preserves prior
+behavior exactly -- purely additive, no certified Layer-08 rule reopened."""
+
 AGENT_INBOX_INSERTED = "agent/inbox/inserted"
 AGENT_INBOX_CLAIMED = "agent/inbox/claimed"
 
@@ -67,6 +85,7 @@ AGENT_EVENT_MODES: dict[str, DispatchMode] = {
     AGENT_PRE_STEP: DispatchMode.WATERFALL,
     AGENT_TURN_STOPPING: DispatchMode.SERIAL,
     AGENT_PREPARE_NEXT_TURN: DispatchMode.WATERFALL,
+    AGENT_TRANSFORM_CONTEXT: DispatchMode.WATERFALL,
     AGENT_INBOX_INSERTED: DispatchMode.EMIT,
     AGENT_INBOX_CLAIMED: DispatchMode.EMIT,
     AGENT_LIFECYCLE_EVENT: DispatchMode.SERIAL,

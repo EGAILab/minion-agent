@@ -91,6 +91,7 @@ from ..agent.events import (
     AGENT_LIFECYCLE_EVENT,
     AGENT_PRE_STEP,
     AGENT_PREPARE_NEXT_TURN,
+    AGENT_TRANSFORM_CONTEXT,
     AGENT_TURN_STOPPING,
 )
 from ..agent.identity import AgentStatus
@@ -134,7 +135,6 @@ from ..llm import (
     UserContentBlock,
     UserMessage,
 )
-from ..runtime import RunSignal
 from ..session import (
     ArtifactStore,
     EventKind,
@@ -327,14 +327,16 @@ class AgentLoop:
         self.instance.set_status(AgentStatus.RUNNING)
         self.instance.streaming_message = None
         self.instance.error_message = None
-        # Layer 09: a NEW `RunSignal` per run, matching pinned Pi's own `new
+        # Layer 09: a NEW `RunAbortController` per run, matching pinned Pi's own `new
         # AbortController()` inside `runWithLifecycle` (`agent.ts:491`) -- created here,
         # at the SAME point as the other three unconditional entry writes above, and
         # cleared back to `None` in `finally` below, at the SAME point `finishRun()`
         # clears `activeRun` (and therefore `Agent.signal`). Live for the run's entire
         # duration, including `_settle_run_failure`'s own recovery dispatch and
-        # `agent_end` listener settlement -- never reassigned mid-run.
-        self.instance.signal = RunSignal()
+        # `agent_end` listener settlement. `_start_run_signal`/`_end_run_signal` are
+        # Layer-08-only internal calls -- `instance.signal` itself has no public setter
+        # at all (`L09-R004`), so no consumer can reassign it mid-run.
+        self.instance._start_run_signal()
         try:
             await self._execute_run(
                 entering=entering,
@@ -345,7 +347,7 @@ class AgentLoop:
             self.instance.set_status(AgentStatus.IDLE)
             self.instance.streaming_message = None
             self.instance.pending_tool_calls = frozenset()
-            self.instance.signal = None
+            self.instance._end_run_signal()
 
     async def _dispatch_agent_event(self, event: AgentEvent) -> None:
         """Pinned Pi's own `processEvents`: the single seam every lifecycle
@@ -663,11 +665,25 @@ class AgentLoop:
         parameter here and read `config.model`, producing the run-local,
         possibly-already-replaced model instead of the Agent's own current
         persistent one; `config` carried no other use in this method, so it is
-        removed rather than kept unread."""
+        removed rather than kept unread.
+
+        The failure's own `stop_reason` (`L09-R002`) is `ABORTED` when the active run's
+        signal happens to be aborted AT THIS EXACT READ, `ERROR` otherwise -- matching pinned
+        Pi's own `handleRunFailure(error, abortController.signal.aborted)`
+        (`agent.ts:504-505`/`511-519`) exactly: causation is deliberately irrelevant. An
+        exception entirely unrelated to the abort, that merely happens to race after some
+        listener called `abort()`, is STILL classified `aborted`, not `error` -- this is Pi's
+        own actual behavior, not something Layer 09 gets to redesign for tidiness. An earlier
+        revision hard-coded `StopReason.ERROR` unconditionally, never reading `instance.signal`
+        at all, contradicting this same method's own normative contract (`AG-007`)."""
         log = self.instance.log
+        signal = self.instance.signal
+        stop_reason = (
+            StopReason.ABORTED if signal is not None and signal.aborted else StopReason.ERROR
+        )
         failure = AssistantMessage(
             content=(TextBlock(text=""),),
-            stop_reason=StopReason.ERROR,
+            stop_reason=stop_reason,
             usage=Usage(),
             model=self.instance.model.model,
             provider=self.instance.model.provider,
@@ -750,6 +766,34 @@ class AgentLoop:
         )
         return update
 
+    async def _transform_context(self, messages: tuple[Message, ...]) -> tuple[Message, ...]:
+        """Pinned Pi's `config.transformContext(messages, signal)` (Layer 09, `L09-R005`):
+        an optional per-request projection of the outgoing message history, invoked immediately
+        before every provider request. Zero listeners preserves every caller's own behavior
+        exactly (the terminal reflects whatever `messages` value is current when the chain ends,
+        unchanged if nobody delegated a replacement) -- purely additive, matching
+        `_prepare_next_turn`'s own waterfall-dispatch pattern. Never writes back to `context`/
+        `RunContext` itself: pinned Pi's own `streamAssistantResponse` reassigns only its OWN
+        local `messages` variable, never `currentContext.messages`, so a transform's own output is
+        provider-local for THIS request only.
+
+        A listener that wants a LATER listener to also see its own transformation must delegate
+        with the full triple (`next_(instance, new_messages, signal)`), not just the messages
+        alone -- otherwise `signal` is silently dropped for the rest of the chain, the same
+        `EventBus.waterfall` convention `tools/pre-execute`/`tools/post-execute` already follow. A
+        listener that does not need later listeners to observe its own transformation may instead
+        short-circuit by returning the new messages directly, without calling `next_` at all.
+        """
+        transformed: tuple[Message, ...] = await self.instance.ctx.events.waterfall(
+            AGENT_TRANSFORM_CONTEXT,
+            self.instance,
+            messages,
+            self.instance.signal,
+            terminal=lambda _instance, current_messages, _signal: current_messages,
+            scope=self.instance.scope.key,
+        )
+        return transformed
+
     def _claim_step_input(self) -> tuple[InputEnvelope, ...]:
         """Take whatever is waiting at the step boundary."""
         return self.instance.inbox.claim(InboxTarget.NEXT_STEP, self.next_step_policy)
@@ -825,10 +869,15 @@ class AgentLoop:
         if decision.history_window is not None:
             history = history[-decision.history_window :]
 
+        # Layer 09 (`L09-R005`): pinned Pi's own `transformContext(messages, signal)`, invoked
+        # immediately before every provider request -- a provider-local projection only, never
+        # written back to `context`/`history` themselves.
+        transformed_history = await self._transform_context(tuple(history))
+
         request = Request(
             model=config.model,
             system=assemble_system(components),
-            messages=tuple(history),
+            messages=transformed_history,
             tools=schemas,
             signal=self.instance.signal,
         )

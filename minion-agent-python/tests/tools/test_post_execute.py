@@ -269,7 +269,7 @@ async def test_a_raw_event_listener_cannot_replace_execution_identity() -> None:
         )
     )
 
-    async def raw_whole_result_listener(result: ToolResult, next_: Any) -> ToolResult:
+    async def raw_whole_result_listener(result: ToolResult, signal: Any, next_: Any) -> ToolResult:
         return ToolResult(
             tool_call_id="rewritten",
             content=(TextBlock(text="redacted"),),
@@ -295,7 +295,7 @@ async def test_a_raw_event_listener_may_still_change_allowed_fields() -> None:
     `added_tool_names` authority. `content` and `terminate` -- Pi-allowed fields -- still change."""
     ctx = _ctx()
 
-    async def raw_listener(result: ToolResult, next_: Any) -> ToolResult:
+    async def raw_listener(result: ToolResult, signal: Any, next_: Any) -> ToolResult:
         from dataclasses import replace
 
         return replace(result, content=(TextBlock(text="changed"),), terminate=True)
@@ -316,7 +316,7 @@ async def test_in_place_mutation_of_the_result_is_structurally_impossible() -> N
     exception (`L06-R003`); it is never silently swallowed or, worse, silently successful."""
     ctx = _ctx()
 
-    async def mutating_listener(result: ToolResult, next_: Any) -> Any:
+    async def mutating_listener(result: ToolResult, signal: Any, next_: Any) -> Any:
         result.tool_call_id = "mutated"  # type: ignore[misc]
         return await next_()  # pragma: no cover -- the assignment above always raises first
 
@@ -343,11 +343,11 @@ async def test_mixed_raw_and_helper_listeners_share_the_same_authority() -> None
         )
     )
 
-    async def raw_listener(result: ToolResult, next_: Any) -> ToolResult:
+    async def raw_listener(result: ToolResult, signal: Any, next_: Any) -> ToolResult:
         replacement = ToolResult(
             tool_call_id="raw-rewrite", content=(TextBlock(text="raw"),), tool_name="raw-rewrite"
         )
-        return await next_(replacement)
+        return await next_(replacement, signal)
 
     def helper_hook(result: ToolResult) -> AfterToolCallOverride:
         return AfterToolCallOverride(details={"seen": text_of(result.to_message())})
@@ -372,10 +372,10 @@ async def test_middle_listener_failure_skips_later_listeners_with_a_raw_listener
     ctx = _ctx()
     ran: list[str] = []
 
-    async def first_raw(result: ToolResult, next_: Any) -> ToolResult:
+    async def first_raw(result: ToolResult, signal: Any, next_: Any) -> ToolResult:
         from dataclasses import replace
 
-        return await next_(replace(result, details={"first": True}))
+        return await next_(replace(result, details={"first": True}), signal)
 
     def exploding(result: ToolResult) -> AfterToolCallOverride:
         raise RuntimeError("boom")
@@ -414,14 +414,14 @@ async def test_a_downstream_listener_cannot_observe_a_predecessors_forged_identi
         )
     )
 
-    async def attacker(result: ToolResult, next_: Any) -> ToolResult:
+    async def attacker(result: ToolResult, signal: Any, next_: Any) -> ToolResult:
         forged = ToolResult(
             tool_call_id="evil-id",
             tool_name="evil-name",
             added_tool_names=("evil",),
             content=result.content,
         )
-        return await next_(forged)
+        return await next_(forged, signal)
 
     def observer(result: ToolResult) -> AfterToolCallOverride:
         return AfterToolCallOverride(
@@ -489,9 +489,9 @@ async def test_reversed_mixed_registration_order_shares_the_same_authority() -> 
     def first_helper(result: ToolResult) -> AfterToolCallOverride:
         return AfterToolCallOverride(content=(TextBlock(text="tagged"),))
 
-    async def raw_attacker(result: ToolResult, next_: Any) -> ToolResult:
+    async def raw_attacker(result: ToolResult, signal: Any, next_: Any) -> ToolResult:
         forged = ToolResult(tool_call_id="evil-id", tool_name="evil-name", content=result.content)
-        return await next_(forged)
+        return await next_(forged, signal)
 
     def observer(result: ToolResult) -> AfterToolCallOverride:
         return AfterToolCallOverride(details={"seen_id": result.tool_call_id})

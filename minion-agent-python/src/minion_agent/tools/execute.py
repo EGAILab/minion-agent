@@ -238,10 +238,9 @@ def register_after_tool_call_hook(
     async def listener(result: ToolResult, signal: RunSignal | None, next_: Any) -> ToolResult:
         outcome = hook(result)
         override = await outcome if inspect.isawaitable(outcome) else outcome
-        # Re-supplies `signal` explicitly (`L09-R001`): `next_(*replacement)` uses EXACTLY what
-        # is passed, so a bare `next_(merged)` would silently drop `signal` for every later
-        # listener in the chain.
-        merged: ToolResult = await next_(_merge_override(result, override), signal)
+        # No need to re-supply `signal` (`L09-R006`): `_finalize`'s own `normalize_step`
+        # restores it to the original authoritative value regardless of what is passed here.
+        merged: ToolResult = await next_(_merge_override(result, override))
         return merged
 
     return ctx.events.on(TOOLS_POST_EXECUTE, listener, scope=scope)
@@ -253,14 +252,16 @@ async def _finalize(
     """Run the result through every registered `tools/post-execute` hook (pinned Pi's
     `afterToolCall`, extended to N listeners -- see `register_after_tool_call_hook`).
 
-    `signal` (Layer 09, `L09-R001`): pinned Pi's own `afterToolCall(context, signal)` passes the
-    active run's signal as the hook's own second parameter; the equivalent here is the SAME
-    signal as the SECOND element of this waterfall's own payload tuple, before `next_`. A
-    listener that delegates via bare `next_()` sees it unchanged automatically (`replacement or
-    current` in `EventBus.waterfall`); a listener that delegates with an explicit replacement
-    result must re-supply `signal` alongside it (`next_(replacement, signal)`) or later
-    listeners in the same chain will not see it -- `register_after_tool_call_hook`'s own wrapper
-    does this already.
+    `signal` (Layer 09, `L09-R001`/`L09-R006`): pinned Pi's own `afterToolCall(context, signal)`
+    passes the active run's signal as the hook's own second parameter; the equivalent here is the
+    SAME signal as the SECOND element of this waterfall's own payload tuple, before `next_`.
+    `signal` is AUTHORITATIVE event metadata, not a listener's own to replace, redirect, or drop
+    (`L09-R006`, an independent Rust review's own finding against an earlier revision that let a
+    raw listener delegate with a fabricated replacement `RunSignal`, which the NEXT listener then
+    observed instead of the real one): `_restore` below forces it back to the ORIGINAL signal at
+    EVERY listener-to-listener handoff, the same restoration `tool_call_id`/`tool_name`/
+    `added_tool_names` already receive, below -- a listener no longer needs to re-supply it at
+    all when delegating with a replacement result.
 
     The terminal is computed from the current arguments, because this event's
     terminal is "the result as currently transformed" (design spec section 3).
@@ -291,19 +292,19 @@ async def _finalize(
     added_tool_names = result.added_tool_names
 
     def _restore(current: tuple[Any, ...]) -> tuple[Any, ...]:
-        # `current[0]` is always the result; `current[1:]` is whatever trailing payload (the
-        # signal) accompanied it -- tolerated as a variable-length tail rather than a fixed
-        # 2-tuple, so a listener that forgets to re-supply `signal` when delegating with a
-        # replacement (`next_(replacement)`, 1 element) degrades to "later listeners see no
-        # signal" instead of raising here.
+        # `current[0]` is always the result -- the listener's own to transform freely.
+        # `signal` (`L09-R006`) is AUTHORITATIVE event metadata: always forced back to the
+        # ORIGINAL signal this dispatch started with, regardless of what a listener delegated
+        # with (a replacement `RunSignal`, or a bare `next_(replacement)` that dropped it
+        # entirely) -- exactly the same restoration discipline `tool_call_id`/`tool_name`/
+        # `added_tool_names` already receive below, extended to cover `signal` too.
         candidate = current[0]
-        rest = current[1:]
         if (
             candidate.tool_call_id == tool_call_id
             and candidate.tool_name == tool_name
             and candidate.added_tool_names == added_tool_names
         ):
-            return current
+            return (candidate, signal)
         return (
             ToolResult(
                 tool_call_id=tool_call_id,
@@ -315,7 +316,7 @@ async def _finalize(
                 usage=candidate.usage,
                 terminate=candidate.terminate,
             ),
-            *rest,
+            signal,
         )
 
     transformed: ToolResult = await ctx.events.waterfall(
@@ -426,6 +427,15 @@ async def _preflight(
             on_execution_end,
         )
 
+    def _restore_signal(current: tuple[Any, ...]) -> tuple[Any, ...]:
+        # `signal` (Layer 09, `L09-R006`) is AUTHORITATIVE event metadata, not a listener's own
+        # to replace, redirect, or drop -- always restored to the ORIGINAL signal this dispatch
+        # started with, regardless of what a listener delegated with (including a replacement
+        # `RunSignal`, or a bare `next_(call, definition, arguments)` that omitted it entirely).
+        # `call`/`definition`/`arguments` remain the listener's own to transform freely -- only
+        # `signal`'s own identity is protected.
+        return (*current[:3], signal)
+
     try:
         prepared_arguments = _prepare(definition, call.arguments)
         validated_arguments = _validate(definition, prepared_arguments)
@@ -437,6 +447,7 @@ async def _preflight(
             signal,
             terminal=Proceed(arguments=validated_arguments),
             scope=scope,
+            normalize_step=_restore_signal,
         )
     except ArgumentValidationError as error:
         # Surfaced to the model, which chose these arguments and is the only

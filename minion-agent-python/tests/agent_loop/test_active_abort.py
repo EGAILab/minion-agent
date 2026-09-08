@@ -18,6 +18,7 @@ from minion_agent.agent.instance import AgentActiveError
 from minion_agent.agent.projection import MessageStart
 from minion_agent.llm import StopReason, TextBlock, ToolCallBlock, UserMessage
 from minion_agent.llm.adapters.mock import ScriptedResponse
+from minion_agent.runtime import RunAbortController
 from minion_agent.tools.decisions import Proceed
 from minion_agent.tools.events import TOOLS_PRE_EXECUTE
 
@@ -227,6 +228,33 @@ async def test_transform_context_output_is_provider_local_not_persistent() -> No
     assert adapter.requests[1].messages.count(marker) == 1
     # The durable, offline-visible transcript never contains the injected marker at all.
     assert marker not in loop.instance.messages
+
+
+async def test_a_transform_listener_cannot_redirect_a_later_listener_to_a_replacement_signal() -> (
+    None
+):
+    """`L09-R006`: the same authoritative-signal witness as `tools/pre-execute`/`tools/
+    post-execute`, for `AGENT_TRANSFORM_CONTEXT` -- listener A delegates with a FABRICATED
+    replacement signal; listener B must still observe the ORIGINAL (the same object the request
+    that follows actually receives), not A's forgery."""
+    loop, adapter = _loop_with_adapter(ScriptedResponse((), StopReason.STOP))
+    forged = RunAbortController().signal
+    seen: list[Any] = []
+
+    async def listener_a(instance: Any, messages: Any, signal: Any, next_: Any) -> Any:
+        return await next_(instance, messages, forged)
+
+    async def listener_b(instance: Any, messages: Any, signal: Any, next_: Any) -> Any:
+        seen.append(signal)
+        return await next_()
+
+    loop.instance.ctx.events.on(AGENT_TRANSFORM_CONTEXT, listener_a)
+    loop.instance.ctx.events.on(AGENT_TRANSFORM_CONTEXT, listener_b)
+
+    await loop.prompt(_say("hello"))
+
+    assert seen[0] is not forged  # NOT the forgery listener A delegated with
+    assert seen[0] is adapter.requests[0].signal  # the SAME signal the real request received
 
 
 async def test_a_represented_aborted_terminal_is_unaffected_by_layer_09() -> None:

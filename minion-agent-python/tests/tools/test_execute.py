@@ -6,7 +6,7 @@ from pydantic import BaseModel
 
 from minion_agent.llm import ToolCallBlock, text_of
 from minion_agent.runtime import Context, RunAbortController
-from minion_agent.tools.decisions import Block, Proceed
+from minion_agent.tools.decisions import AfterToolCallOverride, Block, Proceed
 from minion_agent.tools.definition import ToolDefinition
 from minion_agent.tools.events import TOOLS_POST_EXECUTE, TOOLS_PRE_EXECUTE, declare_tools_events
 from minion_agent.tools.execute import execute_call
@@ -651,3 +651,153 @@ async def test_before_hook_receives_the_active_signal() -> None:
 
     assert not result.is_error
     assert seen == [signal]
+
+
+# -- Layer 09, `L09-R006`: `signal` is authoritative event metadata, not replaceable ------------
+
+
+async def test_a_before_hook_cannot_redirect_a_later_listener_to_a_replacement_signal() -> None:
+    """The independent review's own required regression: listener A delegates with a
+    FABRICATED replacement signal; listener B must still observe the ORIGINAL, not A's forgery
+    -- exactly the same restoration discipline `L06-R003` already applies to `tool_call_id`/
+    `tool_name`/`added_tool_names`, extended to `signal`."""
+    ctx = _ctx()
+    original = RunAbortController().signal
+    forged = RunAbortController().signal
+    seen: list[Any] = []
+
+    async def listener_a(
+        call: Any, definition: Any, arguments: Any, received_signal: Any, next_: Any
+    ) -> Any:
+        return await next_(call, definition, arguments, forged)
+
+    async def listener_b(
+        call: Any, definition: Any, arguments: Any, received_signal: Any, next_: Any
+    ) -> Any:
+        seen.append(received_signal)
+        return await next_()
+
+    ctx.events.on(TOOLS_PRE_EXECUTE, listener_a)
+    ctx.events.on(TOOLS_PRE_EXECUTE, listener_b)
+    definition = _echo()
+
+    result = await execute_call(
+        _call(value="x"), registry=_registry(definition), ctx=ctx, signal=original
+    )
+
+    assert not result.is_error
+    assert seen == [original]  # NOT [forged]
+
+
+async def test_a_before_hook_cannot_drop_the_signal_for_a_later_listener() -> None:
+    """The other half of the same witness: listener A delegates WITHOUT re-supplying `signal` at
+    all -- listener B must still observe the ORIGINAL, not `None`."""
+    ctx = _ctx()
+    original = RunAbortController().signal
+    seen: list[Any] = []
+
+    async def listener_a(
+        call: Any, definition: Any, arguments: Any, received_signal: Any, next_: Any
+    ) -> Any:
+        return await next_(call, definition, arguments)  # signal omitted entirely
+
+    async def listener_b(
+        call: Any, definition: Any, arguments: Any, received_signal: Any, next_: Any
+    ) -> Any:
+        seen.append(received_signal)
+        return await next_()
+
+    ctx.events.on(TOOLS_PRE_EXECUTE, listener_a)
+    ctx.events.on(TOOLS_PRE_EXECUTE, listener_b)
+    definition = _echo()
+
+    result = await execute_call(
+        _call(value="x"), registry=_registry(definition), ctx=ctx, signal=original
+    )
+
+    assert not result.is_error
+    assert seen == [original]  # NOT [None]
+
+
+async def test_an_after_hook_cannot_redirect_a_later_listener_to_a_replacement_signal() -> None:
+    """The same witness for `tools/post-execute`: a raw listener delegates with a FABRICATED
+    replacement signal; a later raw listener must still observe the ORIGINAL."""
+    ctx = _ctx()
+    original = RunAbortController().signal
+    forged = RunAbortController().signal
+    seen: list[Any] = []
+
+    async def listener_a(result: Any, received_signal: Any, next_: Any) -> Any:
+        return await next_(result, forged)
+
+    async def listener_b(result: Any, received_signal: Any, next_: Any) -> Any:
+        seen.append(received_signal)
+        return await next_()
+
+    ctx.events.on(TOOLS_POST_EXECUTE, listener_a)
+    ctx.events.on(TOOLS_POST_EXECUTE, listener_b)
+    definition = _echo()
+
+    result = await execute_call(
+        _call(value="x"), registry=_registry(definition), ctx=ctx, signal=original
+    )
+
+    assert not result.is_error
+    assert seen == [original]  # NOT [forged]
+
+
+async def test_an_after_hook_cannot_drop_the_signal_for_a_later_listener() -> None:
+    """The other half for `tools/post-execute`: a raw listener delegates without re-supplying
+    `signal` at all -- a later raw listener must still observe the ORIGINAL, not `None`."""
+    ctx = _ctx()
+    original = RunAbortController().signal
+    seen: list[Any] = []
+
+    async def listener_a(result: Any, received_signal: Any, next_: Any) -> Any:
+        return await next_(result)  # signal omitted entirely
+
+    async def listener_b(result: Any, received_signal: Any, next_: Any) -> Any:
+        seen.append(received_signal)
+        return await next_()
+
+    ctx.events.on(TOOLS_POST_EXECUTE, listener_a)
+    ctx.events.on(TOOLS_POST_EXECUTE, listener_b)
+    definition = _echo()
+
+    result = await execute_call(
+        _call(value="x"), registry=_registry(definition), ctx=ctx, signal=original
+    )
+
+    assert not result.is_error
+    assert seen == [original]  # NOT [None]
+
+
+async def test_a_helper_registered_after_hook_no_longer_needs_to_re_supply_signal() -> None:
+    """Regression: `register_after_tool_call_hook`'s own wrapper was simplified once `_finalize`'s
+    own `normalize_step` became authoritative for `signal` -- a helper-registered hook still
+    composes correctly with a raw listener after it, which now sees the ORIGINAL signal
+    regardless of the helper's own bare `next_(merged)` call."""
+    from minion_agent.tools.execute import register_after_tool_call_hook
+
+    ctx = _ctx()
+    original = RunAbortController().signal
+    seen: list[Any] = []
+
+    def helper_hook(result: ToolResult) -> AfterToolCallOverride:
+        return AfterToolCallOverride(details={"seen": "helper"})
+
+    async def raw_after(result: Any, received_signal: Any, next_: Any) -> Any:
+        seen.append(received_signal)
+        return await next_()
+
+    register_after_tool_call_hook(ctx, helper_hook)
+    ctx.events.on(TOOLS_POST_EXECUTE, raw_after)
+    definition = _echo()
+
+    result = await execute_call(
+        _call(value="x"), registry=_registry(definition), ctx=ctx, signal=original
+    )
+
+    assert not result.is_error
+    assert result.details == {"seen": "helper"}
+    assert seen == [original]

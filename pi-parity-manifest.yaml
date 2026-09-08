@@ -762,7 +762,40 @@ rows:
     below), dispatched in `_run_step` immediately before `Request` construction, transforming the
     outgoing message history only -- never written back to `context`/the persistent transcript,
     matching pinned Pi''s own local-variable-only reassignment. Zero listeners (every caller
-    before this pass) preserves prior behavior exactly.'
+    before this pass) preserves prior behavior exactly.
+
+    PASS 3 (targeted re-review of the PASS-2 candidate): REJECTED FOR RUST IMPLEMENTATION,
+    `L09-R006`, a new `PI_PARITY_DEFECT` -- `L09-C001`/`L09-C002`, `L09-R002`, `L09-R003`, and the
+    transform-context SEMANTIC surface portion of `L09-R005` were confirmed correct and left
+    untouched; `L09-R001`/`L09-R004` were only PARTIALLY resolved by PASS 2 and this finding
+    explains why.
+
+    `L09-R006`: PASS 2''s own fix for `L09-R001` added `signal` to every waterfall payload but
+    never protected it from a listener''s own delegation call -- a raw listener could call
+    `next_(replacement_args..., forged_signal)` or omit `signal` entirely when delegating, and the
+    NEXT listener in the same chain would observe the forgery or `None` instead of the run''s own
+    original signal, contradicting the "same signal reaches every consumer" guarantee this row and
+    `TOOL-024` both already claimed. The independent review''s own executable witness showed later
+    `tools/pre-execute` and `tools/post-execute` listeners receiving a fabricated replacement
+    signal while execution still succeeded. Root cause: `signal` was event PAYLOAD, not event
+    METADATA -- ordinary waterfall payload values are exactly what a listener is free to transform
+    when it delegates, but `signal` (like `tool_call_id`/`tool_name`/`added_tool_names`,
+    `L06-R003`) is authoritative identity/context a listener has no business redirecting for a
+    listener downstream of it.
+
+    Remediation: `AGENT_TRANSFORM_CONTEXT`''s own waterfall dispatch (`_transform_context`) now
+    supplies a `normalize_step` closure (`_restore_signal`) that forces the tuple''s own `signal`
+    slot back to the closure-captured ORIGINAL value at every listener-to-listener handoff,
+    regardless of what a listener passes when it delegates -- the exact `normalize_step` mechanism
+    already certified for `TOOL-024`''s own `_finalize`/`_restore` (`L06-R003` precedent), now also
+    applied there for `signal` specifically (see `TOOL-024` below for the `tools/pre-execute`/
+    `tools/post-execute` half of this fix) and to this event''s own dispatch for the first time. A
+    listener no longer needs to re-supply `signal` when delegating with a replacement result, and
+    cannot override it for a later listener even by supplying a forgery or omitting it -- the
+    PASS-2 "must re-supply or it is lost" contract `spec/tools.md` incorrectly stated is now
+    corrected there to describe the authoritative-restoration guarantee instead. Verified via
+    revert-and-confirm: the new discriminating test was confirmed to FAIL against the PASS-2
+    candidate with `normalize_step` stripped, then to PASS once restored.'
   tests:
   - test_a_fresh_controller_is_not_aborted (runtime/test_signal.py)
   - test_abort_sets_the_signal_aborted (runtime/test_signal.py)
@@ -785,6 +818,7 @@ rows:
   - test_an_unrelated_exception_without_abort_is_still_settled_as_error (agent_loop/test_active_abort.py)
   - test_transform_context_receives_messages_and_the_active_signal (agent_loop/test_active_abort.py)
   - test_transform_context_output_is_provider_local_not_persistent (agent_loop/test_active_abort.py)
+  - test_a_transform_listener_cannot_redirect_a_later_listener_to_a_replacement_signal (agent_loop/test_active_abort.py)
   - test_a_represented_aborted_terminal_is_unaffected_by_layer_09 (agent_loop/test_active_abort.py)
   python: src/minion_agent/runtime/signal.py::RunSignal, RunAbortController; src/minion_agent/agent/instance.py::AgentInstance.signal (read-only property)/abort/_start_run_signal/_end_run_signal; src/minion_agent/agent_loop/driver.py::AgentLoop._run_wrapped (controller create/clear), _run_step (Request.signal, _transform_context), _settle_run_failure (ABORTED classification), _transform_context; src/minion_agent/agent/events.py::AGENT_TRANSFORM_CONTEXT
   rust: NOT_APPLICABLE -- Python/shared candidate awaiting independent Rust contract review; certified Rust Layer 06''s own ToolExecutionSignal seam remains reserved, unexercised
@@ -1424,11 +1458,24 @@ rows:
     again (independently re-injected) in the NEXT turn''s own request after a tool call, and
     absent from `AgentInstance.messages`'' own durable, offline-visible transcript at every point
     -- proving the transform is genuinely provider-local and non-persistent, not merely
-    "transformed once and cached."'
+    "transformed once and cached."
+
+    PASS 3 (targeted re-review of the PASS-2 candidate, `L09-R006`, a new `PI_PARITY_DEFECT`):
+    this row''s own semantic surface -- provider-local, non-persistent transformation -- was
+    confirmed correct and left untouched; the defect was that `signal`, the third payload argument
+    above, was ordinary payload rather than authoritative metadata, so a listener delegating with a
+    replacement or omitted `signal` could redirect or drop it for a listener downstream in the same
+    chain. Remediation: `_transform_context`''s own waterfall dispatch now supplies a
+    `normalize_step` closure (`_restore_signal`) that forces the tuple''s `signal` slot back to the
+    closure-captured original at every listener-to-listener handoff -- the same mechanism applied
+    to `TOOLS_PRE_EXECUTE`/`TOOLS_POST_EXECUTE` (`TOOL-024`) for the identical finding. A dedicated
+    regression test confirmed genuinely discriminating via revert-and-confirm (FAILED with
+    `normalize_step` stripped, PASSED once restored).'
   tests:
   - test_transform_context_receives_messages_and_the_active_signal (agent_loop/test_active_abort.py)
   - test_transform_context_output_is_provider_local_not_persistent (agent_loop/test_active_abort.py)
-  python: src/minion_agent/agent/events.py::AGENT_TRANSFORM_CONTEXT; src/minion_agent/agent_loop/driver.py::AgentLoop._transform_context, _run_step (dispatch point, before Request construction)
+  - test_a_transform_listener_cannot_redirect_a_later_listener_to_a_replacement_signal (agent_loop/test_active_abort.py)
+  python: src/minion_agent/agent/events.py::AGENT_TRANSFORM_CONTEXT; src/minion_agent/agent_loop/driver.py::AgentLoop._transform_context (dispatch, _restore_signal normalize_step), _run_step (dispatch point, before Request construction)
   rust: NOT_APPLICABLE -- Python/shared candidate awaiting independent Rust contract review
   disposition: adopted
 - id: AG-011
@@ -2127,7 +2174,36 @@ rows:
     `wants_signal=False` (every pre-Layer-09 tool) preserves the exact prior dispatch; `wants_
     signal=True` shifts the 3rd-parameter meaning to `signal`, with update needing a 4th. All four
     Pi-equivalent combinations (neither, update-only, signal-only, both) are now representable and
-    each has its own dedicated regression test.'
+    each has its own dedicated regression test.
+
+    PASS 3 (targeted re-review of the PASS-2 candidate): REJECTED FOR RUST IMPLEMENTATION,
+    `L09-R006`, a new `PI_PARITY_DEFECT` on this row''s own `L09-R001` remediation above --
+    `L09-C001`/`L09-C002`/`L09-R003` were confirmed correct and left untouched.
+
+    `L09-R006`: PASS 2''s own fix threaded `signal` onto both waterfall dispatches but left it as
+    ordinary payload -- a listener delegating with an explicit replacement (`next_(replacement,
+    forged_signal)`) or a bare omission could redirect or drop it for every listener downstream,
+    something PASS 2''s own text above ("must re-supply it... or later listeners will not see it")
+    wrongly treated as an acceptable degrade-to-`None` rather than the genuine authority breach it
+    is. The independent review''s own executable witness confirmed later `tools/pre-execute` and
+    `tools/post-execute` listeners receiving a fabricated replacement signal while execution still
+    succeeded.
+
+    Remediation: `signal` is now restored as authoritative event metadata at BOTH dispatches, not
+    left to a delegating listener''s own discretion. `_preflight` gained a `_restore_signal`
+    `normalize_step` closure for `TOOLS_PRE_EXECUTE` (forcing the payload tuple''s 4th slot back to
+    the closure-captured original `signal` at every listener handoff); `_finalize`''s own
+    `_restore` `normalize_step` for `TOOLS_POST_EXECUTE` (already certified for `tool_call_id`/
+    `tool_name`/`added_tool_names` restoration, `L06-R003`) was extended to also force the payload
+    tuple''s `signal` slot back to the original, replacing its prior PASS-2 "tolerate either shape"
+    behavior with unconditional restoration. `register_after_tool_call_hook`''s own wrapper no
+    longer re-supplies `signal` when delegating -- it relies on `_restore` to preserve it
+    regardless, simplifying that call site. Five dedicated regression tests (redirect/drop, for
+    both before- and after-hooks, plus one confirming the hook wrapper''s own simplification is
+    still correct) were added and confirmed genuinely discriminating via revert-and-confirm: each
+    was confirmed to FAIL with the corresponding `normalize_step` stripped, then to PASS once
+    restored. `spec/tools.md`''s own "must re-supply or lose it" language is corrected to describe
+    this authoritative-restoration guarantee instead.'
   tests:
   - test_unknown_tool_wins_over_an_aborted_signal
   - test_argument_validation_failure_wins_over_an_aborted_signal
@@ -2146,7 +2222,12 @@ rows:
   - test_parallel_abort_witness_matches_the_discriminating_trace (tools/test_batch.py)
   - test_a_batch_completes_normally_when_the_signal_is_never_aborted (tools/test_batch.py)
   - test_abort_mid_parallel_tool_batch_truncates_through_the_real_loop (agent_loop/test_active_abort.py)
-  python: src/minion_agent/tools/definition.py::ToolDefinition.wants_signal; src/minion_agent/tools/execute.py::_preflight (signal priority check, signal threaded into TOOLS_PRE_EXECUTE), _finalize (signal threaded into TOOLS_POST_EXECUTE, _restore tolerant normalize_step), _execute_and_finalize (execute() signal passthrough), register_after_tool_call_hook (signal re-supply on delegation), _wants_signal, _wants_update (definition-aware); src/minion_agent/tools/batch.py::execute_batch (sequential/parallel abort polling)
+  - test_a_before_hook_cannot_redirect_a_later_listener_to_a_replacement_signal (tools/test_execute.py)
+  - test_a_before_hook_cannot_drop_the_signal_for_a_later_listener (tools/test_execute.py)
+  - test_an_after_hook_cannot_redirect_a_later_listener_to_a_replacement_signal (tools/test_execute.py)
+  - test_an_after_hook_cannot_drop_the_signal_for_a_later_listener (tools/test_execute.py)
+  - test_a_helper_registered_after_hook_no_longer_needs_to_re_supply_signal (tools/test_execute.py)
+  python: src/minion_agent/tools/definition.py::ToolDefinition.wants_signal; src/minion_agent/tools/execute.py::_preflight (signal priority check, signal threaded into TOOLS_PRE_EXECUTE, _restore_signal normalize_step), _finalize (signal threaded into TOOLS_POST_EXECUTE, _restore authoritative normalize_step), _execute_and_finalize (execute() signal passthrough), register_after_tool_call_hook (no longer re-supplies signal on delegation), _wants_signal, _wants_update (definition-aware); src/minion_agent/tools/batch.py::execute_batch (sequential/parallel abort polling)
   rust: NOT_APPLICABLE -- Python/shared candidate awaiting independent Rust contract review; certified Rust Layer 06''s own ToolExecutionSignal seam (TOOL-019''s own rust field) remains reserved, unexercised
   disposition: adopted
 - id: TOOL-007

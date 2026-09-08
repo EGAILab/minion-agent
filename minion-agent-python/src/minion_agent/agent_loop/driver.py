@@ -777,20 +777,30 @@ class AgentLoop:
         local `messages` variable, never `currentContext.messages`, so a transform's own output is
         provider-local for THIS request only.
 
-        A listener that wants a LATER listener to also see its own transformation must delegate
-        with the full triple (`next_(instance, new_messages, signal)`), not just the messages
-        alone -- otherwise `signal` is silently dropped for the rest of the chain, the same
-        `EventBus.waterfall` convention `tools/pre-execute`/`tools/post-execute` already follow. A
-        listener that does not need later listeners to observe its own transformation may instead
-        short-circuit by returning the new messages directly, without calling `next_` at all.
+        `signal` is AUTHORITATIVE event metadata, not a listener's own to replace, redirect, or
+        drop (`L09-R006`, an independent Rust review's own finding against an earlier revision
+        that let a raw listener delegate with a fabricated replacement signal, observed by a
+        later listener instead of the real one): `_restore_signal` below forces `instance`/
+        `signal` back to their ORIGINAL values at every listener-to-listener handoff, matching the
+        SAME restoration discipline `tools/post-execute` already applies to execution identity
+        (`L06-R003`) -- only `messages` (position 2) is genuinely the listener's own to transform.
+        A listener no longer needs to re-supply `signal` when delegating with a replacement.
         """
+        original_instance = self.instance
+        original_signal = self.instance.signal
+
+        def _restore_signal(current: tuple[object, ...]) -> tuple[object, ...]:
+            current_messages = current[1]
+            return (original_instance, current_messages, original_signal)
+
         transformed: tuple[Message, ...] = await self.instance.ctx.events.waterfall(
             AGENT_TRANSFORM_CONTEXT,
             self.instance,
             messages,
-            self.instance.signal,
+            original_signal,
             terminal=lambda _instance, current_messages, _signal: current_messages,
             scope=self.instance.scope.key,
+            normalize_step=_restore_signal,
         )
         return transformed
 

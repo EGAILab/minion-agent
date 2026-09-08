@@ -4,7 +4,7 @@ import pytest
 
 from minion_agent.agent.envelope import ClaimPolicy, InboxTarget
 from minion_agent.agent.inbox import Inbox, NotJsonSafeOriginError
-from minion_agent.llm import AssistantMessage, TextBlock, ToolResultMessage, UserMessage
+from minion_agent.llm import AssistantMessage, TextBlock, ToolResultMessage, UserMessage, text_of
 
 
 def _message(text: str) -> UserMessage:
@@ -88,6 +88,61 @@ def test_the_two_queues_are_independent() -> None:
 
     assert len(claimed) == 1
     assert len(inbox.pending(InboxTarget.NEXT_TURN)) == 1
+
+
+# -- Layer 09, `L09-R007` convergence: restore() undoes a claim() ------------------------------
+
+
+def test_restore_puts_a_claimed_envelope_back() -> None:
+    inbox = Inbox()
+    envelope = inbox.followup(_message("only"))
+    claimed = inbox.claim(InboxTarget.NEXT_TURN, ClaimPolicy.ONE_AT_A_TIME)
+
+    inbox.restore(InboxTarget.NEXT_TURN, claimed)
+
+    pending = inbox.pending(InboxTarget.NEXT_TURN)
+    assert len(pending) == 1
+    assert pending[0].id == envelope.id
+    assert pending[0].message == envelope.message
+    assert pending[0].origin == envelope.origin
+
+
+def test_restore_precedes_input_enqueued_after_the_claim() -> None:
+    """The restored batch goes to the FRONT, ahead of anything enqueued in the meantime -- FIFO
+    order as if the claim had never happened."""
+    inbox = Inbox()
+    inbox.followup(_message("A"))
+    inbox.followup(_message("B"))
+    claimed = inbox.claim(InboxTarget.NEXT_TURN, ClaimPolicy.ALL)
+    inbox.followup(_message("C"))
+
+    inbox.restore(InboxTarget.NEXT_TURN, claimed)
+
+    pending = inbox.pending(InboxTarget.NEXT_TURN)
+    assert [text_of(envelope.message) for envelope in pending] == ["A", "B", "C"]
+
+
+def test_restoring_an_empty_batch_is_a_harmless_no_op() -> None:
+    inbox = Inbox()
+    inbox.followup(_message("untouched"))
+
+    inbox.restore(InboxTarget.NEXT_TURN, ())
+
+    pending = inbox.pending(InboxTarget.NEXT_TURN)
+    assert len(pending) == 1
+    assert pending[0].message == _message("untouched")
+
+
+def test_restore_does_not_affect_the_wake_signal() -> None:
+    """`claim()` never touches `wake_requested`; `restore()` must not either."""
+    inbox = Inbox()
+    inbox.followup(_message("only"))
+    claimed = inbox.claim(InboxTarget.NEXT_TURN, ClaimPolicy.ONE_AT_A_TIME)
+    inbox.take_wake()
+
+    inbox.restore(InboxTarget.NEXT_TURN, claimed)
+
+    assert not inbox.wake_requested
 
 
 def test_every_envelope_gets_a_unique_id() -> None:

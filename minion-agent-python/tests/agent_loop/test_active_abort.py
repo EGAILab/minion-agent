@@ -13,11 +13,12 @@ from typing import Any
 
 import pytest
 
-from minion_agent.agent.events import AGENT_LIFECYCLE_EVENT, AGENT_TRANSFORM_CONTEXT
+from minion_agent.agent.envelope import ClaimPolicy, InboxTarget
+from minion_agent.agent.events import AGENT_LIFECYCLE_EVENT, AGENT_STATUS, AGENT_TRANSFORM_CONTEXT
 from minion_agent.agent.identity import AgentStatus
 from minion_agent.agent.instance import AgentActiveError
 from minion_agent.agent.projection import MessageStart
-from minion_agent.llm import StopReason, TextBlock, ToolCallBlock, UserMessage
+from minion_agent.llm import StopReason, TextBlock, ToolCallBlock, UserMessage, text_of
 from minion_agent.llm.adapters.mock import ScriptedResponse
 from minion_agent.runtime import RunAbortController
 from minion_agent.tools.decisions import Proceed
@@ -285,6 +286,256 @@ async def test_the_running_status_observer_sees_a_live_signal_and_the_idle_obser
     assert observations == [("running", True), ("idle", True)]
     assert adapter.requests[0].signal is not None
     assert adapter.requests[0].signal.aborted is True  # the RUNNING observer's own abort() landed
+
+
+# -- Layer 09, `L09-R007` convergence: RUNNING/IDLE notification-failure atomicity -------------
+
+
+async def test_a_raising_on_status_change_on_running_rolls_back_and_propagates() -> None:
+    """Convergence witness 1: a synchronous `on_status_change` that raises on `RUNNING` means the
+    run never validly started -- the signal is discarded, `status` is forced back to `IDLE`
+    WITHOUT re-invoking the same failing callback, and the observer's own exception propagates
+    directly out of `prompt()`. A second `prompt()` call must then succeed normally."""
+    loop, adapter = _loop_with_adapter(ScriptedResponse((), StopReason.STOP))
+
+    def on_status_change(status: AgentStatus) -> None:
+        if status is AgentStatus.RUNNING:
+            raise RuntimeError("status-boom")
+
+    loop.instance.on_status_change = on_status_change
+
+    with pytest.raises(RuntimeError, match="status-boom"):
+        await loop.prompt(_say("hello"))
+
+    assert loop.instance.status is AgentStatus.IDLE
+    assert loop.instance.signal is None
+    assert adapter.requests == []
+
+    loop.instance.on_status_change = None
+    await loop.prompt(_say("hello again"))  # must not raise AgentActiveError
+    assert loop.instance.status is AgentStatus.IDLE
+
+
+async def test_a_raising_agent_status_listener_on_running_short_circuits_on_status_change() -> None:
+    """Convergence witness 2: the same outcome for a raw `AGENT_STATUS` EMIT listener, and proof
+    that `EventBus.emit`'s own fail-fast rule means a SEPARATE `on_status_change` callback is
+    never reached at all once an earlier listener has already thrown."""
+    loop, adapter = _loop_with_adapter(ScriptedResponse((), StopReason.STOP))
+    on_status_change_calls: list[AgentStatus] = []
+
+    def emit_listener(instance: Any, status: Any) -> None:
+        if status is AgentStatus.RUNNING:
+            raise RuntimeError("emit-boom")
+
+    loop.instance.ctx.events.on(AGENT_STATUS, emit_listener)
+    loop.instance.on_status_change = on_status_change_calls.append
+
+    with pytest.raises(RuntimeError, match="emit-boom"):
+        await loop.prompt(_say("hello"))
+
+    assert loop.instance.status is AgentStatus.IDLE
+    assert loop.instance.signal is None
+    assert adapter.requests == []
+    assert on_status_change_calls == []  # never reached -- emit's own fail-fast rule
+
+
+async def test_a_raising_on_status_change_on_idle_does_not_hide_a_successful_run() -> None:
+    """Convergence witness 3: a run that completes successfully must have its own outcome
+    committed regardless of whether the LATER, unrelated IDLE notification itself fails --
+    signal/streaming_message/pending_tool_calls/status are all already fully IDLE-consistent by
+    the time the notification's own exception is observed, and the exception then propagates."""
+    loop = _loop_with_adapter(ScriptedResponse((TextBlock(text="hi"),), StopReason.STOP))[0]
+    fired = False
+
+    def on_status_change(status: AgentStatus) -> None:
+        nonlocal fired
+        if status is AgentStatus.IDLE and not fired:
+            fired = True
+            raise RuntimeError("idle-boom")
+
+    loop.instance.on_status_change = on_status_change
+
+    with pytest.raises(RuntimeError, match="idle-boom"):
+        await loop.prompt(_say("hello"))
+
+    assert loop.instance.status is AgentStatus.IDLE
+    assert loop.instance.signal is None
+    assert loop.instance.streaming_message is None
+    assert loop.instance.pending_tool_calls == frozenset()
+
+    assert any(text_of(m) == "hi" for m in loop.instance.messages)  # the run's own outcome stands
+
+
+async def test_a_raising_on_status_change_on_idle_does_not_hide_a_settled_failure() -> None:
+    """Convergence witness 4: the same guarantee for a run that settled as a failure via
+    `_settle_run_failure` -- the settled failure message is not lost, duplicated, or converted
+    into something else by the separate IDLE-notification failure."""
+    loop = _loop_with_adapter(ScriptedResponse((), StopReason.STOP))[0]
+    run_failed = False
+
+    def fail_the_run(instance: Any, event: Any) -> None:
+        nonlocal run_failed
+        if isinstance(event, MessageStart) and not run_failed:
+            run_failed = True
+            raise RuntimeError("run-boom")
+
+    loop.instance.ctx.events.on(AGENT_LIFECYCLE_EVENT, fail_the_run)
+
+    idle_fired = False
+
+    def on_status_change(status: AgentStatus) -> None:
+        nonlocal idle_fired
+        if status is AgentStatus.IDLE and not idle_fired:
+            idle_fired = True
+            raise RuntimeError("idle-boom")
+
+    loop.instance.on_status_change = on_status_change
+
+    with pytest.raises(RuntimeError, match="idle-boom"):
+        await loop.prompt(_say("hello"))
+
+    assert loop.instance.status is AgentStatus.IDLE
+    assert loop.instance.signal is None
+    assert loop.instance.streaming_message is None
+    assert loop.instance.pending_tool_calls == frozenset()
+    failures = [
+        m for m in loop.instance.messages if getattr(m, "error_message", None) == "run-boom"
+    ]
+    assert len(failures) == 1  # settled exactly once -- not lost, not duplicated
+
+
+# -- Layer 09, `L09-R007` convergence: preclaimed inbox input, RUNNING-failure entry rollback ---
+
+
+async def test_continue_restores_preclaimed_steering_on_a_running_failure() -> None:
+    """Convergence witness 5: `continue_()`'s own steering branch destructively claims from
+    `Inbox` BEFORE `_run_wrapped` is ever called. A RUNNING-notification failure must restore
+    that claimed envelope -- exact id/message/origin, not a copy -- so it is not lost, and a
+    later `continue_()` (with the failing observer removed) consumes it exactly once."""
+    loop, adapter = _loop_with_adapter(
+        ScriptedResponse((TextBlock(text="hi"),), StopReason.STOP),
+        ScriptedResponse((TextBlock(text="steered reply"),), StopReason.STOP),
+    )
+    await loop.prompt(_say("hello"))
+    envelope = loop.instance.inbox.steer(_say("steer me"), origin="s1")
+
+    def on_status_change(status: AgentStatus) -> None:
+        if status is AgentStatus.RUNNING:
+            raise RuntimeError("status-boom")
+
+    loop.instance.on_status_change = on_status_change
+
+    with pytest.raises(RuntimeError, match="status-boom"):
+        await loop.continue_()
+
+    pending = loop.instance.inbox.pending(InboxTarget.NEXT_STEP)
+    assert len(pending) == 1
+    assert pending[0].id == envelope.id
+    assert pending[0].message == envelope.message
+    assert pending[0].origin == envelope.origin
+    assert len(adapter.requests) == 1  # only the first prompt() -- the failed continue_() sent none
+
+    loop.instance.on_status_change = None  # remove the failing observer before retrying
+    await loop.continue_()
+
+    assert loop.instance.inbox.pending(InboxTarget.NEXT_STEP) == ()
+
+    assert any(text_of(m) == "steer me" for m in loop.instance.messages)
+
+
+async def test_continue_restores_preclaimed_follow_up_on_a_running_failure() -> None:
+    """Convergence witness 6: identical to witness 5, for `continue_()`'s own follow-up branch."""
+    loop, adapter = _loop_with_adapter(
+        ScriptedResponse((TextBlock(text="hi"),), StopReason.STOP),
+        ScriptedResponse((TextBlock(text="follow-up reply"),), StopReason.STOP),
+    )
+    await loop.prompt(_say("hello"))
+    envelope = loop.instance.inbox.followup(_say("follow up"), origin="f1")
+
+    def on_status_change(status: AgentStatus) -> None:
+        if status is AgentStatus.RUNNING:
+            raise RuntimeError("status-boom")
+
+    loop.instance.on_status_change = on_status_change
+
+    with pytest.raises(RuntimeError, match="status-boom"):
+        await loop.continue_()
+
+    pending = loop.instance.inbox.pending(InboxTarget.NEXT_TURN)
+    assert len(pending) == 1
+    assert pending[0].id == envelope.id
+    assert pending[0].message == envelope.message
+    assert pending[0].origin == envelope.origin
+    assert len(adapter.requests) == 1
+
+    loop.instance.on_status_change = None
+    await loop.continue_()
+
+    assert loop.instance.inbox.pending(InboxTarget.NEXT_TURN) == ()
+
+    assert any(text_of(m) == "follow up" for m in loop.instance.messages)
+
+
+async def test_restored_preclaimed_input_precedes_input_the_failing_observer_itself_enqueues() -> (
+    None
+):
+    """Convergence witness 7: `ClaimPolicy.ALL` claims `A, B`; the RUNNING observer itself enqueues
+    `C` at the SAME target and then raises. Restoration must PREPEND the claimed batch ahead of
+    `C`, not append behind it or lose it -- the queue afterward reads exactly `A, B, C`."""
+    loop = _loop_with_adapter(ScriptedResponse((TextBlock(text="hi"),), StopReason.STOP))[0]
+    loop.next_step_policy = ClaimPolicy.ALL
+    await loop.prompt(_say("hello"))
+    envelope_a = loop.instance.inbox.steer(_say("A"))
+    envelope_b = loop.instance.inbox.steer(_say("B"))
+
+    def on_status_change(status: AgentStatus) -> None:
+        if status is AgentStatus.RUNNING:
+            loop.instance.inbox.steer(_say("C"))
+            raise RuntimeError("status-boom")
+
+    loop.instance.on_status_change = on_status_change
+
+    with pytest.raises(RuntimeError, match="status-boom"):
+        await loop.continue_()
+
+    pending = loop.instance.inbox.pending(InboxTarget.NEXT_STEP)
+    assert [envelope.message for envelope in pending] == [
+        envelope_a.message,
+        envelope_b.message,
+        pending[2].message,
+    ]
+
+    assert [text_of(envelope.message) for envelope in pending] == ["A", "B", "C"]
+
+
+async def test_run_until_idle_restores_a_preclaimed_follow_up_on_a_running_failure() -> None:
+    """Convergence witness 8: `run_until_idle()`'s own pump claims a follow-up batch before each
+    `_run_wrapped` call. A RUNNING-notification failure must restore it, propagate out of
+    `run_until_idle()` itself rather than swallowing or silently retrying, and leave it available
+    for a LATER, separate pump call to drain and process."""
+    loop = _loop_with_adapter(ScriptedResponse((TextBlock(text="hi"),), StopReason.STOP))[0]
+    envelope = loop.instance.inbox.followup(_say("go"), origin="f1")
+
+    def on_status_change(status: AgentStatus) -> None:
+        if status is AgentStatus.RUNNING:
+            raise RuntimeError("status-boom")
+
+    loop.instance.on_status_change = on_status_change
+
+    with pytest.raises(RuntimeError, match="status-boom"):
+        await loop.run_until_idle()
+
+    pending = loop.instance.inbox.pending(InboxTarget.NEXT_TURN)
+    assert len(pending) == 1
+    assert pending[0].id == envelope.id
+    assert pending[0].message == envelope.message
+
+    loop.instance.on_status_change = None
+    await loop.run_until_idle()
+
+    assert loop.instance.inbox.pending(InboxTarget.NEXT_TURN) == ()
+
+    assert any(text_of(m) == "go" for m in loop.instance.messages)
 
 
 async def test_a_represented_aborted_terminal_is_unaffected_by_layer_09() -> None:

@@ -187,6 +187,18 @@ class AgentInstance:
         own `finishRun()` clearing `activeRun` (and therefore `Agent.signal`)."""
         self._active_controller = None
 
+    def _force_idle_after_failed_entry_notification(self) -> None:
+        """Layer 08 only (`AgentLoop._run_wrapped`'s own RUNNING-entry rollback path, Layer 09
+        `L09-R007` convergence): force `status` back to `IDLE` directly, with NO `AGENT_STATUS`
+        emit and NO `on_status_change` call -- unlike every other status transition, which always
+        goes through `set_status`. Used ONLY when the synchronous RUNNING notification itself is
+        what failed: calling `set_status` again would re-invoke the SAME listener chain that just
+        raised, risking an identical failure a second time with no way to ever reach `IDLE`. Per
+        the agreed convergence contract, a RUNNING-notification failure means no run ever validly
+        began, so no corresponding IDLE notification is owed for it either -- the caller sees only
+        the observer's own original exception, not a status transition it never asked to observe."""
+        self._status = AgentStatus.IDLE
+
     def reset(self) -> None:
         """Clear runtime state, messages, and both queues in place (`AG-016`, `L07-R003`).
 

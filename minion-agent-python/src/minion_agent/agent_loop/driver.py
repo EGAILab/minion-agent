@@ -73,6 +73,7 @@ narrower-tool-event-seam carve-out language PASS 5 left in place, now false.
 from __future__ import annotations
 
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 
 from ..agent.decisions import (
@@ -257,6 +258,9 @@ class AgentLoop:
                     entering=tuple(envelope.message for envelope in steering),
                     causes=[{"id": e.id, "origin": e.origin} for e in steering],
                     skip_initial_steering_poll=True,
+                    restore_on_entry_failure=lambda: self.instance.inbox.restore(
+                        InboxTarget.NEXT_STEP, steering
+                    ),
                 )
                 return
             followups = self.instance.inbox.claim(InboxTarget.NEXT_TURN, self.next_turn_policy)
@@ -264,6 +268,9 @@ class AgentLoop:
                 await self._run_wrapped(
                     entering=tuple(envelope.message for envelope in followups),
                     causes=[{"id": e.id, "origin": e.origin} for e in followups],
+                    restore_on_entry_failure=lambda: self.instance.inbox.restore(
+                        InboxTarget.NEXT_TURN, followups
+                    ),
                 )
                 return
             raise AgentActiveError("Cannot continue from message role: assistant")
@@ -283,8 +290,14 @@ class AgentLoop:
             causes: list[dict[str, object]] = [
                 {"id": envelope.id, "origin": envelope.origin} for envelope in claimed
             ]
+
+            def restore_claimed(claimed: tuple[InputEnvelope, ...] = claimed) -> None:
+                inbox.restore(InboxTarget.NEXT_TURN, claimed)
+
             await self._run_wrapped(
-                entering=tuple(envelope.message for envelope in claimed), causes=causes
+                entering=tuple(envelope.message for envelope in claimed),
+                causes=causes,
+                restore_on_entry_failure=restore_claimed,
             )
         inbox.take_wake()
 
@@ -306,6 +319,7 @@ class AgentLoop:
         entering: tuple[Message, ...],
         causes: list[dict[str, object]],
         skip_initial_steering_poll: bool = False,
+        restore_on_entry_failure: Callable[[], None] | None = None,
     ) -> None:
         """One pi-equivalent run's full lifecycle: three unconditional state
         writes at entry, matching pinned Pi's own `runWithLifecycle` exactly
@@ -314,7 +328,15 @@ class AgentLoop:
         -- matching pinned Pi's own `finishRun()` (`isStreaming = false`,
         `streamingMessage = undefined`, `pendingToolCalls = new Set()`) --
         regardless of success or a run-executor failure this pass already
-        settles gracefully (see `_settle_run_failure`)."""
+        settles gracefully (see `_settle_run_failure`).
+
+        `restore_on_entry_failure`, when supplied (Layer 09, `L09-R007` convergence): called ONLY
+        if the RUNNING notification below raises, to put back any input a caller already
+        destructively claimed from `Inbox` before calling this method (`continue_()`'s steering/
+        follow-up branches, `run_until_idle()`'s follow-up claim) -- `prompt()` supplies `None`,
+        since it never claims from `Inbox` at all. See the RUNNING-failure branch below for why
+        this is needed and what "the run never validly started" requires of it.
+        """
         if self.instance.status is not AgentStatus.IDLE:
             # Pinned Pi's own `runWithLifecycle` guard -- a third, distinct
             # "already processing" string, defensive and normally
@@ -325,19 +347,37 @@ class AgentLoop:
             # skips the public guards.
             raise AgentActiveError("Agent is already processing.")
         # Layer 09, `L09-R007`: the controller is installed BEFORE `set_status(RUNNING)` is
-        # published, and removed BEFORE `set_status(IDLE)` is published -- `set_status` emits
-        # `agent/status` and calls `on_status_change` SYNCHRONOUSLY, so a status-transition
-        # observer that reads `instance.signal` (or calls `instance.abort()`) during the RUNNING
-        # callback must see the run's real, live signal, and one reading it during the IDLE
-        # callback must see `None`, not the just-finished run's stale signal. An earlier revision
-        # installed/removed the controller AFTER publishing each transition, so the RUNNING
-        # observer's own `abort()` call was a no-op (no controller existed yet) and the IDLE
-        # observer saw the previous run's still-live signal -- an independent Rust review's own
-        # executable witness. This does not change the relative order of `set_status`/
-        # `streaming_message`/`error_message`/`pending_tool_calls` themselves, already certified
-        # (`AG-008`) to match pinned Pi's own `runWithLifecycle`/`finishRun` write order.
+        # published -- `set_status` emits `agent/status` and calls `on_status_change`
+        # SYNCHRONOUSLY, so a status-transition observer that reads `instance.signal` (or calls
+        # `instance.abort()`) during the RUNNING callback must see the run's real, live signal.
+        # None of this changes the relative order of `set_status`/`streaming_message`/
+        # `error_message`/`pending_tool_calls` themselves on the non-throwing path, already
+        # certified (`AG-008`) to match pinned Pi's own `runWithLifecycle`/`finishRun` write
+        # order -- only the THROWING case, which `AG-008` never specified at all, is new here.
         self.instance._start_run_signal()
-        self.instance.set_status(AgentStatus.RUNNING)
+        try:
+            self.instance.set_status(AgentStatus.RUNNING)
+        except Exception:
+            # RUNNING-notification failure (`L09-R007` convergence, agreed contract): pinned Pi's
+            # own `isStreaming=true` write -- the closest analogue -- is a plain, non-throwing
+            # property assignment made unconditionally BEFORE its own run-lifecycle try/executor
+            # begins; Pi therefore has no "the run started, then this specific write failed"
+            # case at all. A Minion-only synchronous observer failing at that exact point is most
+            # faithfully read as "this attempt to enter a run never validly began" -- not as a run
+            # that started and then failed -- so it gets NO run lifecycle (no `agent_start`, no
+            # `_settle_run_failure`-synthesized turn: that method is pinned Pi's own
+            # `handleRunFailure`, invoked only once a run has genuinely begun) and leaves no trace:
+            # the freshly-created signal is discarded, `status` is forced back to `IDLE` directly
+            # (NOT via `set_status` again, which would re-invoke the SAME failing listener chain),
+            # any input a caller already destructively claimed from `Inbox` before calling this
+            # method is restored so it is not silently lost, and the observer's own original
+            # exception propagates unconverted -- a subsequent `prompt()`/`continue_()` call then
+            # succeeds normally, exactly as if this attempt had never been made.
+            self.instance._end_run_signal()
+            self.instance._force_idle_after_failed_entry_notification()
+            if restore_on_entry_failure is not None:
+                restore_on_entry_failure()
+            raise
         self.instance.streaming_message = None
         self.instance.error_message = None
         try:
@@ -347,10 +387,20 @@ class AgentLoop:
                 skip_initial_steering_poll=skip_initial_steering_poll,
             )
         finally:
+            # `L09-R007` convergence: every other exit-time write completes UNCONDITIONALLY
+            # before the possibly-throwing `set_status(IDLE)` call, which is therefore LAST, not
+            # first -- by the time an IDLE-notification failure's own exception is observed by a
+            # caller, `signal`/`streaming_message`/`pending_tool_calls`/`status` are all already
+            # exactly as a normally-settled idle instance's own values would be (`set_status`'s
+            # own internal write to `self._status` happens before its own emit/callback, already
+            # true today), so the run's own already-committed outcome is never retroactively
+            # hidden by a later, unrelated notification failure -- only that failure's own
+            # exception propagates, uncaught, same as pinned Pi's own precedent that a listener
+            # failure during settlement is never silently absorbed (`_settle_run_failure`).
             self.instance._end_run_signal()
-            self.instance.set_status(AgentStatus.IDLE)
             self.instance.streaming_message = None
             self.instance.pending_tool_calls = frozenset()
+            self.instance.set_status(AgentStatus.IDLE)
 
     async def _dispatch_agent_event(self, event: AgentEvent) -> None:
         """Pinned Pi's own `processEvents`: the single seam every lifecycle

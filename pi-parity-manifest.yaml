@@ -829,7 +829,71 @@ rows:
     change`, reads `instance.signal` and calls `instance.abort()` during the RUNNING callback, and
     reads `instance.signal` during the IDLE callback -- confirmed to FAIL against the PASS-3
     candidate (RUNNING observer saw `None`; the following request''s own signal was NOT aborted),
-    then to PASS once the reorder was applied.'
+    then to PASS once the reorder was applied.
+
+    PASS-4''s own fix survived one more targeted review (`L09-R008`/`L09-R009` provisionally
+    closed) but `L09-R007` itself was found `PARTIALLY_RESOLVED_BLOCKING` a second time -- the
+    happy-path reorder above was confirmed correct, but a synchronous RUNNING/IDLE observer that
+    ITSELF THROWS was left entirely ungoverned: the controller/status writes above happen BEFORE
+    `_run_wrapped`''s own `try`/`finally`, so a throwing RUNNING observer left `status` permanently
+    stuck `RUNNING` with a live, orphaned signal (every later `prompt()` rejected forever), and
+    `continue_()`/`run_until_idle()`''s own already-claimed inbox input (drained from `Inbox`
+    before `_run_wrapped` is ever called) was silently discarded on top of that. Surviving two
+    independent reviews on the same finding met workflow `?11.8`''s mandatory convergence trigger;
+    the resulting characterization/challenge/agreement cycle
+    (`assurance/layers/09-active-abort-contract-checkpoint-r007-convergence.md`, two revisions,
+    `CONVERGENCE CONTRACT AGREED FOR IMPLEMENTATION`) is PASS 5''s own authorizing contract.
+
+    PASS 5 implements the agreed matrix in full. Pi has no synchronous status-notification
+    extension at all -- `isStreaming=true`/`finishRun()`''s own writes are plain, non-throwing
+    property assignments made unconditionally OUTSIDE Pi''s own run-lifecycle try/executor
+    boundary -- so this is a genuinely Minion-owned architectural-mapping decision, derived from
+    the one thing Pi''s own structure DOES establish: `isStreaming=true` is written before ANY of
+    the run''s own observable event stream exists, while `finishRun()` runs AFTER the run''s own
+    outcome is already fully committed. The two transitions are governed asymmetrically:
+
+    RUNNING-notification failure means the run never validly began: the freshly-created signal is
+    discarded (`_end_run_signal()`); `status` is forced back to `IDLE` directly via a NEW internal
+    method, `AgentInstance._force_idle_after_failed_entry_notification()`, which sets `self.
+    _status` with NO `AGENT_STATUS` emit and NO `on_status_change` call -- calling `set_status`
+    again would re-invoke the SAME failing listener chain; any input already destructively claimed
+    from `Inbox` before `_run_wrapped` was called is restored via a new caller-supplied
+    `restore_on_entry_failure` callback (`continue_()`''s steering/follow-up branches,
+    `run_until_idle()`''s follow-up claim each construct their own, closing over the exact claimed
+    envelopes and the correct `Inbox.restore(target, envelopes)` call -- a new `Inbox` method,
+    `agent/inbox.py`, that prepends the restored batch ahead of whatever the target queue already
+    holds, so a failing observer''s own `steer()`/`followup()` call during its own execution is
+    never displaced or lost); no `agent_start`/settled turn is fabricated; the observer''s own
+    original exception propagates directly out of `prompt()`/`continue_()`/`run_until_idle()`; a
+    subsequent call then succeeds normally.
+
+    IDLE-notification failure does not hide or duplicate the run''s own already-committed outcome:
+    `_run_wrapped`''s own `finally` now completes `_end_run_signal()`/`streaming_message`/
+    `pending_tool_calls` UNCONDITIONALLY before the possibly-throwing `set_status(IDLE)`, which
+    moved to be the LAST write, not the first -- `set_status`''s own internal `self._status`
+    write already happens before its own emit/callback, so by the time a throwing listener''s
+    exception is observed, every one of `signal`/`streaming_message`/`pending_tool_calls`/`status`
+    already holds its correct settled value; only that listener''s own exception propagates,
+    uncaught, matching `_settle_run_failure`''s own established "a listener failure during
+    settlement propagates uncaught" precedent. This exit-side reorder changes no OBSERVABLE
+    success-path behavior (`streaming_message`/`pending_tool_calls` are already at their final
+    values from the run''s own normal completion by the time `finally` reaches them regardless of
+    write order), so `AG-008`''s own certified write-order rule is not reopened, only extended to
+    the failure case it never specified.
+
+    Twelve new regression tests (eight in `agent_loop/test_active_abort.py` -- four status/signal
+    failure-atomicity witnesses, four preclaimed-input-restoration witnesses; four in
+    `agent/test_inbox.py`, direct unit coverage of the new `Inbox.restore` method) were added.
+    Confirmed genuinely discriminating via revert-and-confirm against the PASS-4 candidate: six of
+    the eight `test_active_abort.py` witnesses (RUNNING-failure rollback and all four preclaimed-
+    input witnesses) and all four `Inbox.restore` unit tests FAILED as expected when reverted, then
+    PASSED once restored. The two IDLE-notification witnesses passed even against the PASS-4
+    candidate -- `streaming_message`/`pending_tool_calls` are already reset by `_execute_run`/
+    `_settle_run_failure` themselves before `_run_wrapped`''s own `finally` runs in every currently
+    reachable scenario, so the exit-side reorder has no live bug to discriminate against; they are
+    retained as permanent regression evidence for the agreed contract''s own explicit requirement,
+    not claimed as RED-proven for this specific reorder -- disclosed here rather than
+    overstated.'
   tests:
   - test_a_fresh_controller_is_not_aborted (runtime/test_signal.py)
   - test_abort_sets_the_signal_aborted (runtime/test_signal.py)
@@ -854,8 +918,20 @@ rows:
   - test_transform_context_output_is_provider_local_not_persistent (agent_loop/test_active_abort.py)
   - test_a_transform_listener_cannot_redirect_a_later_listener_to_a_replacement_signal (agent_loop/test_active_abort.py)
   - test_the_running_status_observer_sees_a_live_signal_and_the_idle_observer_sees_none (agent_loop/test_active_abort.py)
+  - test_a_raising_on_status_change_on_running_rolls_back_and_propagates (agent_loop/test_active_abort.py)
+  - test_a_raising_agent_status_listener_on_running_short_circuits_on_status_change (agent_loop/test_active_abort.py)
+  - test_a_raising_on_status_change_on_idle_does_not_hide_a_successful_run (agent_loop/test_active_abort.py)
+  - test_a_raising_on_status_change_on_idle_does_not_hide_a_settled_failure (agent_loop/test_active_abort.py)
+  - test_continue_restores_preclaimed_steering_on_a_running_failure (agent_loop/test_active_abort.py)
+  - test_continue_restores_preclaimed_follow_up_on_a_running_failure (agent_loop/test_active_abort.py)
+  - test_restored_preclaimed_input_precedes_input_the_failing_observer_itself_enqueues (agent_loop/test_active_abort.py)
+  - test_run_until_idle_restores_a_preclaimed_follow_up_on_a_running_failure (agent_loop/test_active_abort.py)
+  - test_restore_puts_a_claimed_envelope_back (agent/test_inbox.py)
+  - test_restore_precedes_input_enqueued_after_the_claim (agent/test_inbox.py)
+  - test_restoring_an_empty_batch_is_a_harmless_no_op (agent/test_inbox.py)
+  - test_restore_does_not_affect_the_wake_signal (agent/test_inbox.py)
   - test_a_represented_aborted_terminal_is_unaffected_by_layer_09 (agent_loop/test_active_abort.py)
-  python: src/minion_agent/runtime/signal.py::RunSignal, RunAbortController; src/minion_agent/agent/instance.py::AgentInstance.signal (read-only property)/abort/_start_run_signal/_end_run_signal; src/minion_agent/agent_loop/driver.py::AgentLoop._run_wrapped (controller create/clear before/after set_status, matching L09-R007), _run_step (Request.signal, _transform_context), _settle_run_failure (ABORTED classification), _transform_context; src/minion_agent/agent/events.py::AGENT_TRANSFORM_CONTEXT
+  python: src/minion_agent/runtime/signal.py::RunSignal, RunAbortController; src/minion_agent/agent/instance.py::AgentInstance.signal (read-only property)/abort/_start_run_signal/_end_run_signal/_force_idle_after_failed_entry_notification; src/minion_agent/agent_loop/driver.py::AgentLoop._run_wrapped (RUNNING-failure rollback + restore_on_entry_failure, IDLE-failure exit reorder), continue_ (restore_on_entry_failure closures), run_until_idle (restore_on_entry_failure closure), _run_step (Request.signal, _transform_context), _settle_run_failure (ABORTED classification), _transform_context; src/minion_agent/agent/events.py::AGENT_TRANSFORM_CONTEXT; src/minion_agent/agent/inbox.py::Inbox.restore
   rust: NOT_APPLICABLE -- Python/shared candidate awaiting independent Rust contract review; certified Rust Layer 06''s own ToolExecutionSignal seam remains reserved, unexercised
   disposition: adopted
 - id: AG-008
@@ -1556,7 +1632,15 @@ rows:
     can merge several enqueued inputs into one claimed batch, which a single `turn.origin` could
     not represent. Language-neutral canonical evidence (`L07-R004`):
     agent-inbox-queue-mode-fifo.yaml and agent-inbox-queue-independence-and-clearing.yaml exercise
-    the real `Inbox` primitive directly, with no provider/tool/run-loop timing.'
+    the real `Inbox` primitive directly, with no provider/tool/run-loop timing.
+
+    Cross-reference (Layer 09, `L09-R007` convergence -- see `AG-007` for the full rule): a new
+    `Inbox.restore(target, envelopes)` (`agent/inbox.py`) undoes a `claim()`, prepending the exact
+    envelopes back to `target` ahead of anything already queued there. This is a Layer-09-owned
+    caller (`AgentLoop._run_wrapped`''s own RUNNING-entry-failure rollback), not a change to this
+    row''s own certified identity/FIFO-ordering rules above -- `restore` reads and preserves them
+    (`id`/`message`/`origin` exactly, order exactly) rather than rewriting them; direct unit
+    coverage lives in `agent/test_inbox.py` (listed under `AG-007`, not duplicated here).'
   tests:
   - test_followup_queues_for_the_next_turn_and_wakes
   - test_steer_queues_for_the_next_step_and_wakes
@@ -1581,7 +1665,7 @@ rows:
   - test_inject_delegates_to_the_inbox_without_waking
   - agent-inbox-queue-mode-fifo (L07-R004, language-neutral canonical)
   - agent-inbox-queue-independence-and-clearing (L07-R004, language-neutral canonical)
-  python: src/minion_agent/agent/inbox.py::Inbox, src/minion_agent/agent/envelope.py::InboxTarget/InputEnvelope, src/minion_agent/agent/instance.py::AgentInstance.steer/follow_up/inject
+  python: src/minion_agent/agent/inbox.py::Inbox, Inbox.restore (Layer 09, L09-R007 convergence -- see AG-007); src/minion_agent/agent/envelope.py::InboxTarget/InputEnvelope, src/minion_agent/agent/instance.py::AgentInstance.steer/follow_up/inject
   rust: crates/minion-agent/src/agent/inbox.rs::Inbox; crates/minion-agent/tests/agent_inbox.rs; crates/minion-agent/tests/agent_inbox_conformance.rs
   disposition: adopted
 - id: AG-012

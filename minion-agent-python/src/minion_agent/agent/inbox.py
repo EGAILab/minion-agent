@@ -118,6 +118,19 @@ class Inbox:
             return claimed
         return (queue.pop(0),)
 
+    def restore(self, target: InboxTarget, envelopes: tuple[InputEnvelope, ...]) -> None:
+        """Put `envelopes` back at the front of `target`, ahead of whatever is already queued
+        there (Layer 09, `L09-R007` convergence): a run-entry attempt that failed before a run
+        ever validly began must leave `claim()`'d input exactly as if the claim had never
+        happened, even if something else was enqueued at the same target in the meantime (a
+        failing status-notification observer, for example, that itself calls `steer()`/
+        `followup()` before raising) -- the restored batch precedes that later input, never
+        replaces or interleaves with it. `wake_requested` is untouched: `claim()` never reads or
+        writes it either, so restoring what `claim()` removed does not need to touch it."""
+        if not envelopes:
+            return
+        self._queues[target][0:0] = envelopes
+
     def clear(self, target: InboxTarget) -> None:
         """Discard whatever is queued at `target`, unclaimed (pinned Pi's
         `clearSteeringQueue()`/`clearFollowUpQueue()`, one queue at a time).

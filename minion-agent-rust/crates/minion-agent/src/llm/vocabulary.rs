@@ -5,6 +5,7 @@ use serde_json::{Map, Value};
 use thiserror::Error;
 
 use super::ModelIdentity;
+use crate::runtime::RunSignal;
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct TextBlock {
@@ -708,6 +709,9 @@ pub struct LlmRequest {
     pub context: LlmContext,
     #[serde(default)]
     pub options: SimpleStreamOptions,
+    /// Cooperative per-run cancellation state for adapters/providers.
+    #[serde(skip, default)]
+    pub signal: Option<RunSignal>,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]

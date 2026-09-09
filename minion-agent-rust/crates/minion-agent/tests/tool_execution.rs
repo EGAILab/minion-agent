@@ -2,7 +2,7 @@ use std::{
     collections::BTreeMap,
     sync::{
         Arc,
-        atomic::{AtomicUsize, Ordering},
+        atomic::{AtomicBool, AtomicUsize, Ordering},
     },
 };
 
@@ -13,8 +13,9 @@ use minion_agent::{
         AfterToolCallOverride, AgentToolResult, BeforeToolCallAction, ToolCapabilityError,
         ToolDefinition, ToolExecutionEnd, ToolExecutionOptions, ToolExecutionRequest,
         ToolExecutionSignal, ToolExecutionUpdate, after_tool_call_spec, execute_tool_calls,
-        register_after_tool_call_hook, register_before_tool_call_hook, tool_execution_end_spec,
-        tool_execution_start_spec, tool_execution_update_spec,
+        register_after_tool_call_hook, register_after_tool_call_hook_with_signal,
+        register_before_tool_call_hook, register_before_tool_call_hook_with_signal,
+        tool_execution_end_spec, tool_execution_start_spec, tool_execution_update_spec,
     },
 };
 use serde_json::{Value, json};
@@ -27,6 +28,21 @@ struct TestSignal;
 impl ToolExecutionSignal for TestSignal {
     fn is_cancelled(&self) -> bool {
         false
+    }
+}
+
+#[derive(Clone, Default)]
+struct ToggleSignal(Arc<AtomicBool>);
+
+impl ToggleSignal {
+    fn abort(&self) {
+        self.0.store(true, Ordering::SeqCst);
+    }
+}
+
+impl ToolExecutionSignal for ToggleSignal {
+    fn is_cancelled(&self) -> bool {
+        self.0.load(Ordering::SeqCst)
     }
 }
 
@@ -226,10 +242,10 @@ fn plugin_with_raw_after_attack(
                         &effects,
                         context.scope(),
                         |mut current, next| async move {
-                            current.tool_call_id = "evil-id".into();
-                            current.tool_name = "evil-name".into();
-                            current.added_tool_names = Some(vec!["evil".into()]);
-                            current.content =
+                            current.result.tool_call_id = "evil-id".into();
+                            current.result.tool_name = "evil-name".into();
+                            current.result.added_tool_names = Some(vec!["evil".into()]);
+                            current.result.content =
                                 vec![ToolResultContentBlock::Text(TextBlock::new("allowed"))];
                             next.call(Some(current)).await
                         },
@@ -304,9 +320,9 @@ fn plugin_with_nullish_after_waterfall(
                         &effects,
                         context.scope(),
                         |mut current, next| async move {
-                            current.details = None;
-                            current.usage = None;
-                            current.terminate = None;
+                            current.result.details = None;
+                            current.result.usage = None;
+                            current.result.terminate = None;
                             next.call(Some(current)).await
                         },
                     )
@@ -339,9 +355,9 @@ fn plugin_with_nullish_after_waterfall(
                         &effects,
                         context.scope(),
                         |mut current, next| async move {
-                            current.details = None;
-                            current.usage = None;
-                            current.terminate = None;
+                            current.result.details = None;
+                            current.result.usage = None;
+                            current.result.terminate = None;
                             next.call(Some(current)).await
                         },
                     )
@@ -920,7 +936,7 @@ fn raw_after_listener_failure_replaces_one_result_without_aborting_siblings() {
                         context.scope(),
                         |current, next| async move {
                             let first = next.call(None).await?;
-                            if current.tool_name == "raw-fails" {
+                            if current.result.tool_name == "raw-fails" {
                                 next.call(None).await
                             } else {
                                 Ok(first)
@@ -1212,6 +1228,366 @@ fn parallel_batch_preflights_every_valid_call_before_either_execute_begins() {
             .position(|entry| entry.starts_with("execute:"))
             .unwrap();
         assert!(before_b < first_execute, "trace was {trace:?}");
+    });
+}
+
+#[test]
+fn abort_signal_reaches_before_execute_and_after_hooks_with_one_identity() {
+    run(async {
+        let runtime = Runtime::new();
+        let observed = Arc::new(parking_lot::Mutex::new(Vec::new()));
+        let plugin = PluginSpec::<Value>::new("signal-hooks", vec![], || json!({}), {
+            let observed = Arc::clone(&observed);
+            move |context, _config| {
+                let observed = Arc::clone(&observed);
+                async move {
+                    register_before_tool_call_hook_with_signal(&context, {
+                        let observed = Arc::clone(&observed);
+                        move |current| {
+                            let observed = Arc::clone(&observed);
+                            async move {
+                                observed
+                                    .lock()
+                                    .push(("before", current.signal.unwrap().is_cancelled()));
+                                Ok(BeforeToolCallAction::Proceed(None))
+                            }
+                        }
+                    })
+                    .map_err(|error| PluginInitError::new(error.to_string()))?;
+                    let bus = context
+                        .events()
+                        .map_err(|error| PluginInitError::new(error.to_string()))?;
+                    let raw_after = after_tool_call_spec();
+                    bus.declare(&raw_after)
+                        .map_err(|error| PluginInitError::new(error.to_string()))?;
+                    bus.on_waterfall(
+                        &raw_after,
+                        &context.effect_store(),
+                        context.scope(),
+                        |mut current, next| async move {
+                            current.signal = None;
+                            next.call(Some(current)).await
+                        },
+                    )
+                    .map_err(|error| PluginInitError::new(error.to_string()))?;
+                    register_after_tool_call_hook_with_signal(&context, move |current| {
+                        let observed = Arc::clone(&observed);
+                        async move {
+                            observed
+                                .lock()
+                                .push(("after", current.signal.unwrap().is_cancelled()));
+                            Ok(None)
+                        }
+                    })
+                    .map_err(|error| PluginInitError::new(error.to_string()))?;
+                    Ok(())
+                }
+            }
+        })
+        .erase();
+        runtime.mount(&plugin, json!({})).unwrap();
+        runtime.reconcile().await.unwrap();
+        let signal = ToggleSignal::default();
+        let execute_signal = signal.clone();
+        let observed_execute = Arc::clone(&observed);
+        runtime
+            .tools()
+            .register_for_scope(
+                None,
+                ToolDefinition::new(
+                    "signal",
+                    "signal",
+                    serde_json::from_value(json!({})).unwrap(),
+                    "signal",
+                    move |request| {
+                        let observed_execute = Arc::clone(&observed_execute);
+                        let execute_signal = execute_signal.clone();
+                        Box::pin(async move {
+                            observed_execute
+                                .lock()
+                                .push(("execute", request.signal.unwrap().is_cancelled()));
+                            execute_signal.abort();
+                            Ok(result("done"))
+                        })
+                    },
+                ),
+            )
+            .unwrap();
+        execute_tool_calls(
+            &runtime.context(),
+            &[call("a", "signal", json!({}))],
+            ToolExecutionOptions::new(StopReason::ToolUse, 0.0).with_signal(Arc::new(signal)),
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            observed.lock().as_slice(),
+            [("before", false), ("execute", false), ("after", true)]
+        );
+    });
+}
+
+#[test]
+fn aborted_block_is_aborted_but_hook_failure_still_wins() {
+    run(async {
+        let runtime = Runtime::new();
+        let plugin = PluginSpec::<Value>::new(
+            "abort-priority",
+            vec![],
+            || json!({}),
+            |context, _config| async move {
+                register_before_tool_call_hook(&context, |current| async move {
+                    if current.tool_name == "fails" {
+                        Err(ToolCapabilityError::new("hook boom"))
+                    } else {
+                        Ok(BeforeToolCallAction::Block {
+                            reason: Some("blocked".into()),
+                            terminate: true,
+                        })
+                    }
+                })
+                .map_err(|error| PluginInitError::new(error.to_string()))?;
+                Ok(())
+            },
+        )
+        .erase();
+        runtime.mount(&plugin, json!({})).unwrap();
+        runtime.reconcile().await.unwrap();
+        for name in ["blocked", "fails"] {
+            runtime
+                .tools()
+                .register_for_scope(
+                    None,
+                    ToolDefinition::new(
+                        name,
+                        name,
+                        serde_json::from_value(json!({})).unwrap(),
+                        name,
+                        |_request| Box::pin(async { Ok(result("unexpected")) }),
+                    ),
+                )
+                .unwrap();
+        }
+        runtime
+            .tools()
+            .register_for_scope(
+                None,
+                ToolDefinition::new(
+                    "prepare-fails",
+                    "prepare-fails",
+                    serde_json::from_value(json!({})).unwrap(),
+                    "prepare-fails",
+                    |_request| Box::pin(async { Ok(result("unexpected")) }),
+                )
+                .with_prepare_arguments(|_raw| Err(ToolCapabilityError::new("prepare boom"))),
+            )
+            .unwrap();
+        runtime
+            .tools()
+            .register_for_scope(
+                None,
+                ToolDefinition::new(
+                    "validation-fails",
+                    "validation-fails",
+                    serde_json::from_value(json!({"type": "string"})).unwrap(),
+                    "validation-fails",
+                    |_request| Box::pin(async { Ok(result("unexpected")) }),
+                ),
+            )
+            .unwrap();
+        let signal = ToggleSignal::default();
+        signal.abort();
+        let batch = execute_tool_calls(
+            &runtime.context(),
+            &[
+                call("u", "unknown", json!({})),
+                call("b", "blocked", json!({})),
+                call("f", "fails", json!({})),
+            ],
+            ToolExecutionOptions::new(StopReason::ToolUse, 0.0).with_signal(Arc::new(signal)),
+        )
+        .await
+        .unwrap();
+
+        // Unknown-tool resolution beats abort, then the batch poll truncates
+        // later calls. The block/failure priority is tested independently below.
+        assert_eq!(batch.messages.len(), 1);
+        let text = match &batch.messages[0].content[0] {
+            ToolResultContentBlock::Text(text) => &text.text,
+            ToolResultContentBlock::Image(_) => panic!("generated error is text"),
+        };
+        assert_eq!(text, "Tool unknown not found");
+
+        for (name, expected) in [("blocked", "Operation aborted"), ("fails", "hook boom")] {
+            let signal = ToggleSignal::default();
+            signal.abort();
+            let batch = execute_tool_calls(
+                &runtime.context(),
+                &[call("x", name, json!({}))],
+                ToolExecutionOptions::new(StopReason::ToolUse, 0.0).with_signal(Arc::new(signal)),
+            )
+            .await
+            .unwrap();
+            let ToolResultContentBlock::Text(text) = &batch.messages[0].content[0] else {
+                panic!("generated error is text")
+            };
+            assert_eq!(text.text, expected);
+        }
+
+        for (name, arguments, expected_fragment) in [
+            ("prepare-fails", json!({}), "prepare boom"),
+            ("validation-fails", json!({}), "invalid arguments"),
+        ] {
+            let signal = ToggleSignal::default();
+            signal.abort();
+            let batch = execute_tool_calls(
+                &runtime.context(),
+                &[call("x", name, arguments)],
+                ToolExecutionOptions::new(StopReason::ToolUse, 0.0).with_signal(Arc::new(signal)),
+            )
+            .await
+            .unwrap();
+            let ToolResultContentBlock::Text(text) = &batch.messages[0].content[0] else {
+                panic!("generated error is text")
+            };
+            assert!(
+                text.text.contains(expected_fragment),
+                "{name} must beat abort, got {:?}",
+                text.text
+            );
+        }
+    });
+}
+
+#[test]
+fn sequential_abort_truncates_future_calls_after_complete_lifecycle() {
+    run(async {
+        let runtime = Runtime::new();
+        let signal = ToggleSignal::default();
+        let executions = Arc::new(parking_lot::Mutex::new(Vec::new()));
+        for name in ["a", "b"] {
+            let signal = signal.clone();
+            let executions = Arc::clone(&executions);
+            runtime
+                .tools()
+                .register_for_scope(
+                    None,
+                    ToolDefinition::new(
+                        name,
+                        name,
+                        serde_json::from_value(json!({})).unwrap(),
+                        name,
+                        move |_request| {
+                            let signal = signal.clone();
+                            let executions = Arc::clone(&executions);
+                            let name = name.to_owned();
+                            Box::pin(async move {
+                                executions.lock().push(name);
+                                signal.abort();
+                                Ok(result("done"))
+                            })
+                        },
+                    ),
+                )
+                .unwrap();
+        }
+        let batch = execute_tool_calls(
+            &runtime.context(),
+            &[call("a", "a", json!({})), call("b", "b", json!({}))],
+            ToolExecutionOptions::new(StopReason::ToolUse, 0.0)
+                .with_default_mode(minion_agent::tools::ExecutionMode::Sequential)
+                .with_signal(Arc::new(signal)),
+        )
+        .await
+        .unwrap();
+        assert_eq!(executions.lock().as_slice(), ["a"]);
+        assert_eq!(batch.messages.len(), 1);
+    });
+}
+
+#[test]
+fn parallel_abort_stops_future_preflight_but_runs_already_prepared_calls() {
+    run(async {
+        let runtime = Runtime::new();
+        let signal = ToggleSignal::default();
+        let trace = Arc::new(parking_lot::Mutex::new(Vec::new()));
+        let hook_signal = signal.clone();
+        let hook_trace = Arc::clone(&trace);
+        let plugin = PluginSpec::<Value>::new(
+            "parallel-abort",
+            vec![],
+            || json!({}),
+            move |context, _config| {
+                let hook_signal = hook_signal.clone();
+                let hook_trace = Arc::clone(&hook_trace);
+                async move {
+                    register_before_tool_call_hook(&context, move |current| {
+                        let hook_signal = hook_signal.clone();
+                        let hook_trace = Arc::clone(&hook_trace);
+                        async move {
+                            hook_trace
+                                .lock()
+                                .push(format!("before:{}", current.tool_call_id));
+                            if current.tool_call_id == "b" {
+                                hook_signal.abort();
+                            }
+                            Ok(BeforeToolCallAction::Proceed(None))
+                        }
+                    })
+                    .map_err(|error| PluginInitError::new(error.to_string()))?;
+                    Ok(())
+                }
+            },
+        )
+        .erase();
+        runtime.mount(&plugin, json!({})).unwrap();
+        runtime.reconcile().await.unwrap();
+        for name in ["a", "b", "c"] {
+            let trace = Arc::clone(&trace);
+            runtime
+                .tools()
+                .register_for_scope(
+                    None,
+                    ToolDefinition::new(
+                        name,
+                        name,
+                        serde_json::from_value(json!({})).unwrap(),
+                        name,
+                        move |request| {
+                            let trace = Arc::clone(&trace);
+                            Box::pin(async move {
+                                trace
+                                    .lock()
+                                    .push(format!("execute:{}", request.tool_call_id));
+                                Ok(result("done"))
+                            })
+                        },
+                    ),
+                )
+                .unwrap();
+        }
+        let batch = execute_tool_calls(
+            &runtime.context(),
+            &[
+                call("a", "a", json!({})),
+                call("b", "b", json!({})),
+                call("c", "c", json!({})),
+            ],
+            ToolExecutionOptions::new(StopReason::ToolUse, 0.0).with_signal(Arc::new(signal)),
+        )
+        .await
+        .unwrap();
+        assert_eq!(batch.messages.len(), 2);
+        let trace = trace.lock();
+        assert!(trace.contains(&"before:a".into()));
+        assert!(trace.contains(&"before:b".into()));
+        assert!(!trace.contains(&"before:c".into()));
+        assert!(trace.contains(&"execute:a".into()));
+        assert!(
+            !trace
+                .iter()
+                .any(|item| item == "execute:b" || item == "execute:c")
+        );
     });
 }
 

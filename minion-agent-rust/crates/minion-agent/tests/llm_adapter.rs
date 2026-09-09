@@ -35,6 +35,7 @@ fn request(identity: ModelIdentity) -> LlmRequest {
         model: identity,
         context: LlmContext::default(),
         options: SimpleStreamOptions::default(),
+        signal: None,
     }
 }
 

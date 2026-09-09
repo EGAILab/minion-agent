@@ -339,7 +339,7 @@ rows:
   - test_the_active_runs_signal_reaches_the_llm_request (agent_loop/test_active_abort.py)
   - test_a_represented_aborted_terminal_is_unaffected_by_layer_09 (agent_loop/test_active_abort.py, regression)
   python: src/minion_agent/llm/service.py::Request.signal (additive field, never inspected by LlmService/_settled itself)
-  rust: NOT_APPLICABLE -- Python/shared candidate awaiting independent Rust contract review
+  rust: minion-agent-rust/crates/minion-agent/src/llm/vocabulary.rs::LlmRequest.signal; minion-agent-rust/crates/minion-agent/src/agent_loop/driver.rs::AgentLoopDriver::execute_run/one_signal_reaches_lifecycle_transform_and_provider_then_clears
   disposition: adopted
 - id: AG-001
   phase: 3
@@ -1217,7 +1217,7 @@ rows:
   - test_a_reentrant_claim_on_the_same_target_sees_only_unrelated_input (agent/test_inbox.py)
   - test_a_represented_aborted_terminal_is_unaffected_by_layer_09 (agent_loop/test_active_abort.py)
   python: src/minion_agent/runtime/signal.py::RunSignal, RunAbortController; src/minion_agent/agent/instance.py::AgentInstance.signal (read-only property)/abort/_start_run_signal/_end_run_signal/_force_idle_after_failed_entry_notification; src/minion_agent/agent_loop/driver.py::AgentLoop._run_wrapped (RUNNING-failure rollback + entry_reservation.rollback/commit, IDLE-failure exit reorder), continue_ (_reserve, L09-R012/R013/R014), run_until_idle (_reserve, L09-R012/R013/R014), _run_step (Request.signal, _transform_context), _prepare_next_turn (normalize_step=_restore_instance, arity-aware since PASS 9, L09-R015), _pre_step (normalize_step=_restore_instance, arity-aware since PASS 9, L09-R015), _settle_run_failure (ABORTED classification), _transform_context (_restore_signal -- arity-aware {0,1,3} delegation grammar with explicit WaterfallError rejection since PASS 10, L09-R018 -- see AG-023 for full detail); src/minion_agent/agent/events.py::AGENT_TRANSFORM_CONTEXT; src/minion_agent/agent/inbox.py::_Reservation (envelopes -- read-only property since PASS 9, L09-R017), Inbox._reserve (L09-R012/R013/R014, replaces the removed Inbox.peek/_commit_claim)
-  rust: NOT_APPLICABLE -- Python/shared candidate awaiting independent Rust contract review; certified Rust Layer 06''s own ToolExecutionSignal seam remains reserved, unexercised
+  rust: minion-agent-rust/crates/minion-agent/src/runtime/signal.rs::RunSignal/RunAbortController; minion-agent-rust/crates/minion-agent/src/agent/instance.rs::AgentInstance.signal/abort/try_begin_run/finish_run; minion-agent-rust/crates/minion-agent/src/agent_loop/driver.rs; minion-agent-rust/crates/minion-agent/tests/agent_state.rs::abort_authority_is_agent_owned_and_each_run_gets_a_fresh_read_only_signal; minion-agent-rust/crates/minion-agent/src/agent_loop/driver.rs tests one_signal_reaches_lifecycle_transform_and_provider_then_clears/exception_after_abort_is_represented_as_aborted_and_uses_live_persistent_model/pre_step_prepare_and_stopping_observe_the_active_signal
   disposition: adopted
 - id: AG-008
   phase: 3
@@ -1935,7 +1935,7 @@ rows:
   - test_transform_context_message_only_delegation_preserves_both_authoritative_fields (agent_loop/test_active_abort.py, L09-R018)
   - test_transform_context_message_only_delegation_as_the_first_listener (agent_loop/test_active_abort.py, L09-R018)
   python: src/minion_agent/agent/events.py::AGENT_TRANSFORM_CONTEXT; src/minion_agent/agent_loop/driver.py::AgentLoop._transform_context (dispatch, _restore_signal normalize_step -- arity-aware {0,1,3} grammar with explicit WaterfallError rejection, L09-R018), _run_step (dispatch point, before Request construction)
-  rust: NOT_APPLICABLE -- Python/shared candidate awaiting independent Rust contract review
+  rust: minion-agent-rust/crates/minion-agent/src/agent_loop/decisions.rs::TransformContext/TransformContextAction/register_transform_context_listener; minion-agent-rust/crates/minion-agent/src/agent_loop/driver.rs::AgentLoopDriver::transform_context/transform_context_is_provider_local_and_cannot_replace_signal_metadata
   disposition: adopted
 - id: AG-011
   phase: 3
@@ -2772,7 +2772,7 @@ rows:
   - test_a_one_parameter_helper_hook_is_unaffected (tools/test_post_execute.py)
   - test_a_two_parameter_helper_hook_receives_none_while_idle (tools/test_post_execute.py)
   python: src/minion_agent/tools/definition.py::ToolDefinition.wants_signal; src/minion_agent/tools/execute.py::_preflight (signal priority check, signal threaded into TOOLS_PRE_EXECUTE, _restore_signal normalize_step), _finalize (signal threaded into TOOLS_POST_EXECUTE, _restore authoritative normalize_step), _execute_and_finalize (execute() signal passthrough), register_after_tool_call_hook (_hook_wants_signal-aware, no longer re-supplies signal on delegation), _hook_wants_signal, _wants_signal, _wants_update (definition-aware); src/minion_agent/tools/batch.py::execute_batch (sequential/parallel abort polling)
-  rust: NOT_APPLICABLE -- Python/shared candidate awaiting independent Rust contract review; certified Rust Layer 06''s own ToolExecutionSignal seam (TOOL-019''s own rust field) remains reserved, unexercised
+  rust: minion-agent-rust/crates/minion-agent/src/tools/definition.rs::ExecutionSignal/ToolExecutionRequest.signal; minion-agent-rust/crates/minion-agent/src/tools/execution.rs::preflight_one/execute_and_finalize_prepared/execute_tool_calls; minion-agent-rust/crates/minion-agent/tests/tool_execution.rs::abort_signal_reaches_before_execute_and_after_hooks_with_one_identity/aborted_block_is_aborted_but_hook_failure_still_wins/sequential_abort_truncates_future_calls_after_complete_lifecycle/parallel_abort_stops_future_preflight_but_runs_already_prepared_calls
   disposition: adopted
 - id: TOOL-007
   phase: 4

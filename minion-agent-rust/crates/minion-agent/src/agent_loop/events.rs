@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 use crate::{
     Context, DispatchMode, EventListenerHandle, EventName, EventSpec,
     llm::{AssistantMessage, Message, StreamChunk, ToolResultMessage},
+    runtime::RunSignal,
     tools::{ToolExecutionEnd, ToolExecutionStart, ToolExecutionUpdate},
 };
 
@@ -97,7 +98,14 @@ impl AgentEvent {
 #[derive(Clone)]
 struct AgentEventDispatch {
     event: AgentEvent,
+    signal: Option<RunSignal>,
     first_error: Arc<Mutex<Option<AgentListenerError>>>,
+}
+
+#[derive(Clone, Debug)]
+pub struct AgentLifecycleContext {
+    pub event: AgentEvent,
+    pub signal: Option<RunSignal>,
 }
 
 fn agent_lifecycle_spec() -> EventSpec<AgentEventDispatch, ()> {
@@ -122,6 +130,18 @@ where
     F: Fn(AgentEvent) -> Fut + Send + Sync + 'static,
     Fut: Future<Output = Result<(), AgentListenerError>> + Send + 'static,
 {
+    register_agent_listener_with_signal(context, move |dispatch| listener(dispatch.event))
+}
+
+/// Registers a lifecycle listener that also observes the active run signal.
+pub fn register_agent_listener_with_signal<F, Fut>(
+    context: &Context,
+    listener: F,
+) -> Result<EventListenerHandle, AgentLoopError>
+where
+    F: Fn(AgentLifecycleContext) -> Fut + Send + Sync + 'static,
+    Fut: Future<Output = Result<(), AgentListenerError>> + Send + 'static,
+{
     let events = context.events()?;
     let spec = agent_lifecycle_spec();
     events.declare(&spec)?;
@@ -132,7 +152,10 @@ where
             let future = if already_failed {
                 None
             } else {
-                Some(listener(dispatch.event.clone()))
+                Some(listener(AgentLifecycleContext {
+                    event: dispatch.event.clone(),
+                    signal: dispatch.signal.clone(),
+                }))
             };
             async move {
                 let Some(future) = future else {
@@ -157,6 +180,14 @@ pub async fn dispatch_agent_event(
     context: &Context,
     event: AgentEvent,
 ) -> Result<(), AgentLoopError> {
+    dispatch_agent_event_with_signal(context, event, None).await
+}
+
+pub(crate) async fn dispatch_agent_event_with_signal(
+    context: &Context,
+    event: AgentEvent,
+    signal: Option<RunSignal>,
+) -> Result<(), AgentLoopError> {
     let events = context.events()?;
     let spec = agent_lifecycle_spec();
     events.declare(&spec)?;
@@ -166,6 +197,7 @@ pub async fn dispatch_agent_event(
             &spec,
             AgentEventDispatch {
                 event,
+                signal,
                 first_error: Arc::clone(&first_error),
             },
             context.scope(),

@@ -1,4 +1,4 @@
-use crate::{agent::AgentInstance, llm::Message};
+use crate::{agent::AgentInstance, llm::Message, runtime::RunSignal};
 
 use super::{AgentEvent, AgentLoopError, RunConfig, RunContext};
 
@@ -6,6 +6,7 @@ use super::{AgentEvent, AgentLoopError, RunConfig, RunContext};
 pub struct RunSnapshot {
     pub context: RunContext,
     pub config: RunConfig,
+    pub signal: RunSignal,
 }
 
 /// Applies the Pi-equivalent state transition for one lifecycle event.

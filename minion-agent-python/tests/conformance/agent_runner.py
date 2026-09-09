@@ -399,7 +399,7 @@ def _listener(spec: dict[str, Any]) -> Any:
 
     if event == TOOLS_PRE_EXECUTE:
 
-        async def pre(call: Any, definition: Any, arguments: Any, next_: Any) -> Any:
+        async def pre(call: Any, definition: Any, arguments: Any, signal: Any, next_: Any) -> Any:
             if only is not None and call.name != only:
                 return await next_()
             if action == "block":
@@ -476,7 +476,9 @@ async def run_agent_scenario(document: dict[str, Any]) -> dict[str, Any]:
     )
     ctx.events.on(TOOLS_EXECUTION_END, lambda call_id, name, result: trace.append(["end", call_id]))
 
-    async def _trace_before(call: Any, definition: Any, arguments: Any, next_: Any) -> Any:
+    async def _trace_before(
+        call: Any, definition: Any, arguments: Any, signal: Any, next_: Any
+    ) -> Any:
         decision = await next_()
         trace.append(["before", call.id])
         return decision

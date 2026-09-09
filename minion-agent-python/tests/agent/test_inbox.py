@@ -4,7 +4,7 @@ import pytest
 
 from minion_agent.agent.envelope import ClaimPolicy, InboxTarget
 from minion_agent.agent.inbox import Inbox, NotJsonSafeOriginError
-from minion_agent.llm import AssistantMessage, TextBlock, ToolResultMessage, UserMessage
+from minion_agent.llm import AssistantMessage, TextBlock, ToolResultMessage, UserMessage, text_of
 
 
 def _message(text: str) -> UserMessage:
@@ -88,6 +88,221 @@ def test_the_two_queues_are_independent() -> None:
 
     assert len(claimed) == 1
     assert len(inbox.pending(InboxTarget.NEXT_TURN)) == 1
+
+
+# -- Layer 09, `L09-R012`/`L09-R013`/`L09-R014`: `_reserve()`/`_Reservation` replace peek/commit --
+
+
+def test_reserve_atomically_claims_the_selected_batch() -> None:
+    inbox = Inbox()
+    envelope = inbox.followup(_message("only"))
+
+    reservation = inbox._reserve(InboxTarget.NEXT_TURN, ClaimPolicy.ONE_AT_A_TIME)
+
+    assert reservation.envelopes == (envelope,)
+    assert inbox.pending(InboxTarget.NEXT_TURN) == ()  # already removed -- no reentrancy window
+
+
+def test_reserve_matches_claim_for_all_policy() -> None:
+    inbox = Inbox()
+    inbox.followup(_message("A"))
+    inbox.followup(_message("B"))
+
+    reservation = inbox._reserve(InboxTarget.NEXT_TURN, ClaimPolicy.ALL)
+
+    assert [text_of(e.message) for e in reservation.envelopes] == ["A", "B"]
+    assert inbox.pending(InboxTarget.NEXT_TURN) == ()
+
+
+def test_reserve_on_an_empty_target_returns_an_empty_reservation() -> None:
+    inbox = Inbox()
+
+    assert inbox._reserve(InboxTarget.NEXT_TURN, ClaimPolicy.ONE_AT_A_TIME).envelopes == ()
+    assert inbox._reserve(InboxTarget.NEXT_TURN, ClaimPolicy.ALL).envelopes == ()
+
+
+def test_commit_leaves_the_reserved_batch_removed() -> None:
+    inbox = Inbox()
+    inbox.followup(_message("A"))
+    inbox.followup(_message("B"))
+    reservation = inbox._reserve(InboxTarget.NEXT_TURN, ClaimPolicy.ALL)
+
+    reservation.commit()
+
+    assert inbox.pending(InboxTarget.NEXT_TURN) == ()
+
+
+def test_rollback_restores_the_exact_reserved_batch() -> None:
+    inbox = Inbox()
+    envelope = inbox.followup(_message("only"))
+    reservation = inbox._reserve(InboxTarget.NEXT_TURN, ClaimPolicy.ONE_AT_A_TIME)
+
+    reservation.rollback()
+
+    assert inbox.pending(InboxTarget.NEXT_TURN) == (envelope,)
+
+
+def test_a_reservation_never_settled_leaves_the_batch_removed() -> None:
+    """The whole point of a reservation: it is CREATED by an atomic claim(), so a caller that
+    obtains one and never calls either `.commit()`/`.rollback()` has already had the effect of a
+    plain `claim()` -- there is no "pending, unremoved" state to accidentally leave behind."""
+    inbox = Inbox()
+    inbox.followup(_message("only"))
+
+    inbox._reserve(InboxTarget.NEXT_TURN, ClaimPolicy.ONE_AT_A_TIME)
+    # ... caller never settles the reservation ...
+
+    assert inbox.pending(InboxTarget.NEXT_TURN) == ()
+
+
+def test_the_old_public_restore_method_no_longer_exists() -> None:
+    """`L09-R010`: an independent Rust review found the PASS-5 candidate's public `Inbox.restore
+    (target, envelopes)` callable by ANY caller with ANY envelope tuple -- including one still
+    queued and never claimed, or the same envelope repeatedly -- manufacturing duplicate queue
+    entries that shared an id, contradicting this row's own exactly-once invariant
+    (`CONTRACT_ASSURANCE_DEFECT`). Remediation removes the method entirely: `Inbox.claim()`
+    remains the sole PUBLIC removal operation; `_reserve()`/`_Reservation` (private, `L09-R012`
+    convergence) replace it internally."""
+    inbox = Inbox()
+    assert not hasattr(inbox, "restore")
+    assert not hasattr(inbox, "peek")  # PASS-6's own now-superseded method is also gone
+
+
+def test_the_reviewers_duplicate_id_witness_is_no_longer_expressible() -> None:
+    """The exact discriminating witness the independent review executed against the PASS-5
+    candidate: `inbox.restore(target, (envelope,))` on an envelope that was never claimed
+    produced two entries sharing the same id; calling it again produced three. That attack is no
+    longer expressible through any public `Inbox` operation at all."""
+    inbox = Inbox()
+    envelope = inbox.followup(_message("A"))
+
+    with pytest.raises(AttributeError):
+        inbox.restore(InboxTarget.NEXT_TURN, (envelope,))  # type: ignore[attr-defined]
+
+    assert [item.id for item in inbox.pending(InboxTarget.NEXT_TURN)] == [envelope.id]
+
+
+def test_double_rollback_cannot_duplicate_an_envelope() -> None:
+    """`C09-1`'s own required negative witness 1: a second terminal call, whichever method,
+    raises rather than mutating the queue again."""
+    inbox = Inbox()
+    inbox.followup(_message("only"))
+    reservation = inbox._reserve(InboxTarget.NEXT_TURN, ClaimPolicy.ONE_AT_A_TIME)
+
+    reservation.rollback()
+    with pytest.raises(RuntimeError):
+        reservation.rollback()
+
+    assert len(inbox.pending(InboxTarget.NEXT_TURN)) == 1  # not duplicated
+
+
+def test_rollback_cannot_accept_a_foreign_envelope() -> None:
+    """`C09-1`'s own required negative witness 2: neither terminal method accepts an argument at
+    all -- a structural guarantee (Python's own function-signature enforcement), not merely a
+    behavioral one."""
+    inbox = Inbox()
+    envelope = inbox.followup(_message("only"))
+    reservation = inbox._reserve(InboxTarget.NEXT_TURN, ClaimPolicy.ONE_AT_A_TIME)
+
+    with pytest.raises(TypeError):
+        reservation.rollback(envelope)  # type: ignore[call-arg]
+    with pytest.raises(TypeError):
+        reservation.commit(envelope)  # type: ignore[call-arg]
+
+
+def test_commit_then_rollback_cannot_mutate_the_queue_a_second_time() -> None:
+    """`C09-1`'s own required negative witness 3."""
+    inbox = Inbox()
+    inbox.followup(_message("only"))
+    reservation = inbox._reserve(InboxTarget.NEXT_TURN, ClaimPolicy.ONE_AT_A_TIME)
+
+    reservation.commit()
+    with pytest.raises(RuntimeError):
+        reservation.rollback()
+
+    assert inbox.pending(InboxTarget.NEXT_TURN) == ()  # still removed -- rollback was rejected
+
+
+def test_rollback_then_commit_cannot_mutate_the_queue_a_second_time() -> None:
+    """`C09-1`'s own required negative witness 4 (the reverse ordering)."""
+    inbox = Inbox()
+    inbox.followup(_message("only"))
+    reservation = inbox._reserve(InboxTarget.NEXT_TURN, ClaimPolicy.ONE_AT_A_TIME)
+
+    reservation.rollback()
+    with pytest.raises(RuntimeError):
+        reservation.commit()
+
+    assert len(inbox.pending(InboxTarget.NEXT_TURN)) == 1  # still restored -- commit was rejected
+
+
+def test_rollback_precedes_input_enqueued_after_the_reservation() -> None:
+    """The restored batch goes to the FRONT, ahead of anything enqueued in the meantime -- FIFO
+    order as if the reservation had never happened. Because the batch is already gone from the
+    queue the moment it is reserved, a re-entrant observer's own `steer()`/`followup()` calls
+    always land AFTER it in the underlying list; rollback simply re-prepends the original batch."""
+    inbox = Inbox()
+    inbox.followup(_message("A"))
+    inbox.followup(_message("B"))
+    reservation = inbox._reserve(InboxTarget.NEXT_TURN, ClaimPolicy.ALL)
+    inbox.followup(_message("C"))  # a re-entrant observer's own new input
+
+    reservation.rollback()
+
+    pending = inbox.pending(InboxTarget.NEXT_TURN)
+    assert [text_of(e.message) for e in pending] == ["A", "B", "C"]
+
+
+def test_envelopes_has_no_setter() -> None:
+    """`L09-R017`: `.envelopes` is a read-only property, not a plain writable attribute -- a
+    structural guarantee (no setter exists at all), not merely a behavioral one. An earlier
+    revision exposed it as an ordinary `__slots__` attribute; the independent review's own
+    executed witness reassigned a reservation holding `A` to a foreign envelope `B` still queued
+    elsewhere, then rolled back, which restored `B` (losing the genuinely reserved `A`) and left
+    two copies of `B`'s own id across both queues (`test_reassigning_envelopes_is_refused` below
+    reproduces that exact scenario and confirms it can no longer happen)."""
+    inbox = Inbox()
+    inbox.followup(_message("only"))
+    reservation = inbox._reserve(InboxTarget.NEXT_TURN, ClaimPolicy.ONE_AT_A_TIME)
+
+    with pytest.raises(AttributeError):
+        reservation.envelopes = ()  # type: ignore[misc]
+
+
+def test_reassigning_envelopes_is_refused() -> None:
+    """The reviewer's own exact `L09-R017` scenario: reserve `A` from one target, attempt to
+    reassign the reservation to a foreign envelope `B` still queued at a DIFFERENT target, then
+    roll back. Against the fixed implementation the reassignment itself is refused (`AttributeError`
+    before `.rollback()` is ever reached), so `A` is never lost and `B` is never duplicated."""
+    inbox = Inbox()
+    inbox.followup(_message("A"))
+    foreign = inbox.steer(_message("B"))
+    reservation = inbox._reserve(InboxTarget.NEXT_TURN, ClaimPolicy.ONE_AT_A_TIME)
+
+    with pytest.raises(AttributeError):
+        reservation.envelopes = (foreign,)  # type: ignore[misc]
+
+    reservation.rollback()
+
+    assert [text_of(e.message) for e in inbox.pending(InboxTarget.NEXT_TURN)] == ["A"]
+    assert [text_of(e.message) for e in inbox.pending(InboxTarget.NEXT_STEP)] == ["B"]
+    combined = (*inbox.pending(InboxTarget.NEXT_TURN), *inbox.pending(InboxTarget.NEXT_STEP))
+    all_ids = [e.id for e in combined]
+    assert len(all_ids) == len(set(all_ids))  # no id duplicated across queues
+
+
+def test_a_reentrant_claim_on_the_same_target_sees_only_unrelated_input() -> None:
+    """`L09-R013`'s own root cause, closed by construction: since the reserved batch is already
+    gone from the queue before an observer runs, a reentrant `claim()` on the SAME target can only
+    ever find genuinely different, unrelated input -- never any part of the reserved batch."""
+    inbox = Inbox()
+    inbox.followup(_message("A"))
+    inbox.followup(_message("B"))
+    inbox._reserve(InboxTarget.NEXT_TURN, ClaimPolicy.ALL)  # removes A, B atomically
+
+    reentrant = inbox.claim(InboxTarget.NEXT_TURN, ClaimPolicy.ONE_AT_A_TIME)
+
+    assert reentrant == ()  # nothing left for the observer's own claim to find
 
 
 def test_every_envelope_gets_a_unique_id() -> None:

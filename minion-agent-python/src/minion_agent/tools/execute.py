@@ -39,7 +39,7 @@ from jsonschema.exceptions import ValidationError as JsonSchemaValidationError
 from pydantic import ValidationError as PydanticValidationError
 
 from ..llm import ToolCallBlock
-from ..runtime import Context, Scope, ScopeKey
+from ..runtime import Context, RunSignal, Scope, ScopeKey
 from .decisions import AfterToolCallOverride, Block, PreExecuteDecision, Proceed
 from .definition import ToolDefinition
 from .events import (
@@ -151,14 +151,33 @@ def _validate(definition: ToolDefinition, arguments: dict[str, Any]) -> dict[str
         raise ArgumentValidationError(str(error)) from error
 
 
-def _wants_update(execute: Any) -> bool:
-    """Whether the tool declared a third parameter (after `tool_call_id`, `arguments`) for
-    partial output."""
+def _arity(execute: Any) -> int:
     try:
-        signature = inspect.signature(execute)
+        return len(inspect.signature(execute).parameters)
     except (TypeError, ValueError):  # pragma: no cover - builtins are not tools
-        return False
-    return len(signature.parameters) >= 3
+        return 0
+
+
+def _wants_signal(definition: ToolDefinition) -> bool:
+    """Whether `execute()` should receive the active run's cancellation signal as its own third
+    positional parameter (Layer 09, `L09-R003`). Declared EXPLICITLY via `ToolDefinition.
+    wants_signal` -- not inferred from arity alone -- since arity cannot by itself distinguish a
+    tool wanting `signal` from one wanting `update` at the same parameter count without breaking
+    an existing 3-parameter tool's own established `update`-only meaning. Requires arity >= 3 (a
+    slot for it must actually exist); `wants_signal=True` with only 2 declared parameters is
+    simply never satisfied, matching a tool that declared the capability but supplied no
+    parameter for it."""
+    return definition.wants_signal and _arity(definition.execute) >= 3
+
+
+def _wants_update(definition: ToolDefinition) -> bool:
+    """Whether `execute()` should receive the `update` callback (Layer 08, `L08-R011`, unchanged
+    in spirit, adjusted for `wants_signal`). When the tool has NOT declared `wants_signal`
+    (every pre-Layer-09 tool, and any tool that only wants live updates), a third parameter means
+    `update`, exactly as before this layer existed. When it HAS declared `wants_signal`, the
+    third parameter is `signal` instead (see `_wants_signal`), so `update` needs a FOURTH."""
+    required_arity = 4 if definition.wants_signal else 3
+    return _arity(definition.execute) >= required_arity
 
 
 def _merge_override(current: ToolResult, override: AfterToolCallOverride | None) -> ToolResult:
@@ -185,49 +204,81 @@ def _merge_override(current: ToolResult, override: AfterToolCallOverride | None)
 
 
 type AfterToolCallHook = Any
-"""`Callable[[ToolResult], AfterToolCallOverride | None]` (sync or async) -- see
-`register_after_tool_call_hook`. Spelled `Any` rather than a `Callable[...]` alias so a hook may
-freely be a plain function, a bound method, or an async function without fighting `Awaitable`
-variance; `_finalize` awaits the result only when it actually is one."""
+"""`Callable[[ToolResult], AfterToolCallOverride | None]` or `Callable[[ToolResult, RunSignal |
+None], AfterToolCallOverride | None]` (sync or async) -- see `register_after_tool_call_hook`.
+Spelled `Any` rather than a `Callable[...]` alias so a hook may freely be a plain function, a
+bound method, or an async function without fighting `Awaitable`/overload variance; `_finalize`
+awaits the result only when it actually is one."""
+
+
+def _hook_wants_signal(hook: AfterToolCallHook) -> bool:
+    """Whether `hook` declared a second parameter for the active run's signal (Layer 09,
+    `L09-R008`). Arity alone is unambiguous here -- unlike a tool's own `execute()`
+    (`_wants_signal`/`_wants_update`, `L09-R003`), a hook has only ONE optional second slot, with
+    no `update`-shaped alternative it could be confused with -- so no separate declared-capability
+    flag is needed."""
+    return _arity(hook) >= 2
 
 
 def register_after_tool_call_hook(
     ctx: Context, hook: AfterToolCallHook, *, scope: ScopeKey | None = None
 ) -> Any:
-    """The recommended way to extend `tools/post-execute` (`L06-R003`/`L06-R006`).
+    """The recommended way to extend `tools/post-execute` (`L06-R003`/`L06-R006`/`L09-R008`).
 
-    `hook` receives the current, already-merged `ToolResult` (read-only) and may return an
-    `AfterToolCallOverride` (or `None`/nothing for no change) -- never the whole result, so a
-    hook written against this API cannot even attempt to replace execution identity or
-    `added_tool_names`. Multiple hooks compose as a deterministic, registration-ordered fold
-    (`TOOL-005`): each sees the result exactly as merged by every earlier hook, mirroring pinned
-    Pi's own single-callback semantics for the zero/one-hook cases and extending it, for N hooks,
-    as an intentional Minion architectural divergence -- not something pinned Pi itself defines.
+    `hook` receives the current, already-merged `ToolResult` (read-only) -- and, when declared as
+    its own second parameter, the active run's `RunSignal | None` (Layer 09, `L09-R008`: an
+    independent Rust review found this helper delivered signal to raw `tools/post-execute`
+    listeners but not to hooks registered through this recommended path, so a caller using the
+    intended constrained API could not observe cancellation at all) -- and may return an
+    `AfterToolCallOverride` (or `None`/nothing for no change) -- never the whole result, so a hook
+    written against this API cannot even attempt to replace execution identity or
+    `added_tool_names`. A one-parameter hook (every hook written before this pass) is called
+    exactly as before, unaffected. Multiple hooks compose as a deterministic, registration-ordered
+    fold (`TOOL-005`): each sees the result exactly as merged by every earlier hook, mirroring
+    pinned Pi's own single-callback semantics for the zero/one-hook cases and extending it, for N
+    hooks, as an intentional Minion architectural divergence -- not something pinned Pi itself
+    defines.
 
     This helper's own constraint is a convenience, not the authoritative boundary:
     `tools/post-execute` remains a public Runtime event, so a caller may also register a raw
     listener directly via `ctx.events.on(TOOLS_POST_EXECUTE, ...)` and return a whole,
     differently-identified `ToolResult`. `_finalize`'s restoration of `tool_call_id`/`tool_name`/
-    `added_tool_names` -- at every listener-to-listener handoff, not only once the whole chain
-    finishes (`L06-R003`) -- is what actually makes identity/`added_tool_names` replacement
-    impossible, regardless of which registration path produced a given listener's output, and
-    regardless of whether another listener runs afterward to observe it.
+    `added_tool_names`/`signal` -- at every listener-to-listener handoff, not only once the whole
+    chain finishes (`L06-R003`, `L09-R006`) -- is what actually makes identity/`added_tool_names`/
+    `signal` replacement impossible, regardless of which registration path produced a given
+    listener's output, and regardless of whether another listener runs afterward to observe it.
 
     Returns the same disposer `EventBus.on` returns.
     """
+    hook_wants_signal = _hook_wants_signal(hook)
 
-    async def listener(result: ToolResult, next_: Any) -> ToolResult:
-        outcome = hook(result)
+    async def listener(result: ToolResult, signal: RunSignal | None, next_: Any) -> ToolResult:
+        outcome = hook(result, signal) if hook_wants_signal else hook(result)
         override = await outcome if inspect.isawaitable(outcome) else outcome
+        # No need to re-supply `signal` (`L09-R006`): `_finalize`'s own `normalize_step`
+        # restores it to the original authoritative value regardless of what is passed here.
         merged: ToolResult = await next_(_merge_override(result, override))
         return merged
 
     return ctx.events.on(TOOLS_POST_EXECUTE, listener, scope=scope)
 
 
-async def _finalize(result: ToolResult, ctx: Context, scope: ScopeKey | None) -> ToolResult:
+async def _finalize(
+    result: ToolResult, ctx: Context, scope: ScopeKey | None, signal: RunSignal | None = None
+) -> ToolResult:
     """Run the result through every registered `tools/post-execute` hook (pinned Pi's
     `afterToolCall`, extended to N listeners -- see `register_after_tool_call_hook`).
+
+    `signal` (Layer 09, `L09-R001`/`L09-R006`): pinned Pi's own `afterToolCall(context, signal)`
+    passes the active run's signal as the hook's own second parameter; the equivalent here is the
+    SAME signal as the SECOND element of this waterfall's own payload tuple, before `next_`.
+    `signal` is AUTHORITATIVE event metadata, not a listener's own to replace, redirect, or drop
+    (`L09-R006`, an independent Rust review's own finding against an earlier revision that let a
+    raw listener delegate with a fabricated replacement `RunSignal`, which the NEXT listener then
+    observed instead of the real one): `_restore` below forces it back to the ORIGINAL signal at
+    EVERY listener-to-listener handoff, the same restoration `tool_call_id`/`tool_name`/
+    `added_tool_names` already receive, below -- a listener no longer needs to re-supply it at
+    all when delegating with a replacement result.
 
     The terminal is computed from the current arguments, because this event's
     terminal is "the result as currently transformed" (design spec section 3).
@@ -258,13 +309,19 @@ async def _finalize(result: ToolResult, ctx: Context, scope: ScopeKey | None) ->
     added_tool_names = result.added_tool_names
 
     def _restore(current: tuple[Any, ...]) -> tuple[Any, ...]:
-        (candidate,) = current
+        # `current[0]` is always the result -- the listener's own to transform freely.
+        # `signal` (`L09-R006`) is AUTHORITATIVE event metadata: always forced back to the
+        # ORIGINAL signal this dispatch started with, regardless of what a listener delegated
+        # with (a replacement `RunSignal`, or a bare `next_(replacement)` that dropped it
+        # entirely) -- exactly the same restoration discipline `tool_call_id`/`tool_name`/
+        # `added_tool_names` already receive below, extended to cover `signal` too.
+        candidate = current[0]
         if (
             candidate.tool_call_id == tool_call_id
             and candidate.tool_name == tool_name
             and candidate.added_tool_names == added_tool_names
         ):
-            return current
+            return (candidate, signal)
         return (
             ToolResult(
                 tool_call_id=tool_call_id,
@@ -276,11 +333,13 @@ async def _finalize(result: ToolResult, ctx: Context, scope: ScopeKey | None) ->
                 usage=candidate.usage,
                 terminate=candidate.terminate,
             ),
+            signal,
         )
 
     transformed: ToolResult = await ctx.events.waterfall(
         TOOLS_POST_EXECUTE,
         result,
+        signal,
         terminal=lambda current, *_: current,
         scope=scope,
         normalize_step=_restore,
@@ -337,21 +396,39 @@ async def _preflight(
     scope: ScopeKey | None,
     on_execution_start: OnExecutionStart | None = None,
     on_execution_end: OnExecutionEnd | None = None,
+    signal: RunSignal | None = None,
 ) -> _Prepared | ToolResult:
     """Resolve, `prepare_arguments`, validate, and run the before-hook waterfall -- everything
     pinned Pi's `prepareToolCall` does before a call is eligible to run `execute()` (`IR-L06-001`).
 
     Returns a `_Prepared` for a call that may proceed, or the call's already-final `ToolResult`
-    for an "immediate" outcome (unknown tool, a prepare/validate/before-hook exception, or an
-    explicit before-hook block) -- which has already had `tools/execution-end` emitted, since none
-    of those reach `execute()`/the after-hook at all. `scope` must already be a bare `ScopeKey`
-    (see `execute_call`'s own normalization); this function does not accept a live `Scope`.
+    for an "immediate" outcome (unknown tool, a prepare/validate/before-hook exception, an
+    explicit before-hook block, or an aborted signal -- see below) -- which has already had
+    `tools/execution-end` emitted, since none of those reach `execute()`/the after-hook at all.
+    `scope` must already be a bare `ScopeKey` (see `execute_call`'s own normalization); this
+    function does not accept a live `Scope`.
 
     `on_execution_start`, when supplied, is awaited immediately after `tools/execution-start`'s own
     EMIT, before resolution/prepare/validate/the before-hook ever run (`L08-R002`, PASS 6) --
     deliberately OUTSIDE the `try`/`except` below, so a listener that raises here propagates
     straight out of this function, preventing the call from proceeding at all, exactly like pinned
     Pi's own live, awaited `tool_execution_start` dispatch.
+
+    `signal` (Layer 09, `L09-C002`): checked ONCE, immediately after the `TOOLS_PRE_EXECUTE`
+    waterfall resolves successfully (whether the decision is `Proceed` or `Block`), BEFORE that
+    decision is examined -- an aborted signal produces `"Operation aborted"` and WINS over a
+    `Block` decision, matching pinned Pi's own priority exactly (`prepareToolCall`,
+    `agent-loop.ts:600-668`): an unknown tool, a prepare/validate exception, and a THROWN
+    before-hook error all keep their own specific error regardless of abort state (they return/
+    raise before this point is ever reached), and only a decision the waterfall actually RETURNED
+    (Proceed or Block) yields to abort. This is a single Minion-architectural check point, not
+    Pi's own two (`agent.ts`'s `beforeToolCall` is independently nullable, producing a genuine
+    "no hook at all" bypass of its first check; Minion's `TOOLS_PRE_EXECUTE` waterfall always
+    executes, with zero listeners behaving identically to Pi's own "hook absent" case, so the
+    SAME one checkpoint here covers both of Pi's two -- an intentional, disclosed architectural
+    mapping, not an observable divergence: the two Pi-distinguishable states ("hook absent" and
+    "hook ran without blocking/aborting") are, in Minion, the SAME code path reaching the SAME
+    check).
     """
     ctx.events.emit(TOOLS_EXECUTION_START, call.id, call.name, call.arguments, scope=scope)
     if on_execution_start is not None:
@@ -367,6 +444,15 @@ async def _preflight(
             on_execution_end,
         )
 
+    def _restore_signal(current: tuple[Any, ...]) -> tuple[Any, ...]:
+        # `signal` (Layer 09, `L09-R006`) is AUTHORITATIVE event metadata, not a listener's own
+        # to replace, redirect, or drop -- always restored to the ORIGINAL signal this dispatch
+        # started with, regardless of what a listener delegated with (including a replacement
+        # `RunSignal`, or a bare `next_(call, definition, arguments)` that omitted it entirely).
+        # `call`/`definition`/`arguments` remain the listener's own to transform freely -- only
+        # `signal`'s own identity is protected.
+        return (*current[:3], signal)
+
     try:
         prepared_arguments = _prepare(definition, call.arguments)
         validated_arguments = _validate(definition, prepared_arguments)
@@ -375,8 +461,10 @@ async def _preflight(
             call,
             definition,
             validated_arguments,
+            signal,
             terminal=Proceed(arguments=validated_arguments),
             scope=scope,
+            normalize_step=_restore_signal,
         )
     except ArgumentValidationError as error:
         # Surfaced to the model, which chose these arguments and is the only
@@ -395,6 +483,15 @@ async def _preflight(
             ctx,
             scope,
             text_result(call.id, str(error), call.name, is_error=True),
+            on_execution_end,
+        )
+
+    if signal is not None and signal.aborted:
+        return await _immediate(
+            call,
+            ctx,
+            scope,
+            text_result(call.id, "Operation aborted", call.name, is_error=True),
             on_execution_end,
         )
 
@@ -419,12 +516,26 @@ async def _execute_and_finalize(
     scope: ScopeKey | None,
     on_execution_end: OnExecutionEnd | None = None,
     on_execution_update: OnExecutionUpdate | None = None,
+    signal: RunSignal | None = None,
 ) -> ToolResult:
     """Run `execute()` (+ live updates) and the after-hook for a call that survived preflight --
     pinned Pi's `executePreparedToolCall` + `finalizeExecutedToolCall`. Always ends by emitting
     `tools/execution-end`, then awaiting `on_execution_end` if supplied (`L08-R002`, PASS 6). In a
     parallel batch, this runs concurrently for every prepared call, only after every call in the
     batch has finished `_preflight` (`IR-L06-001`).
+
+    `signal` (Layer 09) is passed through DIRECTLY when the tool has declared `ToolDefinition.
+    wants_signal=True` (`_wants_signal`, `L09-R003`, corrected for present tense under `L09-R016`
+    -- an earlier revision of this docstring described a single fixed "fourth parameter" shape,
+    which cannot represent a tool wanting `signal` without `update`): `execute`'s own THIRD
+    positional parameter receives `signal` when only `wants_signal` is declared, or `update` moves
+    to a FOURTH parameter when both `wants_signal` and live updates are declared -- all four
+    Pi-equivalent combinations (neither, update-only, signal-only, both) are dispatched correctly
+    (see `_wants_signal`/`_wants_update` above), matching pinned Pi's own `execute(toolCallId,
+    params, signal, onUpdate)` shape exactly. Whether the tool actually stops is entirely its own
+    cooperative choice; this function never inspects `signal` itself or skips `execute()`/the
+    after-hook because it is aborted (`afterToolCall` runs unconditionally in pinned Pi too -- see
+    the contract checkpoint).
     """
     call = prepared.call
     definition = prepared.definition
@@ -486,11 +597,14 @@ async def _execute_and_finalize(
             )
 
     try:
-        outcome = (
-            definition.execute(call.id, arguments, update)
-            if _wants_update(definition.execute)
-            else definition.execute(call.id, arguments)
-        )
+        if _wants_signal(definition) and _wants_update(definition):
+            outcome = definition.execute(call.id, arguments, signal, update)
+        elif _wants_signal(definition):
+            outcome = definition.execute(call.id, arguments, signal)
+        elif _wants_update(definition):
+            outcome = definition.execute(call.id, arguments, update)
+        else:
+            outcome = definition.execute(call.id, arguments)
         value = await outcome if inspect.isawaitable(outcome) else outcome
     except Exception as error:  # surfaced to the model, not raised
         accepting_updates = False
@@ -523,7 +637,7 @@ async def _execute_and_finalize(
         await asyncio.gather(*pending_updates)
 
     try:
-        finalized = await _finalize(executed, ctx, scope)
+        finalized = await _finalize(executed, ctx, scope, signal)
     except Exception as error:
         # Pinned Pi's finalizeExecutedToolCall: an after-hook exception REPLACES the entire
         # prior result -- success or failure alike -- with a plain error result. Nothing from
@@ -544,6 +658,7 @@ async def execute_call(
     on_execution_start: OnExecutionStart | None = None,
     on_execution_end: OnExecutionEnd | None = None,
     on_execution_update: OnExecutionUpdate | None = None,
+    signal: RunSignal | None = None,
 ) -> ToolResult:
     """Run `call` and return its result, whatever happens.
 
@@ -564,6 +679,7 @@ async def execute_call(
         scope=scope,
         on_execution_start=on_execution_start,
         on_execution_end=on_execution_end,
+        signal=signal,
     )
     if isinstance(outcome, ToolResult):
         return outcome
@@ -573,4 +689,5 @@ async def execute_call(
         scope=scope,
         on_execution_end=on_execution_end,
         on_execution_update=on_execution_update,
+        signal=signal,
     )

@@ -297,6 +297,50 @@ rows:
     it is not inside transform_messages() itself. Merged PR #7 @ 439651e;
     tests/llm_transform.rs::legacy_null_content_is_normalized_by_the_library_before_typed_transformation.'
   disposition: adopted
+- id: AI-027
+  phase: 2
+  pi: packages/agent/src/agent-loop.ts::streamAssistantResponse (streamFunction(model, context, {...config, signal}))
+  surface: optional active-run cancellation-signal capability at the generic LLM request/adapter seam
+  rule: 'Layer 09 (`assurance/layers/09-active-abort-rust-checkpoint-rereview.md`, targeted
+    re-review, `L09-C001`..`L09-C003` all `PROVISIONALLY CLOSED`): resolved as a Layer-09-owned,
+    ADDITIVE post-certification delta to already-certified Layer 02 -- NOT a Layer-02 semantic
+    reopen, and NOT requiring `process/agent-workflow.md` §11.7 owner escalation. Reasoning,
+    independently confirmed: `AG-007` already explicitly deferred active propagation to Layer 09;
+    `PROV-004` already records adopted transport-abort parity for the later real-provider phase;
+    the certified Layer-02 contract governs NON-CANCELLED stream vocabulary/settlement and does not
+    prohibit an optional signal capability; omitting the new capability preserves every existing
+    caller and every existing non-cancelled behavior exactly, the same "default preserves certified
+    behavior" shape Layer 08 PASS 6 already used for `on_execution_start`/`on_execution_end`.
+
+    The shared contract specifies the LANGUAGE-NEUTRAL rule -- one optional active-run signal
+    reaches the generic LLM request/adapter seam -- not Python''s exact method signature. Python:
+    `llm/service.py::Request` gains an optional `signal: RunSignal | None = None` field, matching
+    pinned Pi''s own `streamFunction(model, context, {...config, signal})` -- the SAME per-run
+    signal reaches the adapter-call boundary. `LlmService.stream()`/`_settled()` never inspect or
+    act on it themselves; it is carried through to `adapter.stream(request)` unexamined, exactly
+    like `model`/`system`/`messages`/`tools`. An adapter MAY poll `request.signal.aborted` and
+    represent `StopReason.ABORTED` in its own returned stream, cooperatively -- this project''s
+    existing `MockAdapter`/`ScriptedAdapter` do not need to (a scenario scripts `StopReason.ABORTED`
+    directly, already-certified Layer-08 evidence, unchanged by this row).
+
+    Rust may add an optional signal to its own typed `LlmRequest`/adapter boundary; either
+    satisfies the contract. ACTUAL transport cancellation remains deferred to `PROV-004` (or an
+    explicitly later real-provider phase) -- this project has no real network transport yet; this
+    row certifies generic signal PROPAGATION to the adapter-call boundary, not that any real
+    transport was cancelled.
+
+    PASS 2 (independent Rust contract review of the PASS-1 candidate, `L09-R004` remediation):
+    this row''s own design needed NO change -- `Request.signal` already held the READ-ONLY
+    `RunSignal` view (`AgentInstance.signal`''s own type), never the PRIVATE `RunAbortController`
+    an earlier revision of `AG-007` briefly let leak to every consumer. Confirmed here explicitly
+    since `Request.signal` is exactly the seam a rejected authority leak would have reached the
+    adapter through, had this row reused the wrong type.'
+  tests:
+  - test_the_active_runs_signal_reaches_the_llm_request (agent_loop/test_active_abort.py)
+  - test_a_represented_aborted_terminal_is_unaffected_by_layer_09 (agent_loop/test_active_abort.py, regression)
+  python: src/minion_agent/llm/service.py::Request.signal (additive field, never inspected by LlmService/_settled itself)
+  rust: NOT_APPLICABLE -- Python/shared candidate awaiting independent Rust contract review
+  disposition: adopted
 - id: AG-001
   phase: 3
   pi: packages/agent/src/agent-loop.ts::runAgentLoop
@@ -586,7 +630,15 @@ rows:
   phase: 3
   pi: packages/agent/src/agent.ts::Agent.abort
   surface: active cancellation
-  rule: 'DEFERRED to Layer 09 (cancellation), not Layer 08''s ownership -- corrected this pass.
+  rule: 'CURRENT STATUS (as of Layer 09 PASS 4; the "DEFERRED" wording immediately below describes
+    this row''s OWN Layer-08-era state, before Layer 09 existed, and is historical, not current --
+    audited for exactly this ambiguity by an independent Rust review, `L09-R009`): this deferral
+    is REALIZED. `disposition: adopted` at the bottom of this row reflects the CURRENT, Layer-09-
+    implemented state -- see "Layer 09, PASS 1" onward below for the actual signal/`abort()` rule,
+    and PASS 4''s own paragraph at the end of this row for the most recent remediation
+    (`L09-R007`).
+
+    DEFERRED to Layer 09 (cancellation), not Layer 08''s ownership -- corrected this pass.
     Section 1''s audit: this row''s prior text (`disposition: adopted`) was wrong on its face, not
     merely under-evidenced -- active abort-signal propagation into provider/tools/hooks was never
     attempted by any Layer-08 pass, and per the already-certified Layer-07 contract (`spec/agent.md`
@@ -607,11 +659,566 @@ rows:
     Pi-equivalent run''s own observable outcome with no owner governance approval for the divergence,
     and no demonstrated product need justified keeping it, the same default already applied to
     `max_steps` (`L08-R005`). Layer 08 now has no local cancel/boundary-stop mechanism of any kind;
-    this row''s own deferral to Layer 09 is unqualified again.'
-  tests: []
-  python: NOT_APPLICABLE -- deferred to Layer 09
-  rust: NOT_APPLICABLE -- deferred to Layer 09
-  disposition: deferred parity
+    this row''s own deferral to Layer 09 is unqualified again.
+
+    Layer 09, PASS 1 (contract-first checkpoint per `process/agent-workflow.md` §4.1, then
+    implementation once the checkpoint was independently agreed -- `assurance/layers/09-active-
+    abort-contract-checkpoint.md`, revisions 1-2, targeted re-review `PROVISIONALLY CLOSED @
+    ecb8097` for `L09-C001`/`L09-C002`/`L09-C003`, `CONVERGENCE CONTRACT AGREED FOR PYTHON
+    IMPLEMENTATION`): this row''s own deferred surface is now realized.
+
+    `AgentInstance.signal: RunSignal | None` (`agent/instance.py`) -- `None` while idle, matching
+    pinned Pi''s own `Agent.signal` getter returning `undefined` with no active run.
+    `AgentInstance.abort() -> None` (Layer 07) -- a no-op, never raising, when idle; flips the
+    active run''s own signal otherwise, never forcing a status change of its own (`reset()` still
+    rejects until the run has actually settled, unaffected by `abort()` alone). One NEW
+    `RunSignal()` (`runtime/signal.py`, RT-024) per run, created/cleared at the SAME points
+    `AgentLoop._run_wrapped` already performs its other three unconditional entry/exit writes
+    (`L08-R008`/`AG-008`, unchanged) -- matching pinned Pi''s own `new AbortController()`/
+    `finishRun()` lifecycle exactly, live for the run''s entire duration including
+    `_settle_run_failure`''s own recovery dispatch and `agent_end` listener settlement.
+
+    `RunSignal` is deliberately NOT built on `asyncio.Task.cancel()`/`CancelledError`: pinned Pi''s
+    own `signal?.aborted` is polled cooperatively everywhere in `agent-loop.ts`, never a forced
+    interrupt of in-flight synchronous/asynchronous work, and certified Rust Layer 06 already
+    reserves a structurally equivalent poll-based `ToolExecutionSignal` trait
+    (`fn is_cancelled(&self) -> bool`) rather than a push/interrupt mechanism. A forced-cancellation
+    design would have been an unapproved observable divergence from Pi, not a value-neutral
+    implementation choice (`assurance/layers/09-active-abort-contract-checkpoint.md`''s own "Why
+    this is a genuine, not merely mechanical, contract question" section).
+
+    The SAME per-run signal reaches every consumer pinned Pi''s own `agent-loop.ts` threads it to:
+    `AGENT_LIFECYCLE_EVENT`/`AGENT_PREPARE_NEXT_TURN`/`AGENT_TURN_STOPPING` listeners (via
+    `instance.signal`, already reachable through `instance`, each listener''s own first argument --
+    an intentional Minion architectural mapping: pinned Pi threads `signal` as an explicit
+    parameter to these because its own `subscribe`/wrapping-closure design has no `instance`-
+    equivalent object to hang it on; Minion''s own established convention already passes `instance`
+    to every one of these listeners, so no new parameter was needed there), the LLM request
+    (`AI-027`), and the tool-execution seam (`TOOL-024`, which has no `instance` access at all,
+    architecturally below Layer 07, and so needs it threaded explicitly). Every consumer may IGNORE
+    the signal, and if all of them do, the run completes exactly as if `abort()` had never been
+    called -- the load-bearing rule `L09-C003`''s own re-review named as missing from the first
+    checkpoint draft.
+
+    Four abort-adjacent outcomes are distinguished (`L09-C003`): (1) a represented provider
+    `StopReason.ABORTED` terminal -- already Layer-08-owned, no new code; (2) an exception escaping
+    ordinary run execution while the signal happens to be aborted AT THE MOMENT `_settle_run_
+    failure` reads it -- classified `aborted`, not `error`, purely from current signal state, with
+    NO causal requirement the exception was actually caused by the abort (matching pinned Pi''s own
+    `abortController.signal.aborted` read at `handleRunFailure` catch time exactly); (3) a
+    cooperative tool''s own outcome after observing the signal -- ordinary, already-certified
+    Layer-06 execute/finalize semantics, after-hook still running unconditionally; (4) abort
+    requested while `agent_end` listeners are still being awaited -- that already-in-flight
+    dispatch''s own listener settlement still completes normally before the Agent becomes idle.
+
+    Explicitly out of THIS pass''s own scope: actual network-transport cancellation, deferred to
+    `PROV-004` (this project has no real provider transport yet) -- Layer 09 certifies generic
+    signal PROPAGATION to the adapter-call boundary through the existing scripted/mock adapter, not
+    that any real transport was cancelled. `active-abort-provider`/`active-abort-tool`/`abort-
+    settles-before-idle` remain unfilled canonical placeholders this pass: the discriminating
+    witnesses (the parallel A/B/C trace, the six-outcome preflight priority matrix, the complete
+    consumer/settlement matrix, the reset-stays-illegal-while-settling case) are instead closed as
+    permanent Python-level explicit-language regression evidence (`tests:` below) -- the SAME
+    "canonical OR explicit language test" standard the independent Layer-08 review itself accepted
+    for `L08-R014`, not a lower bar invented for this layer.
+
+    PASS 2 (remediating the independent Rust contract review of the PASS-1 candidate): REJECTED
+    FOR RUST IMPLEMENTATION, five `PI_PARITY_DEFECT`/`CONTRACT_ASSURANCE_DEFECT` findings
+    (`L09-R001`..`L09-R005`). The batch algorithms and preflight priority (`L09-C001`/`L09-C002`)
+    were confirmed correct; the propagation/authority/settlement half was not.
+
+    `L09-R004` (authority): PASS 1''s own `RunSignal` exposed a PUBLIC `abort()` to every
+    consumer -- a tool or adapter holding it could trigger cancellation itself, authority pinned
+    Pi''s own `AbortSignal` does not grant. `AgentInstance.signal` was also a plain public
+    attribute any listener could REASSIGN mid-run, redirecting later requests to a
+    caller-supplied replacement. Remediation: split into `RunAbortController` (PRIVATE, held only
+    by `AgentInstance`, the sole `.abort()`) and `RunSignal` (the READ-ONLY view every consumer
+    receives, no `.abort()` of its own at all, `runtime/signal.py`). `AgentInstance.signal` is now
+    a read-only PROPERTY with no setter -- reassignment raises `AttributeError` -- backed by a
+    private `_active_controller`, created/cleared only via new internal `_start_run_signal`/
+    `_end_run_signal` methods Layer 08 alone calls. `RunAbortController.signal` is created once
+    per controller, not per access, so `instance.signal` returns the identical object for a run''s
+    whole duration.
+
+    `L09-R002` (exception classification): `_settle_run_failure` hard-coded `StopReason.ERROR`,
+    never reading `instance.signal.aborted` at all, contradicting this row''s own already-correct
+    normative text. Remediation: reads the live signal at the exact classification point and
+    selects `ABORTED` when aborted, matching pinned Pi''s own `handleRunFailure(error,
+    abortController.signal.aborted)` exactly -- causation deliberately irrelevant, confirmed by a
+    dedicated unrelated-exception-after-abort witness alongside a paired non-aborted regression.
+
+    `L09-R001` (tool hooks): the `TOOLS_PRE_EXECUTE`/`TOOLS_POST_EXECUTE` waterfall dispatches
+    never included `signal` among their own payload arguments at all -- a hook could not observe
+    it through the declared seam despite the checkpoint and this row''s own prior text both
+    claiming it did. Remediation: `signal` is now an explicit payload argument on both
+    dispatches, before `next_` (`TOOL-024`, below, owns the full detail); every existing
+    production/test listener updated to accept it, `register_after_tool_call_hook`''s own wrapper
+    and `tools/post-execute`''s own identity-restoration `normalize_step` updated to re-supply/
+    tolerate it correctly when a listener delegates with an explicit replacement.
+
+    `L09-R003` (signal-only tools): PASS 1''s own arity-only dispatch (3 params = update, 4 =
+    signal+update) could not represent Pi''s own signal-only `execute(id, params, signal)` --
+    a tool wanting cancellation but no live updates was forced to declare an unused 4th `update`
+    parameter it did not want. Remediation: `ToolDefinition.wants_signal: bool = False` (Layer 05)
+    makes the capability EXPLICIT rather than arity-inferred, closing all four Pi-equivalent
+    combinations (`TOOL-024` owns the dispatch table).
+
+    `L09-R005` (`transformContext`): omitted entirely from PASS 1''s own consumer matrix and
+    implementation -- pinned Pi''s own `config.transformContext(messages, signal)`, invoked
+    immediately before every provider request, had no Minion equivalent at any layer. Remediation:
+    new `AGENT_TRANSFORM_CONTEXT` waterfall event (`agent/events.py`, Layer 08 -- see `AG-023`
+    below), dispatched in `_run_step` immediately before `Request` construction, transforming the
+    outgoing message history only -- never written back to `context`/the persistent transcript,
+    matching pinned Pi''s own local-variable-only reassignment. Zero listeners (every caller
+    before this pass) preserves prior behavior exactly.
+
+    PASS 3 (targeted re-review of the PASS-2 candidate): REJECTED FOR RUST IMPLEMENTATION,
+    `L09-R006`, a new `PI_PARITY_DEFECT` -- `L09-C001`/`L09-C002`, `L09-R002`, `L09-R003`, and the
+    transform-context SEMANTIC surface portion of `L09-R005` were confirmed correct and left
+    untouched; `L09-R001`/`L09-R004` were only PARTIALLY resolved by PASS 2 and this finding
+    explains why.
+
+    `L09-R006`: PASS 2''s own fix for `L09-R001` added `signal` to every waterfall payload but
+    never protected it from a listener''s own delegation call -- a raw listener could call
+    `next_(replacement_args..., forged_signal)` or omit `signal` entirely when delegating, and the
+    NEXT listener in the same chain would observe the forgery or `None` instead of the run''s own
+    original signal, contradicting the "same signal reaches every consumer" guarantee this row and
+    `TOOL-024` both already claimed. The independent review''s own executable witness showed later
+    `tools/pre-execute` and `tools/post-execute` listeners receiving a fabricated replacement
+    signal while execution still succeeded. Root cause: `signal` was event PAYLOAD, not event
+    METADATA -- ordinary waterfall payload values are exactly what a listener is free to transform
+    when it delegates, but `signal` (like `tool_call_id`/`tool_name`/`added_tool_names`,
+    `L06-R003`) is authoritative identity/context a listener has no business redirecting for a
+    listener downstream of it.
+
+    Remediation: `AGENT_TRANSFORM_CONTEXT`''s own waterfall dispatch (`_transform_context`) now
+    supplies a `normalize_step` closure (`_restore_signal`) that forces the tuple''s own `signal`
+    slot back to the closure-captured ORIGINAL value at every listener-to-listener handoff,
+    regardless of what a listener passes when it delegates -- the exact `normalize_step` mechanism
+    already certified for `TOOL-024`''s own `_finalize`/`_restore` (`L06-R003` precedent), now also
+    applied there for `signal` specifically (see `TOOL-024` below for the `tools/pre-execute`/
+    `tools/post-execute` half of this fix) and to this event''s own dispatch for the first time. A
+    listener no longer needs to re-supply `signal` when delegating with a replacement result, and
+    cannot override it for a later listener even by supplying a forgery or omitting it -- the
+    PASS-2 "must re-supply or it is lost" contract `spec/tools.md` incorrectly stated is now
+    corrected there to describe the authoritative-restoration guarantee instead. Verified via
+    revert-and-confirm: the new discriminating test was confirmed to FAIL against the PASS-2
+    candidate with `normalize_step` stripped, then to PASS once restored.
+
+    PASS 4 (final complete independent Rust contract review of the PASS-3 candidate): REJECTED FOR
+    RUST IMPLEMENTATION, `L09-R007`, a new `PI_PARITY_DEFECT` against this row''s own signal-
+    lifetime guarantee -- `L09-C001`/`L09-C002`/`L09-C003`, `L09-R002`/`L09-R004`, and the
+    transform-context portion of `L09-R005` were confirmed correct and left untouched.
+
+    `L09-R007`: this row''s own rule states `signal` is live for the run''s ENTIRE active duration
+    and `None` while idle. `AgentInstance.set_status` emits `agent/status` and calls `on_status_
+    change` SYNCHRONOUSLY (`AG-008`), so a status-transition observer runs INSIDE the same
+    synchronous call that publishes RUNNING/IDLE. PASS 1 through PASS 3''s own `_run_wrapped`
+    published RUNNING BEFORE calling `_start_run_signal()`, and published IDLE BEFORE calling
+    `_end_run_signal()` -- so a RUNNING observer saw `instance.signal is None` (its own `abort()`
+    call was consequently a no-op) and an IDLE observer saw the JUST-FINISHED run''s still-live
+    signal, not `None`. The independent review''s own executable witness: `status_observations =
+    [(''running'', True, None), (''idle'', False, False)]` -- read as "the RUNNING observer saw NO
+    signal (`True` marks the defect), and its `abort()` call left the following request
+    un-aborted; the IDLE observer saw a NON-`None` signal (`False` marks the defect)." Remediation:
+    `_run_wrapped` now calls `_start_run_signal()` BEFORE `set_status(RUNNING)`, and `_end_run_
+    signal()` BEFORE `set_status(IDLE)` -- reordering only the signal calls relative to `set_
+    status`, without changing the relative order of `set_status`/`streaming_message`/`error_
+    message`/`pending_tool_calls` themselves, which `AG-008` already certifies matches pinned Pi''s
+    own `runWithLifecycle`/`finishRun` write order. A new discriminating test registers `on_status_
+    change`, reads `instance.signal` and calls `instance.abort()` during the RUNNING callback, and
+    reads `instance.signal` during the IDLE callback -- confirmed to FAIL against the PASS-3
+    candidate (RUNNING observer saw `None`; the following request''s own signal was NOT aborted),
+    then to PASS once the reorder was applied.
+
+    PASS-4''s own fix survived one more targeted review (`L09-R008`/`L09-R009` provisionally
+    closed) but `L09-R007` itself was found `PARTIALLY_RESOLVED_BLOCKING` a second time -- the
+    happy-path reorder above was confirmed correct, but a synchronous RUNNING/IDLE observer that
+    ITSELF THROWS was left entirely ungoverned: the controller/status writes above happen BEFORE
+    `_run_wrapped`''s own `try`/`finally`, so a throwing RUNNING observer left `status` permanently
+    stuck `RUNNING` with a live, orphaned signal (every later `prompt()` rejected forever), and
+    `continue_()`/`run_until_idle()`''s own already-claimed inbox input (drained from `Inbox`
+    before `_run_wrapped` is ever called) was silently discarded on top of that. Surviving two
+    independent reviews on the same finding met workflow `?11.8`''s mandatory convergence trigger;
+    the resulting characterization/challenge/agreement cycle
+    (`assurance/layers/09-active-abort-contract-checkpoint-r007-convergence.md`, two revisions,
+    `CONVERGENCE CONTRACT AGREED FOR IMPLEMENTATION`) is PASS 5''s own authorizing contract.
+
+    PASS 5 implements the agreed matrix in full. Pi has no synchronous status-notification
+    extension at all -- `isStreaming=true`/`finishRun()`''s own writes are plain, non-throwing
+    property assignments made unconditionally OUTSIDE Pi''s own run-lifecycle try/executor
+    boundary -- so this is a genuinely Minion-owned architectural-mapping decision, derived from
+    the one thing Pi''s own structure DOES establish: `isStreaming=true` is written before ANY of
+    the run''s own observable event stream exists, while `finishRun()` runs AFTER the run''s own
+    outcome is already fully committed. The two transitions are governed asymmetrically:
+
+    RUNNING-notification failure means the run never validly began: the freshly-created signal is
+    discarded (`_end_run_signal()`); `status` is forced back to `IDLE` directly via a NEW internal
+    method, `AgentInstance._force_idle_after_failed_entry_notification()`, which sets `self.
+    _status` with NO `AGENT_STATUS` emit and NO `on_status_change` call -- calling `set_status`
+    again would re-invoke the SAME failing listener chain; any input already destructively claimed
+    from `Inbox` before `_run_wrapped` was called is restored via a new caller-supplied
+    `restore_on_entry_failure` callback (`continue_()`''s steering/follow-up branches,
+    `run_until_idle()`''s follow-up claim each construct their own, closing over the exact claimed
+    envelopes and the correct `Inbox.restore(target, envelopes)` call -- a new `Inbox` method,
+    `agent/inbox.py`, that prepends the restored batch ahead of whatever the target queue already
+    holds, so a failing observer''s own `steer()`/`followup()` call during its own execution is
+    never displaced or lost); no `agent_start`/settled turn is fabricated; the observer''s own
+    original exception propagates directly out of `prompt()`/`continue_()`/`run_until_idle()`; a
+    subsequent call then succeeds normally.
+
+    IDLE-notification failure does not hide or duplicate the run''s own already-committed outcome:
+    `_run_wrapped`''s own `finally` now completes `_end_run_signal()`/`streaming_message`/
+    `pending_tool_calls` UNCONDITIONALLY before the possibly-throwing `set_status(IDLE)`, which
+    moved to be the LAST write, not the first -- `set_status`''s own internal `self._status`
+    write already happens before its own emit/callback, so by the time a throwing listener''s
+    exception is observed, every one of `signal`/`streaming_message`/`pending_tool_calls`/`status`
+    already holds its correct settled value; only that listener''s own exception propagates,
+    uncaught, matching `_settle_run_failure`''s own established "a listener failure during
+    settlement propagates uncaught" precedent. This exit-side reorder changes no OBSERVABLE
+    success-path behavior (`streaming_message`/`pending_tool_calls` are already at their final
+    values from the run''s own normal completion by the time `finally` reaches them regardless of
+    write order), so `AG-008`''s own certified write-order rule is not reopened, only extended to
+    the failure case it never specified.
+
+    Twelve new regression tests (eight in `agent_loop/test_active_abort.py` -- four status/signal
+    failure-atomicity witnesses, four preclaimed-input-restoration witnesses; four in
+    `agent/test_inbox.py`, direct unit coverage of the new `Inbox.restore` method) were added.
+    Confirmed genuinely discriminating via revert-and-confirm against the PASS-4 candidate: six of
+    the eight `test_active_abort.py` witnesses (RUNNING-failure rollback and all four preclaimed-
+    input witnesses) and all four `Inbox.restore` unit tests FAILED as expected when reverted, then
+    PASSED once restored. The two IDLE-notification witnesses passed even against the PASS-4
+    candidate -- `streaming_message`/`pending_tool_calls` are already reset by `_execute_run`/
+    `_settle_run_failure` themselves before `_run_wrapped`''s own `finally` runs in every currently
+    reachable scenario, so the exit-side reorder has no live bug to discriminate against; they are
+    retained as permanent regression evidence for the agreed contract''s own explicit requirement,
+    not claimed as RED-proven for this specific reorder -- disclosed here rather than
+    overstated.
+
+    PASS 6 (targeted re-review of the PASS-5 candidate): REJECTED, a new `L09-R010`
+    `CONTRACT_ASSURANCE_DEFECT` against this row''s own PASS-5 remediation -- the agreed L09-R007
+    status/signal and preclaimed-input BEHAVIOR was independently re-verified and confirmed correct
+    (48 targeted tests passed); the defect was the AUTHORITY/visibility of the mechanism PASS 5
+    used to deliver that behavior, not the behavior itself.
+
+    `L09-R010`: the convergence contract (`assurance/layers/09-active-abort-contract-checkpoint-
+    r007-convergence.md`) approved an OBSERVABLE rollback result and explicitly left the mechanism
+    implementation-owned -- it did not approve a new unrestricted caller-facing operation. PASS 5''s
+    own `Inbox.restore(target, envelopes)` was an ordinary PUBLIC method: it accepted any envelope
+    tuple, tracked no claim ownership, and had no one-shot guard, so ANY caller could restore an
+    envelope still queued and never claimed, restore the same envelope repeatedly, or move a
+    claimed batch across targets -- manufacturing duplicate queue entries sharing the same id and
+    directly contradicting `AG-011`''s own certified exactly-once invariant. The independent
+    review''s own executed witness: `inbox.followup(a); inbox.restore(NEXT_TURN, (a,))` produced
+    TWO entries sharing `a`''s own id; calling `restore` again produced three -- with no claim or
+    failed run-entry involved at all. Pinned Pi''s own `PendingMessageQueue` is PRIVATE to `Agent`
+    and exposes no restore operation a caller could misuse this way; Minion''s `Inbox` is
+    intentionally public, so this method''s own visibility was itself observable, not a
+    Python-only implementation detail dismissible as such.
+
+    Remediation removes the restoration surface entirely rather than merely restricting it --
+    `Inbox.restore` no longer exists at all. `Inbox.peek(target, policy)` (new, PUBLIC, read-only)
+    returns exactly what `claim(target, policy)` would, without removing anything -- structurally
+    incapable of corrupting the queue no matter how a caller uses it, since it never mutates
+    anything. The actual destructive removal is deferred to `Inbox._commit_claim(target,
+    envelopes)` (new, PRIVATE -- the same "Layer 07 owns vocabulary, Layer 08 owns per-run
+    lifecycle" split already established for `AgentInstance._start_run_signal`/`_end_run_signal`),
+    called by `AgentLoop._run_wrapped` itself ONLY once `set_status(RUNNING)` has already
+    succeeded, with no intervening `await` between the caller''s own `peek()` and `_run_wrapped`''s
+    own commit. `continue_()`''s steering/follow-up branches and `run_until_idle()`''s follow-up
+    claim now PEEK, not `claim()`, before calling `_run_wrapped`, passing a `commit_entry_claim`
+    closure `_run_wrapped` invokes only on success. A RUNNING-notification failure therefore needs
+    NO restoration step at all: nothing was ever removed from `Inbox` in the first place, so there
+    is nothing to put back and no way to duplicate an id -- `_commit_claim` is removal-only, by
+    COUNT from the queue''s own front, and structurally cannot INSERT an envelope, so even a
+    caller that bypasses the `_` naming convention and calls it directly, repeatedly, can only
+    ever remove more of whatever is currently queued, never manufacture a duplicate.
+
+    Nine tests changed in `agent/test_inbox.py`: the four PASS-5 `Inbox.restore` unit tests are
+    replaced with `peek`/`_commit_claim` unit coverage plus two dedicated negative witnesses --
+    `test_the_old_public_restore_method_no_longer_exists` (asserts `hasattr(inbox, "restore")` is
+    now `False`) and `test_the_reviewers_duplicate_id_witness_is_no_longer_expressible` (reproduces
+    the review''s own exact scenario and asserts it now raises `AttributeError` instead of
+    manufacturing a duplicate id) -- the required negative evidence the review asked for. All
+    eight PASS-5 `agent_loop/test_active_abort.py` preclaimed-input/status-signal witnesses needed
+    NO changes at all and continue to pass unchanged, confirming the OBSERVABLE contract is
+    identical under the new mechanism -- only the internal implementation changed. Confirmed via
+    revert-and-confirm: all nine new/changed `test_inbox.py` tests were run against the reverted
+    PASS-5 candidate and FAILED as expected (the two negative witnesses specifically reproduced the
+    review''s own duplicate-id defect before the fix, and correctly could not after), then PASSED
+    once restored; the eight `test_active_abort.py` witnesses were confirmed unaffected by the
+    revert (passed both before and after, since they exercise observable behavior only).
+
+    PASS 7 (targeted re-review of the PASS-6 candidate): `L09-R007`/`L09-R010` `PROVISIONALLY
+    CLOSED`, but two new findings blocked the final review -- `L09-R011` (`CONTRACT_ASSURANCE_
+    DEFECT`) and `L09-R012` (`CONTRACT_ASSURANCE_DEFECT`, documentary, see `AG-011`).
+
+    `L09-R011`: PASS 6''s own `_commit_claim` removed envelopes by COUNT from the queue''s own
+    front (`queue[:len(envelopes)] = []`), never checking that the envelopes actually still
+    occupying that front were the SAME ones a prior `peek()` returned. The synchronous RUNNING
+    notification `_run_wrapped` awaits BETWEEN peek and commit may itself call any public `Inbox`
+    operation on the same target before returning normally -- claim the peeked envelopes itself,
+    clear the target, enqueue more input, or any combination. The independent review''s own
+    executable witness: queue `A, B`; `A` peeked; the RUNNING observer itself claims `A` and
+    returns (queue now `[B]`); a count-only commit for the peeked `(A,)` then deleted `B` too --
+    input never selected for this run and never touched by the observer''s own action. Remediation:
+    `_commit_claim` now verifies IDENTITY, position by position (`queue[i] is not envelopes[i]`),
+    not merely count, before removing anything -- if the queue''s own front no longer matches
+    exactly what was peeked, it removes NOTHING at all, leaving whatever the observer itself
+    already did as the sole source of truth for that target. Two new through-the-real-driver
+    witnesses reproduce the review''s own required scenarios (`ONE_AT_A_TIME` observer-claims-the-
+    peeked-envelope; `ClaimPolicy.ALL` observer-clears-and-enqueues), plus two new `Inbox`-level
+    unit tests; the existing `test_calling_commit_claim_repeatedly_only_removes_never_duplicates`
+    (PASS 6) was itself flagged by the review as codifying the exact defect (it asserted an
+    UNRELATED envelope `B` was ALSO removed by a second commit call) and is corrected to assert
+    the fixed, safe-no-op behavior instead -- renamed `test_calling_commit_claim_again_with_a_
+    stale_batch_is_a_safe_no_op`.
+
+    `L09-R012` (documentary only, no code/behavior change): `AG-011`''s own `python:` evidence
+    pointer still named the removed `Inbox.restore`, contradicting that same row''s own already-
+    corrected prose (updated under `L09-R010`) and the actual current implementation. Corrected to
+    name `Inbox.peek`/`Inbox._commit_claim`.
+
+    Confirmed via revert-and-confirm: the two new through-the-driver witnesses and the two new/
+    corrected `Inbox`-level unit tests were run against the reverted (count-only) PASS-6 candidate
+    and all FAILED as expected, reproducing the review''s own witness exactly (`B`/`C` incorrectly
+    lost), then PASSED once the identity check was restored.
+
+    PASS 8 (implementing the agreed `L09-R012`/`R013`/`R014` convergence contract, `assurance/
+    layers/09-active-abort-contract-checkpoint-r012-convergence.md`, revisions 1-2, `CONVERGENCE
+    CONTRACT AGREED FOR IMPLEMENTATION`; also closes the bundled, non-blocking `L09-R015`/`L09-R016`
+    from the same review pass): PASS 7''s own final `?11.8.8` complete review (mandatory once
+    `L09-R007`/`L09-R010`/`L09-R011` were all provisionally closed) REJECTED FOR RUST IMPLEMENTATION
+    with five findings. `L09-R012` recurred for a SECOND time -- `AG-011`''s own `rule:` prose (not
+    merely its `python:` pointer, which PASS 7 already corrected) still described the removed
+    `peek`/`_commit_claim` design as this row''s own settled mechanism -- meeting workflow `?11.8`''s
+    "same material finding survives two independent reviews" convergence trigger on its own. Four
+    new findings accompanied it: `L09-R013` (a RUNNING observer that itself claims the peeked batch
+    and then THROWS loses it -- `_commit_claim`''s identity check correctly leaves nothing removed
+    when the front no longer matches, but PASS 7 never restored the OBSERVER''S OWN claimed batch on
+    the RUNNING-failure rollback path, so it vanished regardless); `L09-R014` (a `ClaimPolicy.
+    ONE_AT_A_TIME` re-entrant claim on the SAME target during the RUNNING notification could still
+    leave a PARTIAL prefix of the originally peeked batch queued for duplicate admission on a later
+    claim, since peek/commit only ever validated the batch AS A WHOLE, not a legitimately-narrower
+    re-entrant sub-claim); `L09-R015` (`PI_PARITY_DEFECT`: `AGENT_PREPARE_NEXT_TURN`''s own waterfall
+    dispatch never protected its `instance` payload slot the way `L09-R006` already protects
+    `signal` -- a delegating listener could redirect a later listener to a fabricated `instance`, or
+    drop it entirely; pinned Pi''s own public `Agent.createLoopConfig()` (`agent.ts:445-471`) wraps
+    `AgentOptions.prepareNextTurn(signal)`/`prepareNextTurnWithContext(context, signal)` with the
+    SAME Agent''s own live `this.signal` before handing them to the low-level loop, so this is a
+    faithful mapping of an existing Pi guarantee, not a Minion-added one); `L09-R016` (stale
+    Layer-05-era prose in `spec/tools.md`/this manifest''s own `TOOL-009` row/`tools/execute.py`''s
+    own `_execute_and_finalize` docstring still described the cancellation-signal half as open,
+    contradicting Layer 09''s own already-implemented `wants_signal`-based dispatch -- see `TOOL-009`
+    below for the correction).
+
+    Root-cause reassessment (`?11.8.3` characterization) traced the WHOLE `L09-R012` lineage
+    (`L09-R007` -> `L09-R010` -> `L09-R011` -> `L09-R013`/`L09-R014`) to one architectural decision:
+    PASS 6''s own "peek, notify RUNNING, then commit" design left a WINDOW, between `peek()` and
+    `_commit_claim()`, during which a re-entrant observer could act on the same target -- every
+    finding since PASS 6 was a different exploit shape THROUGH that same window, not an independent
+    defect. Rather than adding a further case-by-case check for `L09-R013`/`L09-R014` individually,
+    the agreed remediation removes the window entirely: the entering batch is now destructively
+    `claim()`''d ATOMICALLY, before the RUNNING notification ever runs, so a re-entrant observer on
+    the same target can never see or touch it at all, and a private rollback restores it verbatim if
+    the run-entry attempt itself then fails.
+
+    A first convergence-checkpoint revision proposing this direction was independently challenged
+    (`assurance/layers/09-active-abort-contract-checkpoint-r012-convergence.md` revision 1,
+    `CONVERGENCE CONTRACT -- CHANGES REQUIRED`): `C09-1`, the proposed rollback method
+    (`Inbox._restore_claimed(target, envelopes)`) still took a caller-supplied envelope tuple with
+    no one-shot guard -- materially the SAME authority defect `L09-R010` already rejected under a
+    different name, not closed by a leading underscore alone; `C09-2`, the checkpoint''s own
+    "correction" of the reviewer''s `L09-R015` Pi citation was itself wrong (the checkpoint had read
+    only `agent-loop.ts`''s low-level shape and missed `agent.ts`''s own public wrapper). Revision 2
+    remediated both and was independently AGREED FOR IMPLEMENTATION.
+
+    Implementation: `Inbox` gains a private `_reserve(target, policy) -> _Reservation`, the sole
+    construction path for a new `_Reservation` object (`agent/inbox.py`) -- `.envelopes` is
+    read-only and bound at construction; `.commit()`/`.rollback()` take NO argument at all (closing
+    the "foreign/duplicate envelope" half of `C09-1` by the absence of a parameter, not convention)
+    and are guarded by a private `_settled` flag that raises `RuntimeError` on any second terminal
+    call, whichever method it is (closing the "double action" half structurally). `Inbox.peek`/
+    `_commit_claim` (PASS 6/7''s own mechanism) are removed entirely, not merely superseded --
+    `Inbox.claim()` remains the only OTHER removal path, unchanged. `AgentLoop._run_wrapped`
+    (`agent_loop/driver.py`) now takes an `entry_reservation: _Reservation | None` in place of PASS
+    7''s own `commit_entry_claim` closure parameter: a RUNNING-failure now calls `entry_reservation.
+    rollback()` before re-raising, and a successful entry calls `entry_reservation.commit()`;
+    `continue_()`''s steering/follow-up branches and `run_until_idle()` each now call `inbox.
+    _reserve(target, policy)` directly in place of the old `peek()` + closure pair, passing the
+    `_Reservation` straight through. Because the reservation''s own `.envelopes` are removed from
+    `Inbox` at RESERVE time, not commit time, a re-entrant observer during the RUNNING notification
+    can no longer see or touch them at all, regardless of whether it throws, returns normally, or
+    performs its own unrelated claim/clear/enqueue on the same target -- closing `L09-R013` and
+    `L09-R014` by construction, not by adding a check for either exploit shape individually.
+
+    `L09-R015`: `_prepare_next_turn`''s own `AGENT_PREPARE_NEXT_TURN` waterfall dispatch gains a
+    `normalize_step` closure (`_restore_instance`) that forces the payload tuple''s own `instance`
+    slot back to the closure-captured ORIGINAL value at every listener-to-listener handoff,
+    regardless of what a delegating listener passes -- the same `normalize_step` mechanism already
+    certified for `AGENT_TRANSFORM_CONTEXT`''s own `signal` slot (`L09-R006` precedent) and
+    `TOOL-024`''s own `tool_call_id`/`tool_name` slots (`L06-R003` precedent), now applied to
+    `instance` for the first time. A full audit of every `.waterfall()` dispatch in `src/` (five call
+    sites total) found `AGENT_PRE_STEP`''s own `_pre_step` had the IDENTICAL unprotected `instance`
+    slot, not itself separately reported by any review -- fixed proactively with the same closure
+    pattern, closing the adjacent surface of the same mechanism before an independent review had to
+    find it separately. `AGENT_TURN_STOPPING`/other `.waterfall()` sites were inspected and confirmed
+    already protected or structurally immune (`EventBus.serial()` dispatches have no delegation
+    seam at all, so cannot exhibit this defect).
+
+    Nine tests replace/extend PASS 7''s own `peek`/`_commit_claim` coverage in `agent/test_inbox.py`
+    (`_reserve`/`_Reservation` unit coverage: atomic claim on reserve, commit, rollback, an empty
+    target, a never-settled reservation, `hasattr`/`peek` absence, the reviewer''s own duplicate-id
+    witness, double-rollback non-duplication, a foreign-envelope rejection by construction, commit-
+    then-rollback and rollback-then-commit both refused a second time, rollback ordering ahead of
+    input enqueued after the reservation, and a re-entrant same-target claim seeing only genuinely
+    unrelated input); `agent_loop/test_active_abort.py` replaces the now-incorrect-under-claim-first
+    `test_a_running_observer_that_claims_the_peeked_input_does_not_lose_other_input` (its own
+    assumption that an unclaimed remainder stays queued no longer holds once ONE_AT_A_TIME reserves
+    only the one entering envelope) with four witnesses reproducing `L09-R013`/`L09-R014`''s own
+    exact scenarios under `ClaimPolicy.ALL`, and adds four new `AGENT_PRE_STEP`/
+    `AGENT_PREPARE_NEXT_TURN` authority-redirect witnesses paralleling the already-certified
+    `AGENT_TRANSFORM_CONTEXT` ones. Confirmed via revert-and-confirm: all eighteen new/changed tests
+    across both files were run against the reverted PASS-7 candidate (`peek`/`_commit_claim` restored)
+    and FAILED as expected, reproducing the reviewers'' own described defects exactly, then PASSED
+    once the `_Reservation` implementation was restored. Fresh full gate run: 1123 passed, 19
+    xfailed, 100% coverage, ruff/mypy clean, `ruff format --check` unchanged at the same seven
+    pre-existing drift files.
+
+    PASS 9 (targeted `§11.8.7` re-review of the PASS-8 candidate): REJECTED FOR PROVISIONAL
+    CLOSURE. `L09-R012`/`L09-R013`/`L09-R014`/`L09-R016` all PROVISIONALLY CLOSED -- the
+    claim-before-observer architecture was confirmed to close the exact `L09-R013`/`L09-R014`
+    re-entrancy window and `AG-011`''s current prose was confirmed repaired. `L09-R015` remained
+    STILL OPEN, and a new finding, `L09-R017`, was raised.
+
+    `L09-R015` (still open): PASS 8''s own `_restore_instance` closures fixed the REDIRECT half (a
+    listener delegating with a fabricated replacement `instance`) but not the OMISSION half. The
+    review''s own witness: a listener delegates via `next_(message, tool_results, context,
+    new_messages)` -- genuinely omitting `instance`, one element shorter than the full five-element
+    `AGENT_PREPARE_NEXT_TURN` payload, not `next_()` (which `EventBus.waterfall`''s own `forwarded =
+    replacement or current` treats as an unchanged forward and never even reaches `normalize_step`
+    with a shortened tuple). PASS 8''s own PASS-8 `test_..._cannot_drop_the_instance_for_a_later_
+    listener` witnesses both called `next_()`, which cannot discriminate this case at all -- the
+    review correctly identified them as non-discriminating, not merely weak. Against the actual
+    omission, PASS 8''s own `_restore_instance` unconditionally sliced `current[1:]`, silently
+    discarding the genuinely-first transformable field (`message`/`reason`) instead of `instance`,
+    and handed the next listener one argument short of its own declared arity -- observed as a
+    represented failure (`TypeError: ...missing 1 required positional argument: ''next_''`), not the
+    agreed "later listener observes the original instance" outcome.
+
+    `L09-R017` (new, `CONTRACT_ASSURANCE_DEFECT`): the agreed `C09-1` contract requires
+    `_Reservation.envelopes` bound read-only to the exact batch its own `claim()` call removed, with
+    no path for a caller to substitute a replacement. PASS 8''s own implementation stored it as a
+    plain `__slots__` attribute with no property, ordinary Python attribute assignment included --
+    the review''s own executable witness: reserve `A`, reassign `reservation.envelopes = (B,)` where
+    `B` is a genuinely different, still-queued envelope, then `.rollback()` -- this restored `B` (not
+    the genuinely reserved `A`, silently lost) and left two copies of `B`''s own id across both
+    queues, the exact class of defect `L09-R010`/`C09-1` were meant to close for good. PASS 8''s own
+    `test_rollback_cannot_accept_a_foreign_envelope` proved only that `.rollback()`/`.commit()`
+    themselves take no argument -- it never exercised assignment to `.envelopes` directly, so it
+    could not have caught this.
+
+    Remediation (PASS 9, this pass): `_restore_instance` (both `_prepare_next_turn` and `_pre_step`)
+    is now ARITY-AWARE rather than unconditional -- it checks `len(current)`: when it equals the
+    full payload length MINUS one (`instance` genuinely omitted), it PREPENDS the original instead
+    of slicing anything off; otherwise (an `instance` slot present, whether original or a forged
+    replacement) it slices `current[1:]` as before. A `current` of any other length remains a
+    malformed delegation this method does not specially handle -- `EventBus.waterfall`''s own
+    existing arity-mismatch behavior governs it unchanged, matching the review''s own explicit
+    instruction. `_Reservation.envelopes` is now a READ-ONLY property backed by a private
+    `_envelopes` slot with no setter at all -- assignment raises `AttributeError` before any
+    caller-supplied value could ever reach `.rollback()`, closing `L09-R017` structurally rather
+    than by adding a defensive copy or an isinstance check.
+
+    Four new/rewritten tests: `test_pre_step_cannot_drop_the_instance_for_a_later_listener` and
+    `test_prepare_next_turn_cannot_drop_the_instance_for_a_later_listener` (`agent_loop/
+    test_active_abort.py`) rewritten to use TRUE omission (`next_(reason, messages)`/`next_(message,
+    tool_results, context, new_messages)`), reproducing the review''s own exact scenario -- the
+    PASS-8 versions are corrected in place, not merely renamed, since their own non-discriminating
+    `next_()` body was itself the defect the review flagged; `test_envelopes_has_no_setter` and
+    `test_reassigning_envelopes_is_refused` (`agent/test_inbox.py`) added, the latter reproducing
+    the review''s own exact `L09-R017` scenario (reserve `A`, attempt to reassign to a foreign
+    queued `B`, roll back) and confirming the reassignment itself is refused before `.rollback()` is
+    ever reached, so `A` is never lost and `B` is never duplicated. Confirmed via revert-and-confirm
+    against the exact rejected PASS-8 candidate SHA (`551aa162cb0ff0c6b052f6a1500d8687d0ded825`):
+    all four FAILED as expected -- the two omission witnesses raised `IndexError` (the downstream
+    listener never appended, reproducing the review''s own represented-failure finding) and the two
+    `_Reservation` witnesses failed to raise `AttributeError` at all (assignment silently succeeded)
+    -- then PASSED once the fixes were restored. Fresh full gate run: 1125 passed, 19 xfailed, 100%
+    coverage, ruff/mypy clean, `ruff format --check` unchanged at the same seven pre-existing drift
+    files.
+
+    PASS 10 (`L09-R018` convergence -- full finding, root cause, agreed `{0, 1, 3}` delegation
+    grammar, and evidence at `AG-023`, not duplicated here): the mandatory `§11.8.8` final review
+    of the PASS-9 candidate rejected it on `AGENT_TRANSFORM_CONTEXT`''s own delegation-omission
+    ambiguity -- the only current waterfall payload with authoritative fields on BOTH sides of its
+    transformable field. Closed via a two-revision `§11.8.4`/`§11.8.5` convergence checkpoint
+    (`assurance/layers/09-active-abort-contract-checkpoint-r018-convergence.md`, `CONVERGENCE
+    CONTRACT AGREED FOR IMPLEMENTATION`); the fix restricts legal `_transform_context` delegation
+    lengths to `{0, 1, 3}` and rejects any other length directly at the authority boundary via
+    `WaterfallError`, settled as an ordinary represented Layer-08 run failure. Fresh full gate run:
+    1131 passed, 19 xfailed, 100% coverage, ruff/mypy clean, `ruff format --check` unchanged at the
+    same seven pre-existing drift files.'
+  tests:
+  - test_a_fresh_controller_is_not_aborted (runtime/test_signal.py)
+  - test_abort_sets_the_signal_aborted (runtime/test_signal.py)
+  - test_abort_is_idempotent (runtime/test_signal.py)
+  - test_two_controllers_are_independent (runtime/test_signal.py)
+  - test_the_signal_is_the_same_object_across_accesses (runtime/test_signal.py)
+  - test_the_read_only_signal_has_no_abort_method (runtime/test_signal.py)
+  - test_run_signal_cannot_be_constructed_without_a_controller (runtime/test_signal.py)
+  - test_signal_is_none_while_idle (agent/test_instance.py)
+  - test_abort_while_idle_is_a_no_op (agent/test_instance.py)
+  - test_abort_flips_the_active_signal (agent/test_instance.py)
+  - test_abort_does_not_make_reset_legal_before_the_run_settles (agent/test_instance.py)
+  - test_signal_has_no_public_setter (agent/test_instance.py)
+  - test_signal_is_the_same_object_across_the_whole_run (agent/test_instance.py)
+  - test_signal_is_none_before_and_after_a_run (agent_loop/test_active_abort.py)
+  - test_the_active_runs_signal_reaches_the_llm_request (agent_loop/test_active_abort.py)
+  - test_reset_stays_illegal_while_an_aborted_run_is_still_settling (agent_loop/test_active_abort.py)
+  - test_abort_mid_parallel_tool_batch_truncates_through_the_real_loop (agent_loop/test_active_abort.py)
+  - test_exception_after_abort_is_settled_as_aborted_not_error (agent_loop/test_active_abort.py)
+  - test_an_unrelated_exception_without_abort_is_still_settled_as_error (agent_loop/test_active_abort.py)
+  - test_transform_context_receives_messages_and_the_active_signal (agent_loop/test_active_abort.py)
+  - test_transform_context_output_is_provider_local_not_persistent (agent_loop/test_active_abort.py)
+  - test_a_transform_listener_cannot_redirect_a_later_listener_to_a_replacement_signal (agent_loop/test_active_abort.py)
+  - test_the_running_status_observer_sees_a_live_signal_and_the_idle_observer_sees_none (agent_loop/test_active_abort.py)
+  - test_a_raising_on_status_change_on_running_rolls_back_and_propagates (agent_loop/test_active_abort.py)
+  - test_a_raising_agent_status_listener_on_running_short_circuits_on_status_change (agent_loop/test_active_abort.py)
+  - test_a_raising_on_status_change_on_idle_does_not_hide_a_successful_run (agent_loop/test_active_abort.py)
+  - test_a_raising_on_status_change_on_idle_does_not_hide_a_settled_failure (agent_loop/test_active_abort.py)
+  - test_continue_restores_preclaimed_steering_on_a_running_failure (agent_loop/test_active_abort.py)
+  - test_continue_restores_preclaimed_follow_up_on_a_running_failure (agent_loop/test_active_abort.py)
+  - test_restored_preclaimed_input_precedes_input_the_failing_observer_itself_enqueues (agent_loop/test_active_abort.py)
+  - test_run_until_idle_restores_a_preclaimed_follow_up_on_a_running_failure (agent_loop/test_active_abort.py)
+  - test_a_running_observer_that_clears_and_enqueues_does_not_lose_the_new_input (agent_loop/test_active_abort.py)
+  - test_a_running_observer_that_claims_and_throws_does_not_lose_the_reserved_batch (agent_loop/test_active_abort.py, L09-R013)
+  - test_a_running_observer_that_claims_and_returns_finds_nothing_and_entry_proceeds (agent_loop/test_active_abort.py, L09-R014)
+  - test_a_running_observer_that_clears_and_enqueues_then_throws_restores_ahead_of_it (agent_loop/test_active_abort.py)
+  - test_pre_step_cannot_redirect_a_later_listener_to_a_replacement_instance (agent_loop/test_active_abort.py, L09-R015)
+  - test_pre_step_cannot_drop_the_instance_for_a_later_listener (agent_loop/test_active_abort.py, L09-R015, PASS 9: true omission)
+  - test_prepare_next_turn_cannot_redirect_to_a_replacement_instance (agent_loop/test_active_abort.py, L09-R015)
+  - test_prepare_next_turn_cannot_drop_the_instance_for_a_later_listener (agent_loop/test_active_abort.py, L09-R015, PASS 9: true omission)
+  - test_envelopes_has_no_setter (agent/test_inbox.py, L09-R017)
+  - test_reassigning_envelopes_is_refused (agent/test_inbox.py, L09-R017)
+  - test_reserve_atomically_claims_the_selected_batch (agent/test_inbox.py)
+  - test_reserve_matches_claim_for_all_policy (agent/test_inbox.py)
+  - test_reserve_on_an_empty_target_returns_an_empty_reservation (agent/test_inbox.py)
+  - test_commit_leaves_the_reserved_batch_removed (agent/test_inbox.py)
+  - test_rollback_restores_the_exact_reserved_batch (agent/test_inbox.py)
+  - test_a_reservation_never_settled_leaves_the_batch_removed (agent/test_inbox.py)
+  - test_the_old_public_restore_method_no_longer_exists (agent/test_inbox.py)
+  - test_the_reviewers_duplicate_id_witness_is_no_longer_expressible (agent/test_inbox.py)
+  - test_double_rollback_cannot_duplicate_an_envelope (agent/test_inbox.py)
+  - test_rollback_cannot_accept_a_foreign_envelope (agent/test_inbox.py)
+  - test_commit_then_rollback_cannot_mutate_the_queue_a_second_time (agent/test_inbox.py)
+  - test_rollback_then_commit_cannot_mutate_the_queue_a_second_time (agent/test_inbox.py)
+  - test_rollback_precedes_input_enqueued_after_the_reservation (agent/test_inbox.py)
+  - test_a_reentrant_claim_on_the_same_target_sees_only_unrelated_input (agent/test_inbox.py)
+  - test_a_represented_aborted_terminal_is_unaffected_by_layer_09 (agent_loop/test_active_abort.py)
+  python: src/minion_agent/runtime/signal.py::RunSignal, RunAbortController; src/minion_agent/agent/instance.py::AgentInstance.signal (read-only property)/abort/_start_run_signal/_end_run_signal/_force_idle_after_failed_entry_notification; src/minion_agent/agent_loop/driver.py::AgentLoop._run_wrapped (RUNNING-failure rollback + entry_reservation.rollback/commit, IDLE-failure exit reorder), continue_ (_reserve, L09-R012/R013/R014), run_until_idle (_reserve, L09-R012/R013/R014), _run_step (Request.signal, _transform_context), _prepare_next_turn (normalize_step=_restore_instance, arity-aware since PASS 9, L09-R015), _pre_step (normalize_step=_restore_instance, arity-aware since PASS 9, L09-R015), _settle_run_failure (ABORTED classification), _transform_context (_restore_signal -- arity-aware {0,1,3} delegation grammar with explicit WaterfallError rejection since PASS 10, L09-R018 -- see AG-023 for full detail); src/minion_agent/agent/events.py::AGENT_TRANSFORM_CONTEXT; src/minion_agent/agent/inbox.py::_Reservation (envelopes -- read-only property since PASS 9, L09-R017), Inbox._reserve (L09-R012/R013/R014, replaces the removed Inbox.peek/_commit_claim)
+  rust: NOT_APPLICABLE -- Python/shared candidate awaiting independent Rust contract review; certified Rust Layer 06''s own ToolExecutionSignal seam remains reserved, unexercised
+  disposition: adopted
 - id: AG-008
   phase: 3
   pi: packages/agent/src/agent.ts::AgentState
@@ -1205,6 +1812,131 @@ rows:
   python: src/minion_agent/agent_loop/driver.py::AgentLoop._run_step (_StepResult.terminal), AgentLoop._run_inner (immediate return on terminal)
   rust: minion-agent-rust/crates/minion-agent/src/agent_loop/driver.rs::AgentLoop::run_successful_inner; language evidence minion-agent-rust/crates/minion-agent/src/agent_loop/driver.rs::tests::represented_error_and_aborted_results_are_classified_without_post_turn_work/represented_terminals_skip_every_post_turn_decision_and_leave_queues_unclaimed and minion-agent-rust/crates/minion-agent/tests/agent_loop_failure.rs::public_prompt_runs_the_complete_state_machine_and_settles_idle
   disposition: adopted
+- id: AG-023
+  phase: 3
+  pi: packages/agent/src/agent-loop.ts::streamAssistantResponse (config.transformContext(messages, signal))
+  surface: per-request message-history transform, invoked immediately before every provider request
+  rule: 'Layer 09, PASS 2 (remediating `L09-R005`, `CONTRACT_ASSURANCE_DEFECT`, found by an
+    independent Rust contract review of the PASS-1 candidate): pinned Pi''s own `config.
+    transformContext(messages, signal)` is an OPTIONAL per-request projection of the outgoing
+    message history, invoked immediately before every provider request -- omitted entirely from
+    both the original Layer-09 contract checkpoint''s own consumer matrix and the PASS-1
+    implementation, despite the checkpoint predating this row and having every opportunity to
+    include it. Re-audited directly against pinned Pi source (`ref-repos/pi` @ `b7bb00b`,
+    `agent-loop.ts:288-292`): `messages = await config.transformContext(messages, signal)`
+    reassigns ONLY the function''s own LOCAL `messages` variable -- never `context.messages`/
+    `currentContext.messages`, the run''s own persistent/run-local accumulator -- so a transform''s
+    own output is provider-local for that ONE request, never carried into a later turn''s own
+    request.
+
+    `AGENT_PRE_STEP` is NOT equivalent -- an independent review named this explicitly: it runs
+    ONCE, at INPUT ADMISSION boundaries, and its own decision changes what gets durably admitted
+    into the run''s own accumulated transcript; this event runs on EVERY request (once per turn,
+    not once per run) and never mutates the persistent transcript at all.
+
+    New `AGENT_TRANSFORM_CONTEXT` waterfall event (`agent/events.py`), listener signature
+    `(instance, messages, signal, next_) -> tuple[Message, ...]` -- `instance` first, matching
+    every other Minion-architecture-mapped agent-level listener (`AG-001`..`AG-009`, `spec/
+    agent.md`''s own architectural-mapping note); `signal` explicit, the SAME active-run `RunSignal`
+    every other consumer receives. Terminal reflects whatever `messages` value is current when the
+    chain ends (an earlier revision used a FIXED terminal, which would have discarded a delegating
+    listener''s own transformation -- corrected before landing, matching `tools/post-execute`''s
+    own established "terminal is the current payload" convention, not `tools/pre-execute`''s
+    fixed-decision-object convention, since this event transforms a VALUE rather than producing a
+    DECISION). Dispatched in `AgentLoop._run_step`, immediately before `Request` construction,
+    transforming the already-history-windowed message tuple; the transformed value is used ONLY
+    for that one `Request.messages` and is never written back to `context`/`RunContext.messages`.
+    Zero listeners (every caller before this pass existed) preserves prior behavior exactly --
+    purely additive, no certified Layer-08 rule reopened.
+
+    Discriminating evidence: a registered listener injects a synthetic marker message into the
+    outgoing request; the marker is present in that request''s own `Request.messages`, present
+    again (independently re-injected) in the NEXT turn''s own request after a tool call, and
+    absent from `AgentInstance.messages`'' own durable, offline-visible transcript at every point
+    -- proving the transform is genuinely provider-local and non-persistent, not merely
+    "transformed once and cached."
+
+    PASS 3 (targeted re-review of the PASS-2 candidate, `L09-R006`, a new `PI_PARITY_DEFECT`):
+    this row''s own semantic surface -- provider-local, non-persistent transformation -- was
+    confirmed correct and left untouched; the defect was that `signal`, the third payload argument
+    above, was ordinary payload rather than authoritative metadata, so a listener delegating with a
+    replacement or omitted `signal` could redirect or drop it for a listener downstream in the same
+    chain. Remediation: `_transform_context`''s own waterfall dispatch now supplies a
+    `normalize_step` closure (`_restore_signal`) that forces the tuple''s `signal` slot back to the
+    closure-captured original at every listener-to-listener handoff -- the same mechanism applied
+    to `TOOLS_PRE_EXECUTE`/`TOOLS_POST_EXECUTE` (`TOOL-024`) for the identical finding. A dedicated
+    regression test confirmed genuinely discriminating via revert-and-confirm (FAILED with
+    `normalize_step` stripped, PASSED once restored).
+
+    PASS 10 (`L09-R018` convergence, `PI_PARITY_DEFECT`; mandatory `§11.8.8` final review of the
+    PASS-9 candidate, `minion-agent-docs#38`, then a two-revision `§11.8.4`/`§11.8.5` checkpoint
+    cycle, `assurance/layers/09-active-abort-contract-checkpoint-r018-convergence.md`,
+    `CONVERGENCE CONTRACT AGREED FOR IMPLEMENTATION` at `minion-agent-docs#40` @
+    `15d5173d5d7a18c35f7841fe42d533e74bb672a2`): `AGENT_TRANSFORM_CONTEXT`''s own payload,
+    `(instance, messages, signal)`, sandwiches its ONE transformable field between its TWO
+    authoritative fields -- the ONLY current waterfall dispatch with this shape (every other
+    authoritative-metadata waterfall in this codebase has exactly one authoritative field, always
+    at a fixed end). PASS 3''s own `_restore_signal` treated ANY `current` of length >= 2 as
+    `(instance_attempt, messages, ...)` unconditionally -- correct for a listener genuinely
+    omitting only `signal` (`next_(instance_attempt, messages)`), but SILENTLY WRONG for one
+    genuinely omitting only `instance` (`next_(messages, signal)`): both produce an identical
+    length-2 tuple, so the code could not tell them apart, and for the untested direction it
+    discarded the caller''s real `messages` and forwarded a live `RunSignal` downstream, and
+    eventually into the real provider request, AS `messages` -- an independent Rust review''s own
+    executed witness reproduced exactly this (`downstream_messages_type RunSignal`,
+    `request_messages_type RunSignal`).
+
+    The agreed remediation does not add a case-by-case check for the untested direction: it
+    restricts the legal delegation grammar to exactly `{0, 1, 3}` -- length 0 (no-op forward),
+    length 1 (`next_(new_messages)`, supplying ONLY the transformable field, both authoritative
+    fields always restored -- a strict generalization of the original "no need to re-supply
+    `signal`" convenience to "no need to re-supply EITHER authoritative field"), and length 3
+    (full explicit, unchanged). Length 2 -- inherently ambiguous, since two DIFFERENT single-field
+    omissions collapse to the identical length -- is no longer silently guessed at all: `_restore_
+    signal` raises `WaterfallError` (`runtime/errors.py`, already certified) DIRECTLY at this
+    authority boundary, before the malformed tuple is ever forwarded to a later listener, so no
+    downstream listener -- however permissive its own signature -- can ever observe or absorb it
+    (verified by a required negative witness: a deliberately variadic downstream listener, proven
+    never invoked). Because `_transform_context` runs inside `AgentLoop._execute_run`''s own
+    `try`/`except Exception` boundary (`L08-R002`, unchanged), the raised error is caught there and
+    routed to `_settle_run_failure` exactly like any other run-executor failure -- `prompt()`/
+    `continue_()` completes normally, with a synthesized terminal `error` assistant message, never
+    a bare escaping exception; the real provider request is never sent for that turn.
+
+    A type-based disambiguation alternative (inspecting whether a given position''s value is a
+    `RunSignal` instance) was considered and rejected during convergence -- exactly the "type/
+    position guessing" the reviewing party''s own requirement prohibited, fragile against a
+    `RunSignal` subclass or mock, and not specifiable language-neutrally without effectively
+    re-deriving a typed/discriminated representation anyway. A full re-audit of every other
+    authoritative-metadata waterfall (`AGENT_PRE_STEP`, `AGENT_PREPARE_NEXT_TURN`,
+    `TOOLS_PRE_EXECUTE`, `TOOLS_POST_EXECUTE`) confirmed none share this two-authoritative-fields-
+    sandwiching-a-transformable-field ambiguity -- each has exactly one authoritative field, always
+    at a fixed end, so arity alone already resolves omission unambiguously there (`L09-R015`).
+
+    Seven required witnesses (two direct, immediate-`WaterfallError`-with-non-forwarding-proof;
+    two real-loop, represented-Layer-08-failure; one message-only positive case; the unchanged
+    full-length redirect regression guard; one message-only-as-first-listener case), all confirmed
+    via revert-and-confirm against the exact PASS-9 candidate SHA
+    (`e015c20c25b3506372c1887a6f7b079a7f8d9e7a`): six genuinely FAILED as expected (two by never
+    raising -- the leading-omission shape silently corrupted the payload instead; two by the
+    provider being reached when it should not have been -- PASS 9 ACCEPTED the trailing-omission
+    shape rather than refusing it; two by `IndexError`, since `current[1]` assumed at least two
+    elements), the seventh (the unchanged redirect test) remained the already-green regression
+    guard throughout, and all six PASSED once the arity-aware, explicitly-rejecting `_restore_
+    signal` was restored.'
+  tests:
+  - test_transform_context_receives_messages_and_the_active_signal (agent_loop/test_active_abort.py)
+  - test_transform_context_output_is_provider_local_not_persistent (agent_loop/test_active_abort.py)
+  - test_a_transform_listener_cannot_redirect_a_later_listener_to_a_replacement_signal (agent_loop/test_active_abort.py)
+  - test_transform_context_rejects_leading_agent_omission_before_forwarding (agent_loop/test_active_abort.py, L09-R018)
+  - test_transform_context_rejects_trailing_signal_omission_before_forwarding (agent_loop/test_active_abort.py, L09-R018)
+  - test_transform_context_leading_omission_settles_as_a_represented_run_failure (agent_loop/test_active_abort.py, L09-R018)
+  - test_transform_context_trailing_omission_settles_as_a_represented_run_failure (agent_loop/test_active_abort.py, L09-R018)
+  - test_transform_context_message_only_delegation_preserves_both_authoritative_fields (agent_loop/test_active_abort.py, L09-R018)
+  - test_transform_context_message_only_delegation_as_the_first_listener (agent_loop/test_active_abort.py, L09-R018)
+  python: src/minion_agent/agent/events.py::AGENT_TRANSFORM_CONTEXT; src/minion_agent/agent_loop/driver.py::AgentLoop._transform_context (dispatch, _restore_signal normalize_step -- arity-aware {0,1,3} grammar with explicit WaterfallError rejection, L09-R018), _run_step (dispatch point, before Request construction)
+  rust: NOT_APPLICABLE -- Python/shared candidate awaiting independent Rust contract review
+  disposition: adopted
 - id: AG-011
   phase: 3
   pi: packages/agent/src/agent.ts::PendingMessageQueue, Agent.steer, Agent.followUp
@@ -1248,7 +1980,37 @@ rows:
     can merge several enqueued inputs into one claimed batch, which a single `turn.origin` could
     not represent. Language-neutral canonical evidence (`L07-R004`):
     agent-inbox-queue-mode-fifo.yaml and agent-inbox-queue-independence-and-clearing.yaml exercise
-    the real `Inbox` primitive directly, with no provider/tool/run-loop timing.'
+    the real `Inbox` primitive directly, with no provider/tool/run-loop timing.
+
+    Cross-reference (Layer 09, `L09-R007`/`L09-R010`/`L09-R011`/`L09-R012`/`L09-R013`/`L09-R014` --
+    see `AG-007` for the full rule and remediation history): the current mechanism is claim-then-
+    reservation-rollback, not peek-then-commit. `Inbox._reserve(target, policy)` (PRIVATE,
+    Layer-08-only) atomically `claim()`s the selected batch immediately -- removing it from `target`
+    at RESERVE time, not at some later commit -- and returns a private, one-shot `_Reservation`
+    bound to exactly that batch (`.envelopes`, a read-only PROPERTY backed by a private slot with no
+    setter -- PASS 8''s own first implementation exposed it as a plain writable `__slots__`
+    attribute instead, letting a caller reassign the reservation to a foreign envelope before
+    rollback and manufacture a duplicate id, `L09-R017`; PASS 9 closes it structurally). Exactly one
+    of `.commit()` (settles the
+    removal permanently) or `.rollback()` (restores the exact reserved batch, verbatim and in order,
+    ahead of whatever `target` holds by then) may ever be called on a given reservation, and each
+    takes NO argument at all -- a second call to either, after the first, raises `RuntimeError`.
+    Because removal happens at reserve time, no re-entrant observer on the same target can ever see
+    or act on the reserved batch, whether it later throws, returns normally, or performs its own
+    unrelated claim/clear/enqueue -- this is not a change to this row''s own certified identity/
+    FIFO-ordering rules above, `_reserve`/`_Reservation` read and preserve them exactly (`id`/
+    `message`/`origin`, order) and can never manufacture a duplicate id: `.rollback()` only ever
+    re-inserts the SAME envelope objects it removed, once. PASS 6''s own `Inbox.restore(target,
+    envelopes)` (a PUBLIC method taking a caller-supplied envelope tuple, no ownership tracking, no
+    one-shot guard) and PASS 7''s own `Inbox.peek`/`_commit_claim` (a peek-then-commit split that left
+    a re-entrancy window between the two calls) are both removed entirely, not merely restricted or
+    superseded in place -- an independent Rust review found `restore` violated this row''s own
+    exactly-once invariant by manufacturing duplicate ids (`L09-R010`), and a first attempt at
+    privatizing the rollback path (`Inbox._restore_claimed(target, envelopes)`, still caller-
+    supplied and repeatable) was independently found materially the same defect under a different
+    name (`L09-R012` convergence checkpoint challenge, `C09-1`) before the current `_Reservation`
+    design was agreed. Direct unit coverage lives in `agent/test_inbox.py` (listed under `AG-007`,
+    not duplicated here).'
   tests:
   - test_followup_queues_for_the_next_turn_and_wakes
   - test_steer_queues_for_the_next_step_and_wakes
@@ -1273,7 +2035,7 @@ rows:
   - test_inject_delegates_to_the_inbox_without_waking
   - agent-inbox-queue-mode-fifo (L07-R004, language-neutral canonical)
   - agent-inbox-queue-independence-and-clearing (L07-R004, language-neutral canonical)
-  python: src/minion_agent/agent/inbox.py::Inbox, src/minion_agent/agent/envelope.py::InboxTarget/InputEnvelope, src/minion_agent/agent/instance.py::AgentInstance.steer/follow_up/inject
+  python: src/minion_agent/agent/inbox.py::Inbox, Inbox._reserve, _Reservation (Layer 09, L09-R007/L09-R010/L09-R011/L09-R012/L09-R013/L09-R014 -- see AG-007; Inbox.restore, PASS 5's own mechanism, and Inbox.peek/_commit_claim, PASS 6/7's own mechanism, were both removed); src/minion_agent/agent/envelope.py::InboxTarget/InputEnvelope, src/minion_agent/agent/instance.py::AgentInstance.steer/follow_up/inject
   rust: crates/minion-agent/src/agent/inbox.rs::Inbox; crates/minion-agent/tests/agent_inbox.rs; crates/minion-agent/tests/agent_inbox_conformance.rs
   disposition: adopted
 - id: AG-012
@@ -1797,6 +2559,221 @@ rows:
   python: src/minion_agent/tools/execute.py::_preflight, _execute_and_finalize, _Prepared; src/minion_agent/tools/batch.py::execute_batch
   rust: minion-agent-rust/crates/minion-agent/src/tools/execution.rs::preflight_one/execute_and_finalize_prepared/execute_tool_calls; minion-agent-rust/crates/minion-agent/tests/tool_execution.rs::parallel_preflight_settles_in_source_order_before_any_prepared_execute/parallel_batch_preflights_every_valid_call_before_either_execute_begins; minion-agent-rust/crates/minion-agent/tests/tool_execution_conformance.rs::all_layer_06_scenarios_drive_the_real_rust_tool_executor
   disposition: adopted
+- id: TOOL-024
+  phase: 4
+  pi: packages/agent/src/agent-loop.ts::prepareToolCall, executeToolCallsSequential, executeToolCallsParallel
+  surface: active-run signal propagation into tool preflight/execute/batch (Layer 09)
+  rule: 'CURRENT RULE (unambiguous statement, as of PASS 4; supersedes any conflicting phrasing in
+    the pass-by-pass chronology below, which is retained only as historical remediation record,
+    not current guidance -- `L09-R009`): `execute()` signal/update capability is declared via
+    `ToolDefinition.wants_signal: bool = False` (Layer 05) together with arity -- NOT pure arity
+    alone, and NOT a fixed four-parameter requirement. The four representable combinations:
+    `wants_signal=False, arity=2` -> neither; `wants_signal=False, arity=3` -> `update` only
+    (unchanged since before Layer 09); `wants_signal=True, arity=3` -> `signal` only;
+    `wants_signal=True, arity=4` -> both. A tool wanting ONLY `signal` declares exactly THREE
+    parameters -- no unused fourth `update` slot is required. `signal` is AUTHORITATIVE event
+    metadata on both `TOOLS_PRE_EXECUTE`/`TOOLS_POST_EXECUTE`: a `normalize_step` closure forces
+    it back to the run''s own original value at every listener-to-listener handoff, so a listener
+    never needs to re-supply it when delegating and cannot redirect or drop it for a listener
+    downstream, regardless of what it passes to `next_` (`L09-R006`). `register_after_tool_call_
+    hook`, the recommended after-hook registration path, also delivers `signal` -- to a hook that
+    declares a second parameter for it -- not only to raw `tools/post-execute` listeners
+    (`L09-R008`).
+
+    Layer 09 (`assurance/layers/09-active-abort-contract-checkpoint.md`, revisions 1-2;
+    targeted re-review `assurance/layers/09-active-abort-rust-checkpoint-rereview.md`,
+    `L09-C001`/`L09-C002` `PROVISIONALLY CLOSED @ ecb8097`): builds ON TOP of TOOL-023''s own
+    already-certified sequential-preflight/concurrent-execution barrier, adding the active run''s
+    own cancellation signal at the exact points pinned Pi''s own `prepareToolCall`/
+    `executeToolCallsSequential`/`executeToolCallsParallel` check it -- neither reopens TOOL-023''s
+    own certified barrier rule.
+
+    `L09-C002`, preflight abort/error priority (`prepareToolCall`, `agent-loop.ts:600-668`): the
+    signal is checked EXACTLY ONCE per call, immediately after the before-hook waterfall resolves
+    (whichever decision), before that decision is examined, in this priority order (earlier wins):
+    (1) tool not found; (2) prepare/validate throws; (3) a before-hook listener throws; (4) the
+    waterfall resolves AND the signal is aborted -> "Operation aborted", winning over the
+    waterfall''s own `Block` decision (the discriminating witness is `block: true` + aborted, not
+    `block: false` + aborted, since the latter would reach step 6 regardless); (5) the waterfall
+    resolves to `Block`, not aborted -> the Block''s own reason/terminate; (6) neither aborted nor
+    blocked -> proceeds to `execute()`. Steps 1-3 are checked/raised BEFORE the signal is ever
+    read, so an unknown tool, a validation failure, or a throwing before-hook keep their own
+    specific error regardless of abort state. Pinned Pi''s own `prepareToolCall` has an
+    INDEPENDENT second abort check for its own "no `beforeToolCall` configured at all" case (its
+    single, nullable hook creates a genuine bypass of its first check); Minion''s `tools/
+    pre-execute` waterfall always runs the same code path whether zero or more listeners are
+    registered, so this module''s ONE checkpoint covers both of Pi''s two -- an intentional,
+    disclosed architectural mapping (the two Pi-distinguishable states, "hook absent" and "hook ran
+    without blocking/aborting," are the same code path in Minion), not an observable divergence.
+
+    `L09-C001`, sequential vs. parallel batch abort algorithms (`batch.py::execute_batch`): a
+    generic "stop the batch" rule is wrong for either mode alone. Sequential:
+    `if signal.aborted: break` runs AFTER a call''s own COMPLETE preflight-through-finalize
+    lifecycle, before starting the next call -- a call already started always finishes; unreached
+    calls are simply never attempted (`results` can be shorter than `calls`). Parallel: preflight
+    remains fully sequential (TOOL-023, unchanged); the SAME check runs after EACH call''s own
+    preflight OUTCOME (immediate or prepared) is recorded, deciding whether to preflight the NEXT
+    source call -- NOT after execution. Every prepared outcome retained BEFORE the poll still
+    starts its own `execute()`/after-hook phase afterward, via TOOL-023''s own concurrent barrier,
+    receiving the already-aborted signal cooperatively; an abort arising DURING one prepared call''s
+    own execution cannot stop a sibling already committed to that barrier. The independent
+    re-review''s own required regression witness (source calls A/B/C; A prepared with no
+    before-hook issue; B''s own before-hook calls `abort()` and returns -- a RETURNING hook, the
+    discriminating case per `L09-C002`, not a throwing or blocking one): `tool_execution_start(A)`,
+    `tool_execution_start(B)`, B finalizes INLINE as `Operation aborted` during the sequential
+    preflight phase, the for-loop poll sees the signal aborted and stops -- C''s own
+    `tool_execution_start` never fires -- then A''s own retained closure starts via the barrier and
+    completes/finalizes normally, never checking the signal itself; returned results: A, B in
+    source order, C entirely absent.
+
+    `execute()`''s own cooperative signal parameter (`_execute_and_finalize`): a tool declaring a
+    FOURTH parameter receives `(tool_call_id, arguments, signal, update)`, matching pinned Pi''s own
+    `execute(toolCallId, params, signal, onUpdate)` positional order exactly; a pre-existing
+    3-parameter tool''s own third parameter continues to mean `update`, UNCHANGED since before
+    Layer 09 (`_wants_update`) -- a disclosed, minor Minion-specific arity-dispatch constraint
+    relative to Pi''s own fully-independent optional parameters, since a tool wanting only `signal`
+    without `update` still must declare (and may ignore) a fourth parameter. Whether a tool
+    actually reacts is its own cooperative choice; neither Pi nor Minion forcibly interrupts
+    `execute()`. `afterToolCall`/`tools/post-execute` runs UNCONDITIONALLY once `execute()` has been
+    reached, regardless of the signal''s state at any point during or after it -- unchanged,
+    verified by a dedicated regression, not merely asserted. [PASS-1-era: the "must declare a
+    fourth parameter" framing above is SUPERSEDED as current guidance by the CURRENT RULE summary
+    at the top of this row and the `L09-R003` remediation below, which makes a genuinely
+    THREE-parameter signal-only tool representable -- `L09-R009`.]
+
+    No canonical scenario filled this pass: `active-abort-tool`/`active-abort-provider`/`abort-
+    settles-before-idle` remain unfilled placeholders (`conformance/agent/`) -- the discriminating
+    witnesses above are instead closed as permanent Python-level explicit-language regression
+    evidence, the same "canonical OR explicit language test" standard the independent Layer-08
+    review itself accepted for `L08-R014`.
+
+    PASS 2 (independent Rust contract review of the PASS-1 candidate): REJECTED FOR RUST
+    IMPLEMENTATION on this row''s own remaining half -- `L09-C001`/`L09-C002` (the batch
+    algorithms and preflight priority, above) were confirmed correct and unaffected; `L09-R001`
+    and `L09-R003` were genuine gaps in what this row claimed.
+
+    `L09-R001`: the before/after hook waterfall DISPATCHES (`TOOLS_PRE_EXECUTE`/
+    `TOOLS_POST_EXECUTE`) never actually included `signal` among their own payload arguments --
+    a registered listener had no way to observe it at all, contradicting this row''s own prior
+    text and the checkpoint''s own consumer matrix, both of which already (incorrectly) claimed
+    hooks received it. An executable witness confirmed a variadic before-listener and a raw
+    after-listener each saw zero `RunSignal` among their own arguments. Remediation: `signal` is
+    now the THIRD payload argument on `TOOLS_PRE_EXECUTE`''s own waterfall dispatch (`call,
+    definition, arguments, signal, next_`) and the SECOND on `TOOLS_POST_EXECUTE`''s (`result,
+    signal, next_`), matching pinned Pi''s own `beforeToolCall(context, signal)`/`afterToolCall(
+    context, signal)` second-parameter placement. A listener delegating via bare `next_()` sees it
+    unchanged automatically (`EventBus.waterfall`''s own `replacement or current` rule); one
+    delegating with an explicit replacement must re-supply it (`next_(replacement, signal)`) --
+    `register_after_tool_call_hook`''s own production wrapper does this, and `tools/post-
+    execute`''s own `_restore` normalize_step (`L06-R003`) was widened to tolerate a variable-
+    length trailing tail rather than a fixed 1-tuple, so a listener that forgets to re-supply
+    degrades to "no signal for later listeners" instead of raising. Every existing production and
+    test listener across `execute.py`, the conformance runner, and the whole test suite updated to
+    accept the new argument. [PASS-2-era: this "must re-supply or degrade to no signal" behavior is
+    SUPERSEDED by the `L09-R006` remediation below, which makes `signal` authoritative and its
+    restoration automatic -- a listener never needs to re-supply it, and cannot cause it to degrade
+    for a later listener even by omission -- `L09-R009`.]
+
+    `L09-R003`: PASS 1''s own PURE-ARITY dispatch (3 parameters always meant `update`; 4 always
+    meant `signal` then `update`) could not represent Pi''s own genuinely signal-only
+    `execute(toolCallId, params, signal)` -- a tool wanting cancellation but not live updates was
+    forced to declare an unused 4th `update` parameter, which PASS 1''s own candidate test
+    explicitly asserted as the ONLY shape, framing the limitation as a "disclosed Minion-specific
+    constraint" despite this row''s own `disposition: adopted` claiming full capability coverage.
+    Remediation: capability is now DECLARED, via `ToolDefinition.wants_signal: bool = False`
+    (Layer 05) -- `_wants_signal(definition)`/`_wants_update(definition)` (renamed from
+    arity-only free functions to definition-aware ones) now consult BOTH the flag and the arity:
+    `wants_signal=False` (every pre-Layer-09 tool) preserves the exact prior dispatch; `wants_
+    signal=True` shifts the 3rd-parameter meaning to `signal`, with update needing a 4th. All four
+    Pi-equivalent combinations (neither, update-only, signal-only, both) are now representable and
+    each has its own dedicated regression test.
+
+    PASS 3 (targeted re-review of the PASS-2 candidate): REJECTED FOR RUST IMPLEMENTATION,
+    `L09-R006`, a new `PI_PARITY_DEFECT` on this row''s own `L09-R001` remediation above --
+    `L09-C001`/`L09-C002`/`L09-R003` were confirmed correct and left untouched.
+
+    `L09-R006`: PASS 2''s own fix threaded `signal` onto both waterfall dispatches but left it as
+    ordinary payload -- a listener delegating with an explicit replacement (`next_(replacement,
+    forged_signal)`) or a bare omission could redirect or drop it for every listener downstream,
+    something PASS 2''s own text above ("must re-supply it... or later listeners will not see it")
+    wrongly treated as an acceptable degrade-to-`None` rather than the genuine authority breach it
+    is. The independent review''s own executable witness confirmed later `tools/pre-execute` and
+    `tools/post-execute` listeners receiving a fabricated replacement signal while execution still
+    succeeded.
+
+    Remediation: `signal` is now restored as authoritative event metadata at BOTH dispatches, not
+    left to a delegating listener''s own discretion. `_preflight` gained a `_restore_signal`
+    `normalize_step` closure for `TOOLS_PRE_EXECUTE` (forcing the payload tuple''s 4th slot back to
+    the closure-captured original `signal` at every listener handoff); `_finalize`''s own
+    `_restore` `normalize_step` for `TOOLS_POST_EXECUTE` (already certified for `tool_call_id`/
+    `tool_name`/`added_tool_names` restoration, `L06-R003`) was extended to also force the payload
+    tuple''s `signal` slot back to the original, replacing its prior PASS-2 "tolerate either shape"
+    behavior with unconditional restoration. `register_after_tool_call_hook`''s own wrapper no
+    longer re-supplies `signal` when delegating -- it relies on `_restore` to preserve it
+    regardless, simplifying that call site. Five dedicated regression tests (redirect/drop, for
+    both before- and after-hooks, plus one confirming the hook wrapper''s own simplification is
+    still correct) were added and confirmed genuinely discriminating via revert-and-confirm: each
+    was confirmed to FAIL with the corresponding `normalize_step` stripped, then to PASS once
+    restored. `spec/tools.md`''s own "must re-supply or lose it" language is corrected to describe
+    this authoritative-restoration guarantee instead.
+
+    PASS 4 (final complete independent Rust contract review of the PASS-3 candidate): REJECTED FOR
+    RUST IMPLEMENTATION, `L09-R008` (`PI_PARITY_DEFECT`) and `L09-R009` (`CONTRACT_ASSURANCE_
+    DEFECT`) against this row -- `L09-C001`/`L09-C002`/`L09-R003` were confirmed correct and left
+    untouched; `L09-R001`''s raw-event-seam half was confirmed closed.
+
+    `L09-R008`: pinned Pi calls `afterToolCall(context, signal)` unconditionally -- every after-hook
+    receives the active signal. Raw `tools/post-execute` listeners do (`L09-R001`/`L09-R006`
+    above), but `register_after_tool_call_hook`, the PUBLIC, EXPORTED, documented-as-recommended
+    helper, still called `hook(result)` only -- a hook written against the intended constrained API
+    could not observe cancellation at all. The independent review''s own executable witness
+    registered a two-parameter helper hook and confirmed it received zero signal argument
+    (`TypeError: hook() missing 1 required positional argument: ''signal''`). Remediation: a new
+    `_hook_wants_signal(hook)` (arity-based -- unambiguous here, unlike `execute()`''s own
+    `wants_signal`/arity split, since a hook has only ONE optional second slot with no
+    `update`-shaped alternative to confuse it with) decides whether `listener` calls `hook(result,
+    signal)` or `hook(result)`; every existing one-parameter hook is called exactly as before,
+    unaffected.
+
+    `L09-R009`: this row''s own opening paragraphs (the PASS-1-era four-parameter description, and
+    the PASS-2-era "must re-supply or degrade" description) stated superseded designs as though
+    still current, without being clearly marked superseded -- an independent Rust implementer could
+    reasonably derive conflicting `execute()`/hook APIs from this row alone despite `spec/tools.md`
+    already containing the correct rule. Remediation: a `CURRENT RULE` summary now opens this row,
+    stating the unambiguous current dispatch table and signal-authority guarantee in one place; the
+    two superseded PASS-1/PASS-2 claims are annotated in place (not deleted -- preserving the
+    historical remediation record) pointing back to that summary and to the specific later-PASS
+    finding that superseded each one. `AG-007`''s own opening "DEFERRED to Layer 09" wording was
+    audited identically (see that row).'
+  tests:
+  - test_unknown_tool_wins_over_an_aborted_signal
+  - test_argument_validation_failure_wins_over_an_aborted_signal
+  - test_a_throwing_before_hook_wins_over_an_aborted_signal
+  - test_an_aborted_signal_wins_over_a_returned_block_decision
+  - test_no_before_hook_and_an_aborted_signal_produces_operation_aborted
+  - test_a_call_proceeds_normally_when_the_signal_is_not_aborted
+  - test_a_four_parameter_tool_receives_the_active_signal
+  - test_a_three_parameter_tools_own_meaning_is_unchanged
+  - test_execute_is_not_forcibly_interrupted_by_an_aborted_signal
+  - test_after_hook_runs_unconditionally_despite_an_aborted_signal
+  - test_a_signal_only_tool_receives_no_update_slot
+  - test_after_hook_receives_the_active_signal
+  - test_before_hook_receives_the_active_signal
+  - test_sequential_abort_after_a_call_completes_skips_the_rest_of_the_batch (tools/test_batch.py)
+  - test_parallel_abort_witness_matches_the_discriminating_trace (tools/test_batch.py)
+  - test_a_batch_completes_normally_when_the_signal_is_never_aborted (tools/test_batch.py)
+  - test_abort_mid_parallel_tool_batch_truncates_through_the_real_loop (agent_loop/test_active_abort.py)
+  - test_a_before_hook_cannot_redirect_a_later_listener_to_a_replacement_signal (tools/test_execute.py)
+  - test_a_before_hook_cannot_drop_the_signal_for_a_later_listener (tools/test_execute.py)
+  - test_an_after_hook_cannot_redirect_a_later_listener_to_a_replacement_signal (tools/test_execute.py)
+  - test_an_after_hook_cannot_drop_the_signal_for_a_later_listener (tools/test_execute.py)
+  - test_a_helper_registered_after_hook_no_longer_needs_to_re_supply_signal (tools/test_execute.py)
+  - test_a_two_parameter_helper_hook_receives_the_active_signal (tools/test_post_execute.py)
+  - test_a_one_parameter_helper_hook_is_unaffected (tools/test_post_execute.py)
+  - test_a_two_parameter_helper_hook_receives_none_while_idle (tools/test_post_execute.py)
+  python: src/minion_agent/tools/definition.py::ToolDefinition.wants_signal; src/minion_agent/tools/execute.py::_preflight (signal priority check, signal threaded into TOOLS_PRE_EXECUTE, _restore_signal normalize_step), _finalize (signal threaded into TOOLS_POST_EXECUTE, _restore authoritative normalize_step), _execute_and_finalize (execute() signal passthrough), register_after_tool_call_hook (_hook_wants_signal-aware, no longer re-supplies signal on delegation), _hook_wants_signal, _wants_signal, _wants_update (definition-aware); src/minion_agent/tools/batch.py::execute_batch (sequential/parallel abort polling)
+  rust: NOT_APPLICABLE -- Python/shared candidate awaiting independent Rust contract review; certified Rust Layer 06''s own ToolExecutionSignal seam (TOOL-019''s own rust field) remains reserved, unexercised
+  disposition: adopted
 - id: TOOL-007
   phase: 4
   pi: packages/agent/src/agent-loop.ts::runLoop
@@ -2183,15 +3160,19 @@ rows:
   rule: 'AgentTool extends Tool with: label (string, REQUIRED -- no `?`, TOOL-F001); prepareArguments?
     ((args) -> Static<TParameters>), field/signature only, invocation is Layer 06 (TOOL-F002);
     execute: (toolCallId, params, signal?, onUpdate?) -> Promise<AgentToolResult>, the target
-    capability shape (TOOL-F003). Historical note, corrected for present tense (IR-L05/06-006):
-    at THIS row''s own Layer-05 certification, Python dispatch realized only a (params)/(params,
-    on_update) subset -- no tool_call_id, no cancellation signal. That is no longer the current
-    state: Layer 06 subsequently closed the tool_call_id half (TOOL-018, TOOL-017) -- every call
-    now receives its own real tool_call_id as execute''s first argument, and on_update is realized
-    too. Only the cancellation-signal half remains open, and asymmetrically: Python has no
-    AbortSignal-equivalent abstraction at all yet; certified Rust Layer 05 already reserves one
-    structurally (ToolExecutionSignal, ToolExecutionRequest.signal), unexercised. Closing that
-    remaining half, in either language, is assurance Layer 09''s territory, not Layer 06''s.
+    capability shape (TOOL-F003). Historical note, corrected for present tense (IR-L05/06-006, then
+    again L09-R016): at THIS row''s own Layer-05 certification, Python dispatch realized only a
+    (params)/(params, on_update) subset -- no tool_call_id, no cancellation signal. That is no
+    longer the current state: Layer 06 subsequently closed the tool_call_id half (TOOL-018,
+    TOOL-017) -- every call now receives its own real tool_call_id as execute''s first argument, and
+    on_update is realized too. The cancellation-signal half is ALSO now closed, by Layer 09
+    (`AG-007`): `ToolDefinition.wants_signal: bool` (Layer 05, `L09-R003`) makes the capability
+    explicit rather than arity-inferred, and `TOOL-024`''s own dispatch realizes all four Pi-
+    equivalent combinations of tool_call_id/signal/on_update. This row''s own prose previously
+    stated (until `L09-R016`, a stale-documentation finding) that "only the cancellation-signal half
+    remains open... Python has no AbortSignal-equivalent abstraction at all yet" -- that was
+    accurate at Layer 06/prior-Layer-09-pass time but is no longer current; corrected here rather
+    than left to silently contradict `AG-007`/`TOOL-024`''s own already-certified state.
     executionMode? (ToolExecutionMode), absent means "no per-tool preference," defers to the
     run-level default rather than defaulting to a concrete value (TOOL-F004).'
   tests:

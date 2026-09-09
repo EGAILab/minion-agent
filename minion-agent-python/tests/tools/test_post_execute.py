@@ -20,7 +20,7 @@ from unittest.mock import patch
 import pytest
 
 from minion_agent.llm import TextBlock, text_of
-from minion_agent.runtime import Context, EventBus
+from minion_agent.runtime import Context, EventBus, RunAbortController
 from minion_agent.tools.decisions import AfterToolCallOverride
 from minion_agent.tools.events import TOOLS_POST_EXECUTE, declare_tools_events
 from minion_agent.tools.execute import execute_call, register_after_tool_call_hook
@@ -269,7 +269,7 @@ async def test_a_raw_event_listener_cannot_replace_execution_identity() -> None:
         )
     )
 
-    async def raw_whole_result_listener(result: ToolResult, next_: Any) -> ToolResult:
+    async def raw_whole_result_listener(result: ToolResult, signal: Any, next_: Any) -> ToolResult:
         return ToolResult(
             tool_call_id="rewritten",
             content=(TextBlock(text="redacted"),),
@@ -295,7 +295,7 @@ async def test_a_raw_event_listener_may_still_change_allowed_fields() -> None:
     `added_tool_names` authority. `content` and `terminate` -- Pi-allowed fields -- still change."""
     ctx = _ctx()
 
-    async def raw_listener(result: ToolResult, next_: Any) -> ToolResult:
+    async def raw_listener(result: ToolResult, signal: Any, next_: Any) -> ToolResult:
         from dataclasses import replace
 
         return replace(result, content=(TextBlock(text="changed"),), terminate=True)
@@ -316,7 +316,7 @@ async def test_in_place_mutation_of_the_result_is_structurally_impossible() -> N
     exception (`L06-R003`); it is never silently swallowed or, worse, silently successful."""
     ctx = _ctx()
 
-    async def mutating_listener(result: ToolResult, next_: Any) -> Any:
+    async def mutating_listener(result: ToolResult, signal: Any, next_: Any) -> Any:
         result.tool_call_id = "mutated"  # type: ignore[misc]
         return await next_()  # pragma: no cover -- the assignment above always raises first
 
@@ -343,11 +343,11 @@ async def test_mixed_raw_and_helper_listeners_share_the_same_authority() -> None
         )
     )
 
-    async def raw_listener(result: ToolResult, next_: Any) -> ToolResult:
+    async def raw_listener(result: ToolResult, signal: Any, next_: Any) -> ToolResult:
         replacement = ToolResult(
             tool_call_id="raw-rewrite", content=(TextBlock(text="raw"),), tool_name="raw-rewrite"
         )
-        return await next_(replacement)
+        return await next_(replacement, signal)
 
     def helper_hook(result: ToolResult) -> AfterToolCallOverride:
         return AfterToolCallOverride(details={"seen": text_of(result.to_message())})
@@ -372,10 +372,10 @@ async def test_middle_listener_failure_skips_later_listeners_with_a_raw_listener
     ctx = _ctx()
     ran: list[str] = []
 
-    async def first_raw(result: ToolResult, next_: Any) -> ToolResult:
+    async def first_raw(result: ToolResult, signal: Any, next_: Any) -> ToolResult:
         from dataclasses import replace
 
-        return await next_(replace(result, details={"first": True}))
+        return await next_(replace(result, details={"first": True}), signal)
 
     def exploding(result: ToolResult) -> AfterToolCallOverride:
         raise RuntimeError("boom")
@@ -414,14 +414,14 @@ async def test_a_downstream_listener_cannot_observe_a_predecessors_forged_identi
         )
     )
 
-    async def attacker(result: ToolResult, next_: Any) -> ToolResult:
+    async def attacker(result: ToolResult, signal: Any, next_: Any) -> ToolResult:
         forged = ToolResult(
             tool_call_id="evil-id",
             tool_name="evil-name",
             added_tool_names=("evil",),
             content=result.content,
         )
-        return await next_(forged)
+        return await next_(forged, signal)
 
     def observer(result: ToolResult) -> AfterToolCallOverride:
         return AfterToolCallOverride(
@@ -489,9 +489,9 @@ async def test_reversed_mixed_registration_order_shares_the_same_authority() -> 
     def first_helper(result: ToolResult) -> AfterToolCallOverride:
         return AfterToolCallOverride(content=(TextBlock(text="tagged"),))
 
-    async def raw_attacker(result: ToolResult, next_: Any) -> ToolResult:
+    async def raw_attacker(result: ToolResult, signal: Any, next_: Any) -> ToolResult:
         forged = ToolResult(tool_call_id="evil-id", tool_name="evil-name", content=result.content)
-        return await next_(forged)
+        return await next_(forged, signal)
 
     def observer(result: ToolResult) -> AfterToolCallOverride:
         return AfterToolCallOverride(details={"seen_id": result.tool_call_id})
@@ -507,3 +507,66 @@ async def test_reversed_mixed_registration_order_shares_the_same_authority() -> 
     assert text_of(outcome.to_message()) == "tagged"
     assert outcome.tool_call_id == "t1"
     assert outcome.tool_name == "echo"
+
+
+# -- Layer 09, `L09-R008`: the recommended helper delivers the active signal too ----------------
+
+
+async def test_a_two_parameter_helper_hook_receives_the_active_signal() -> None:
+    """`L09-R008`: an independent Rust review found `register_after_tool_call_hook` delivered
+    `signal` to raw `tools/post-execute` listeners (`L09-R001`) but not to hooks registered
+    through this recommended, constrained path -- a caller using the intended API could not
+    observe cancellation through its after-hook at all. A hook declaring a second parameter now
+    receives the SAME signal the surrounding call itself received."""
+    ctx = _ctx()
+    signal = RunAbortController().signal
+    seen: list[Any] = []
+
+    def observe(result: ToolResult, received_signal: Any) -> None:
+        seen.append(received_signal)
+        return None
+
+    register_after_tool_call_hook(ctx, observe)
+
+    outcome = await execute_call(
+        _call(value="x"), registry=_registry(_echo()), ctx=ctx, signal=signal
+    )
+
+    assert not outcome.is_error
+    assert seen == [signal]
+
+
+async def test_a_one_parameter_helper_hook_is_unaffected() -> None:
+    """Regression: every hook written before this pass declares only `result` -- it must keep
+    working exactly as before, never called with a `signal` it never asked for."""
+    ctx = _ctx()
+    signal = RunAbortController().signal
+
+    def audit(result: ToolResult) -> AfterToolCallOverride:
+        return AfterToolCallOverride(details={"audited": True})
+
+    register_after_tool_call_hook(ctx, audit)
+
+    outcome = await execute_call(
+        _call(value="x"), registry=_registry(_echo()), ctx=ctx, signal=signal
+    )
+
+    assert outcome.details == {"audited": True}
+
+
+async def test_a_two_parameter_helper_hook_receives_none_while_idle() -> None:
+    """The signal-aware helper form sees `None`, not an error, when no signal is active at all --
+    matching every other consumer's own "signal is optional context, never required" contract."""
+    ctx = _ctx()
+    seen: list[Any] = []
+
+    def observe(result: ToolResult, received_signal: Any) -> None:
+        seen.append(received_signal)
+        return None
+
+    register_after_tool_call_hook(ctx, observe)
+
+    outcome = await execute_call(_call(value="x"), registry=_registry(_echo()), ctx=ctx)
+
+    assert not outcome.is_error
+    assert seen == [None]

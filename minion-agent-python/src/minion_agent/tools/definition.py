@@ -42,25 +42,23 @@ merely a superset with no cost -- a tool could report spoofed identity or an `is
 has no way to express on a partial value at all)."""
 
 type ToolFn = Callable[..., Awaitable[ToolResult | str] | ToolResult | str]
-"""Called with `(tool_call_id, validated_arguments)`, and with an `update` callback appended when
-the tool declares a third parameter (arity-detected, see `execute.py::_wants_update`).
+"""Called with `(tool_call_id, validated_arguments)`, with a `signal` third parameter and `update`
+fourth parameter appended when the tool declares them (arity-detected: 3 params means `update`
+only, unchanged since before Layer 09; 4 params means `signal` then `update`, matching pinned
+Pi's own positional order -- see `execute.py::_wants_update`/`_wants_signal`).
 
 Target capability shape, matching pinned Pi's `AgentTool.execute` (`packages/agent/src/types.ts`):
 `(tool_call_id, params, signal?, on_update?) -> AgentToolResult`. Layer 05 owns only this shape's
-existence and its association with a registered tool. Layer 06 (`TOOL-017`) closes the
-`tool_call_id` half of the gap `TOOL-F003` disclosed: every call now receives its own real
-`tool_call_id` as the first positional argument, and `on_update` is realized too (arity-detected,
-above). The `signal` (cancellation) parameter remains behaviorally unrealized in Python -- but the
-cross-language state is asymmetric, not uniformly absent (`IR-L05/06-006`, corrected here; an
-earlier revision of this docstring said "no `AbortSignal`-equivalent type exists anywhere in this
-codebase yet, in either language," which was already false for Rust when it was written): certified
-Rust Layer 05 already reserves a structural signal seam (`ToolExecutionSignal`,
-`ToolExecutionRequest.signal` in `minion-agent-rust/crates/minion-agent/src/tools/definition.rs`)
-without exercising cancellation behavior. Python has no `AbortSignal`-equivalent abstraction at
-all yet; Rust has one, unused. Layer 06 certifies **non-cancelled** execution semantics only in
-both languages; assurance Layer 09 owns cancellation/abort propagation, timing, and result
-semantics, and can add that behavior without requiring Rust to discard or redesign its existing
-signal-bearing capability seam."""
+existence and its association with a registered tool. Layer 06 (`TOOL-017`) closed the
+`tool_call_id` half of the gap `TOOL-F003` disclosed: every call receives its own real
+`tool_call_id` as the first positional argument. Layer 09 (`L09-C001`..`L09-C003`) closes the
+`signal` half: `RunSignal` (`runtime/signal.py`) is Python's own `AbortSignal`-equivalent,
+propagated cooperatively -- a tool receives it and decides for itself whether to react; Pi never
+forcibly interrupts `execute()`, and neither does Minion. Certified Rust Layer 05's own
+already-reserved `ToolExecutionSignal`/`ToolExecutionRequest.signal`
+(`minion-agent-rust/crates/minion-agent/src/tools/definition.rs`) is the matching seam Rust
+implements cancellation behavior against; Layer 06 continues to certify **non-cancelled**
+execution semantics in both languages independent of whichever layer realizes propagation."""
 
 type PrepareArguments = Callable[[dict[str, Any]], dict[str, Any]]
 """Pi's optional `AgentTool.prepareArguments?: (args: unknown) => Static<TParameters>` --
@@ -118,6 +116,31 @@ class ToolDefinition:
     prepare_arguments: PrepareArguments | None = None
     """Pinned Pi `AgentTool.prepareArguments?`. Field/signature only -- Layer 05 does not certify
     when or whether the pipeline invokes it (`TOOL-F002`)."""
+    wants_signal: bool = False
+    """Whether `execute` accepts the active run's cancellation signal (Layer 09, `L09-R003`).
+    Pinned Pi's own `AgentTool.execute(toolCallId, params, signal?, onUpdate?)` treats `signal`
+    and `onUpdate` as INDEPENDENT optional parameters -- a tool may want either, both, or
+    neither. Python's own arity-based `update` detection (`_wants_update`, `execute.py`) cannot
+    by itself distinguish "this 3rd parameter is `signal`" from "this 3rd parameter is `update`"
+    without breaking every existing tool's own established 3-parameter-means-`update` meaning
+    (an earlier revision tried exactly that and could not represent a tool wanting `signal`
+    without also being forced to declare an unused 4th `update` parameter it does not want --
+    `L09-R003`, `PI_PARITY_DEFECT`: Pi's own signal-only tool has no Python equivalent under that
+    design). An EXPLICIT flag, set at registration, removes the ambiguity entirely and keeps
+    every existing tool's own arity unchanged: `wants_signal=False` (the default, matching every
+    pre-Layer-09 tool) preserves `execute.py`'s own established arity dispatch exactly (2
+    parameters: neither; 3: `update` only). `wants_signal=True` shifts `execute`'s own
+    3rd-parameter meaning to `signal`; a 4th parameter, if also declared, then receives `update`.
+    The four Pi-equivalent capability combinations are therefore all representable:
+
+    ```text
+    wants_signal   arity   execute(...) receives
+    False          2       (tool_call_id, arguments)                    -- neither
+    False          3       (tool_call_id, arguments, update)             -- update only (unchanged)
+    True           3       (tool_call_id, arguments, signal)             -- signal only
+    True           4       (tool_call_id, arguments, signal, update)     -- both
+    ```
+    """
 
     def __post_init__(self) -> None:
         """Reject `None`/non-mapping `parameters` at construction, not only via typing

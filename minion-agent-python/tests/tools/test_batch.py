@@ -4,11 +4,16 @@ import asyncio
 from typing import Any
 
 from minion_agent.llm import ToolCallBlock, text_of
-from minion_agent.runtime import Context
+from minion_agent.runtime import Context, RunAbortController
 from minion_agent.tools.batch import execute_batch, execute_length_stop_batch
 from minion_agent.tools.decisions import Proceed
 from minion_agent.tools.definition import ExecutionMode, ToolDefinition
-from minion_agent.tools.events import TOOLS_EXECUTION_START, TOOLS_PRE_EXECUTE, declare_tools_events
+from minion_agent.tools.events import (
+    TOOLS_EXECUTION_END,
+    TOOLS_EXECUTION_START,
+    TOOLS_PRE_EXECUTE,
+    declare_tools_events,
+)
 from minion_agent.tools.registry import ToolRegistry
 from minion_agent.tools.result import ToolResult
 
@@ -141,7 +146,9 @@ async def test_preflight_is_sequential_and_settles_before_any_execute_begins() -
 
     ctx.events.on(TOOLS_EXECUTION_START, lambda call_id, name, args: events.append(f"start_{name}"))
 
-    async def traced_before(call: Any, definition: Any, arguments: Any, next_: Any) -> Proceed:
+    async def traced_before(
+        call: Any, definition: Any, arguments: Any, signal: Any, next_: Any
+    ) -> Proceed:
         if call.name == "a":
             await asyncio.sleep(0)
         events.append(f"before_{call.name}")
@@ -176,7 +183,9 @@ async def test_an_immediate_preflight_failure_does_not_block_a_later_calls_prefl
     events: list[str] = []
     ctx.events.on(TOOLS_EXECUTION_START, lambda call_id, name, args: events.append(f"start_{name}"))
 
-    async def traced_before(call: Any, definition: Any, arguments: Any, next_: Any) -> Proceed:
+    async def traced_before(
+        call: Any, definition: Any, arguments: Any, signal: Any, next_: Any
+    ) -> Proceed:
         events.append(f"before_{call.name}")
         return Proceed(arguments=arguments)
 
@@ -424,3 +433,108 @@ async def test_length_stop_executes_nothing_and_fails_every_call() -> None:
     assert all(r.is_error for r in outcome.results)
     assert all("output token limit" in text_of(r.to_message()) for r in outcome.results)
     assert not outcome.terminate
+
+
+# -- Layer 09, `L09-C001`: sequential vs. parallel tool-batch abort algorithms ------------------
+
+
+async def test_sequential_abort_after_a_call_completes_skips_the_rest_of_the_batch() -> None:
+    """Sequential: `if signal.aborted: break` runs AFTER a call's own COMPLETE lifecycle, before
+    starting the next call -- a call already started always finishes; unreached calls are simply
+    never attempted (`results` shorter than the source `calls`)."""
+    ctx = _ctx()
+    controller = RunAbortController()
+    events: list[str] = []
+    ctx.events.on(TOOLS_EXECUTION_START, lambda call_id, name, args: events.append(f"start_{name}"))
+
+    def execute_a(tool_call_id: str, args: dict[str, Any]) -> str:
+        controller.abort()
+        return "a"
+
+    def execute_b(tool_call_id: str, args: dict[str, Any]) -> str:
+        events.append("execute_b")  # must never run
+        return "b"
+
+    outcome = await execute_batch(
+        (_call("t1", "a"), _call("t2", "b")),
+        registry=_registry(
+            _tool("a", execute_a, mode=ExecutionMode.SEQUENTIAL),
+            _tool("b", execute_b, mode=ExecutionMode.SEQUENTIAL),
+        ),
+        ctx=ctx,
+        signal=controller.signal,
+    )
+
+    assert events == ["start_a"]
+    assert [r.tool_call_id for r in outcome.results] == ["t1"]
+    assert text_of(outcome.results[0].to_message()) == "a"
+
+
+async def test_parallel_abort_witness_matches_the_discriminating_trace() -> None:
+    """`L09-C001`'s own required regression: the exact A/B/C witness from the independent
+    checkpoint re-review. A is prepared with no before-hook issue; B's own before-hook calls
+    `abort()` and returns `Proceed` (not `Block` -- the discriminating case per `L09-C002` is a
+    RETURNING hook, not a blocking one); C is source-order after B. Preflight is fully
+    sequential in BOTH modes: `tool_execution_start` fires for A, then B, then B finalizes
+    INLINE as "Operation aborted" (the immediate outcome), and only then does the for-loop poll
+    see the signal aborted and break -- C's own `tool_execution_start` never fires. A's own
+    RETAINED closure still starts afterward, via the concurrent barrier, and executes/finalizes
+    normally -- A never checks the signal itself."""
+    ctx = _ctx()
+    controller = RunAbortController()
+    events: list[str] = []
+    ctx.events.on(TOOLS_EXECUTION_START, lambda call_id, name, args: events.append(f"start_{name}"))
+    ctx.events.on(TOOLS_EXECUTION_END, lambda call_id, name, result: events.append(f"end_{name}"))
+
+    async def abort_from_b(
+        call: Any, definition: Any, arguments: Any, signal: Any, next_: Any
+    ) -> Proceed:
+        if call.name == "b":
+            controller.abort()
+        return Proceed(arguments=arguments)
+
+    ctx.events.on(TOOLS_PRE_EXECUTE, abort_from_b)
+
+    def execute_a(tool_call_id: str, args: dict[str, Any]) -> str:
+        return "a"
+
+    def execute_c(tool_call_id: str, args: dict[str, Any]) -> str:
+        events.append("execute_c")  # must never run -- C is never even preflighted
+        return "c"
+
+    outcome = await execute_batch(
+        (_call("t1", "a"), _call("t2", "b"), _call("t3", "c")),
+        registry=_registry(
+            _tool("a", execute_a),
+            _tool("b", lambda tool_call_id, args: "should not run"),
+            _tool("c", execute_c),
+        ),
+        ctx=ctx,
+        signal=controller.signal,
+    )
+
+    assert events == ["start_a", "start_b", "end_b", "end_a"]
+    assert [r.tool_call_id for r in outcome.results] == ["t1", "t2"]  # C never even preflighted
+    assert text_of(outcome.results[0].to_message()) == "a"
+    assert not outcome.results[0].is_error
+    assert outcome.results[1].is_error
+    assert text_of(outcome.results[1].to_message()) == "Operation aborted"
+
+
+async def test_a_batch_completes_normally_when_the_signal_is_never_aborted() -> None:
+    """The all-consumers-ignore-abort case (`L09-C003`) at its simplest: merely ATTACHING a
+    non-`None` signal to a batch changes nothing by itself -- only an actual `abort()` call
+    changes any observable outcome. (The stronger case -- a call already retained/started before
+    abort still completing normally -- is `test_parallel_abort_witness_matches_the_
+    discriminating_trace`'s own `A`.)"""
+    outcome = await execute_batch(
+        (_call("t1", "a"), _call("t2", "b")),
+        registry=_registry(
+            _tool("a", lambda tool_call_id, args: "a"), _tool("b", lambda tool_call_id, args: "b")
+        ),
+        ctx=_ctx(),
+        signal=RunAbortController().signal,
+    )
+
+    assert [text_of(r.to_message()) for r in outcome.results] == ["a", "b"]
+    assert not any(r.is_error for r in outcome.results)

@@ -91,9 +91,11 @@ from ..agent.events import (
     AGENT_LIFECYCLE_EVENT,
     AGENT_PRE_STEP,
     AGENT_PREPARE_NEXT_TURN,
+    AGENT_TRANSFORM_CONTEXT,
     AGENT_TURN_STOPPING,
 )
 from ..agent.identity import AgentStatus
+from ..agent.inbox import _Reservation
 from ..agent.instance import AgentActiveError, AgentInstance
 from ..agent.projection import (
     AgentEnd,
@@ -134,6 +136,7 @@ from ..llm import (
     UserContentBlock,
     UserMessage,
 )
+from ..runtime.errors import WaterfallError
 from ..session import (
     ArtifactStore,
     EventKind,
@@ -240,6 +243,12 @@ class AgentLoop:
         steering poll, so the same batch is never claimed twice) or, failing
         that, eligible follow-up; with neither queued, rejects. Otherwise runs
         a plain continuation: no entering messages, full history still sent.
+
+        `Inbox._reserve()` (Layer 09, `L09-R012`/`L09-R013`/`L09-R014` convergence): entering input
+        is RESERVED here -- claimed atomically, before this method ever calls `_run_wrapped` --
+        and the resulting one-shot reservation is handed to `_run_wrapped`, which settles it with
+        `.commit()` on success or `.rollback()` on a RUNNING-notification failure. See
+        `Inbox._Reservation`'s own docstring for the full rationale.
         """
         if self.instance.status is not AgentStatus.IDLE:
             raise AgentActiveError(
@@ -250,19 +259,29 @@ class AgentLoop:
             raise AgentActiveError("No messages to continue from")
 
         if isinstance(messages[-1], AssistantMessage):
-            steering = self.instance.inbox.claim(InboxTarget.NEXT_STEP, self.next_step_policy)
-            if steering:
+            steering_reservation = self.instance.inbox._reserve(
+                InboxTarget.NEXT_STEP, self.next_step_policy
+            )
+            if steering_reservation.envelopes:
                 await self._run_wrapped(
-                    entering=tuple(envelope.message for envelope in steering),
-                    causes=[{"id": e.id, "origin": e.origin} for e in steering],
+                    entering=tuple(e.message for e in steering_reservation.envelopes),
+                    causes=[
+                        {"id": e.id, "origin": e.origin} for e in steering_reservation.envelopes
+                    ],
                     skip_initial_steering_poll=True,
+                    entry_reservation=steering_reservation,
                 )
                 return
-            followups = self.instance.inbox.claim(InboxTarget.NEXT_TURN, self.next_turn_policy)
-            if followups:
+            followup_reservation = self.instance.inbox._reserve(
+                InboxTarget.NEXT_TURN, self.next_turn_policy
+            )
+            if followup_reservation.envelopes:
                 await self._run_wrapped(
-                    entering=tuple(envelope.message for envelope in followups),
-                    causes=[{"id": e.id, "origin": e.origin} for e in followups],
+                    entering=tuple(e.message for e in followup_reservation.envelopes),
+                    causes=[
+                        {"id": e.id, "origin": e.origin} for e in followup_reservation.envelopes
+                    ],
+                    entry_reservation=followup_reservation,
                 )
                 return
             raise AgentActiveError("Cannot continue from message role: assistant")
@@ -275,15 +294,20 @@ class AgentLoop:
         Each claimed batch gets its own `_run_wrapped` call -- its own
         `AGENT_START`/`AGENT_END` bracket and its own `is_streaming`
         true/false toggle, matching pi's own per-invocation lifecycle, not
-        one shared bracket spanning every batch this pump happens to drain."""
+        one shared bracket spanning every batch this pump happens to drain.
+
+        Reserves, not claims directly (`L09-R012`/`L09-R013`/`L09-R014`) -- see `continue_()`'s
+        own docstring."""
         inbox = self.instance.inbox
         while inbox.pending(InboxTarget.NEXT_TURN):
-            claimed = inbox.claim(InboxTarget.NEXT_TURN, self.next_turn_policy)
+            reservation = inbox._reserve(InboxTarget.NEXT_TURN, self.next_turn_policy)
             causes: list[dict[str, object]] = [
-                {"id": envelope.id, "origin": envelope.origin} for envelope in claimed
+                {"id": envelope.id, "origin": envelope.origin} for envelope in reservation.envelopes
             ]
             await self._run_wrapped(
-                entering=tuple(envelope.message for envelope in claimed), causes=causes
+                entering=tuple(envelope.message for envelope in reservation.envelopes),
+                causes=causes,
+                entry_reservation=reservation,
             )
         inbox.take_wake()
 
@@ -305,6 +329,7 @@ class AgentLoop:
         entering: tuple[Message, ...],
         causes: list[dict[str, object]],
         skip_initial_steering_poll: bool = False,
+        entry_reservation: _Reservation | None = None,
     ) -> None:
         """One pi-equivalent run's full lifecycle: three unconditional state
         writes at entry, matching pinned Pi's own `runWithLifecycle` exactly
@@ -313,7 +338,20 @@ class AgentLoop:
         -- matching pinned Pi's own `finishRun()` (`isStreaming = false`,
         `streamingMessage = undefined`, `pendingToolCalls = new Set()`) --
         regardless of success or a run-executor failure this pass already
-        settles gracefully (see `_settle_run_failure`)."""
+        settles gracefully (see `_settle_run_failure`).
+
+        `entry_reservation`, when supplied (Layer 09, `L09-R012`/`L09-R013`/`L09-R014`
+        convergence): a one-shot `Inbox._Reservation` a caller already obtained via `Inbox.
+        _reserve()` -- destructively claiming its own entering batch BEFORE calling this method,
+        atomically, with no window in which a re-entrant RUNNING observer could see or touch it.
+        Settled with `.commit()` (a no-op; the removal already happened) once `set_status
+        (RUNNING)` succeeds, or `.rollback()` (restoring the exact batch) if it raises --
+        `continue_()`'s steering/follow-up branches and `run_until_idle()`'s follow-up claim each
+        supply one; `prompt()` supplies `None`, since it never reads from `Inbox` at all. See
+        `Inbox._Reservation`'s own docstring for the full authority rationale (`L09-R010`) and why
+        claim-then-reservation, not peek-then-commit (an intermediate design an independent Rust
+        review found still lost or duplicated input under re-entrancy), is the current mechanism.
+        """
         if self.instance.status is not AgentStatus.IDLE:
             # Pinned Pi's own `runWithLifecycle` guard -- a third, distinct
             # "already processing" string, defensive and normally
@@ -323,7 +361,42 @@ class AgentLoop:
             # keeps it: belt-and-suspenders against a future caller that
             # skips the public guards.
             raise AgentActiveError("Agent is already processing.")
-        self.instance.set_status(AgentStatus.RUNNING)
+        # Layer 09, `L09-R007`: the controller is installed BEFORE `set_status(RUNNING)` is
+        # published -- `set_status` emits `agent/status` and calls `on_status_change`
+        # SYNCHRONOUSLY, so a status-transition observer that reads `instance.signal` (or calls
+        # `instance.abort()`) during the RUNNING callback must see the run's real, live signal.
+        # None of this changes the relative order of `set_status`/`streaming_message`/
+        # `error_message`/`pending_tool_calls` themselves on the non-throwing path, already
+        # certified (`AG-008`) to match pinned Pi's own `runWithLifecycle`/`finishRun` write
+        # order -- only the THROWING case, which `AG-008` never specified at all, is new here.
+        self.instance._start_run_signal()
+        try:
+            self.instance.set_status(AgentStatus.RUNNING)
+        except Exception:
+            # RUNNING-notification failure (`L09-R007` convergence, agreed contract): pinned Pi's
+            # own `isStreaming=true` write -- the closest analogue -- is a plain, non-throwing
+            # property assignment made unconditionally BEFORE its own run-lifecycle try/executor
+            # begins; Pi therefore has no "the run started, then this specific write failed"
+            # case at all. A Minion-only synchronous observer failing at that exact point is most
+            # faithfully read as "this attempt to enter a run never validly began" -- not as a run
+            # that started and then failed -- so it gets NO run lifecycle (no `agent_start`, no
+            # `_settle_run_failure`-synthesized turn: that method is pinned Pi's own
+            # `handleRunFailure`, invoked only once a run has genuinely begun) and leaves no trace:
+            # the freshly-created signal is discarded, `status` is forced back to `IDLE` directly
+            # (NOT via `set_status` again, which would re-invoke the SAME failing listener chain),
+            # `entry_reservation.rollback()` restores any input a caller already RESERVED from
+            # `Inbox` (`L09-R012`/`L09-R013`/`L09-R014` -- the reservation was claimed atomically,
+            # before this notification ever ran, so there is no window in which the observer
+            # could have raced it), and the observer's own original exception propagates
+            # unconverted -- a subsequent `prompt()`/`continue_()` call then succeeds normally,
+            # exactly as if this attempt had never been made.
+            self.instance._end_run_signal()
+            self.instance._force_idle_after_failed_entry_notification()
+            if entry_reservation is not None:
+                entry_reservation.rollback()
+            raise
+        if entry_reservation is not None:
+            entry_reservation.commit()
         self.instance.streaming_message = None
         self.instance.error_message = None
         try:
@@ -333,9 +406,20 @@ class AgentLoop:
                 skip_initial_steering_poll=skip_initial_steering_poll,
             )
         finally:
-            self.instance.set_status(AgentStatus.IDLE)
+            # `L09-R007` convergence: every other exit-time write completes UNCONDITIONALLY
+            # before the possibly-throwing `set_status(IDLE)` call, which is therefore LAST, not
+            # first -- by the time an IDLE-notification failure's own exception is observed by a
+            # caller, `signal`/`streaming_message`/`pending_tool_calls`/`status` are all already
+            # exactly as a normally-settled idle instance's own values would be (`set_status`'s
+            # own internal write to `self._status` happens before its own emit/callback, already
+            # true today), so the run's own already-committed outcome is never retroactively
+            # hidden by a later, unrelated notification failure -- only that failure's own
+            # exception propagates, uncaught, same as pinned Pi's own precedent that a listener
+            # failure during settlement is never silently absorbed (`_settle_run_failure`).
+            self.instance._end_run_signal()
             self.instance.streaming_message = None
             self.instance.pending_tool_calls = frozenset()
+            self.instance.set_status(AgentStatus.IDLE)
 
     async def _dispatch_agent_event(self, event: AgentEvent) -> None:
         """Pinned Pi's own `processEvents`: the single seam every lifecycle
@@ -653,11 +737,25 @@ class AgentLoop:
         parameter here and read `config.model`, producing the run-local,
         possibly-already-replaced model instead of the Agent's own current
         persistent one; `config` carried no other use in this method, so it is
-        removed rather than kept unread."""
+        removed rather than kept unread.
+
+        The failure's own `stop_reason` (`L09-R002`) is `ABORTED` when the active run's
+        signal happens to be aborted AT THIS EXACT READ, `ERROR` otherwise -- matching pinned
+        Pi's own `handleRunFailure(error, abortController.signal.aborted)`
+        (`agent.ts:504-505`/`511-519`) exactly: causation is deliberately irrelevant. An
+        exception entirely unrelated to the abort, that merely happens to race after some
+        listener called `abort()`, is STILL classified `aborted`, not `error` -- this is Pi's
+        own actual behavior, not something Layer 09 gets to redesign for tidiness. An earlier
+        revision hard-coded `StopReason.ERROR` unconditionally, never reading `instance.signal`
+        at all, contradicting this same method's own normative contract (`AG-007`)."""
         log = self.instance.log
+        signal = self.instance.signal
+        stop_reason = (
+            StopReason.ABORTED if signal is not None and signal.aborted else StopReason.ERROR
+        )
         failure = AssistantMessage(
             content=(TextBlock(text=""),),
-            stop_reason=StopReason.ERROR,
+            stop_reason=stop_reason,
             usage=Usage(),
             model=self.instance.model.model,
             provider=self.instance.model.provider,
@@ -727,7 +825,44 @@ class AgentLoop:
         """Pinned Pi's `prepareNextTurn`: a run-local override for the next
         provider request's whole `context`/`model`/`thinking_level`.
         `message`/`tool_results`/`context`/`new_messages` mirror pinned Pi's
-        own `PrepareNextTurnContext` exactly (`L08-R001`)."""
+        own `PrepareNextTurnContext` exactly (`L08-R001`).
+
+        `instance` is AUTHORITATIVE identity, not a listener's own to replace or drop
+        (`L09-R015`, `L09-R012` convergence): pinned Pi's own public `Agent.createLoopConfig()`
+        wraps the application-facing `prepareNextTurn`/`prepareNextTurnWithContext` callback with
+        the SAME Agent's own live `this.signal` (`agent.ts:445-471`) -- Pi has exactly one such
+        callback, so it has no "one listener redirects a later one" hazard to violate, but
+        Minion's own N-listener waterfall extension of that single callback must still preserve
+        the SAME stable identity every other listed consumer receives (`instance.signal`, since
+        `instance` is what these listeners already receive as their own first argument, the
+        established Minion convention -- see `spec/agent.md`). `_restore_instance` below forces
+        `instance` back to its ORIGINAL value at every listener-to-listener handoff, the same
+        restoration discipline `_transform_context`/`tools/post-execute` already apply
+        (`L09-R006`/`L06-R003`) -- `message`/`tool_results`/`context`/`new_messages` remain the
+        listener's own to transform freely; only `instance`'s own identity is protected.
+
+        `_restore_instance` is ARITY-AWARE (`L09-R015` targeted re-review, `L09-R017` convergence
+        pass 2): a listener that delegates via `next_(message, tool_results, context,
+        new_messages)` -- omitting `instance` entirely, rather than replacing it -- hands `current`
+        one element SHORTER than the full five-element payload. An earlier revision always treated
+        `current[0]` as the (possibly replaced) `instance` slot and sliced it off unconditionally
+        (`current[1:]`), which for a genuinely 4-element `current` silently discarded `message`
+        instead -- the independent review's own executable witness observed the resulting 4-element
+        forward call fail the NEXT listener's own 5-positional-plus-`next_` signature with `missing
+        1 required positional argument: 'next_'`, a represented failure rather than the agreed
+        "later listener observes the original instance" outcome. `_restore_instance` now checks
+        `current`'s own length: exactly four (`instance` genuinely omitted) prepends the original
+        without discarding anything; five or more (an `instance` slot present, replaced or not) is
+        the ordinary case and slices it off as before. A `current` of any OTHER length is a
+        malformed delegation this method does not specially handle -- `EventBus.waterfall`'s own
+        existing arity-mismatch behavior governs it unchanged."""
+        original_instance = self.instance
+
+        def _restore_instance(current: tuple[object, ...]) -> tuple[object, ...]:
+            if len(current) == 4:
+                return (original_instance, *current)
+            return (original_instance, *current[1:])
+
         update: RunConfigUpdate = await self.instance.ctx.events.waterfall(
             AGENT_PREPARE_NEXT_TURN,
             self.instance,
@@ -737,8 +872,82 @@ class AgentLoop:
             new_messages,
             terminal=RunConfigUpdate(),
             scope=self.instance.scope.key,
+            normalize_step=_restore_instance,
         )
         return update
+
+    async def _transform_context(self, messages: tuple[Message, ...]) -> tuple[Message, ...]:
+        """Pinned Pi's `config.transformContext(messages, signal)` (Layer 09, `L09-R005`):
+        an optional per-request projection of the outgoing message history, invoked immediately
+        before every provider request. Zero listeners preserves every caller's own behavior
+        exactly (the terminal reflects whatever `messages` value is current when the chain ends,
+        unchanged if nobody delegated a replacement) -- purely additive, matching
+        `_prepare_next_turn`'s own waterfall-dispatch pattern. Never writes back to `context`/
+        `RunContext` itself: pinned Pi's own `streamAssistantResponse` reassigns only its OWN
+        local `messages` variable, never `currentContext.messages`, so a transform's own output is
+        provider-local for THIS request only.
+
+        `instance`/`signal` are AUTHORITATIVE event metadata, not a listener's own to replace,
+        redirect, or drop (`L09-R006`, an independent Rust review's own finding against an earlier
+        revision that let a raw listener delegate with a fabricated replacement signal, observed
+        by a later listener instead of the real one): `_restore_signal` below forces both back to
+        their ORIGINAL values at every listener-to-listener handoff, matching the SAME restoration
+        discipline `tools/post-execute` already applies to execution identity (`L06-R003`) -- only
+        `messages` (the middle position) is genuinely the listener's own to transform. A listener
+        no longer needs to re-supply EITHER authoritative field when delegating with a replacement.
+
+        This payload SANDWICHES its one transformable field (`messages`) between its two
+        authoritative fields (`instance` leading, `signal` trailing) -- unlike every other
+        authoritative-metadata waterfall in this codebase, which has exactly one authoritative
+        field, always at position 0. A two-element partial delegation is therefore inherently
+        AMBIGUOUS between "the leading `instance` was omitted" (`next_(messages, signal)`) and
+        "the trailing `signal` was omitted" (`next_(instance, messages)`) -- both produce an
+        identical length-2 tuple, and nothing about a bare tuple's own length or position
+        (without inspecting content -- explicitly rejected as "type/position guessing") can tell
+        them apart (`L09-R018`, `L09-R018` convergence, `assurance/layers/09-active-abort-
+        contract-checkpoint-r018-convergence.md`, revisions 1-2, `CONVERGENCE CONTRACT AGREED
+        FOR IMPLEMENTATION`). An earlier revision silently committed to ONE interpretation
+        unconditionally (treating any `current` of length >= 2 as `(instance_attempt, messages,
+        ...)`) -- correct for genuine trailing-signal omission, but for genuine leading-instance
+        omission this discarded the caller's real `messages` value and forwarded a live
+        `RunSignal` downstream AS `messages`, corrupting the eventual provider request. `_restore_
+        signal` below instead accepts ONLY the two UNAMBIGUOUS lengths -- 1 (exactly the
+        transformable field, both authoritative fields restored) and 3 (full, explicit) -- and
+        REJECTS every other length (in practice, only 2) directly at this authority boundary by
+        raising `WaterfallError`, before the malformed tuple is ever forwarded to a later
+        listener: rejection is structural, not dependent on a downstream listener's own arity
+        happening to mismatch (a variadic or short-circuit-capable listener could otherwise
+        silently absorb it). Because this dispatch runs inside `_execute_run`'s own `try`/`except
+        Exception` boundary (`L08-R002`, unchanged), the raised error is caught there and routed
+        to `_settle_run_failure` exactly like any other run-executor failure -- `prompt()`/
+        `continue_()` completes normally, with a synthesized terminal `error` assistant message,
+        never a bare escaping exception.
+        """
+        original_instance = self.instance
+        original_signal = self.instance.signal
+
+        def _restore_signal(current: tuple[object, ...]) -> tuple[object, ...]:
+            if len(current) == 1:
+                return (original_instance, current[0], original_signal)
+            if len(current) == 3:
+                return (original_instance, current[1], original_signal)
+            raise WaterfallError(
+                f"AGENT_TRANSFORM_CONTEXT: ambiguous delegation of length {len(current)} -- a "
+                "partial replacement must supply exactly the transformable field (`messages` "
+                "alone) or the full payload; a two-element replacement cannot be disambiguated "
+                "between an omitted leading Agent and an omitted trailing signal"
+            )
+
+        transformed: tuple[Message, ...] = await self.instance.ctx.events.waterfall(
+            AGENT_TRANSFORM_CONTEXT,
+            self.instance,
+            messages,
+            original_signal,
+            terminal=lambda _instance, current_messages, _signal: current_messages,
+            scope=self.instance.scope.key,
+            normalize_step=_restore_signal,
+        )
+        return transformed
 
     def _claim_step_input(self) -> tuple[InputEnvelope, ...]:
         """Take whatever is waiting at the step boundary."""
@@ -754,7 +963,28 @@ class AgentLoop:
         listener that owns the decision returns without delegating; one that
         transforms delegates with replacement arguments, which the listeners
         after it receive.
-        """
+
+        `instance` is AUTHORITATIVE identity, not a listener's own to replace or drop
+        (`L09-R015`, `L09-R012` convergence -- the identical shape of defect found on `AGENT_
+        PREPARE_NEXT_TURN`, closed here by the same audit rather than left for a future review to
+        separately discover): `_restore_instance` forces `instance` back to its ORIGINAL value at
+        every listener-to-listener handoff -- `reason`/`messages` remain the listener's own to
+        transform freely; only `instance`'s own identity is protected.
+
+        `_restore_instance` is ARITY-AWARE, the same correction `_prepare_next_turn`'s own copy
+        needed (`L09-R015` targeted re-review): a listener that delegates via `next_(reason,
+        messages)` -- omitting `instance` entirely -- hands `current` one element shorter than the
+        full three-element payload; that case prepends the original instead of slicing off what
+        would actually be `reason`. A `current` of any other length is a malformed delegation this
+        method does not specially handle -- `EventBus.waterfall`'s own existing arity-mismatch
+        behavior governs it unchanged."""
+        original_instance = self.instance
+
+        def _restore_instance(current: tuple[object, ...]) -> tuple[object, ...]:
+            if len(current) == 2:
+                return (original_instance, *current)
+            return (original_instance, *current[1:])
+
         decision: PreStepDecision = await self.instance.ctx.events.waterfall(
             AGENT_PRE_STEP,
             self.instance,
@@ -762,6 +992,7 @@ class AgentLoop:
             messages,
             terminal=Enter(messages=messages),
             scope=self.instance.scope.key,
+            normalize_step=_restore_instance,
         )
         return decision
 
@@ -815,11 +1046,17 @@ class AgentLoop:
         if decision.history_window is not None:
             history = history[-decision.history_window :]
 
+        # Layer 09 (`L09-R005`): pinned Pi's own `transformContext(messages, signal)`, invoked
+        # immediately before every provider request -- a provider-local projection only, never
+        # written back to `context`/`history` themselves.
+        transformed_history = await self._transform_context(tuple(history))
+
         request = Request(
             model=config.model,
             system=assemble_system(components),
-            messages=tuple(history),
+            messages=transformed_history,
             tools=schemas,
+            signal=self.instance.signal,
         )
 
         # Streamed assistant reply lifecycle, fully live (`L08-R002`, PASS 5):
@@ -1024,6 +1261,7 @@ class AgentLoop:
                     on_execution_start=on_execution_start,
                     on_execution_end=on_execution_end,
                     on_execution_update=on_execution_update,
+                    signal=self.instance.signal,
                 )
 
             results: list[Message] = []

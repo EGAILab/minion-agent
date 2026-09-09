@@ -27,6 +27,76 @@ from .envelope import ClaimPolicy, InboxTarget, InputEnvelope, JsonValue
 _JSON_SCALARS = (str, int, float, bool, type(None))
 
 
+class _Reservation:
+    """A one-shot, claim-bound run-entry reservation (Layer 08 only, `L09-R012`/`L09-R013`/
+    `L09-R014` convergence). The ONLY way to obtain one is `Inbox._reserve()`, which atomically
+    `claim()`s the entering batch before constructing it -- `.envelopes` is exactly what that
+    SAME `claim()` call returned, never caller-suppliable. Exactly one of `.commit()`/
+    `.rollback()` may ever be called, and each accepts NO argument at all -- there is no
+    parameter through which a caller could substitute a foreign envelope, and a private
+    `_settled` guard rejects any second terminal call (whichever method) with `RuntimeError`.
+
+    An earlier revision (`L09-R007` convergence, PASS 5) claimed eagerly and exposed a PUBLIC
+    `restore(target, envelopes)` to reverse a failed claim; an independent Rust review found that
+    method callable by any caller with any envelope tuple, including one never claimed, or the
+    same envelope repeatedly, manufacturing duplicate queue entries sharing an id (`L09-R010`).
+    A later revision (PASS 6) replaced it with `peek()`/`_commit_claim()`, deferring the
+    destructive removal until a run-entry attempt was certain to proceed -- but the WINDOW that
+    created between selection and removal let a re-entrant `RUNNING`-notification observer either
+    delete unrelated, never-selected input (`L09-R011`) or leave part of the entering batch
+    unrestored (`L09-R013`) or duplicated across two runs (`L09-R014`), depending on what it did
+    in that window. This type removes the window entirely: the batch is claimed -- destructively,
+    unconditionally, atomically -- BEFORE the observer ever runs, so the observer cannot see or
+    touch it at all, and the ONLY question left is whether the run-entry attempt that claimed it
+    ultimately succeeds (`.commit()`, a no-op -- the removal already happened) or fails
+    (`.rollback()`, restoring the exact batch, prepended ahead of anything the observer itself
+    enqueued in the meantime). Only THIS reservation's own claimed batch is ever rolled back;
+    anything else a `RUNNING` observer did to `Inbox` (a genuinely unrelated claim, a clear, new
+    enqueued input) is never reversed -- this mechanism protects exactly one thing, not the whole
+    `Inbox` as a general transaction.
+
+    `.envelopes` is a READ-ONLY property, not a plain writable attribute (`L09-R017`): an earlier
+    revision exposed it as an ordinary `__slots__` attribute, letting a caller reassign it to an
+    arbitrary foreign tuple before calling `.rollback()` -- the independent review's own executed
+    witness reassigned a reservation holding `A` to a foreign envelope `B` still queued elsewhere,
+    then rolled back, which restored `B` (not the genuinely reserved `A`, which was lost) and left
+    two copies of `B`'s own id across both queues. The bound batch is now stored only in a private
+    `_envelopes` slot with no setter of any kind, so it cannot be substituted after construction --
+    `.rollback()` can only ever restore the exact envelopes THIS reservation's own `claim()` call
+    removed."""
+
+    __slots__ = ("_envelopes", "_inbox", "_settled", "_target")
+
+    def __init__(
+        self, inbox: Inbox, target: InboxTarget, envelopes: tuple[InputEnvelope, ...]
+    ) -> None:
+        self._inbox = inbox
+        self._target = target
+        self._envelopes = envelopes
+        self._settled = False
+
+    @property
+    def envelopes(self) -> tuple[InputEnvelope, ...]:
+        """The exact batch this reservation's own `claim()` call removed. Read-only -- no setter
+        exists (`L09-R017`)."""
+        return self._envelopes
+
+    def commit(self) -> None:
+        """Leave the claimed batch removed. A no-op beyond marking this reservation settled --
+        `claim()` already performed the removal when this reservation was created."""
+        if self._settled:
+            raise RuntimeError("reservation already settled")
+        self._settled = True
+
+    def rollback(self) -> None:
+        """Restore the claimed batch, prepended ahead of whatever is queued at `target` now."""
+        if self._settled:
+            raise RuntimeError("reservation already settled")
+        self._settled = True
+        if self._envelopes:
+            self._inbox._queues[self._target][0:0] = self._envelopes
+
+
 class NotJsonSafeOriginError(TypeError):
     """An origin was supplied that JSON cannot represent."""
 
@@ -117,6 +187,16 @@ class Inbox:
             claimed, queue[:] = tuple(queue), []
             return claimed
         return (queue.pop(0),)
+
+    def _reserve(self, target: InboxTarget, policy: ClaimPolicy) -> _Reservation:
+        """Atomically `claim()` entering input for a run-entry attempt and return a fresh,
+        single-use `_Reservation` bound to exactly that batch (Layer 08 only,
+        `AgentLoop._run_wrapped`, via `continue_()`/`run_until_idle()`). Not part of this class's
+        own public API -- see `_Reservation`'s own docstring for the full rationale and the
+        authority guarantees this closes (`L09-R010`/`L09-R011`/`L09-R012`/`L09-R013`/`L09-R014`).
+        `claim()` itself remains the sole PUBLIC removal operation, unchanged by this method's
+        existence."""
+        return _Reservation(self, target, self.claim(target, policy))
 
     def clear(self, target: InboxTarget) -> None:
         """Discard whatever is queued at `target`, unclaimed (pinned Pi's

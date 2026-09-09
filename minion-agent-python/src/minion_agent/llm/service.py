@@ -16,6 +16,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, replace
 from typing import Protocol
 
+from ..runtime import RunSignal
 from .errors import UnknownModelError
 from .messages import AssistantMessage, Message, StopReason, Usage
 from .stream import AssistantStream, StreamDone, StreamError
@@ -53,6 +54,18 @@ class Request:
 
     Empty is meaningful, not a placeholder: a step whose scope exposes no
     tools genuinely offers none."""
+    signal: RunSignal | None = None
+    """The active run's cancellation flag, if any (Layer 09). Additive: `None` (every existing
+    caller) preserves this module's own certified non-cancelled stream vocabulary/settlement
+    exactly -- `_settled` below never reads it. Matches pinned Pi's own `streamFunction(model,
+    context, {...config, signal})` (`agent-loop.ts:308-312`): the SAME per-run signal reaches
+    the adapter-call boundary, cooperatively -- an adapter MAY poll `request.signal.aborted` and
+    represent `StopReason.ABORTED` in its own returned stream, matching pinned Pi's own
+    provider-chooses-whether-to-honor-it design (`assurance/layers/09-active-abort-contract-
+    checkpoint.md`); this project has no real network transport yet, so actual transport
+    cancellation remains deferred to `PROV-004`. `LlmService.stream()` does not itself inspect
+    or act on `signal` -- it is carried through to `adapter.stream(request)` unexamined, exactly
+    like `model`/`system`/`messages`/`tools`."""
 
 
 class Adapter(Protocol):

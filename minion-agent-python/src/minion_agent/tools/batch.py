@@ -16,7 +16,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 
 from ..llm import ToolCallBlock
-from ..runtime import Context, Scope, ScopeKey
+from ..runtime import Context, RunSignal, Scope, ScopeKey
 from .definition import ExecutionMode
 from .events import TOOLS_EXECUTION_END, TOOLS_EXECUTION_START
 from .execute import (
@@ -87,6 +87,7 @@ async def execute_batch(
     on_execution_start: OnExecutionStart | None = None,
     on_execution_end: OnExecutionEnd | None = None,
     on_execution_update: OnExecutionUpdate | None = None,
+    signal: RunSignal | None = None,
 ) -> BatchOutcome:
     """Run every call in `calls`, returning results in source order.
 
@@ -119,6 +120,24 @@ async def execute_batch(
     PASS 7; see `execute.py::OnExecutionUpdate`). In a parallel batch this means two different
     calls' own update dispatches interleave according to real `asyncio` scheduling, not a
     batch-wide capture-and-replay order.
+
+    `signal` (Layer 09, `L09-C001`): the two modes poll it DIFFERENTLY, matching pinned Pi's own
+    `executeToolCallsSequential`/`executeToolCallsParallel` exactly -- a generic "stop the batch"
+    rule is wrong for either mode alone.
+
+    Sequential: `if signal.aborted: break` runs AFTER each call's own COMPLETE preflight-through-
+    finalize lifecycle, before starting the NEXT call. A call already started always finishes;
+    only calls not yet reached are skipped -- `results` can be shorter than `calls`.
+
+    Parallel: preflight remains fully sequential (`IR-L06-001`, unchanged); the SAME
+    `if signal.aborted: break` runs after EACH call's own preflight outcome (immediate or
+    prepared) is recorded, deciding whether to preflight the NEXT source call -- NOT after
+    execution. Every `_Prepared` outcome retained BEFORE the poll still starts its own
+    `_execute_and_finalize` afterward via the concurrent barrier below, receiving the
+    already-aborted `signal` cooperatively; an abort arising DURING one prepared call's own
+    execution cannot stop a sibling already committed to `asyncio.gather`. Immediate and
+    prepared outcomes remain interleaved in `results` in retained SOURCE order regardless of
+    which finishes first (unchanged from the existing barrier below).
     """
     completion: list[str] = []
     scope_key = scope.key if isinstance(scope, Scope) else scope
@@ -134,11 +153,16 @@ async def execute_batch(
                 on_execution_start=on_execution_start,
                 on_execution_end=on_execution_end,
                 on_execution_update=on_execution_update,
+                signal=signal,
             )
             completion.append(result.tool_call_id)
             return result
 
-        results = [await run(call) for call in calls]
+        results = []
+        for call in calls:
+            results.append(await run(call))
+            if signal is not None and signal.aborted:
+                break
     else:
         outcomes: list[_Prepared | ToolResult] = []
         for call in calls:
@@ -149,6 +173,7 @@ async def execute_batch(
                 scope=scope_key,
                 on_execution_start=on_execution_start,
                 on_execution_end=on_execution_end,
+                signal=signal,
             )
             # An immediate outcome already produced its final result -- and emitted
             # tools/execution-end -- during preflight, strictly before the barrier below, so its
@@ -156,6 +181,8 @@ async def execute_batch(
             if isinstance(outcome, ToolResult):
                 completion.append(outcome.tool_call_id)
             outcomes.append(outcome)
+            if signal is not None and signal.aborted:
+                break
 
         async def resolve(outcome: _Prepared | ToolResult) -> ToolResult:
             if isinstance(outcome, ToolResult):
@@ -166,6 +193,7 @@ async def execute_batch(
                 scope=scope_key,
                 on_execution_end=on_execution_end,
                 on_execution_update=on_execution_update,
+                signal=signal,
             )
             completion.append(result.tool_call_id)
             return result

@@ -982,7 +982,108 @@ rows:
     Confirmed via revert-and-confirm: the two new through-the-driver witnesses and the two new/
     corrected `Inbox`-level unit tests were run against the reverted (count-only) PASS-6 candidate
     and all FAILED as expected, reproducing the review''s own witness exactly (`B`/`C` incorrectly
-    lost), then PASSED once the identity check was restored.'
+    lost), then PASSED once the identity check was restored.
+
+    PASS 8 (implementing the agreed `L09-R012`/`R013`/`R014` convergence contract, `assurance/
+    layers/09-active-abort-contract-checkpoint-r012-convergence.md`, revisions 1-2, `CONVERGENCE
+    CONTRACT AGREED FOR IMPLEMENTATION`; also closes the bundled, non-blocking `L09-R015`/`L09-R016`
+    from the same review pass): PASS 7''s own final `?11.8.8` complete review (mandatory once
+    `L09-R007`/`L09-R010`/`L09-R011` were all provisionally closed) REJECTED FOR RUST IMPLEMENTATION
+    with five findings. `L09-R012` recurred for a SECOND time -- `AG-011`''s own `rule:` prose (not
+    merely its `python:` pointer, which PASS 7 already corrected) still described the removed
+    `peek`/`_commit_claim` design as this row''s own settled mechanism -- meeting workflow `?11.8`''s
+    "same material finding survives two independent reviews" convergence trigger on its own. Four
+    new findings accompanied it: `L09-R013` (a RUNNING observer that itself claims the peeked batch
+    and then THROWS loses it -- `_commit_claim`''s identity check correctly leaves nothing removed
+    when the front no longer matches, but PASS 7 never restored the OBSERVER''S OWN claimed batch on
+    the RUNNING-failure rollback path, so it vanished regardless); `L09-R014` (a `ClaimPolicy.
+    ONE_AT_A_TIME` re-entrant claim on the SAME target during the RUNNING notification could still
+    leave a PARTIAL prefix of the originally peeked batch queued for duplicate admission on a later
+    claim, since peek/commit only ever validated the batch AS A WHOLE, not a legitimately-narrower
+    re-entrant sub-claim); `L09-R015` (`PI_PARITY_DEFECT`: `AGENT_PREPARE_NEXT_TURN`''s own waterfall
+    dispatch never protected its `instance` payload slot the way `L09-R006` already protects
+    `signal` -- a delegating listener could redirect a later listener to a fabricated `instance`, or
+    drop it entirely; pinned Pi''s own public `Agent.createLoopConfig()` (`agent.ts:445-471`) wraps
+    `AgentOptions.prepareNextTurn(signal)`/`prepareNextTurnWithContext(context, signal)` with the
+    SAME Agent''s own live `this.signal` before handing them to the low-level loop, so this is a
+    faithful mapping of an existing Pi guarantee, not a Minion-added one); `L09-R016` (stale
+    Layer-05-era prose in `spec/tools.md`/this manifest''s own `TOOL-009` row/`tools/execute.py`''s
+    own `_execute_and_finalize` docstring still described the cancellation-signal half as open,
+    contradicting Layer 09''s own already-implemented `wants_signal`-based dispatch -- see `TOOL-009`
+    below for the correction).
+
+    Root-cause reassessment (`?11.8.3` characterization) traced the WHOLE `L09-R012` lineage
+    (`L09-R007` -> `L09-R010` -> `L09-R011` -> `L09-R013`/`L09-R014`) to one architectural decision:
+    PASS 6''s own "peek, notify RUNNING, then commit" design left a WINDOW, between `peek()` and
+    `_commit_claim()`, during which a re-entrant observer could act on the same target -- every
+    finding since PASS 6 was a different exploit shape THROUGH that same window, not an independent
+    defect. Rather than adding a further case-by-case check for `L09-R013`/`L09-R014` individually,
+    the agreed remediation removes the window entirely: the entering batch is now destructively
+    `claim()`''d ATOMICALLY, before the RUNNING notification ever runs, so a re-entrant observer on
+    the same target can never see or touch it at all, and a private rollback restores it verbatim if
+    the run-entry attempt itself then fails.
+
+    A first convergence-checkpoint revision proposing this direction was independently challenged
+    (`assurance/layers/09-active-abort-contract-checkpoint-r012-convergence.md` revision 1,
+    `CONVERGENCE CONTRACT -- CHANGES REQUIRED`): `C09-1`, the proposed rollback method
+    (`Inbox._restore_claimed(target, envelopes)`) still took a caller-supplied envelope tuple with
+    no one-shot guard -- materially the SAME authority defect `L09-R010` already rejected under a
+    different name, not closed by a leading underscore alone; `C09-2`, the checkpoint''s own
+    "correction" of the reviewer''s `L09-R015` Pi citation was itself wrong (the checkpoint had read
+    only `agent-loop.ts`''s low-level shape and missed `agent.ts`''s own public wrapper). Revision 2
+    remediated both and was independently AGREED FOR IMPLEMENTATION.
+
+    Implementation: `Inbox` gains a private `_reserve(target, policy) -> _Reservation`, the sole
+    construction path for a new `_Reservation` object (`agent/inbox.py`) -- `.envelopes` is
+    read-only and bound at construction; `.commit()`/`.rollback()` take NO argument at all (closing
+    the "foreign/duplicate envelope" half of `C09-1` by the absence of a parameter, not convention)
+    and are guarded by a private `_settled` flag that raises `RuntimeError` on any second terminal
+    call, whichever method it is (closing the "double action" half structurally). `Inbox.peek`/
+    `_commit_claim` (PASS 6/7''s own mechanism) are removed entirely, not merely superseded --
+    `Inbox.claim()` remains the only OTHER removal path, unchanged. `AgentLoop._run_wrapped`
+    (`agent_loop/driver.py`) now takes an `entry_reservation: _Reservation | None` in place of PASS
+    7''s own `commit_entry_claim` closure parameter: a RUNNING-failure now calls `entry_reservation.
+    rollback()` before re-raising, and a successful entry calls `entry_reservation.commit()`;
+    `continue_()`''s steering/follow-up branches and `run_until_idle()` each now call `inbox.
+    _reserve(target, policy)` directly in place of the old `peek()` + closure pair, passing the
+    `_Reservation` straight through. Because the reservation''s own `.envelopes` are removed from
+    `Inbox` at RESERVE time, not commit time, a re-entrant observer during the RUNNING notification
+    can no longer see or touch them at all, regardless of whether it throws, returns normally, or
+    performs its own unrelated claim/clear/enqueue on the same target -- closing `L09-R013` and
+    `L09-R014` by construction, not by adding a check for either exploit shape individually.
+
+    `L09-R015`: `_prepare_next_turn`''s own `AGENT_PREPARE_NEXT_TURN` waterfall dispatch gains a
+    `normalize_step` closure (`_restore_instance`) that forces the payload tuple''s own `instance`
+    slot back to the closure-captured ORIGINAL value at every listener-to-listener handoff,
+    regardless of what a delegating listener passes -- the same `normalize_step` mechanism already
+    certified for `AGENT_TRANSFORM_CONTEXT`''s own `signal` slot (`L09-R006` precedent) and
+    `TOOL-024`''s own `tool_call_id`/`tool_name` slots (`L06-R003` precedent), now applied to
+    `instance` for the first time. A full audit of every `.waterfall()` dispatch in `src/` (five call
+    sites total) found `AGENT_PRE_STEP`''s own `_pre_step` had the IDENTICAL unprotected `instance`
+    slot, not itself separately reported by any review -- fixed proactively with the same closure
+    pattern, closing the adjacent surface of the same mechanism before an independent review had to
+    find it separately. `AGENT_TURN_STOPPING`/other `.waterfall()` sites were inspected and confirmed
+    already protected or structurally immune (`EventBus.serial()` dispatches have no delegation
+    seam at all, so cannot exhibit this defect).
+
+    Nine tests replace/extend PASS 7''s own `peek`/`_commit_claim` coverage in `agent/test_inbox.py`
+    (`_reserve`/`_Reservation` unit coverage: atomic claim on reserve, commit, rollback, an empty
+    target, a never-settled reservation, `hasattr`/`peek` absence, the reviewer''s own duplicate-id
+    witness, double-rollback non-duplication, a foreign-envelope rejection by construction, commit-
+    then-rollback and rollback-then-commit both refused a second time, rollback ordering ahead of
+    input enqueued after the reservation, and a re-entrant same-target claim seeing only genuinely
+    unrelated input); `agent_loop/test_active_abort.py` replaces the now-incorrect-under-claim-first
+    `test_a_running_observer_that_claims_the_peeked_input_does_not_lose_other_input` (its own
+    assumption that an unclaimed remainder stays queued no longer holds once ONE_AT_A_TIME reserves
+    only the one entering envelope) with four witnesses reproducing `L09-R013`/`L09-R014`''s own
+    exact scenarios under `ClaimPolicy.ALL`, and adds four new `AGENT_PRE_STEP`/
+    `AGENT_PREPARE_NEXT_TURN` authority-redirect witnesses paralleling the already-certified
+    `AGENT_TRANSFORM_CONTEXT` ones. Confirmed via revert-and-confirm: all eighteen new/changed tests
+    across both files were run against the reverted PASS-7 candidate (`peek`/`_commit_claim` restored)
+    and FAILED as expected, reproducing the reviewers'' own described defects exactly, then PASSED
+    once the `_Reservation` implementation was restored. Fresh full gate run: 1123 passed, 19
+    xfailed, 100% coverage, ruff/mypy clean, `ruff format --check` unchanged at the same seven
+    pre-existing drift files.'
   tests:
   - test_a_fresh_controller_is_not_aborted (runtime/test_signal.py)
   - test_abort_sets_the_signal_aborted (runtime/test_signal.py)
@@ -1015,21 +1116,30 @@ rows:
   - test_continue_restores_preclaimed_follow_up_on_a_running_failure (agent_loop/test_active_abort.py)
   - test_restored_preclaimed_input_precedes_input_the_failing_observer_itself_enqueues (agent_loop/test_active_abort.py)
   - test_run_until_idle_restores_a_preclaimed_follow_up_on_a_running_failure (agent_loop/test_active_abort.py)
-  - test_a_running_observer_that_claims_the_peeked_input_does_not_lose_other_input (agent_loop/test_active_abort.py)
   - test_a_running_observer_that_clears_and_enqueues_does_not_lose_the_new_input (agent_loop/test_active_abort.py)
-  - test_peek_returns_what_claim_would_without_removing_it (agent/test_inbox.py)
-  - test_peek_matches_claim_for_all_policy (agent/test_inbox.py)
-  - test_peek_on_an_empty_target_returns_nothing (agent/test_inbox.py)
-  - test_commit_claim_removes_exactly_the_peeked_envelopes (agent/test_inbox.py)
-  - test_peek_then_commit_behaves_exactly_like_claim (agent/test_inbox.py)
-  - test_a_failed_commit_never_happening_leaves_peeked_input_exactly_as_queued (agent/test_inbox.py)
-  - test_committing_an_empty_batch_is_a_harmless_no_op (agent/test_inbox.py)
+  - test_a_running_observer_that_claims_and_throws_does_not_lose_the_reserved_batch (agent_loop/test_active_abort.py, L09-R013)
+  - test_a_running_observer_that_claims_and_returns_finds_nothing_and_entry_proceeds (agent_loop/test_active_abort.py, L09-R014)
+  - test_a_running_observer_that_clears_and_enqueues_then_throws_restores_ahead_of_it (agent_loop/test_active_abort.py)
+  - test_pre_step_cannot_redirect_a_later_listener_to_a_replacement_instance (agent_loop/test_active_abort.py, L09-R015)
+  - test_pre_step_cannot_drop_the_instance_for_a_later_listener (agent_loop/test_active_abort.py, L09-R015)
+  - test_prepare_next_turn_cannot_redirect_to_a_replacement_instance (agent_loop/test_active_abort.py, L09-R015)
+  - test_prepare_next_turn_cannot_drop_the_instance_for_a_later_listener (agent_loop/test_active_abort.py, L09-R015)
+  - test_reserve_atomically_claims_the_selected_batch (agent/test_inbox.py)
+  - test_reserve_matches_claim_for_all_policy (agent/test_inbox.py)
+  - test_reserve_on_an_empty_target_returns_an_empty_reservation (agent/test_inbox.py)
+  - test_commit_leaves_the_reserved_batch_removed (agent/test_inbox.py)
+  - test_rollback_restores_the_exact_reserved_batch (agent/test_inbox.py)
+  - test_a_reservation_never_settled_leaves_the_batch_removed (agent/test_inbox.py)
   - test_the_old_public_restore_method_no_longer_exists (agent/test_inbox.py)
   - test_the_reviewers_duplicate_id_witness_is_no_longer_expressible (agent/test_inbox.py)
-  - test_calling_commit_claim_again_with_a_stale_batch_is_a_safe_no_op (agent/test_inbox.py)
-  - test_commit_claim_does_nothing_if_the_front_no_longer_matches_the_peeked_batch (agent/test_inbox.py)
+  - test_double_rollback_cannot_duplicate_an_envelope (agent/test_inbox.py)
+  - test_rollback_cannot_accept_a_foreign_envelope (agent/test_inbox.py)
+  - test_commit_then_rollback_cannot_mutate_the_queue_a_second_time (agent/test_inbox.py)
+  - test_rollback_then_commit_cannot_mutate_the_queue_a_second_time (agent/test_inbox.py)
+  - test_rollback_precedes_input_enqueued_after_the_reservation (agent/test_inbox.py)
+  - test_a_reentrant_claim_on_the_same_target_sees_only_unrelated_input (agent/test_inbox.py)
   - test_a_represented_aborted_terminal_is_unaffected_by_layer_09 (agent_loop/test_active_abort.py)
-  python: src/minion_agent/runtime/signal.py::RunSignal, RunAbortController; src/minion_agent/agent/instance.py::AgentInstance.signal (read-only property)/abort/_start_run_signal/_end_run_signal/_force_idle_after_failed_entry_notification; src/minion_agent/agent_loop/driver.py::AgentLoop._run_wrapped (RUNNING-failure rollback + commit_entry_claim, IDLE-failure exit reorder), continue_ (peek + commit_entry_claim closures, L09-R010), run_until_idle (peek + commit_entry_claim closure, L09-R010), _run_step (Request.signal, _transform_context), _settle_run_failure (ABORTED classification), _transform_context; src/minion_agent/agent/events.py::AGENT_TRANSFORM_CONTEXT; src/minion_agent/agent/inbox.py::Inbox.peek, Inbox._commit_claim (L09-R010/L09-R011, identity-checked, replaces the removed public Inbox.restore)
+  python: src/minion_agent/runtime/signal.py::RunSignal, RunAbortController; src/minion_agent/agent/instance.py::AgentInstance.signal (read-only property)/abort/_start_run_signal/_end_run_signal/_force_idle_after_failed_entry_notification; src/minion_agent/agent_loop/driver.py::AgentLoop._run_wrapped (RUNNING-failure rollback + entry_reservation.rollback/commit, IDLE-failure exit reorder), continue_ (_reserve, L09-R012/R013/R014), run_until_idle (_reserve, L09-R012/R013/R014), _run_step (Request.signal, _transform_context), _prepare_next_turn (normalize_step=_restore_instance, L09-R015), _pre_step (normalize_step=_restore_instance, L09-R015), _settle_run_failure (ABORTED classification), _transform_context; src/minion_agent/agent/events.py::AGENT_TRANSFORM_CONTEXT; src/minion_agent/agent/inbox.py::_Reservation, Inbox._reserve (L09-R012/R013/R014, replaces the removed Inbox.peek/_commit_claim)
   rust: NOT_APPLICABLE -- Python/shared candidate awaiting independent Rust contract review; certified Rust Layer 06''s own ToolExecutionSignal seam remains reserved, unexercised
   disposition: adopted
 - id: AG-008
@@ -1732,20 +1842,31 @@ rows:
     agent-inbox-queue-mode-fifo.yaml and agent-inbox-queue-independence-and-clearing.yaml exercise
     the real `Inbox` primitive directly, with no provider/tool/run-loop timing.
 
-    Cross-reference (Layer 09, `L09-R007`/`L09-R010` -- see `AG-007` for the full rule): `Inbox.
-    peek(target, policy)` (`agent/inbox.py`, PUBLIC, read-only) returns what `claim(target,
-    policy)` would without removing anything; `Inbox._commit_claim(target, envelopes)` (PRIVATE,
-    Layer-08-only) performs the actual removal, by count from the front, once a run-entry attempt
-    is certain to proceed. This is a Layer-09-owned caller (`AgentLoop._run_wrapped`''s own
-    run-entry commit), not a change to this row''s own certified identity/FIFO-ordering rules
-    above -- `peek`/`_commit_claim` read and preserve them (`id`/`message`/`origin` exactly, order
-    exactly; `_commit_claim` removes only, never inserts, so it cannot manufacture a duplicate id)
-    rather than rewriting them. An earlier revision instead exposed a PUBLIC `Inbox.restore
-    (target, envelopes)` that let any caller re-insert an arbitrary envelope tuple, including one
-    never claimed or the same one repeatedly -- an independent Rust review found this violated
-    this row''s own exactly-once invariant by manufacturing duplicate ids (`L09-R010`,
-    `CONTRACT_ASSURANCE_DEFECT`); `restore` is removed entirely, not merely restricted. Direct
-    unit coverage lives in `agent/test_inbox.py` (listed under `AG-007`, not duplicated here).'
+    Cross-reference (Layer 09, `L09-R007`/`L09-R010`/`L09-R011`/`L09-R012`/`L09-R013`/`L09-R014` --
+    see `AG-007` for the full rule and remediation history): the current mechanism is claim-then-
+    reservation-rollback, not peek-then-commit. `Inbox._reserve(target, policy)` (PRIVATE,
+    Layer-08-only) atomically `claim()`s the selected batch immediately -- removing it from `target`
+    at RESERVE time, not at some later commit -- and returns a private, one-shot `_Reservation`
+    bound to exactly that batch (`.envelopes`, read-only). Exactly one of `.commit()` (settles the
+    removal permanently) or `.rollback()` (restores the exact reserved batch, verbatim and in order,
+    ahead of whatever `target` holds by then) may ever be called on a given reservation, and each
+    takes NO argument at all -- a second call to either, after the first, raises `RuntimeError`.
+    Because removal happens at reserve time, no re-entrant observer on the same target can ever see
+    or act on the reserved batch, whether it later throws, returns normally, or performs its own
+    unrelated claim/clear/enqueue -- this is not a change to this row''s own certified identity/
+    FIFO-ordering rules above, `_reserve`/`_Reservation` read and preserve them exactly (`id`/
+    `message`/`origin`, order) and can never manufacture a duplicate id: `.rollback()` only ever
+    re-inserts the SAME envelope objects it removed, once. PASS 6''s own `Inbox.restore(target,
+    envelopes)` (a PUBLIC method taking a caller-supplied envelope tuple, no ownership tracking, no
+    one-shot guard) and PASS 7''s own `Inbox.peek`/`_commit_claim` (a peek-then-commit split that left
+    a re-entrancy window between the two calls) are both removed entirely, not merely restricted or
+    superseded in place -- an independent Rust review found `restore` violated this row''s own
+    exactly-once invariant by manufacturing duplicate ids (`L09-R010`), and a first attempt at
+    privatizing the rollback path (`Inbox._restore_claimed(target, envelopes)`, still caller-
+    supplied and repeatable) was independently found materially the same defect under a different
+    name (`L09-R012` convergence checkpoint challenge, `C09-1`) before the current `_Reservation`
+    design was agreed. Direct unit coverage lives in `agent/test_inbox.py` (listed under `AG-007`,
+    not duplicated here).'
   tests:
   - test_followup_queues_for_the_next_turn_and_wakes
   - test_steer_queues_for_the_next_step_and_wakes
@@ -1770,7 +1891,7 @@ rows:
   - test_inject_delegates_to_the_inbox_without_waking
   - agent-inbox-queue-mode-fifo (L07-R004, language-neutral canonical)
   - agent-inbox-queue-independence-and-clearing (L07-R004, language-neutral canonical)
-  python: src/minion_agent/agent/inbox.py::Inbox, Inbox.peek, Inbox._commit_claim (Layer 09, L09-R007/L09-R010/L09-R011 -- see AG-007; Inbox.restore, PASS 5's own mechanism, was removed under L09-R010); src/minion_agent/agent/envelope.py::InboxTarget/InputEnvelope, src/minion_agent/agent/instance.py::AgentInstance.steer/follow_up/inject
+  python: src/minion_agent/agent/inbox.py::Inbox, Inbox._reserve, _Reservation (Layer 09, L09-R007/L09-R010/L09-R011/L09-R012/L09-R013/L09-R014 -- see AG-007; Inbox.restore, PASS 5's own mechanism, and Inbox.peek/_commit_claim, PASS 6/7's own mechanism, were both removed); src/minion_agent/agent/envelope.py::InboxTarget/InputEnvelope, src/minion_agent/agent/instance.py::AgentInstance.steer/follow_up/inject
   rust: crates/minion-agent/src/agent/inbox.rs::Inbox; crates/minion-agent/tests/agent_inbox.rs; crates/minion-agent/tests/agent_inbox_conformance.rs
   disposition: adopted
 - id: AG-012
@@ -2895,15 +3016,19 @@ rows:
   rule: 'AgentTool extends Tool with: label (string, REQUIRED -- no `?`, TOOL-F001); prepareArguments?
     ((args) -> Static<TParameters>), field/signature only, invocation is Layer 06 (TOOL-F002);
     execute: (toolCallId, params, signal?, onUpdate?) -> Promise<AgentToolResult>, the target
-    capability shape (TOOL-F003). Historical note, corrected for present tense (IR-L05/06-006):
-    at THIS row''s own Layer-05 certification, Python dispatch realized only a (params)/(params,
-    on_update) subset -- no tool_call_id, no cancellation signal. That is no longer the current
-    state: Layer 06 subsequently closed the tool_call_id half (TOOL-018, TOOL-017) -- every call
-    now receives its own real tool_call_id as execute''s first argument, and on_update is realized
-    too. Only the cancellation-signal half remains open, and asymmetrically: Python has no
-    AbortSignal-equivalent abstraction at all yet; certified Rust Layer 05 already reserves one
-    structurally (ToolExecutionSignal, ToolExecutionRequest.signal), unexercised. Closing that
-    remaining half, in either language, is assurance Layer 09''s territory, not Layer 06''s.
+    capability shape (TOOL-F003). Historical note, corrected for present tense (IR-L05/06-006, then
+    again L09-R016): at THIS row''s own Layer-05 certification, Python dispatch realized only a
+    (params)/(params, on_update) subset -- no tool_call_id, no cancellation signal. That is no
+    longer the current state: Layer 06 subsequently closed the tool_call_id half (TOOL-018,
+    TOOL-017) -- every call now receives its own real tool_call_id as execute''s first argument, and
+    on_update is realized too. The cancellation-signal half is ALSO now closed, by Layer 09
+    (`AG-007`): `ToolDefinition.wants_signal: bool` (Layer 05, `L09-R003`) makes the capability
+    explicit rather than arity-inferred, and `TOOL-024`''s own dispatch realizes all four Pi-
+    equivalent combinations of tool_call_id/signal/on_update. This row''s own prose previously
+    stated (until `L09-R016`, a stale-documentation finding) that "only the cancellation-signal half
+    remains open... Python has no AbortSignal-equivalent abstraction at all yet" -- that was
+    accurate at Layer 06/prior-Layer-09-pass time but is no longer current; corrected here rather
+    than left to silently contradict `AG-007`/`TOOL-024`''s own already-certified state.
     executionMode? (ToolExecutionMode), absent means "no per-tool preference," defers to the
     run-level default rather than defaulting to a concrete value (TOOL-F004).'
   tests:

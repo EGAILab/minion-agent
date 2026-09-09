@@ -27,6 +27,60 @@ from .envelope import ClaimPolicy, InboxTarget, InputEnvelope, JsonValue
 _JSON_SCALARS = (str, int, float, bool, type(None))
 
 
+class _Reservation:
+    """A one-shot, claim-bound run-entry reservation (Layer 08 only, `L09-R012`/`L09-R013`/
+    `L09-R014` convergence). The ONLY way to obtain one is `Inbox._reserve()`, which atomically
+    `claim()`s the entering batch before constructing it -- `.envelopes` is exactly what that
+    SAME `claim()` call returned, never caller-suppliable. Exactly one of `.commit()`/
+    `.rollback()` may ever be called, and each accepts NO argument at all -- there is no
+    parameter through which a caller could substitute a foreign envelope, and a private
+    `_settled` guard rejects any second terminal call (whichever method) with `RuntimeError`.
+
+    An earlier revision (`L09-R007` convergence, PASS 5) claimed eagerly and exposed a PUBLIC
+    `restore(target, envelopes)` to reverse a failed claim; an independent Rust review found that
+    method callable by any caller with any envelope tuple, including one never claimed, or the
+    same envelope repeatedly, manufacturing duplicate queue entries sharing an id (`L09-R010`).
+    A later revision (PASS 6) replaced it with `peek()`/`_commit_claim()`, deferring the
+    destructive removal until a run-entry attempt was certain to proceed -- but the WINDOW that
+    created between selection and removal let a re-entrant `RUNNING`-notification observer either
+    delete unrelated, never-selected input (`L09-R011`) or leave part of the entering batch
+    unrestored (`L09-R013`) or duplicated across two runs (`L09-R014`), depending on what it did
+    in that window. This type removes the window entirely: the batch is claimed -- destructively,
+    unconditionally, atomically -- BEFORE the observer ever runs, so the observer cannot see or
+    touch it at all, and the ONLY question left is whether the run-entry attempt that claimed it
+    ultimately succeeds (`.commit()`, a no-op -- the removal already happened) or fails
+    (`.rollback()`, restoring the exact batch, prepended ahead of anything the observer itself
+    enqueued in the meantime). Only THIS reservation's own claimed batch is ever rolled back;
+    anything else a `RUNNING` observer did to `Inbox` (a genuinely unrelated claim, a clear, new
+    enqueued input) is never reversed -- this mechanism protects exactly one thing, not the whole
+    `Inbox` as a general transaction."""
+
+    __slots__ = ("_inbox", "_settled", "_target", "envelopes")
+
+    def __init__(
+        self, inbox: Inbox, target: InboxTarget, envelopes: tuple[InputEnvelope, ...]
+    ) -> None:
+        self._inbox = inbox
+        self._target = target
+        self.envelopes = envelopes
+        self._settled = False
+
+    def commit(self) -> None:
+        """Leave the claimed batch removed. A no-op beyond marking this reservation settled --
+        `claim()` already performed the removal when this reservation was created."""
+        if self._settled:
+            raise RuntimeError("reservation already settled")
+        self._settled = True
+
+    def rollback(self) -> None:
+        """Restore the claimed batch, prepended ahead of whatever is queued at `target` now."""
+        if self._settled:
+            raise RuntimeError("reservation already settled")
+        self._settled = True
+        if self.envelopes:
+            self._inbox._queues[self._target][0:0] = self.envelopes
+
+
 class NotJsonSafeOriginError(TypeError):
     """An origin was supplied that JSON cannot represent."""
 
@@ -118,64 +172,15 @@ class Inbox:
             return claimed
         return (queue.pop(0),)
 
-    def peek(self, target: InboxTarget, policy: ClaimPolicy) -> tuple[InputEnvelope, ...]:
-        """What `claim(target, policy)` would currently return, WITHOUT removing anything (Layer
-        09, `L09-R010`). Read-only and side-effect-free -- part of the public API, unlike
-        `_commit_claim` below -- so it cannot itself violate `AG-011`'s exactly-once invariant no
-        matter how a caller uses it.
-
-        Exists so a run-entry attempt (`AgentLoop._run_wrapped`, via `continue_()`/
-        `run_until_idle()`) can inspect what it would claim BEFORE committing to actually removing
-        it: pair with `_commit_claim(target, peek(...))`, called synchronously with no intervening
-        `await`, to defer the destructive removal until a run has actually validly begun. An
-        earlier revision (`L09-R007` convergence, PASS 5) instead claimed eagerly and exposed a
-        PUBLIC `restore(target, envelopes)` to reverse it on failure -- an independent Rust review
-        found that method callable by anyone with any envelope tuple, including one still queued
-        and never claimed, or the same envelope repeatedly, manufacturing duplicate queue entries
-        that shared an id (`L09-R010`, `CONTRACT_ASSURANCE_DEFECT`). `peek`/`_commit_claim` closes
-        that authority gap structurally rather than by convention alone: nothing is ever removed
-        until a caller is certain it should be, so a failed run-entry attempt needs no restoration
-        step at all -- there is nothing to undo, because nothing was ever removed."""
-        queue = self._queues[target]
-        if not queue:
-            return ()
-        if policy is ClaimPolicy.ALL:
-            return tuple(queue)
-        return (queue[0],)
-
-    def _commit_claim(self, target: InboxTarget, envelopes: tuple[InputEnvelope, ...]) -> None:
-        """Remove exactly `envelopes` -- the exact prefix a PRIOR `peek(target, ...)` call on
-        this SAME `Inbox` just returned -- from `target` (Layer 08 only, `AgentLoop._run_wrapped`'s
-        own run-entry commit). Not part of this class's own public API, the same "Layer 07 owns
-        vocabulary, Layer 08 owns per-run lifecycle" split already established for `AgentInstance.
-        _start_run_signal`/`_end_run_signal`.
-
-        Verified by IDENTITY, position by position, not merely by COUNT (`L09-R011`): between a
-        caller's own `peek()` and this commit, the synchronous RUNNING-notification observer
-        `AgentLoop._run_wrapped` awaits in between (`AGENT_STATUS`/`on_status_change`) may itself
-        call any public `Inbox` operation on the SAME target before returning normally -- claim
-        the very envelopes this run peeked, clear the target, enqueue more input, or any
-        combination. A count-only removal (`queue[:len(envelopes)] = []`, an earlier revision)
-        would then silently delete whatever CURRENTLY sits at the front, which may no longer be
-        the peeked batch at all -- an independent Rust review's own executable witness: `A, B`
-        queued, `A` peeked, the RUNNING observer itself claims `A` and returns, and a count-only
-        commit deleted `B` too, input never selected for this run and never touched by the
-        observer's own action. This method instead removes `envelopes` ONLY if they are STILL
-        (by `is`, not equality) the exact objects occupying `target`'s own front, in the same
-        order; otherwise it removes nothing at all, leaving whatever the observer itself already
-        did as the sole source of truth for that target -- an observer's own reentrant mutation is
-        never silently undone, broadened, or treated as though it never happened. Removal-only, by
-        construction: unlike the removed public `restore()`, this method can never INSERT an
-        envelope, so it structurally cannot manufacture a duplicate id no matter how or how often
-        it is called -- calling it again with a batch that is no longer at the front (already
-        committed, or displaced by an observer) is a safe no-op, not a repeat deletion."""
-        if not envelopes:
-            return
-        queue = self._queues[target]
-        count = len(envelopes)
-        if len(queue) < count or any(queue[i] is not envelopes[i] for i in range(count)):
-            return
-        del queue[:count]
+    def _reserve(self, target: InboxTarget, policy: ClaimPolicy) -> _Reservation:
+        """Atomically `claim()` entering input for a run-entry attempt and return a fresh,
+        single-use `_Reservation` bound to exactly that batch (Layer 08 only,
+        `AgentLoop._run_wrapped`, via `continue_()`/`run_until_idle()`). Not part of this class's
+        own public API -- see `_Reservation`'s own docstring for the full rationale and the
+        authority guarantees this closes (`L09-R010`/`L09-R011`/`L09-R012`/`L09-R013`/`L09-R014`).
+        `claim()` itself remains the sole PUBLIC removal operation, unchanged by this method's
+        existence."""
+        return _Reservation(self, target, self.claim(target, policy))
 
     def clear(self, target: InboxTarget) -> None:
         """Discard whatever is queued at `target`, unclaimed (pinned Pi's

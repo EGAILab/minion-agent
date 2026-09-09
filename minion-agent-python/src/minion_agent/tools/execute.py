@@ -524,12 +524,18 @@ async def _execute_and_finalize(
     parallel batch, this runs concurrently for every prepared call, only after every call in the
     batch has finished `_preflight` (`IR-L06-001`).
 
-    `signal` (Layer 09), when the tool's own `execute` declares a fourth parameter
-    (`_wants_signal`), is passed through DIRECTLY -- matching pinned Pi's own `execute(toolCallId,
-    params, signal, onUpdate)` third positional argument exactly. Whether the tool actually stops
-    is entirely its own cooperative choice; this function never inspects `signal` itself or skips
-    `execute()`/the after-hook because it is aborted (`afterToolCall` runs unconditionally in
-    pinned Pi too -- see the contract checkpoint).
+    `signal` (Layer 09) is passed through DIRECTLY when the tool has declared `ToolDefinition.
+    wants_signal=True` (`_wants_signal`, `L09-R003`, corrected for present tense under `L09-R016`
+    -- an earlier revision of this docstring described a single fixed "fourth parameter" shape,
+    which cannot represent a tool wanting `signal` without `update`): `execute`'s own THIRD
+    positional parameter receives `signal` when only `wants_signal` is declared, or `update` moves
+    to a FOURTH parameter when both `wants_signal` and live updates are declared -- all four
+    Pi-equivalent combinations (neither, update-only, signal-only, both) are dispatched correctly
+    (see `_wants_signal`/`_wants_update` above), matching pinned Pi's own `execute(toolCallId,
+    params, signal, onUpdate)` shape exactly. Whether the tool actually stops is entirely its own
+    cooperative choice; this function never inspects `signal` itself or skips `execute()`/the
+    after-hook because it is aborted (`afterToolCall` runs unconditionally in pinned Pi too -- see
+    the contract checkpoint).
     """
     call = prepared.call
     definition = prepared.definition

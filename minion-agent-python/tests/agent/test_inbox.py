@@ -90,79 +90,69 @@ def test_the_two_queues_are_independent() -> None:
     assert len(inbox.pending(InboxTarget.NEXT_TURN)) == 1
 
 
-# -- Layer 09, `L09-R010`: peek()/`_commit_claim()` replace the removed public restore() --------
+# -- Layer 09, `L09-R012`/`L09-R013`/`L09-R014`: `_reserve()`/`_Reservation` replace peek/commit --
 
 
-def test_peek_returns_what_claim_would_without_removing_it() -> None:
+def test_reserve_atomically_claims_the_selected_batch() -> None:
     inbox = Inbox()
     envelope = inbox.followup(_message("only"))
 
-    peeked = inbox.peek(InboxTarget.NEXT_TURN, ClaimPolicy.ONE_AT_A_TIME)
+    reservation = inbox._reserve(InboxTarget.NEXT_TURN, ClaimPolicy.ONE_AT_A_TIME)
 
-    assert peeked == (envelope,)
-    assert inbox.pending(InboxTarget.NEXT_TURN) == (envelope,)  # still queued -- peek is read-only
+    assert reservation.envelopes == (envelope,)
+    assert inbox.pending(InboxTarget.NEXT_TURN) == ()  # already removed -- no reentrancy window
 
 
-def test_peek_matches_claim_for_all_policy() -> None:
+def test_reserve_matches_claim_for_all_policy() -> None:
     inbox = Inbox()
     inbox.followup(_message("A"))
     inbox.followup(_message("B"))
 
-    peeked = inbox.peek(InboxTarget.NEXT_TURN, ClaimPolicy.ALL)
+    reservation = inbox._reserve(InboxTarget.NEXT_TURN, ClaimPolicy.ALL)
 
-    assert [text_of(envelope.message) for envelope in peeked] == ["A", "B"]
-    assert len(inbox.pending(InboxTarget.NEXT_TURN)) == 2  # still queued
+    assert [text_of(e.message) for e in reservation.envelopes] == ["A", "B"]
+    assert inbox.pending(InboxTarget.NEXT_TURN) == ()
 
 
-def test_peek_on_an_empty_target_returns_nothing() -> None:
+def test_reserve_on_an_empty_target_returns_an_empty_reservation() -> None:
     inbox = Inbox()
 
-    assert inbox.peek(InboxTarget.NEXT_TURN, ClaimPolicy.ONE_AT_A_TIME) == ()
-    assert inbox.peek(InboxTarget.NEXT_TURN, ClaimPolicy.ALL) == ()
+    assert inbox._reserve(InboxTarget.NEXT_TURN, ClaimPolicy.ONE_AT_A_TIME).envelopes == ()
+    assert inbox._reserve(InboxTarget.NEXT_TURN, ClaimPolicy.ALL).envelopes == ()
 
 
-def test_commit_claim_removes_exactly_the_peeked_envelopes() -> None:
+def test_commit_leaves_the_reserved_batch_removed() -> None:
     inbox = Inbox()
     inbox.followup(_message("A"))
     inbox.followup(_message("B"))
-    peeked = inbox.peek(InboxTarget.NEXT_TURN, ClaimPolicy.ALL)
+    reservation = inbox._reserve(InboxTarget.NEXT_TURN, ClaimPolicy.ALL)
 
-    inbox._commit_claim(InboxTarget.NEXT_TURN, peeked)
+    reservation.commit()
 
     assert inbox.pending(InboxTarget.NEXT_TURN) == ()
 
 
-def test_peek_then_commit_behaves_exactly_like_claim() -> None:
+def test_rollback_restores_the_exact_reserved_batch() -> None:
     inbox = Inbox()
     envelope = inbox.followup(_message("only"))
-    peeked = inbox.peek(InboxTarget.NEXT_TURN, ClaimPolicy.ONE_AT_A_TIME)
+    reservation = inbox._reserve(InboxTarget.NEXT_TURN, ClaimPolicy.ONE_AT_A_TIME)
 
-    inbox._commit_claim(InboxTarget.NEXT_TURN, peeked)
+    reservation.rollback()
 
-    assert peeked == (envelope,)
+    assert inbox.pending(InboxTarget.NEXT_TURN) == (envelope,)
+
+
+def test_a_reservation_never_settled_leaves_the_batch_removed() -> None:
+    """The whole point of a reservation: it is CREATED by an atomic claim(), so a caller that
+    obtains one and never calls either `.commit()`/`.rollback()` has already had the effect of a
+    plain `claim()` -- there is no "pending, unremoved" state to accidentally leave behind."""
+    inbox = Inbox()
+    inbox.followup(_message("only"))
+
+    inbox._reserve(InboxTarget.NEXT_TURN, ClaimPolicy.ONE_AT_A_TIME)
+    # ... caller never settles the reservation ...
+
     assert inbox.pending(InboxTarget.NEXT_TURN) == ()
-
-
-def test_a_failed_commit_never_happening_leaves_peeked_input_exactly_as_queued() -> None:
-    """The whole point of peek/commit (`L09-R010`): if a caller peeks but never commits (the
-    Layer-09 RUNNING-notification-failure case), nothing was ever removed -- there is no
-    restoration step to get wrong, because there is nothing to restore."""
-    inbox = Inbox()
-    envelope = inbox.followup(_message("only"))
-
-    inbox.peek(InboxTarget.NEXT_TURN, ClaimPolicy.ONE_AT_A_TIME)
-    # ... caller decides not to commit ...
-
-    assert inbox.pending(InboxTarget.NEXT_TURN) == (envelope,)
-
-
-def test_committing_an_empty_batch_is_a_harmless_no_op() -> None:
-    inbox = Inbox()
-    envelope = inbox.followup(_message("untouched"))
-
-    inbox._commit_claim(InboxTarget.NEXT_TURN, ())
-
-    assert inbox.pending(InboxTarget.NEXT_TURN) == (envelope,)
 
 
 def test_the_old_public_restore_method_no_longer_exists() -> None:
@@ -170,12 +160,12 @@ def test_the_old_public_restore_method_no_longer_exists() -> None:
     (target, envelopes)` callable by ANY caller with ANY envelope tuple -- including one still
     queued and never claimed, or the same envelope repeatedly -- manufacturing duplicate queue
     entries that shared an id, contradicting this row's own exactly-once invariant
-    (`CONTRACT_ASSURANCE_DEFECT`). Remediation removes the method entirely rather than merely
-    restricting it: `peek()` (public, read-only, cannot corrupt anything) plus `_commit_claim()`
-    (private, removal-only, cannot insert -- so it cannot manufacture a duplicate id no matter how
-    it is called) replace it."""
+    (`CONTRACT_ASSURANCE_DEFECT`). Remediation removes the method entirely: `Inbox.claim()`
+    remains the sole PUBLIC removal operation; `_reserve()`/`_Reservation` (private, `L09-R012`
+    convergence) replace it internally."""
     inbox = Inbox()
     assert not hasattr(inbox, "restore")
+    assert not hasattr(inbox, "peek")  # PASS-6's own now-superseded method is also gone
 
 
 def test_the_reviewers_duplicate_id_witness_is_no_longer_expressible() -> None:
@@ -192,39 +182,89 @@ def test_the_reviewers_duplicate_id_witness_is_no_longer_expressible() -> None:
     assert [item.id for item in inbox.pending(InboxTarget.NEXT_TURN)] == [envelope.id]
 
 
-def test_calling_commit_claim_again_with_a_stale_batch_is_a_safe_no_op() -> None:
-    """`L09-R011`: a caller that calls the private commit method again with a batch that is no
-    longer at the queue's own front (already committed once) must NOT delete unrelated input --
-    `_commit_claim` checks IDENTITY, not merely count, so a stale/repeated call is a no-op rather
-    than a repeat deletion. (An earlier revision of this test asserted the opposite -- that a
-    second call also removed an unrelated envelope `B` -- which an independent Rust review
-    correctly flagged as codifying the exact `L09-R011` defect rather than guarding against it.)"""
+def test_double_rollback_cannot_duplicate_an_envelope() -> None:
+    """`C09-1`'s own required negative witness 1: a second terminal call, whichever method,
+    raises rather than mutating the queue again."""
+    inbox = Inbox()
+    inbox.followup(_message("only"))
+    reservation = inbox._reserve(InboxTarget.NEXT_TURN, ClaimPolicy.ONE_AT_A_TIME)
+
+    reservation.rollback()
+    with pytest.raises(RuntimeError):
+        reservation.rollback()
+
+    assert len(inbox.pending(InboxTarget.NEXT_TURN)) == 1  # not duplicated
+
+
+def test_rollback_cannot_accept_a_foreign_envelope() -> None:
+    """`C09-1`'s own required negative witness 2: neither terminal method accepts an argument at
+    all -- a structural guarantee (Python's own function-signature enforcement), not merely a
+    behavioral one."""
+    inbox = Inbox()
+    envelope = inbox.followup(_message("only"))
+    reservation = inbox._reserve(InboxTarget.NEXT_TURN, ClaimPolicy.ONE_AT_A_TIME)
+
+    with pytest.raises(TypeError):
+        reservation.rollback(envelope)  # type: ignore[call-arg]
+    with pytest.raises(TypeError):
+        reservation.commit(envelope)  # type: ignore[call-arg]
+
+
+def test_commit_then_rollback_cannot_mutate_the_queue_a_second_time() -> None:
+    """`C09-1`'s own required negative witness 3."""
+    inbox = Inbox()
+    inbox.followup(_message("only"))
+    reservation = inbox._reserve(InboxTarget.NEXT_TURN, ClaimPolicy.ONE_AT_A_TIME)
+
+    reservation.commit()
+    with pytest.raises(RuntimeError):
+        reservation.rollback()
+
+    assert inbox.pending(InboxTarget.NEXT_TURN) == ()  # still removed -- rollback was rejected
+
+
+def test_rollback_then_commit_cannot_mutate_the_queue_a_second_time() -> None:
+    """`C09-1`'s own required negative witness 4 (the reverse ordering)."""
+    inbox = Inbox()
+    inbox.followup(_message("only"))
+    reservation = inbox._reserve(InboxTarget.NEXT_TURN, ClaimPolicy.ONE_AT_A_TIME)
+
+    reservation.rollback()
+    with pytest.raises(RuntimeError):
+        reservation.commit()
+
+    assert len(inbox.pending(InboxTarget.NEXT_TURN)) == 1  # still restored -- commit was rejected
+
+
+def test_rollback_precedes_input_enqueued_after_the_reservation() -> None:
+    """The restored batch goes to the FRONT, ahead of anything enqueued in the meantime -- FIFO
+    order as if the reservation had never happened. Because the batch is already gone from the
+    queue the moment it is reserved, a re-entrant observer's own `steer()`/`followup()` calls
+    always land AFTER it in the underlying list; rollback simply re-prepends the original batch."""
     inbox = Inbox()
     inbox.followup(_message("A"))
-    b = inbox.followup(_message("B"))
-    peeked = inbox.peek(InboxTarget.NEXT_TURN, ClaimPolicy.ONE_AT_A_TIME)
+    inbox.followup(_message("B"))
+    reservation = inbox._reserve(InboxTarget.NEXT_TURN, ClaimPolicy.ALL)
+    inbox.followup(_message("C"))  # a re-entrant observer's own new input
 
-    inbox._commit_claim(InboxTarget.NEXT_TURN, peeked)  # removes A
-    inbox._commit_claim(InboxTarget.NEXT_TURN, peeked)  # stale -- A is gone; must not touch B
+    reservation.rollback()
 
     pending = inbox.pending(InboxTarget.NEXT_TURN)
-    assert [envelope.id for envelope in pending] == [b.id]
+    assert [text_of(e.message) for e in pending] == ["A", "B", "C"]
 
 
-def test_commit_claim_does_nothing_if_the_front_no_longer_matches_the_peeked_batch() -> None:
-    """`L09-R011`'s own required unit-level witness: a reentrant mutation (here, simulated
-    directly -- see `test_active_abort.py` for the through-the-real-driver version) that removes
-    the peeked envelope before commit runs must not cause commit to delete whatever unrelated
-    input has since taken its place at the front."""
+def test_a_reentrant_claim_on_the_same_target_sees_only_unrelated_input() -> None:
+    """`L09-R013`'s own root cause, closed by construction: since the reserved batch is already
+    gone from the queue before an observer runs, a reentrant `claim()` on the SAME target can only
+    ever find genuinely different, unrelated input -- never any part of the reserved batch."""
     inbox = Inbox()
-    inbox.steer(_message("A"))
-    b = inbox.steer(_message("B"))
-    peeked = inbox.peek(InboxTarget.NEXT_STEP, ClaimPolicy.ONE_AT_A_TIME)  # (A,)
+    inbox.followup(_message("A"))
+    inbox.followup(_message("B"))
+    inbox._reserve(InboxTarget.NEXT_TURN, ClaimPolicy.ALL)  # removes A, B atomically
 
-    inbox.claim(InboxTarget.NEXT_STEP, ClaimPolicy.ONE_AT_A_TIME)  # a reentrant claim removes A
-    inbox._commit_claim(InboxTarget.NEXT_STEP, peeked)  # must not now delete B
+    reentrant = inbox.claim(InboxTarget.NEXT_TURN, ClaimPolicy.ONE_AT_A_TIME)
 
-    assert inbox.pending(InboxTarget.NEXT_STEP) == (b,)
+    assert reentrant == ()  # nothing left for the observer's own claim to find
 
 
 def test_every_envelope_gets_a_unique_id() -> None:

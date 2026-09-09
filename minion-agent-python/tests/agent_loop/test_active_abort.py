@@ -14,7 +14,13 @@ from typing import Any
 import pytest
 
 from minion_agent.agent.envelope import ClaimPolicy, InboxTarget
-from minion_agent.agent.events import AGENT_LIFECYCLE_EVENT, AGENT_STATUS, AGENT_TRANSFORM_CONTEXT
+from minion_agent.agent.events import (
+    AGENT_LIFECYCLE_EVENT,
+    AGENT_PRE_STEP,
+    AGENT_PREPARE_NEXT_TURN,
+    AGENT_STATUS,
+    AGENT_TRANSFORM_CONTEXT,
+)
 from minion_agent.agent.identity import AgentStatus
 from minion_agent.agent.instance import AgentActiveError
 from minion_agent.agent.projection import MessageStart
@@ -538,48 +544,92 @@ async def test_run_until_idle_restores_a_preclaimed_follow_up_on_a_running_failu
     assert any(text_of(m) == "go" for m in loop.instance.messages)
 
 
-# -- Layer 09, `L09-R011`: a reentrant RUNNING observer must not lose unrelated input -----------
+# -- Layer 09, `L09-R012`/`L09-R013`/`L09-R014`: a reentrant RUNNING observer cannot lose or ------
+# -- duplicate the reserved batch, and cannot see any part of it either ---------------------------
 
 
-async def test_a_running_observer_that_claims_the_peeked_input_does_not_lose_other_input() -> None:
-    """`L09-R011` witness 1: `ONE_AT_A_TIME`, queue `A, B`. A synchronous RUNNING observer itself
-    calls `inbox.claim(...)`, removing `A` -- the very envelope this run peeked -- and returns
-    normally (no exception). `_run_wrapped`'s own commit must not then delete `B`: it was never
-    part of this run's own selected batch, and a count-only commit would have deleted it anyway
-    since it was now at the queue's own front. The continued turn is scripted as a represented
-    `aborted` terminal so the run returns immediately after it, without reaching Layer 08's own
-    separate, already-certified POST-turn steering poll (`_run_step`'s own `_claim_step_input`)
-    -- which would otherwise legitimately claim `B` itself moments later for an unrelated reason,
-    making this witness observe the wrong thing."""
+async def test_a_running_observer_that_claims_and_throws_does_not_lose_the_reserved_batch() -> None:
+    """`L09-R013`'s own exact scenario: `ClaimPolicy.ALL` reserves `A, B` ATOMICALLY, before the
+    RUNNING notification ever runs. A synchronous RUNNING observer calls `claim(ONE_AT_A_TIME)`
+    on the SAME target -- finding NOTHING, since `A, B` are already gone, held by the pending
+    reservation -- and then raises. Rollback must restore BOTH `A` and `B`, in original order; a
+    later retry (observer removed) must consume them exactly once."""
+    loop = _loop_with_adapter(
+        ScriptedResponse((TextBlock(text="hi"),), StopReason.STOP),
+        ScriptedResponse((TextBlock(text="steered reply"),), StopReason.STOP),
+    )[0]
+    loop.next_step_policy = ClaimPolicy.ALL
+    await loop.prompt(_say("hello"))
+    envelope_a = loop.instance.inbox.steer(_say("A"))
+    envelope_b = loop.instance.inbox.steer(_say("B"))
+    observer_claimed: list[Any] = []
+
+    def on_status_change(status: AgentStatus) -> None:
+        if status is AgentStatus.RUNNING:
+            observer_claimed.extend(
+                loop.instance.inbox.claim(InboxTarget.NEXT_STEP, ClaimPolicy.ONE_AT_A_TIME)
+            )
+            raise RuntimeError("status-boom")
+
+    loop.instance.on_status_change = on_status_change
+
+    with pytest.raises(RuntimeError, match="status-boom"):
+        await loop.continue_()
+
+    assert observer_claimed == []  # nothing left for the observer's own claim to find
+    pending = loop.instance.inbox.pending(InboxTarget.NEXT_STEP)
+    assert [e.id for e in pending] == [envelope_a.id, envelope_b.id]
+
+    loop.instance.on_status_change = None
+    await loop.continue_()  # retry, observer removed -- consumes A,B exactly once
+
+    assert loop.instance.inbox.pending(InboxTarget.NEXT_STEP) == ()
+
+
+async def test_a_running_observer_that_claims_and_returns_finds_nothing_and_entry_proceeds() -> (
+    None
+):
+    """`L09-R014`'s own exact scenario: `ClaimPolicy.ALL` reserves `A, B` atomically. A
+    synchronous RUNNING observer calls `claim(ONE_AT_A_TIME)` on the SAME target -- again finding
+    NOTHING -- and returns normally. The run itself still proceeds with its own original entering
+    batch (`A`, `B`), unaffected by the observer's own empty claim attempt. The continued turn is
+    scripted as a represented `aborted` terminal so an ordinary post-turn steering poll cannot
+    mask the result."""
     loop = _loop_with_adapter(
         ScriptedResponse((TextBlock(text="hi"),), StopReason.STOP),
         ScriptedResponse((), StopReason.ABORTED, error_message="terminal"),
     )[0]
+    loop.next_step_policy = ClaimPolicy.ALL
     await loop.prompt(_say("hello"))
     loop.instance.inbox.steer(_say("A"))
-    envelope_b = loop.instance.inbox.steer(_say("B"))
+    loop.instance.inbox.steer(_say("B"))
+    observer_claimed: list[Any] = []
 
     def on_status_change(status: AgentStatus) -> None:
         if status is AgentStatus.RUNNING:
-            loop.instance.inbox.claim(InboxTarget.NEXT_STEP, ClaimPolicy.ONE_AT_A_TIME)
+            observer_claimed.extend(
+                loop.instance.inbox.claim(InboxTarget.NEXT_STEP, ClaimPolicy.ONE_AT_A_TIME)
+            )
 
     loop.instance.on_status_change = on_status_change
 
     await loop.continue_()  # must not raise -- the observer returns normally
 
-    pending = loop.instance.inbox.pending(InboxTarget.NEXT_STEP)
-    assert len(pending) == 1
-    assert pending[0].id == envelope_b.id
+    assert observer_claimed == []  # nothing left for the observer's own claim to find
+    assert any(text_of(m) == "A" for m in loop.instance.messages)
+    assert any(text_of(m) == "B" for m in loop.instance.messages)
+    assert loop.instance.inbox.pending(InboxTarget.NEXT_STEP) == ()
 
 
 async def test_a_running_observer_that_clears_and_enqueues_does_not_lose_the_new_input() -> None:
-    """`L09-R011` witness 2: `ClaimPolicy.ALL`, queue `A, B`. A synchronous RUNNING observer
-    clears the SAME target entirely and enqueues `C` before returning normally.
-    `_run_wrapped`'s own commit must not remove `C` as if it were part of the earlier peek -- a
-    count-only commit would have deleted it anyway, since it was the only thing at the queue's
-    own front. The continued turn is scripted as a represented `aborted` terminal for the same
-    reason as witness 1 above: so the run returns immediately, before Layer 08's own separate
-    post-turn steering poll could legitimately claim `C` itself for an unrelated reason."""
+    """The reservation mechanism's own required disposition of UNRELATED observer side effects
+    (the agreed convergence contract's own explicit rule): `ClaimPolicy.ALL` reserves `A, B`
+    atomically -- the target is already empty by the time a synchronous RUNNING observer runs. The
+    observer clears the SAME (already-empty) target and enqueues `C` before returning normally.
+    `C` is genuinely unrelated to the reservation and must never be confused with it: the run
+    proceeds with its own reserved `A, B`, and `C` remains queued, untouched. The continued turn
+    is scripted as a represented `aborted` terminal so an ordinary post-turn steering poll cannot
+    mask the result."""
     loop = _loop_with_adapter(
         ScriptedResponse((TextBlock(text="hi"),), StopReason.STOP),
         ScriptedResponse((), StopReason.ABORTED, error_message="terminal"),
@@ -601,6 +651,140 @@ async def test_a_running_observer_that_clears_and_enqueues_does_not_lose_the_new
     pending = loop.instance.inbox.pending(InboxTarget.NEXT_STEP)
     assert len(pending) == 1
     assert text_of(pending[0].message) == "C"
+
+
+async def test_a_running_observer_that_clears_and_enqueues_then_throws_restores_ahead_of_it() -> (
+    None
+):
+    """The FAILURE-path counterpart: `ClaimPolicy.ALL` reserves `A, B` atomically; the observer
+    clears the (already-empty) target, enqueues `C`, and then raises. Rollback must restore `A, B`
+    ahead of `C` -- the original `L09-R007` FIFO-precedence rule, still required under the new
+    reservation mechanism."""
+    loop = _loop_with_adapter(ScriptedResponse((TextBlock(text="hi"),), StopReason.STOP))[0]
+    loop.next_step_policy = ClaimPolicy.ALL
+    await loop.prompt(_say("hello"))
+    loop.instance.inbox.steer(_say("A"))
+    loop.instance.inbox.steer(_say("B"))
+
+    def on_status_change(status: AgentStatus) -> None:
+        if status is AgentStatus.RUNNING:
+            loop.instance.inbox.clear(InboxTarget.NEXT_STEP)
+            loop.instance.inbox.steer(_say("C"))
+            raise RuntimeError("status-boom")
+
+    loop.instance.on_status_change = on_status_change
+
+    with pytest.raises(RuntimeError, match="status-boom"):
+        await loop.continue_()
+
+    pending = loop.instance.inbox.pending(InboxTarget.NEXT_STEP)
+    assert [text_of(e.message) for e in pending] == ["A", "B", "C"]
+
+
+# -- Layer 09, `L09-R015` (`L09-R012` convergence): AGENT_PRE_STEP/AGENT_PREPARE_NEXT_TURN --------
+# -- authority -- Agent identity is not a listener's own to redirect --------------------------
+
+
+async def test_pre_step_cannot_redirect_a_later_listener_to_a_replacement_instance() -> None:
+    """`L09-R015`: the same authoritative-identity witness already established for
+    `AGENT_TRANSFORM_CONTEXT` (`L09-R006`) -- listener A delegates with a FABRICATED replacement
+    `instance`; listener B must still observe the ORIGINAL instance, not A's forgery. Found during
+    a full audit of every `.waterfall()` dispatch in this codebase, alongside the reviewed
+    `AGENT_PREPARE_NEXT_TURN` finding below -- the identical unprotected shape, not itself
+    separately reported by any review."""
+    loop = _loop_with_adapter(ScriptedResponse((TextBlock(text="hi"),), StopReason.STOP))[0]
+    forged = object()
+    seen: list[Any] = []
+
+    async def listener_a(instance: Any, reason: Any, messages: Any, next_: Any) -> Any:
+        return await next_(forged, reason, messages)
+
+    async def listener_b(instance: Any, reason: Any, messages: Any, next_: Any) -> Any:
+        seen.append(instance)
+        return await next_()
+
+    loop.instance.ctx.events.on(AGENT_PRE_STEP, listener_a)
+    loop.instance.ctx.events.on(AGENT_PRE_STEP, listener_b)
+
+    await loop.prompt(_say("hello"))
+
+    assert seen[0] is not forged
+    assert seen[0] is loop.instance
+
+
+async def test_pre_step_cannot_drop_the_instance_for_a_later_listener() -> None:
+    """The omission half of the same witness: a listener that delegates WITHOUT re-supplying
+    `instance` must still leave the later listener observing the original, not `None`."""
+    loop = _loop_with_adapter(ScriptedResponse((TextBlock(text="hi"),), StopReason.STOP))[0]
+    seen: list[Any] = []
+
+    async def listener_a(instance: Any, reason: Any, messages: Any, next_: Any) -> Any:
+        return await next_()
+
+    async def listener_b(instance: Any, reason: Any, messages: Any, next_: Any) -> Any:
+        seen.append(instance)
+        return await next_()
+
+    loop.instance.ctx.events.on(AGENT_PRE_STEP, listener_a)
+    loop.instance.ctx.events.on(AGENT_PRE_STEP, listener_b)
+
+    await loop.prompt(_say("hello"))
+
+    assert seen[0] is loop.instance
+
+
+async def test_prepare_next_turn_cannot_redirect_to_a_replacement_instance() -> None:
+    """`L09-R015`'s own reviewed finding: pinned Pi's public `Agent.createLoopConfig()` wraps
+    `prepareNextTurn`/`prepareNextTurnWithContext` with the SAME Agent's own live `this.signal`
+    (`agent.ts:445-471`) -- `instance.signal` is Minion's own faithful mapping of that capability,
+    not an added one. Pi has exactly one such callback; Minion's own N-listener waterfall
+    extension must still preserve the same stable identity every other listener receives."""
+    loop = _loop_with_adapter(ScriptedResponse((TextBlock(text="hi"),), StopReason.STOP))[0]
+    forged = object()
+    seen: list[Any] = []
+
+    async def listener_a(
+        instance: Any, message: Any, tool_results: Any, context: Any, new_messages: Any, next_: Any
+    ) -> Any:
+        return await next_(forged, message, tool_results, context, new_messages)
+
+    async def listener_b(
+        instance: Any, message: Any, tool_results: Any, context: Any, new_messages: Any, next_: Any
+    ) -> Any:
+        seen.append(instance)
+        return await next_()
+
+    loop.instance.ctx.events.on(AGENT_PREPARE_NEXT_TURN, listener_a)
+    loop.instance.ctx.events.on(AGENT_PREPARE_NEXT_TURN, listener_b)
+
+    await loop.prompt(_say("hello"))
+
+    assert seen[0] is not forged
+    assert seen[0] is loop.instance
+
+
+async def test_prepare_next_turn_cannot_drop_the_instance_for_a_later_listener() -> None:
+    """The omission half of the same witness."""
+    loop = _loop_with_adapter(ScriptedResponse((TextBlock(text="hi"),), StopReason.STOP))[0]
+    seen: list[Any] = []
+
+    async def listener_a(
+        instance: Any, message: Any, tool_results: Any, context: Any, new_messages: Any, next_: Any
+    ) -> Any:
+        return await next_()
+
+    async def listener_b(
+        instance: Any, message: Any, tool_results: Any, context: Any, new_messages: Any, next_: Any
+    ) -> Any:
+        seen.append(instance)
+        return await next_()
+
+    loop.instance.ctx.events.on(AGENT_PREPARE_NEXT_TURN, listener_a)
+    loop.instance.ctx.events.on(AGENT_PREPARE_NEXT_TURN, listener_b)
+
+    await loop.prompt(_say("hello"))
+
+    assert seen[0] is loop.instance
 
 
 async def test_a_represented_aborted_terminal_is_unaffected_by_layer_09() -> None:

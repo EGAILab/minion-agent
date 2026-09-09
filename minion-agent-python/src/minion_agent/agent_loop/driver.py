@@ -73,7 +73,6 @@ narrower-tool-event-seam carve-out language PASS 5 left in place, now false.
 from __future__ import annotations
 
 import time
-from collections.abc import Callable
 from dataclasses import dataclass
 
 from ..agent.decisions import (
@@ -96,6 +95,7 @@ from ..agent.events import (
     AGENT_TURN_STOPPING,
 )
 from ..agent.identity import AgentStatus
+from ..agent.inbox import _Reservation
 from ..agent.instance import AgentActiveError, AgentInstance
 from ..agent.projection import (
     AgentEnd,
@@ -243,10 +243,11 @@ class AgentLoop:
         that, eligible follow-up; with neither queued, rejects. Otherwise runs
         a plain continuation: no entering messages, full history still sent.
 
-        `Inbox.peek()` (Layer 09, `L09-R010`), not `claim()`: entering input is only PEEKED here,
-        never removed -- `_run_wrapped` commits the actual removal itself, via `commit_entry_
-        claim`, only once the run has validly begun (see `_run_wrapped`). A RUNNING-notification
-        failure then needs no restoration step: nothing was ever removed in the first place.
+        `Inbox._reserve()` (Layer 09, `L09-R012`/`L09-R013`/`L09-R014` convergence): entering input
+        is RESERVED here -- claimed atomically, before this method ever calls `_run_wrapped` --
+        and the resulting one-shot reservation is handed to `_run_wrapped`, which settles it with
+        `.commit()` on success or `.rollback()` on a RUNNING-notification failure. See
+        `Inbox._Reservation`'s own docstring for the full rationale.
         """
         if self.instance.status is not AgentStatus.IDLE:
             raise AgentActiveError(
@@ -257,25 +258,29 @@ class AgentLoop:
             raise AgentActiveError("No messages to continue from")
 
         if isinstance(messages[-1], AssistantMessage):
-            steering = self.instance.inbox.peek(InboxTarget.NEXT_STEP, self.next_step_policy)
-            if steering:
+            steering_reservation = self.instance.inbox._reserve(
+                InboxTarget.NEXT_STEP, self.next_step_policy
+            )
+            if steering_reservation.envelopes:
                 await self._run_wrapped(
-                    entering=tuple(envelope.message for envelope in steering),
-                    causes=[{"id": e.id, "origin": e.origin} for e in steering],
+                    entering=tuple(e.message for e in steering_reservation.envelopes),
+                    causes=[
+                        {"id": e.id, "origin": e.origin} for e in steering_reservation.envelopes
+                    ],
                     skip_initial_steering_poll=True,
-                    commit_entry_claim=lambda: self.instance.inbox._commit_claim(
-                        InboxTarget.NEXT_STEP, steering
-                    ),
+                    entry_reservation=steering_reservation,
                 )
                 return
-            followups = self.instance.inbox.peek(InboxTarget.NEXT_TURN, self.next_turn_policy)
-            if followups:
+            followup_reservation = self.instance.inbox._reserve(
+                InboxTarget.NEXT_TURN, self.next_turn_policy
+            )
+            if followup_reservation.envelopes:
                 await self._run_wrapped(
-                    entering=tuple(envelope.message for envelope in followups),
-                    causes=[{"id": e.id, "origin": e.origin} for e in followups],
-                    commit_entry_claim=lambda: self.instance.inbox._commit_claim(
-                        InboxTarget.NEXT_TURN, followups
-                    ),
+                    entering=tuple(e.message for e in followup_reservation.envelopes),
+                    causes=[
+                        {"id": e.id, "origin": e.origin} for e in followup_reservation.envelopes
+                    ],
+                    entry_reservation=followup_reservation,
                 )
                 return
             raise AgentActiveError("Cannot continue from message role: assistant")
@@ -290,21 +295,18 @@ class AgentLoop:
         true/false toggle, matching pi's own per-invocation lifecycle, not
         one shared bracket spanning every batch this pump happens to drain.
 
-        Peeks, not claims (`L09-R010`) -- see `continue_()`'s own docstring."""
+        Reserves, not claims directly (`L09-R012`/`L09-R013`/`L09-R014`) -- see `continue_()`'s
+        own docstring."""
         inbox = self.instance.inbox
         while inbox.pending(InboxTarget.NEXT_TURN):
-            claimed = inbox.peek(InboxTarget.NEXT_TURN, self.next_turn_policy)
+            reservation = inbox._reserve(InboxTarget.NEXT_TURN, self.next_turn_policy)
             causes: list[dict[str, object]] = [
-                {"id": envelope.id, "origin": envelope.origin} for envelope in claimed
+                {"id": envelope.id, "origin": envelope.origin} for envelope in reservation.envelopes
             ]
-
-            def commit_claim(claimed: tuple[InputEnvelope, ...] = claimed) -> None:
-                inbox._commit_claim(InboxTarget.NEXT_TURN, claimed)
-
             await self._run_wrapped(
-                entering=tuple(envelope.message for envelope in claimed),
+                entering=tuple(envelope.message for envelope in reservation.envelopes),
                 causes=causes,
-                commit_entry_claim=commit_claim,
+                entry_reservation=reservation,
             )
         inbox.take_wake()
 
@@ -326,7 +328,7 @@ class AgentLoop:
         entering: tuple[Message, ...],
         causes: list[dict[str, object]],
         skip_initial_steering_poll: bool = False,
-        commit_entry_claim: Callable[[], None] | None = None,
+        entry_reservation: _Reservation | None = None,
     ) -> None:
         """One pi-equivalent run's full lifecycle: three unconditional state
         writes at entry, matching pinned Pi's own `runWithLifecycle` exactly
@@ -337,17 +339,17 @@ class AgentLoop:
         regardless of success or a run-executor failure this pass already
         settles gracefully (see `_settle_run_failure`).
 
-        `commit_entry_claim`, when supplied (Layer 09, `L09-R010`): called ONLY once `set_status
-        (RUNNING)` has succeeded, to commit a caller-side `Inbox.peek()` into an actual removal
-        (`Inbox._commit_claim`) -- `continue_()`'s steering/follow-up branches and `run_until_
-        idle()`'s follow-up claim each PEEK, never destructively `claim()`, before calling this
-        method, so a RUNNING-notification failure needs no restoration step at all: nothing was
-        ever removed from `Inbox` in the first place. `prompt()` supplies `None`, since it never
-        reads from `Inbox` at all. An earlier revision claimed eagerly and exposed a PUBLIC
-        `Inbox.restore()` to reverse a failed claim -- an independent Rust review found that
-        method let any caller manufacture duplicate queue entries (`L09-R010`,
-        `CONTRACT_ASSURANCE_DEFECT`); peek-then-commit removes the entire restoration surface
-        instead of merely restricting it.
+        `entry_reservation`, when supplied (Layer 09, `L09-R012`/`L09-R013`/`L09-R014`
+        convergence): a one-shot `Inbox._Reservation` a caller already obtained via `Inbox.
+        _reserve()` -- destructively claiming its own entering batch BEFORE calling this method,
+        atomically, with no window in which a re-entrant RUNNING observer could see or touch it.
+        Settled with `.commit()` (a no-op; the removal already happened) once `set_status
+        (RUNNING)` succeeds, or `.rollback()` (restoring the exact batch) if it raises --
+        `continue_()`'s steering/follow-up branches and `run_until_idle()`'s follow-up claim each
+        supply one; `prompt()` supplies `None`, since it never reads from `Inbox` at all. See
+        `Inbox._Reservation`'s own docstring for the full authority rationale (`L09-R010`) and why
+        claim-then-reservation, not peek-then-commit (an intermediate design an independent Rust
+        review found still lost or duplicated input under re-entrancy), is the current mechanism.
         """
         if self.instance.status is not AgentStatus.IDLE:
             # Pinned Pi's own `runWithLifecycle` guard -- a third, distinct
@@ -381,16 +383,19 @@ class AgentLoop:
             # `handleRunFailure`, invoked only once a run has genuinely begun) and leaves no trace:
             # the freshly-created signal is discarded, `status` is forced back to `IDLE` directly
             # (NOT via `set_status` again, which would re-invoke the SAME failing listener chain),
-            # `commit_entry_claim` is never called so any input a caller already PEEKED from
-            # `Inbox` is simply never removed (`L09-R010` -- no restoration step is needed), and
-            # the observer's own original exception propagates unconverted -- a subsequent
-            # `prompt()`/`continue_()` call then succeeds normally, exactly as if this attempt had
-            # never been made.
+            # `entry_reservation.rollback()` restores any input a caller already RESERVED from
+            # `Inbox` (`L09-R012`/`L09-R013`/`L09-R014` -- the reservation was claimed atomically,
+            # before this notification ever ran, so there is no window in which the observer
+            # could have raced it), and the observer's own original exception propagates
+            # unconverted -- a subsequent `prompt()`/`continue_()` call then succeeds normally,
+            # exactly as if this attempt had never been made.
             self.instance._end_run_signal()
             self.instance._force_idle_after_failed_entry_notification()
+            if entry_reservation is not None:
+                entry_reservation.rollback()
             raise
-        if commit_entry_claim is not None:
-            commit_entry_claim()
+        if entry_reservation is not None:
+            entry_reservation.commit()
         self.instance.streaming_message = None
         self.instance.error_message = None
         try:
@@ -819,7 +824,26 @@ class AgentLoop:
         """Pinned Pi's `prepareNextTurn`: a run-local override for the next
         provider request's whole `context`/`model`/`thinking_level`.
         `message`/`tool_results`/`context`/`new_messages` mirror pinned Pi's
-        own `PrepareNextTurnContext` exactly (`L08-R001`)."""
+        own `PrepareNextTurnContext` exactly (`L08-R001`).
+
+        `instance` is AUTHORITATIVE identity, not a listener's own to replace or drop
+        (`L09-R015`, `L09-R012` convergence): pinned Pi's own public `Agent.createLoopConfig()`
+        wraps the application-facing `prepareNextTurn`/`prepareNextTurnWithContext` callback with
+        the SAME Agent's own live `this.signal` (`agent.ts:445-471`) -- Pi has exactly one such
+        callback, so it has no "one listener redirects a later one" hazard to violate, but
+        Minion's own N-listener waterfall extension of that single callback must still preserve
+        the SAME stable identity every other listed consumer receives (`instance.signal`, since
+        `instance` is what these listeners already receive as their own first argument, the
+        established Minion convention -- see `spec/agent.md`). `_restore_instance` below forces
+        `instance` back to its ORIGINAL value at every listener-to-listener handoff, the same
+        restoration discipline `_transform_context`/`tools/post-execute` already apply
+        (`L09-R006`/`L06-R003`) -- `message`/`tool_results`/`context`/`new_messages` remain the
+        listener's own to transform freely; only `instance`'s own identity is protected."""
+        original_instance = self.instance
+
+        def _restore_instance(current: tuple[object, ...]) -> tuple[object, ...]:
+            return (original_instance, *current[1:])
+
         update: RunConfigUpdate = await self.instance.ctx.events.waterfall(
             AGENT_PREPARE_NEXT_TURN,
             self.instance,
@@ -829,6 +853,7 @@ class AgentLoop:
             new_messages,
             terminal=RunConfigUpdate(),
             scope=self.instance.scope.key,
+            normalize_step=_restore_instance,
         )
         return update
 
@@ -884,7 +909,18 @@ class AgentLoop:
         listener that owns the decision returns without delegating; one that
         transforms delegates with replacement arguments, which the listeners
         after it receive.
-        """
+
+        `instance` is AUTHORITATIVE identity, not a listener's own to replace or drop
+        (`L09-R015`, `L09-R012` convergence -- the identical shape of defect found on `AGENT_
+        PREPARE_NEXT_TURN`, closed here by the same audit rather than left for a future review to
+        separately discover): `_restore_instance` forces `instance` back to its ORIGINAL value at
+        every listener-to-listener handoff -- `reason`/`messages` remain the listener's own to
+        transform freely; only `instance`'s own identity is protected."""
+        original_instance = self.instance
+
+        def _restore_instance(current: tuple[object, ...]) -> tuple[object, ...]:
+            return (original_instance, *current[1:])
+
         decision: PreStepDecision = await self.instance.ctx.events.waterfall(
             AGENT_PRE_STEP,
             self.instance,
@@ -892,6 +928,7 @@ class AgentLoop:
             messages,
             terminal=Enter(messages=messages),
             scope=self.instance.scope.key,
+            normalize_step=_restore_instance,
         )
         return decision
 

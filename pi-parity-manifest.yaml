@@ -341,6 +341,98 @@ rows:
   python: src/minion_agent/llm/service.py::Request.signal (additive field, never inspected by LlmService/_settled itself)
   rust: minion-agent-rust/crates/minion-agent/src/llm/vocabulary.rs::LlmRequest.signal; minion-agent-rust/crates/minion-agent/src/agent_loop/driver.rs::AgentLoopDriver::execute_run/one_signal_reaches_lifecycle_transform_and_provider_then_clears
   disposition: adopted
+- id: AI-028
+  phase: 2
+  pi: packages/ai/src/types.ts::ProviderStreams, StreamFunction
+  surface: adapter/implementation-module contract (Layer 10, provider abstraction)
+  rule: 'Layer 10 (`assurance/layers/10-provider-abstraction-python.md`): formalizes a contract that
+    was already implemented and already Pi-parity-audited under Layer 02''s own pass (`LLM-018`,
+    `assurance/layers/02-llm.md`), but never given its own manifest row or normative `spec/llm.md`
+    section -- this row and `spec/llm.md`''s new "Provider abstraction" section close that
+    documentary gap; no Python/Rust behavior changes.
+
+    Pinned Pi''s own `ProviderStreams` interface (`packages/ai/src/types.ts:272-281`) is the uniform
+    contract every API implementation module under `packages/ai/src/api/` satisfies:
+    `stream(model, context, options?) -> AssistantMessageEventStream` (plus optional
+    `streamSimple`/`fetchDeferred`/`cancelDeferred` this project does not yet need). `StreamFunction`
+    (`types.ts:324-336`) is the same shape as a bare callable type, with its own doc comment stating
+    the never-raises contract explicitly (already certified, `AI-012`/`LLM-018`) -- `ProviderStreams`
+    is the STRUCTURAL contract an implementation module must satisfy; `StreamFunction` is what a
+    caller actually invokes once one is resolved.
+
+    Minion''s `Adapter` protocol (`llm/service.py`) is the direct, faithful mapping:
+    `provider: str`, `api: str`, `models: frozenset[str]` (identity/capability fields Pi''s own
+    `ProviderStreams` does not carry itself -- Pi''s equivalent identity lives one level up, on the
+    `Provider`/`Model` objects a caller already holds before ever calling `stream`; Minion folds
+    identity onto the implementation object itself since it has no separate `Provider` type -- see
+    `AI-029` for the full registry-shape mapping this enables) plus `stream(request: Request) ->
+    AssistantStream`, matching `ProviderStreams.stream`''s own `(model, context, options?)` shape
+    collapsed into Minion''s own single `Request` value (already certified: `Context` under `AI-011`,
+    the never-raises return contract under `AI-012`). `MockAdapter`/`ScriptedResponse`
+    (`llm/adapters/mock.py`) is the reference implementation of this row -- already characterized
+    directly in its own docstring ("a real adapter, not a test double") and confirmed by Layer 02''s
+    own audit (`LLM-018`''s own evidence row: "RETAIN -- deliberately exercises the contract''s edge
+    cases... own docstring states it is a real adapter... the evidence in LLM-018 confirms that
+    claim"). No new Python/Rust code required by this row; `spec/llm.md`''s new section is the only
+    new artifact.'
+  tests:
+  - eager-invalid-model-fails-before-stream (already certified under AI-012/LLM-018, cited again here as this row's own reference-implementation evidence)
+  - public-stream-fuses-after-first-terminal (as above)
+  - represented-provider-error-rides-stream (as above)
+  - test_mock_adapter.py (Python, already certified under LLM-018 -- script ordering, tool-call responses, in-band error/abort, request recording, usage pass-through)
+  python: src/minion_agent/llm/service.py::Adapter (Protocol); src/minion_agent/llm/adapters/mock.py::MockAdapter/ScriptedResponse/_Replay (reference implementation)
+  rust: minion-agent-rust/crates/minion-agent/src/llm/ (typed adapter trait/mock, already implemented under Layer 02's own Rust pass -- see assurance/layers/02-llm.md's own Rust handoff for the exact symbols; this row adds no new Rust requirement)
+  disposition: adopted
+- id: AI-029
+  phase: 2
+  pi: packages/ai/src/models.ts::createProvider, apiFor, dispatch
+  surface: adapter registration and model-to-implementation resolution (Layer 10, provider abstraction)
+  rule: 'Pinned Pi''s own model-resolution mechanism, re-read directly (`models.ts:735-812`): a
+    `Provider` is built once via `createProvider({..., api})`, where `api` is EITHER a single
+    `ProviderStreams` (every model this provider serves uses the one implementation) OR a map keyed
+    by `model.api` (`Partial<Record<TApi, ProviderStreams>>`, for a provider whose own models span
+    more than one wire protocol). `apiFor(model)` resolves which `ProviderStreams` a given `model`
+    uses; `dispatch()` calls `apiFor(model)` and, finding no entry, returns an IN-BAND stream error
+    (`lazyStream(..., throw new ModelsError(...))`) rather than raising eagerly -- Pi represents
+    "this provider has no implementation for this model''s own api" as a never-raises-contract
+    failure, not a caller-eager one. A SEPARATE, earlier step -- outside `packages/ai/src/types.ts`/
+    `models.ts` (the CLI/config layer that builds a `Models` collection from `models.json`/built-in
+    catalogs) -- is what would reject a genuinely UNKNOWN model id before any `Provider`/`stream`
+    call happens at all; that earlier step is Minion-architecturally out of scope (Minion has no
+    config-driven model catalog of its own -- callers register concrete adapters directly).
+
+    Minion''s own `LlmService` (`llm/service.py`) collapses this into ONE flat, global registry:
+    `_adapters: dict[ModelId, Adapter]`, keyed by the FULL `(provider, model, api)` triple rather
+    than Pi''s two-level `Provider` object (itself keyed by `model.api` only, since `provider`/
+    `model` are already fixed once a `Provider` is selected). `register(adapter)` populates one
+    entry per `model` the adapter declares in `adapter.models`, returning a withdrawal handle scoped
+    to exactly that adapter''s own registrations (a later adapter overwriting the same key is
+    intentional replace-in-place behavior, not accidental collision -- already confirmed and tested
+    under Layer 02, `test_a_later_adapter_replaces_an_earlier_one_for_the_same_model`).
+    `LlmService.stream()` looks the FULL triple up and raises `UnknownModelError` EAGERLY
+    (`llm/errors.py`) when absent -- collapsing what Pi splits into "no Provider selected for this
+    model at all" (a config-layer question Minion does not have) and "this Provider has no
+    implementation for this model''s own api" (Pi''s own IN-BAND `ModelsError` case) into ONE eager
+    check. This is an intentional, disclosed Minion architectural SIMPLIFICATION, not a literal
+    mechanical port of Pi''s two-level Provider/api-map structure: master design §4''s own eager/lazy
+    boundary already authorizes it (unresolvable-model is explicitly framed there as "a caller bug,
+    discoverable immediately," matching Minion''s own eager check, not Pi''s in-band one for the
+    narrower "wrong api for this provider" sub-case) and it was already exercised, without this
+    exact Pi-source cross-reference being written down before now, by Layer 02''s own canonical
+    evidence (`eager-invalid-model-fails-before-stream`, `AI-012`/`LLM-018`) -- this row makes that
+    cross-reference explicit rather than leaving it implicit in the eager/lazy boundary''s own prose.
+    `LlmService.models()` (every currently resolvable model) has no direct Pi analogue -- Pi''s own
+    `Provider`/`Models` collection exposes richer catalog/refresh semantics (`fetchModels`,
+    `filterModels`, dynamic overlays) this project does not need yet, since Minion has no
+    config-driven provider catalog; `models()` is Minion''s own minimal introspection surface,
+    intentional and disclosed, not a partial/broken port of Pi''s own richer catalog type.'
+  tests:
+  - test_service.py::test_registering_an_adapter_carries_its_declared_api (already certified under AI-011/AI-019/LLM-019)
+  - test_service.py::test_a_later_adapter_replaces_an_earlier_one_for_the_same_model (already certified under LLM-018)
+  - eager-invalid-model-fails-before-stream (already certified under AI-012/LLM-018)
+  python: src/minion_agent/llm/service.py::LlmService (register, models, stream dispatch); src/minion_agent/llm/errors.py::UnknownModelError
+  rust: minion-agent-rust/crates/minion-agent/src/llm/service.rs (already implemented under Layer 02's own Rust pass -- exact model lookup and eager stream-creation boundary, per assurance/layers/02-llm.md's own Rust handoff section; this row adds no new Rust requirement)
+  disposition: adopted
 - id: AG-001
   phase: 3
   pi: packages/agent/src/agent-loop.ts::runAgentLoop

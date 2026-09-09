@@ -1,0 +1,43 @@
+name: llm-service-withdrawal-does-not-remove-a-later-replacement
+family: agent
+authority: 2026-08-20-minion-agent-design.md
+pi_revision: b7bb00b936dbe21b8e160b3e89efdec361846699
+notes: >
+  register() returns a withdrawal handle scoped to exactly the registrations THAT call made. A
+  handle from an earlier, since-overwritten registration must be a safe no-op once a later
+  registrant has taken over the same identity -- withdrawing it must never remove the later
+  registrant's own entry. This is Minion-only registry machinery Pi has no analogue for (AI-030);
+  the invariant is about the registry's own internal bookkeeping, not a Pi-parity question.
+llm_service:
+  adapters:
+    - id: adapter-a
+      provider: mock
+      api: mock
+      models: [alpha]
+      behavior: ok
+    - id: adapter-b
+      provider: mock
+      api: mock
+      models: [alpha]
+      behavior: ok
+    - id: adapter-c
+      provider: mock
+      api: mock
+      models: [gamma]
+      behavior: ok
+  steps:
+    - register: adapter-a
+    - register: adapter-b
+    - withdraw: adapter-a
+    - register: adapter-c
+    - withdraw: adapter-c
+  queries:
+    - id: alpha_still_resolves_to_the_later_replacement
+      resolve: { provider: mock, model: alpha, api: mock }
+    - id: gamma_is_unresolvable_after_its_own_withdrawal
+      resolve: { provider: mock, model: gamma, api: mock }
+expect:
+  alpha_still_resolves_to_the_later_replacement:
+    resolve: { found: true, adapter: adapter-b }
+  gamma_is_unresolvable_after_its_own_withdrawal:
+    resolve: { found: false }

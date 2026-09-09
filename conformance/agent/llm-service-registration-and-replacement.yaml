@@ -1,0 +1,45 @@
+name: llm-service-registration-and-replacement
+family: agent
+authority: 2026-08-20-minion-agent-design.md
+pi_revision: b7bb00b936dbe21b8e160b3e89efdec361846699
+notes: >
+  Pi has no adapter-registration concept at all -- LlmService's own registry is an intentional
+  Minion architectural extension (AI-030). This scenario exercises its two most basic, must-hold
+  invariants directly: registering a later adapter for the SAME identity replaces the earlier one
+  in place (not a duplicate/ambiguous entry), and registering an adapter for a DIFFERENT identity
+  never disturbs an unrelated one's own resolution.
+llm_service:
+  adapters:
+    - id: adapter-a
+      provider: mock
+      api: mock
+      models: [alpha]
+      behavior: ok
+    - id: adapter-b
+      provider: mock
+      api: mock
+      models: [alpha]
+      behavior: ok
+    - id: adapter-c
+      provider: mock
+      api: mock
+      models: [gamma]
+      behavior: ok
+  steps:
+    - register: adapter-a
+    - register: adapter-b
+    - register: adapter-c
+  queries:
+    - id: alpha_resolves_to_the_replacement
+      resolve: { provider: mock, model: alpha, api: mock }
+    - id: gamma_resolves_to_its_own_adapter
+      resolve: { provider: mock, model: gamma, api: mock }
+    - id: never_registered_identity_is_unresolvable
+      resolve: { provider: mock, model: delta, api: mock }
+expect:
+  alpha_resolves_to_the_replacement:
+    resolve: { found: true, adapter: adapter-b }
+  gamma_resolves_to_its_own_adapter:
+    resolve: { found: true, adapter: adapter-c }
+  never_registered_identity_is_unresolvable:
+    resolve: { found: false }

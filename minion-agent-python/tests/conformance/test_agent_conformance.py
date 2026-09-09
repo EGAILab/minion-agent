@@ -9,7 +9,10 @@ tool-registry-scenario.schema.json): those exercise the real ToolRegistry/Contex
 directly, not a full agent-loop turn either, and are executed by
 test_tool_registry_conformance.py. Also excludes Layer-07 inbox scenarios (top-level `agent_inbox`
 key, agent-inbox-scenario.schema.json): those exercise the real Inbox primitive directly, with no
-provider/tool/turn at all, and are executed by test_agent_inbox_conformance.py.
+provider/tool/turn at all, and are executed by test_agent_inbox_conformance.py. Also excludes
+Layer-10 llm-service scenarios (top-level `llm_service` key, llm-service-scenario.schema.json):
+those exercise the real LlmService/Adapter registration/resolution seam directly, with no Agent
+loop at all, and are executed by test_llm_service_conformance.py.
 """
 
 from pathlib import Path
@@ -28,7 +31,12 @@ def _is_full_loop_scenario(path: Path) -> bool:
     document = yaml.safe_load(path.read_text(encoding="utf-8"))
     return not (
         isinstance(document, dict)
-        and ("transform" in document or "tool_registry" in document or "agent_inbox" in document)
+        and (
+            "transform" in document
+            or "tool_registry" in document
+            or "agent_inbox" in document
+            or "llm_service" in document
+        )
     )
 
 

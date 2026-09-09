@@ -29,6 +29,37 @@ pub trait ToolExecutionSignal: Send + Sync + 'static {
     fn is_cancelled(&self) -> bool;
 }
 
+/// Cloneable read-only signal view exposed to tool hooks.
+#[derive(Clone)]
+pub struct ExecutionSignal(Arc<dyn ToolExecutionSignal>);
+
+impl ExecutionSignal {
+    pub fn new(signal: Arc<dyn ToolExecutionSignal>) -> Self {
+        Self(signal)
+    }
+
+    pub fn is_cancelled(&self) -> bool {
+        self.0.is_cancelled()
+    }
+}
+
+impl fmt::Debug for ExecutionSignal {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("ExecutionSignal")
+            .field("is_cancelled", &self.is_cancelled())
+            .finish_non_exhaustive()
+    }
+}
+
+impl PartialEq for ExecutionSignal {
+    fn eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
+    }
+}
+
+impl Eq for ExecutionSignal {}
+
 pub type ToolUpdateCallback = Arc<dyn Fn(AgentToolResult) + Send + Sync + 'static>;
 
 pub struct ToolExecutionRequest {

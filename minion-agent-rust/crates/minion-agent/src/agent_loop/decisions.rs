@@ -6,7 +6,9 @@ use serde::{Deserialize, Serialize};
 use crate::{
     Context, DispatchMode, EventError, EventListenerHandle, EventName, EventSpec, Next,
     WaterfallError,
+    agent::AgentInstance,
     llm::{AssistantMessage, Message, ToolResultMessage},
+    runtime::RunSignal,
 };
 
 use super::{AgentListenerError, AgentLoopError, RunConfigUpdate, RunContext};
@@ -44,6 +46,7 @@ pub enum PreStepReason {
 pub struct PreStepContext {
     pub messages: Vec<Message>,
     pub reason: PreStepReason,
+    pub signal: RunSignal,
 }
 
 /// A listener's ordered opinion on whether the run should continue.
@@ -63,6 +66,7 @@ pub struct PrepareNextTurnContext {
     pub tool_results: Vec<ToolResultMessage>,
     pub context: RunContext,
     pub new_messages: Vec<Message>,
+    pub signal: RunSignal,
 }
 
 /// Owned snapshot delivered to `should-stop-after-turn` listeners.
@@ -72,6 +76,7 @@ pub struct ShouldStopAfterTurnContext {
     pub tool_results: Vec<ToolResultMessage>,
     pub context: RunContext,
     pub new_messages: Vec<Message>,
+    pub signal: RunSignal,
 }
 
 /// Resolves the intentional multi-listener extension in registration order.
@@ -122,7 +127,13 @@ pub(crate) async fn pre_step(
     let events = runtime.events()?;
     let spec = pre_step_spec();
     events.declare(&spec)?;
-    Ok(events.waterfall(&spec, context, runtime.scope()).await?)
+    let authoritative = context.signal.clone();
+    Ok(events
+        .waterfall_normalized(&spec, context, runtime.scope(), move |mut delegated| {
+            delegated.signal = authoritative.clone();
+            delegated
+        })
+        .await?)
 }
 
 fn prepare_next_turn_spec() -> EventSpec<PrepareNextTurnContext, RunConfigUpdate> {
@@ -162,7 +173,113 @@ pub(crate) async fn prepare_next_turn(
     let events = runtime.events()?;
     let spec = prepare_next_turn_spec();
     events.declare(&spec)?;
-    Ok(events.waterfall(&spec, context, runtime.scope()).await?)
+    let authoritative = context.signal.clone();
+    Ok(events
+        .waterfall_normalized(&spec, context, runtime.scope(), move |mut delegated| {
+            delegated.signal = authoritative.clone();
+            delegated
+        })
+        .await?)
+}
+
+/// Provider-local message transformation input for one request.
+#[derive(Clone)]
+pub struct TransformContext {
+    pub agent: Arc<AgentInstance>,
+    pub messages: Vec<Message>,
+    pub signal: RunSignal,
+}
+
+/// Typed listener outcome. Metadata cannot be replaced by this API.
+#[derive(Clone, Debug, PartialEq)]
+pub enum TransformContextAction {
+    Next(Option<Vec<Message>>),
+    Replace(Vec<Message>),
+}
+
+#[derive(Clone)]
+struct TransformDispatch {
+    agent: Arc<AgentInstance>,
+    signal: RunSignal,
+    messages: Arc<Mutex<Vec<Message>>>,
+    settled: Arc<Mutex<bool>>,
+    first_error: Arc<Mutex<Option<AgentListenerError>>>,
+}
+
+fn transform_context_spec() -> EventSpec<TransformDispatch, ()> {
+    EventSpec::new(
+        EventName::new("agent/transform-context").expect("normative event name is valid"),
+        DispatchMode::Serial,
+        |_| (),
+    )
+}
+
+pub fn register_transform_context_listener<F, Fut>(
+    context: &Context,
+    listener: F,
+) -> Result<EventListenerHandle, EventError>
+where
+    F: Fn(TransformContext) -> Fut + Send + Sync + 'static,
+    Fut: Future<Output = Result<TransformContextAction, AgentListenerError>> + Send + 'static,
+{
+    let events = context.events()?;
+    let spec = transform_context_spec();
+    events.declare(&spec)?;
+    let effects = context.effect_store();
+    events.on_serial(&spec, &effects, context.scope(), move |dispatch| {
+        let future = if *dispatch.settled.lock() || dispatch.first_error.lock().is_some() {
+            None
+        } else {
+            Some(listener(TransformContext {
+                agent: Arc::clone(&dispatch.agent),
+                messages: dispatch.messages.lock().clone(),
+                signal: dispatch.signal.clone(),
+            }))
+        };
+        async move {
+            let Some(future) = future else { return };
+            match future.await {
+                Ok(TransformContextAction::Next(replacement)) => {
+                    if let Some(replacement) = replacement {
+                        *dispatch.messages.lock() = replacement;
+                    }
+                }
+                Ok(TransformContextAction::Replace(replacement)) => {
+                    *dispatch.messages.lock() = replacement;
+                    *dispatch.settled.lock() = true;
+                }
+                Err(error) => *dispatch.first_error.lock() = Some(error),
+            }
+        }
+    })
+}
+
+pub(crate) async fn transform_context(
+    runtime: &Context,
+    context: TransformContext,
+) -> Result<Vec<Message>, AgentLoopError> {
+    let events = runtime.events()?;
+    let spec = transform_context_spec();
+    events.declare(&spec)?;
+    let messages = Arc::new(Mutex::new(context.messages));
+    let first_error = Arc::new(Mutex::new(None));
+    events
+        .serial(
+            &spec,
+            TransformDispatch {
+                agent: context.agent,
+                signal: context.signal,
+                messages: Arc::clone(&messages),
+                settled: Arc::new(Mutex::new(false)),
+                first_error: Arc::clone(&first_error),
+            },
+            runtime.scope(),
+        )
+        .await?;
+    if let Some(error) = first_error.lock().clone() {
+        return Err(error.into());
+    }
+    Ok(messages.lock().clone())
 }
 
 #[derive(Clone)]

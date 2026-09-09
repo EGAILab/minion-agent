@@ -148,6 +148,7 @@ fn layer_02_stream_contract_cases_drive_the_real_typed_rust_seam() {
                     model,
                     context: LlmContext::default(),
                     options: SimpleStreamOptions::default(),
+                    signal: None,
                 })
                 .unwrap();
             let mut terminal = None;
@@ -196,7 +197,8 @@ fn eager_invalid_model_case_uses_real_service_lookup() {
             .stream(LlmRequest {
                 model: identity(&requested),
                 context: LlmContext::default(),
-                options: SimpleStreamOptions::default()
+                options: SimpleStreamOptions::default(),
+                signal: None,
             })
             .is_err()
     );

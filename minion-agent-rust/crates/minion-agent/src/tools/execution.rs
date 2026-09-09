@@ -22,7 +22,8 @@ use crate::{
 };
 
 use super::{
-    AgentToolResult, ExecutionMode, ToolDefinition, ToolExecutionRequest, ToolExecutionSignal,
+    AgentToolResult, ExecutionMode, ExecutionSignal, ToolDefinition, ToolExecutionRequest,
+    ToolExecutionSignal,
 };
 
 /// Batch-level execution inputs owned by Layer 06.
@@ -206,6 +207,12 @@ pub struct BeforeToolCallContext {
 }
 
 #[derive(Clone, Debug, PartialEq)]
+pub struct BeforeToolCallHookContext {
+    pub call: BeforeToolCallContext,
+    pub signal: Option<ExecutionSignal>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
 pub enum BeforeToolCallAction {
     Proceed(Option<Value>),
     Block {
@@ -221,11 +228,11 @@ enum BeforeHookOutcome {
     Failed(String),
 }
 
-fn before_tool_call_spec() -> EventSpec<BeforeToolCallContext, BeforeHookOutcome> {
+fn before_tool_call_spec() -> EventSpec<BeforeToolCallHookContext, BeforeHookOutcome> {
     EventSpec::new(
         EventName::new("tools/pre-execute").expect("normative event name is valid"),
         DispatchMode::Waterfall,
-        |current: &BeforeToolCallContext| BeforeHookOutcome::Proceed(current.clone()),
+        |current: &BeforeToolCallHookContext| BeforeHookOutcome::Proceed(current.call.clone()),
     )
 }
 
@@ -237,6 +244,17 @@ where
     F: Fn(BeforeToolCallContext) -> Fut + Send + Sync + 'static,
     Fut: Future<Output = Result<BeforeToolCallAction, super::ToolCapabilityError>> + Send + 'static,
 {
+    register_before_tool_call_hook_with_signal(context, move |current| listener(current.call))
+}
+
+pub fn register_before_tool_call_hook_with_signal<F, Fut>(
+    context: &Context,
+    listener: F,
+) -> Result<EventListenerHandle, EventError>
+where
+    F: Fn(BeforeToolCallHookContext) -> Fut + Send + Sync + 'static,
+    Fut: Future<Output = Result<BeforeToolCallAction, super::ToolCapabilityError>> + Send + 'static,
+{
     let events = context.events()?;
     let spec = before_tool_call_spec();
     events.declare(&spec)?;
@@ -246,9 +264,12 @@ where
         async move {
             match future.await {
                 Ok(BeforeToolCallAction::Proceed(arguments)) => {
-                    let replacement = BeforeToolCallContext {
-                        arguments: arguments.unwrap_or(current.arguments),
-                        ..current
+                    let replacement = BeforeToolCallHookContext {
+                        call: BeforeToolCallContext {
+                            arguments: arguments.unwrap_or(current.call.arguments),
+                            ..current.call
+                        },
+                        signal: current.signal,
                     };
                     next.call(Some(replacement)).await
                 }
@@ -275,6 +296,12 @@ pub struct AfterToolCallResult {
     pub added_tool_names: Option<Vec<String>>,
     pub is_error: bool,
     pub terminate: Option<bool>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct AfterToolCallContext {
+    pub result: AfterToolCallResult,
+    pub signal: Option<ExecutionSignal>,
 }
 
 /// Pi's constrained successful after-hook replacement surface.
@@ -495,11 +522,11 @@ impl AfterToolCallOverride {
 
 /// Public Runtime waterfall event for post-execute listeners. Raw listeners
 /// may return a whole result; production dispatch constrains every handoff.
-pub fn after_tool_call_spec() -> EventSpec<AfterToolCallResult, AfterToolCallResult> {
+pub fn after_tool_call_spec() -> EventSpec<AfterToolCallContext, AfterToolCallResult> {
     EventSpec::new(
         EventName::new("tools/post-execute").expect("normative event name is valid"),
         DispatchMode::Waterfall,
-        |current: &AfterToolCallResult| current.clone(),
+        |current: &AfterToolCallContext| current.result.clone(),
     )
 }
 
@@ -514,6 +541,19 @@ where
         + Send
         + 'static,
 {
+    register_after_tool_call_hook_with_signal(context, move |current| listener(current.result))
+}
+
+pub fn register_after_tool_call_hook_with_signal<F, Fut>(
+    context: &Context,
+    listener: F,
+) -> Result<EventListenerHandle, EventError>
+where
+    F: Fn(AfterToolCallContext) -> Fut + Send + Sync + 'static,
+    Fut: Future<Output = Result<Option<AfterToolCallOverride>, super::ToolCapabilityError>>
+        + Send
+        + 'static,
+{
     let events = context.events()?;
     let spec = after_tool_call_spec();
     events.declare(&spec)?;
@@ -524,10 +564,14 @@ where
             match future.await {
                 Ok(replacement) => {
                     let replacement = match replacement {
-                        Some(value) => value.apply(current),
-                        None => current,
+                        Some(value) => value.apply(current.result.clone()),
+                        None => current.result.clone(),
                     };
-                    next.call(Some(replacement)).await
+                    next.call(Some(AfterToolCallContext {
+                        result: replacement,
+                        ..current
+                    }))
+                    .await
                 }
                 Err(error) => Err(crate::runtime::WaterfallError::ListenerFailed(
                     error.message().to_owned(),
@@ -625,6 +669,7 @@ pub async fn execute_tool_calls(
                 end_spec.clone(),
                 options.on_execution_end.clone(),
                 options.timestamp,
+                options.signal.clone().map(ExecutionSignal::new),
             )
             .await?
             {
@@ -646,6 +691,13 @@ pub async fn execute_tool_calls(
                         .await?,
                     );
                 }
+            }
+            if options
+                .signal
+                .as_ref()
+                .is_some_and(|signal| signal.is_cancelled())
+            {
+                break;
             }
         }
     } else {
@@ -670,11 +722,19 @@ pub async fn execute_tool_calls(
                 end_spec.clone(),
                 options.on_execution_end.clone(),
                 options.timestamp,
+                options.signal.clone().map(ExecutionSignal::new),
             )
             .await?
             {
                 PreflightOutcome::Immediate(outcome) => indexed.push(outcome),
                 PreflightOutcome::Prepared(call) => prepared.push(call),
+            }
+            if options
+                .signal
+                .as_ref()
+                .is_some_and(|signal| signal.is_cancelled())
+            {
+                break;
             }
         }
         let mut running = FuturesUnordered::new();
@@ -715,10 +775,11 @@ async fn preflight_one(
     tool: Option<Arc<ToolDefinition>>,
     events: EventBus,
     scope: Option<ScopeHandle>,
-    before_spec: EventSpec<BeforeToolCallContext, BeforeHookOutcome>,
+    before_spec: EventSpec<BeforeToolCallHookContext, BeforeHookOutcome>,
     end_spec: EventSpec<ToolExecutionEnd, ()>,
     on_execution_end: Option<ToolExecutionEndCallback>,
     timestamp: f64,
+    signal: Option<ExecutionSignal>,
 ) -> Result<PreflightOutcome, ToolExecutionError> {
     let tool = match tool {
         None => {
@@ -801,15 +862,45 @@ async fn preflight_one(
             .await?,
         ));
     }
-    let before = BeforeToolCallContext {
-        tool_call_id: call.id.clone(),
-        tool_name: call.name.clone(),
-        arguments: params,
+    let before = BeforeToolCallHookContext {
+        call: BeforeToolCallContext {
+            tool_call_id: call.id.clone(),
+            tool_name: call.name.clone(),
+            arguments: params,
+        },
+        signal: signal.clone(),
     };
-    let before = match events
-        .waterfall(&before_spec, before, scope.as_ref())
-        .await?
+    let authoritative_signal = signal.clone();
+    let before_outcome = events
+        .waterfall_normalized(
+            &before_spec,
+            before,
+            scope.as_ref(),
+            move |mut delegated| {
+                delegated.signal = authoritative_signal.clone();
+                delegated
+            },
+        )
+        .await?;
+    if signal.as_ref().is_some_and(ExecutionSignal::is_cancelled)
+        && !matches!(before_outcome, BeforeHookOutcome::Failed(_))
     {
+        return Ok(PreflightOutcome::Immediate(
+            finish_immediate(
+                index,
+                call,
+                "Operation aborted",
+                events,
+                scope,
+                end_spec,
+                on_execution_end,
+                timestamp,
+                false,
+            )
+            .await?,
+        ));
+    }
+    let before = match before_outcome {
         BeforeHookOutcome::Proceed(current) => current,
         BeforeHookOutcome::Blocked { message, terminate } => {
             return Ok(PreflightOutcome::Immediate(
@@ -857,7 +948,7 @@ async fn execute_and_finalize_prepared(
     prepared: PreparedToolCall,
     events: EventBus,
     scope: Option<ScopeHandle>,
-    after_spec: EventSpec<AfterToolCallResult, AfterToolCallResult>,
+    after_spec: EventSpec<AfterToolCallContext, AfterToolCallResult>,
     update_spec: EventSpec<ToolExecutionUpdate, ()>,
     end_spec: EventSpec<ToolExecutionEnd, ()>,
     signal: Option<Arc<dyn ToolExecutionSignal>>,
@@ -871,6 +962,7 @@ async fn execute_and_finalize_prepared(
         tool,
         arguments,
     } = prepared;
+    let hook_signal = signal.clone().map(ExecutionSignal::new);
     let executed = {
         let live_updates = Arc::new(LiveUpdateDispatches::new());
         let update_callback = {
@@ -924,14 +1016,28 @@ async fn execute_and_finalize_prepared(
     let normalization_authority = protected.clone();
     let normalization_state = Arc::new(parking_lot::Mutex::new(executed.clone()));
     let step_state = Arc::clone(&normalization_state);
+    let authoritative_signal = hook_signal.clone();
     let finalized = match events
-        .waterfall_normalized(&after_spec, executed, scope.as_ref(), move |candidate| {
-            let mut previous = step_state.lock();
-            let normalized =
-                normalize_successful_after_result(candidate, &previous, &normalization_authority);
-            previous.clone_from(&normalized);
-            normalized
-        })
+        .waterfall_normalized(
+            &after_spec,
+            AfterToolCallContext {
+                result: executed,
+                signal: hook_signal,
+            },
+            scope.as_ref(),
+            move |mut candidate| {
+                let mut previous = step_state.lock();
+                let normalized = normalize_successful_after_result(
+                    candidate.result,
+                    &previous,
+                    &normalization_authority,
+                );
+                previous.clone_from(&normalized);
+                candidate.result = normalized;
+                candidate.signal = authoritative_signal.clone();
+                candidate
+            },
+        )
         .await
     {
         Ok(finalized) => {

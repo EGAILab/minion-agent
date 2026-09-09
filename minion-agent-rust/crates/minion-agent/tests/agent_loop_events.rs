@@ -118,6 +118,7 @@ fn run_and_decision_vocabulary_uses_owned_typed_snapshots_and_exact_wire_names()
     let pre_step = PreStepContext {
         messages: vec![user("entering")],
         reason: PreStepReason::ToolResults,
+        signal: minion_agent::RunSignal::default(),
     };
     let decision = PreStepDecision::Enter(Enter {
         messages: pre_step.messages.clone(),
@@ -147,12 +148,14 @@ fn run_and_decision_vocabulary_uses_owned_typed_snapshots_and_exact_wire_names()
         tool_results: results.clone(),
         context: cloned.clone(),
         new_messages: new_messages.clone(),
+        signal: minion_agent::RunSignal::default(),
     };
     let stopping = ShouldStopAfterTurnContext {
         message: message.clone(),
         tool_results: results.clone(),
         context: cloned,
         new_messages: new_messages.clone(),
+        signal: minion_agent::RunSignal::default(),
     };
     assert_eq!(prepare.message, message);
     assert_eq!(prepare.tool_results, results);

@@ -7,7 +7,7 @@ use thiserror::Error;
 use crate::{
     agent_loop::{RunConfig, RunContext, RunSnapshot},
     llm::{Message, ModelIdentity},
-    runtime::{Context, ScopeHandle},
+    runtime::{Context, RunAbortController, RunSignal, ScopeHandle},
     session::{Session, SessionError},
     tools::ToolDefinition,
 };
@@ -44,6 +44,7 @@ struct AgentMutableState {
     streaming_message: Option<Message>,
     pending_tool_calls: BTreeSet<String>,
     error_message: Option<String>,
+    abort_controller: Option<RunAbortController>,
 }
 
 pub struct AgentInstance {
@@ -73,6 +74,7 @@ impl AgentInstance {
             streaming_message: None,
             pending_tool_calls: BTreeSet::new(),
             error_message: None,
+            abort_controller: None,
         };
         Self {
             id: id.into(),
@@ -148,6 +150,22 @@ impl AgentInstance {
         self.state.lock().error_message.clone()
     }
 
+    /// Returns the read-only cancellation signal for the active run.
+    pub fn signal(&self) -> Option<RunSignal> {
+        self.state
+            .lock()
+            .abort_controller
+            .as_ref()
+            .map(RunAbortController::signal)
+    }
+
+    /// Requests cooperative cancellation. Calling this while idle is a no-op.
+    pub fn abort(&self) {
+        if let Some(controller) = self.state.lock().abort_controller.as_ref() {
+            controller.abort();
+        }
+    }
+
     pub fn set_system_prompt(&self, value: impl Into<String>) {
         self.state.lock().system_prompt = value.into();
     }
@@ -173,7 +191,7 @@ impl AgentInstance {
     }
 
     pub fn try_begin_run(&self) -> Result<RunSnapshot, AgentRunError> {
-        let (system_prompt, model, thinking_level, rollback) = {
+        let (system_prompt, model, thinking_level, signal, rollback) = {
             let _gate = self.status_gate.lock();
             let mut state = self.state.lock();
             if state.status != AgentStatus::Idle {
@@ -183,6 +201,9 @@ impl AgentInstance {
                 streaming_message: state.streaming_message.clone(),
                 error_message: state.error_message.clone(),
             };
+            let controller = RunAbortController::default();
+            let signal = controller.signal();
+            state.abort_controller = Some(controller);
             state.status = AgentStatus::Running;
             state.streaming_message = None;
             state.error_message = None;
@@ -190,6 +211,7 @@ impl AgentInstance {
                 state.system_prompt.clone(),
                 state.model.clone(),
                 state.thinking_level,
+                signal,
                 rollback,
             )
         };
@@ -213,12 +235,14 @@ impl AgentInstance {
                 model,
                 thinking_level,
             },
+            signal,
         })
     }
 
     pub fn finish_run(&self) {
         let _gate = self.status_gate.lock();
         let mut state = self.state.lock();
+        state.abort_controller = None;
         state.status = AgentStatus::Idle;
         state.streaming_message = None;
         state.pending_tool_calls.clear();
@@ -235,6 +259,7 @@ impl AgentInstance {
     fn rollback_run_entry(&self, rollback: RunEntryRollback) {
         let _gate = self.status_gate.lock();
         let mut state = self.state.lock();
+        state.abort_controller = None;
         state.status = AgentStatus::Idle;
         state.streaming_message = rollback.streaming_message;
         state.error_message = rollback.error_message;

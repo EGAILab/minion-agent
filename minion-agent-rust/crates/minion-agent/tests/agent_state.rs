@@ -64,6 +64,29 @@ fn state_has_the_approved_initial_vocabulary_and_mutable_configuration() {
 }
 
 #[test]
+fn abort_authority_is_agent_owned_and_each_run_gets_a_fresh_read_only_signal() {
+    let agent = instance(None);
+    assert!(agent.signal().is_none());
+    agent.abort();
+    assert!(agent.signal().is_none());
+
+    let first = agent.try_begin_run().unwrap().signal;
+    assert!(!first.aborted());
+    agent.abort();
+    assert!(first.aborted());
+    assert_eq!(agent.signal(), Some(first.clone()));
+    assert_eq!(agent.reset(), Err(AgentError::Active));
+    assert_eq!(agent.status(), AgentStatus::Running);
+    agent.finish_run();
+    assert!(agent.signal().is_none());
+
+    let second = agent.try_begin_run().unwrap().signal;
+    assert!(!second.aborted());
+    assert_ne!(first, second);
+    agent.finish_run();
+}
+
+#[test]
 fn messages_are_a_live_session_projection_and_tools_are_total() {
     let runtime = Runtime::new();
     let agent = instance(Some(&runtime));

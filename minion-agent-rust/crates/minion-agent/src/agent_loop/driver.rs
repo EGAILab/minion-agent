@@ -22,11 +22,12 @@ use crate::{
     },
 };
 
-use super::decisions::{pre_step, prepare_next_turn, should_stop_after_turn};
+use super::decisions::{pre_step, prepare_next_turn, should_stop_after_turn, transform_context};
+use super::events::dispatch_agent_event_with_signal;
 use super::{
     AgentEndReason, AgentEvent, AgentLoopError, Enter, PreStepContext, PreStepDecision,
     PreStepReason, PrepareNextTurnContext, RunCause, RunConfig, RunContext, RunSnapshot,
-    ShouldStopAfterTurnContext, dispatch_agent_event, reduce_event,
+    ShouldStopAfterTurnContext, TransformContext, reduce_event,
 };
 
 /// Input accepted by the public prompt entry point.
@@ -59,6 +60,7 @@ struct PreparedRun {
     new_messages: Vec<Message>,
     causes: Vec<RunCause>,
     decision: Option<Enter>,
+    signal: crate::runtime::RunSignal,
 }
 
 #[derive(Debug, PartialEq)]
@@ -95,6 +97,7 @@ impl fmt::Debug for PreparedRun {
             .field("new_messages", &self.new_messages)
             .field("causes", &self.causes)
             .field("decision", &self.decision)
+            .field("signal", &self.signal)
             .finish_non_exhaustive()
     }
 }
@@ -114,6 +117,7 @@ impl PreparedRun {
             new_messages: Vec::new(),
             causes,
             decision: None,
+            signal: snapshot.signal,
         }
     }
 }
@@ -377,6 +381,15 @@ impl AgentLoop {
         let first_visible = decision.history_window.map_or(0, |window| {
             prepared.context.messages.len().saturating_sub(window)
         });
+        let request_messages = transform_context(
+            &self.context,
+            TransformContext {
+                agent: Arc::clone(&prepared.agent),
+                messages: prepared.context.messages[first_visible..].to_vec(),
+                signal: prepared.signal.clone(),
+            },
+        )
+        .await?;
         let request = LlmRequest {
             model: prepared.config.model.clone(),
             context: LlmContext {
@@ -386,7 +399,7 @@ impl AgentLoop {
                         .clone()
                         .unwrap_or_else(|| prepared.context.system_prompt.clone()),
                 ),
-                messages: prepared.context.messages[first_visible..].to_vec(),
+                messages: request_messages,
                 tools: Some(
                     prepared
                         .context
@@ -400,6 +413,7 @@ impl AgentLoop {
                 reasoning: provider_thinking_level(prepared.config.thinking_level),
                 ..SimpleStreamOptions::default()
             },
+            signal: Some(prepared.signal.clone()),
         };
         let mut stream = self.llm.stream(request)?;
         let mut started = false;
@@ -481,6 +495,7 @@ impl AgentLoop {
         let end_context = self.context.clone();
         let options = ToolExecutionOptions::new(assistant.stop_reason, now_millis())
             .with_execution_tools(prepared.context.tools.clone())
+            .with_signal(Arc::new(prepared.signal.clone()))
             .with_execution_start(move |event| {
                 live_tool_event(
                     Arc::clone(&start_agent),
@@ -589,6 +604,7 @@ impl AgentLoop {
                     tool_results: batch.messages.clone(),
                     context: prepared.context.clone(),
                     new_messages: prepared.new_messages.clone(),
+                    signal: prepared.signal.clone(),
                 };
                 let update = prepare_next_turn(&self.context, decision_context).await?;
                 if let Some(context) = update.context {
@@ -607,6 +623,7 @@ impl AgentLoop {
                         tool_results: batch.messages,
                         context: prepared.context.clone(),
                         new_messages: prepared.new_messages.clone(),
+                        signal: prepared.signal.clone(),
                     },
                 )
                 .await?
@@ -693,7 +710,11 @@ impl AgentLoop {
             self.agent.model(),
             vec![AssistantContentBlock::Text(TextBlock::new(""))],
             Default::default(),
-            StopReason::Error,
+            if self.agent.signal().is_some_and(|signal| signal.aborted()) {
+                StopReason::Aborted
+            } else {
+                StopReason::Error
+            },
             now_millis(),
         );
         failure.error_message = Some(error.failure_message());
@@ -722,7 +743,19 @@ impl AgentLoop {
         messages: Vec<Message>,
         reason: PreStepReason,
     ) -> Result<PreStepDecision, AgentLoopError> {
-        pre_step(&self.context, PreStepContext { messages, reason }).await
+        let signal = self
+            .agent
+            .signal()
+            .expect("pre-step is only dispatched during an active run");
+        pre_step(
+            &self.context,
+            PreStepContext {
+                messages,
+                reason,
+                signal,
+            },
+        )
+        .await
     }
 
     async fn select_next_inner_turn(
@@ -793,7 +826,7 @@ impl AgentLoop {
 
     async fn dispatch(&self, event: AgentEvent) -> Result<(), AgentLoopError> {
         reduce_event(&self.agent, &event)?;
-        dispatch_agent_event(&self.context, event).await
+        dispatch_agent_event_with_signal(&self.context, event, self.agent.signal()).await
     }
 
     fn claim(&self, target: InboxTarget) -> Vec<InputEnvelope> {
@@ -830,7 +863,7 @@ fn live_tool_event(
     let reduction = reduce_event(&agent, &event).map_err(tool_lifecycle_error);
     Box::pin(async move {
         reduction?;
-        dispatch_agent_event(&context, event)
+        dispatch_agent_event_with_signal(&context, event, agent.signal())
             .await
             .map_err(tool_lifecycle_error)
     })
@@ -924,9 +957,10 @@ mod tests {
     use crate::agent_loop::{
         AgentEvent, AgentEventKind, AgentListenerError, AgentLoopError, Enter, PreStepContext,
         PreStepDecision, PreStepReason, PrepareNextTurnContext, RunConfigUpdate, RunContext,
-        ShouldStopAfterTurnContext, TurnStopping, register_agent_listener,
-        register_pre_step_listener, register_prepare_next_turn_listener,
-        register_should_stop_after_turn_listener,
+        ShouldStopAfterTurnContext, TransformContextAction, TurnStopping, register_agent_listener,
+        register_agent_listener_with_signal, register_pre_step_listener,
+        register_prepare_next_turn_listener, register_should_stop_after_turn_listener,
+        register_transform_context_listener,
     };
 
     fn run(future: impl Future<Output = ()>) {
@@ -1043,6 +1077,282 @@ mod tests {
             reason: DoneReason::Stop,
             message,
         }))])
+    }
+
+    #[test]
+    fn one_signal_reaches_lifecycle_transform_and_provider_then_clears() {
+        run(async {
+            let runtime = Runtime::new();
+            let lifecycle_signal = Arc::new(Mutex::new(None));
+            let transform_signal = Arc::new(Mutex::new(None));
+            let lifecycle_observed = Arc::clone(&lifecycle_signal);
+            let transform_observed = Arc::clone(&transform_signal);
+            let plugin = PluginSpec::<Value>::new(
+                "abort-observers",
+                vec![],
+                || json!({}),
+                move |context, _config| {
+                    let lifecycle_observed = Arc::clone(&lifecycle_observed);
+                    let transform_observed = Arc::clone(&transform_observed);
+                    async move {
+                        register_agent_listener_with_signal(&context, move |current| {
+                            let lifecycle_observed = Arc::clone(&lifecycle_observed);
+                            async move {
+                                if current.event.kind() == AgentEventKind::AgentStart {
+                                    *lifecycle_observed.lock() = current.signal;
+                                }
+                                Ok(())
+                            }
+                        })
+                        .map_err(|error| PluginInitError::new(error.to_string()))?;
+                        register_transform_context_listener(&context, move |current| {
+                            let transform_observed = Arc::clone(&transform_observed);
+                            async move {
+                                *transform_observed.lock() = Some(current.signal);
+                                Ok(TransformContextAction::Next(None))
+                            }
+                        })
+                        .map_err(|error| PluginInitError::new(error.to_string()))?;
+                        Ok(())
+                    }
+                },
+            )
+            .erase();
+            runtime.mount(&plugin, json!({})).unwrap();
+            runtime.reconcile().await.unwrap();
+            let adapter = Arc::new(ScriptedAdapter::new([text_turn("done")]));
+            let llm = Arc::new(LlmService::new());
+            llm.register(identity(), adapter.clone());
+            let (driver, agent) = loop_for_with_llm(
+                &runtime,
+                Session::new("signal", [] as [&str; 0]).unwrap(),
+                llm,
+            );
+
+            driver
+                .prompt(PromptInput::Message(user("hello")))
+                .await
+                .unwrap();
+
+            let lifecycle = lifecycle_signal.lock().clone().unwrap();
+            let transform = transform_signal.lock().clone().unwrap();
+            let provider = adapter.requests()[0].signal.clone().unwrap();
+            assert_eq!(lifecycle, transform);
+            assert_eq!(transform, provider);
+            assert!(agent.signal().is_none());
+        });
+    }
+
+    #[test]
+    fn transform_context_is_provider_local_and_cannot_replace_signal_metadata() {
+        run(async {
+            let runtime = Runtime::new();
+            let plugin = PluginSpec::<Value>::new(
+                "transform",
+                vec![],
+                || json!({}),
+                |context, _config| async move {
+                    register_transform_context_listener(&context, |current| async move {
+                        assert!(!current.signal.aborted());
+                        assert_eq!(current.agent.signal(), Some(current.signal.clone()));
+                        Ok(TransformContextAction::Next(Some(vec![user(
+                            "provider-only",
+                        )])))
+                    })
+                    .map_err(|error| PluginInitError::new(error.to_string()))?;
+                    Ok(())
+                },
+            )
+            .erase();
+            runtime.mount(&plugin, json!({})).unwrap();
+            runtime.reconcile().await.unwrap();
+            let adapter = Arc::new(ScriptedAdapter::new([text_turn("done")]));
+            let llm = Arc::new(LlmService::new());
+            llm.register(identity(), adapter.clone());
+            let session = Session::new("transform", [] as [&str; 0]).unwrap();
+            let (driver, agent) = loop_for_with_llm(&runtime, session, llm);
+
+            driver
+                .prompt(PromptInput::Message(user("persistent")))
+                .await
+                .unwrap();
+
+            assert_eq!(
+                adapter.requests()[0].context.messages,
+                vec![user("provider-only")]
+            );
+            assert_eq!(agent.messages().unwrap()[0], user("persistent"));
+        });
+    }
+
+    #[test]
+    fn exception_after_abort_is_represented_as_aborted_and_uses_live_persistent_model() {
+        run(async {
+            let runtime = Runtime::new();
+            let agent_slot: Arc<Mutex<Option<Arc<AgentInstance>>>> = Arc::new(Mutex::new(None));
+            let listener_slot = Arc::clone(&agent_slot);
+            let plugin = PluginSpec::<Value>::new(
+                "abort-and-fail",
+                vec![],
+                || json!({}),
+                move |context, _config| {
+                    let listener_slot = Arc::clone(&listener_slot);
+                    async move {
+                        register_agent_listener(&context, move |event| {
+                            let listener_slot = Arc::clone(&listener_slot);
+                            async move {
+                                if event.kind() == AgentEventKind::TurnStart {
+                                    listener_slot.lock().as_ref().unwrap().abort();
+                                    return Err(AgentListenerError::new("boom"));
+                                }
+                                Ok(())
+                            }
+                        })
+                        .map_err(|error| PluginInitError::new(error.to_string()))?;
+                        Ok(())
+                    }
+                },
+            )
+            .erase();
+            runtime.mount(&plugin, json!({})).unwrap();
+            runtime.reconcile().await.unwrap();
+            let (driver, agent) =
+                loop_for(&runtime, Session::new("failure", [] as [&str; 0]).unwrap());
+            *agent_slot.lock() = Some(Arc::clone(&agent));
+
+            let messages = driver
+                .prompt(PromptInput::Message(user("hello")))
+                .await
+                .unwrap();
+            let Message::Assistant(message) = &messages[0] else {
+                panic!("failure must be assistant")
+            };
+            assert_eq!(message.stop_reason, StopReason::Aborted);
+            assert_eq!(message.model, agent.model().model_id());
+            assert!(agent.signal().is_none());
+            assert_eq!(agent.status(), AgentStatus::Idle);
+        });
+    }
+
+    #[test]
+    fn abort_requested_during_agent_end_settles_before_the_signal_clears() {
+        run(async {
+            let runtime = Runtime::new();
+            let agent_slot: Arc<Mutex<Option<Arc<AgentInstance>>>> = Arc::new(Mutex::new(None));
+            let listener_slot = Arc::clone(&agent_slot);
+            let observed = Arc::new(Mutex::new(false));
+            let listener_observed = Arc::clone(&observed);
+            let plugin = PluginSpec::<Value>::new(
+                "abort-during-agent-end",
+                vec![],
+                || json!({}),
+                move |context, _config| {
+                    let listener_slot = Arc::clone(&listener_slot);
+                    let listener_observed = Arc::clone(&listener_observed);
+                    async move {
+                        register_agent_listener_with_signal(&context, move |current| {
+                            let listener_slot = Arc::clone(&listener_slot);
+                            let listener_observed = Arc::clone(&listener_observed);
+                            async move {
+                                if current.event.kind() == AgentEventKind::AgentEnd {
+                                    let signal = current.signal.expect("run signal remains live");
+                                    listener_slot.lock().as_ref().unwrap().abort();
+                                    *listener_observed.lock() = signal.aborted();
+                                }
+                                Ok(())
+                            }
+                        })
+                        .map_err(|error| PluginInitError::new(error.to_string()))?;
+                        Ok(())
+                    }
+                },
+            )
+            .erase();
+            runtime.mount(&plugin, json!({})).unwrap();
+            runtime.reconcile().await.unwrap();
+            let adapter = Arc::new(ScriptedAdapter::new([text_turn("done")]));
+            let llm = Arc::new(LlmService::new());
+            llm.register(identity(), adapter);
+            let (driver, agent) = loop_for_with_llm(
+                &runtime,
+                Session::new("abort-agent-end", [] as [&str; 0]).unwrap(),
+                llm,
+            );
+            *agent_slot.lock() = Some(Arc::clone(&agent));
+
+            driver
+                .prompt(PromptInput::Message(user("hello")))
+                .await
+                .unwrap();
+
+            assert!(*observed.lock());
+            assert!(agent.signal().is_none());
+            assert_eq!(agent.status(), AgentStatus::Idle);
+        });
+    }
+
+    #[test]
+    fn pre_step_prepare_and_stopping_observe_the_active_signal() {
+        run(async {
+            let runtime = Runtime::new();
+            let agent_slot: Arc<Mutex<Option<Arc<AgentInstance>>>> = Arc::new(Mutex::new(None));
+            let pre_slot = Arc::clone(&agent_slot);
+            let prepare_slot = Arc::clone(&agent_slot);
+            let stop_slot = Arc::clone(&agent_slot);
+            let plugin = PluginSpec::<Value>::new(
+                "decision-signals",
+                vec![],
+                || json!({}),
+                move |context, _config| {
+                    let pre_slot = Arc::clone(&pre_slot);
+                    let prepare_slot = Arc::clone(&prepare_slot);
+                    let stop_slot = Arc::clone(&stop_slot);
+                    async move {
+                        register_pre_step_listener(&context, move |current, next| {
+                            let agent = pre_slot.lock().clone().unwrap();
+                            async move {
+                                assert_eq!(agent.signal(), Some(current.signal.clone()));
+                                next.call(None).await
+                            }
+                        })
+                        .map_err(|error| PluginInitError::new(error.to_string()))?;
+                        register_prepare_next_turn_listener(&context, move |current, _next| {
+                            let agent = prepare_slot.lock().clone().unwrap();
+                            async move {
+                                assert_eq!(agent.signal(), Some(current.signal));
+                                Ok(RunConfigUpdate::default())
+                            }
+                        })
+                        .map_err(|error| PluginInitError::new(error.to_string()))?;
+                        register_should_stop_after_turn_listener(&context, move |current| {
+                            let agent = stop_slot.lock().clone().unwrap();
+                            async move {
+                                assert_eq!(agent.signal(), Some(current.signal));
+                                Ok(TurnStopping::Stop)
+                            }
+                        })
+                        .map_err(|error| PluginInitError::new(error.to_string()))?;
+                        Ok(())
+                    }
+                },
+            )
+            .erase();
+            runtime.mount(&plugin, json!({})).unwrap();
+            runtime.reconcile().await.unwrap();
+            let adapter = Arc::new(ScriptedAdapter::new([text_turn("done")]));
+            let llm = Arc::new(LlmService::new());
+            llm.register(identity(), adapter);
+            let (driver, agent) = loop_for_with_llm(
+                &runtime,
+                Session::new("decisions", [] as [&str; 0]).unwrap(),
+                llm,
+            );
+            *agent_slot.lock() = Some(agent);
+            driver
+                .prompt(PromptInput::Message(user("hello")))
+                .await
+                .unwrap();
+        });
     }
 
     fn tool_turn(call_id: &str, tool_name: &str) -> Script {

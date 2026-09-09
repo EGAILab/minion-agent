@@ -838,10 +838,28 @@ class AgentLoop:
         `instance` back to its ORIGINAL value at every listener-to-listener handoff, the same
         restoration discipline `_transform_context`/`tools/post-execute` already apply
         (`L09-R006`/`L06-R003`) -- `message`/`tool_results`/`context`/`new_messages` remain the
-        listener's own to transform freely; only `instance`'s own identity is protected."""
+        listener's own to transform freely; only `instance`'s own identity is protected.
+
+        `_restore_instance` is ARITY-AWARE (`L09-R015` targeted re-review, `L09-R017` convergence
+        pass 2): a listener that delegates via `next_(message, tool_results, context,
+        new_messages)` -- omitting `instance` entirely, rather than replacing it -- hands `current`
+        one element SHORTER than the full five-element payload. An earlier revision always treated
+        `current[0]` as the (possibly replaced) `instance` slot and sliced it off unconditionally
+        (`current[1:]`), which for a genuinely 4-element `current` silently discarded `message`
+        instead -- the independent review's own executable witness observed the resulting 4-element
+        forward call fail the NEXT listener's own 5-positional-plus-`next_` signature with `missing
+        1 required positional argument: 'next_'`, a represented failure rather than the agreed
+        "later listener observes the original instance" outcome. `_restore_instance` now checks
+        `current`'s own length: exactly four (`instance` genuinely omitted) prepends the original
+        without discarding anything; five or more (an `instance` slot present, replaced or not) is
+        the ordinary case and slices it off as before. A `current` of any OTHER length is a
+        malformed delegation this method does not specially handle -- `EventBus.waterfall`'s own
+        existing arity-mismatch behavior governs it unchanged."""
         original_instance = self.instance
 
         def _restore_instance(current: tuple[object, ...]) -> tuple[object, ...]:
+            if len(current) == 4:
+                return (original_instance, *current)
             return (original_instance, *current[1:])
 
         update: RunConfigUpdate = await self.instance.ctx.events.waterfall(
@@ -915,10 +933,20 @@ class AgentLoop:
         PREPARE_NEXT_TURN`, closed here by the same audit rather than left for a future review to
         separately discover): `_restore_instance` forces `instance` back to its ORIGINAL value at
         every listener-to-listener handoff -- `reason`/`messages` remain the listener's own to
-        transform freely; only `instance`'s own identity is protected."""
+        transform freely; only `instance`'s own identity is protected.
+
+        `_restore_instance` is ARITY-AWARE, the same correction `_prepare_next_turn`'s own copy
+        needed (`L09-R015` targeted re-review): a listener that delegates via `next_(reason,
+        messages)` -- omitting `instance` entirely -- hands `current` one element shorter than the
+        full three-element payload; that case prepends the original instead of slicing off what
+        would actually be `reason`. A `current` of any other length is a malformed delegation this
+        method does not specially handle -- `EventBus.waterfall`'s own existing arity-mismatch
+        behavior governs it unchanged."""
         original_instance = self.instance
 
         def _restore_instance(current: tuple[object, ...]) -> tuple[object, ...]:
+            if len(current) == 2:
+                return (original_instance, *current)
             return (original_instance, *current[1:])
 
         decision: PreStepDecision = await self.instance.ctx.events.waterfall(

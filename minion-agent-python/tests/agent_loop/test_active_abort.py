@@ -713,13 +713,20 @@ async def test_pre_step_cannot_redirect_a_later_listener_to_a_replacement_instan
 
 
 async def test_pre_step_cannot_drop_the_instance_for_a_later_listener() -> None:
-    """The omission half of the same witness: a listener that delegates WITHOUT re-supplying
-    `instance` must still leave the later listener observing the original, not `None`."""
+    """The omission half of the same witness: a listener that delegates by supplying every OTHER
+    field but genuinely OMITTING `instance` (`next_(reason, messages)`, one element shorter than
+    the full three-element payload -- not `next_()`, which `EventBus.waterfall`'s own `forwarded =
+    replacement or current` treats as an unchanged forward and so never exercises this path at all)
+    must still leave the later listener observing the original `instance`, not lose a positional
+    argument (`L09-R015` targeted re-review: an earlier revision's own `_restore_instance` always
+    sliced off `current[0]` unconditionally, which for a genuinely omitted `instance` silently
+    discarded `reason` instead and produced a represented `TypeError` failure, not the agreed
+    "later listener observes the original instance" outcome)."""
     loop = _loop_with_adapter(ScriptedResponse((TextBlock(text="hi"),), StopReason.STOP))[0]
     seen: list[Any] = []
 
     async def listener_a(instance: Any, reason: Any, messages: Any, next_: Any) -> Any:
-        return await next_()
+        return await next_(reason, messages)
 
     async def listener_b(instance: Any, reason: Any, messages: Any, next_: Any) -> Any:
         seen.append(instance)
@@ -764,14 +771,22 @@ async def test_prepare_next_turn_cannot_redirect_to_a_replacement_instance() -> 
 
 
 async def test_prepare_next_turn_cannot_drop_the_instance_for_a_later_listener() -> None:
-    """The omission half of the same witness."""
+    """The omission half of the same witness -- `next_(message, tool_results, context,
+    new_messages)`, genuinely omitting `instance` (one element shorter than the full five-element
+    payload), not `next_()` (an unchanged forward `EventBus.waterfall`'s own `forwarded =
+    replacement or current` never routes through `normalize_step`'s omission-handling branch at
+    all, so it cannot discriminate this case). This is the review's own exact executable witness
+    (`L09-R015` targeted re-review): against an earlier revision's own unconditional
+    `current[1:]` slice, this same scenario produced a represented `TypeError` ("missing 1 required
+    positional argument: 'next_'") instead of the agreed "later listener observes the original
+    instance" outcome."""
     loop = _loop_with_adapter(ScriptedResponse((TextBlock(text="hi"),), StopReason.STOP))[0]
     seen: list[Any] = []
 
     async def listener_a(
         instance: Any, message: Any, tool_results: Any, context: Any, new_messages: Any, next_: Any
     ) -> Any:
-        return await next_()
+        return await next_(message, tool_results, context, new_messages)
 
     async def listener_b(
         instance: Any, message: Any, tool_results: Any, context: Any, new_messages: Any, next_: Any

@@ -253,6 +253,44 @@ def test_rollback_precedes_input_enqueued_after_the_reservation() -> None:
     assert [text_of(e.message) for e in pending] == ["A", "B", "C"]
 
 
+def test_envelopes_has_no_setter() -> None:
+    """`L09-R017`: `.envelopes` is a read-only property, not a plain writable attribute -- a
+    structural guarantee (no setter exists at all), not merely a behavioral one. An earlier
+    revision exposed it as an ordinary `__slots__` attribute; the independent review's own
+    executed witness reassigned a reservation holding `A` to a foreign envelope `B` still queued
+    elsewhere, then rolled back, which restored `B` (losing the genuinely reserved `A`) and left
+    two copies of `B`'s own id across both queues (`test_reassigning_envelopes_is_refused` below
+    reproduces that exact scenario and confirms it can no longer happen)."""
+    inbox = Inbox()
+    inbox.followup(_message("only"))
+    reservation = inbox._reserve(InboxTarget.NEXT_TURN, ClaimPolicy.ONE_AT_A_TIME)
+
+    with pytest.raises(AttributeError):
+        reservation.envelopes = ()  # type: ignore[misc]
+
+
+def test_reassigning_envelopes_is_refused() -> None:
+    """The reviewer's own exact `L09-R017` scenario: reserve `A` from one target, attempt to
+    reassign the reservation to a foreign envelope `B` still queued at a DIFFERENT target, then
+    roll back. Against the fixed implementation the reassignment itself is refused (`AttributeError`
+    before `.rollback()` is ever reached), so `A` is never lost and `B` is never duplicated."""
+    inbox = Inbox()
+    inbox.followup(_message("A"))
+    foreign = inbox.steer(_message("B"))
+    reservation = inbox._reserve(InboxTarget.NEXT_TURN, ClaimPolicy.ONE_AT_A_TIME)
+
+    with pytest.raises(AttributeError):
+        reservation.envelopes = (foreign,)  # type: ignore[misc]
+
+    reservation.rollback()
+
+    assert [text_of(e.message) for e in inbox.pending(InboxTarget.NEXT_TURN)] == ["A"]
+    assert [text_of(e.message) for e in inbox.pending(InboxTarget.NEXT_STEP)] == ["B"]
+    combined = (*inbox.pending(InboxTarget.NEXT_TURN), *inbox.pending(InboxTarget.NEXT_STEP))
+    all_ids = [e.id for e in combined]
+    assert len(all_ids) == len(set(all_ids))  # no id duplicated across queues
+
+
 def test_a_reentrant_claim_on_the_same_target_sees_only_unrelated_input() -> None:
     """`L09-R013`'s own root cause, closed by construction: since the reserved batch is already
     gone from the queue before an observer runs, a reentrant `claim()` on the SAME target can only

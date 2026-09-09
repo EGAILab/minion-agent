@@ -1083,7 +1083,70 @@ rows:
     and FAILED as expected, reproducing the reviewers'' own described defects exactly, then PASSED
     once the `_Reservation` implementation was restored. Fresh full gate run: 1123 passed, 19
     xfailed, 100% coverage, ruff/mypy clean, `ruff format --check` unchanged at the same seven
-    pre-existing drift files.'
+    pre-existing drift files.
+
+    PASS 9 (targeted `§11.8.7` re-review of the PASS-8 candidate): REJECTED FOR PROVISIONAL
+    CLOSURE. `L09-R012`/`L09-R013`/`L09-R014`/`L09-R016` all PROVISIONALLY CLOSED -- the
+    claim-before-observer architecture was confirmed to close the exact `L09-R013`/`L09-R014`
+    re-entrancy window and `AG-011`''s current prose was confirmed repaired. `L09-R015` remained
+    STILL OPEN, and a new finding, `L09-R017`, was raised.
+
+    `L09-R015` (still open): PASS 8''s own `_restore_instance` closures fixed the REDIRECT half (a
+    listener delegating with a fabricated replacement `instance`) but not the OMISSION half. The
+    review''s own witness: a listener delegates via `next_(message, tool_results, context,
+    new_messages)` -- genuinely omitting `instance`, one element shorter than the full five-element
+    `AGENT_PREPARE_NEXT_TURN` payload, not `next_()` (which `EventBus.waterfall`''s own `forwarded =
+    replacement or current` treats as an unchanged forward and never even reaches `normalize_step`
+    with a shortened tuple). PASS 8''s own PASS-8 `test_..._cannot_drop_the_instance_for_a_later_
+    listener` witnesses both called `next_()`, which cannot discriminate this case at all -- the
+    review correctly identified them as non-discriminating, not merely weak. Against the actual
+    omission, PASS 8''s own `_restore_instance` unconditionally sliced `current[1:]`, silently
+    discarding the genuinely-first transformable field (`message`/`reason`) instead of `instance`,
+    and handed the next listener one argument short of its own declared arity -- observed as a
+    represented failure (`TypeError: ...missing 1 required positional argument: ''next_''`), not the
+    agreed "later listener observes the original instance" outcome.
+
+    `L09-R017` (new, `CONTRACT_ASSURANCE_DEFECT`): the agreed `C09-1` contract requires
+    `_Reservation.envelopes` bound read-only to the exact batch its own `claim()` call removed, with
+    no path for a caller to substitute a replacement. PASS 8''s own implementation stored it as a
+    plain `__slots__` attribute with no property, ordinary Python attribute assignment included --
+    the review''s own executable witness: reserve `A`, reassign `reservation.envelopes = (B,)` where
+    `B` is a genuinely different, still-queued envelope, then `.rollback()` -- this restored `B` (not
+    the genuinely reserved `A`, silently lost) and left two copies of `B`''s own id across both
+    queues, the exact class of defect `L09-R010`/`C09-1` were meant to close for good. PASS 8''s own
+    `test_rollback_cannot_accept_a_foreign_envelope` proved only that `.rollback()`/`.commit()`
+    themselves take no argument -- it never exercised assignment to `.envelopes` directly, so it
+    could not have caught this.
+
+    Remediation (PASS 9, this pass): `_restore_instance` (both `_prepare_next_turn` and `_pre_step`)
+    is now ARITY-AWARE rather than unconditional -- it checks `len(current)`: when it equals the
+    full payload length MINUS one (`instance` genuinely omitted), it PREPENDS the original instead
+    of slicing anything off; otherwise (an `instance` slot present, whether original or a forged
+    replacement) it slices `current[1:]` as before. A `current` of any other length remains a
+    malformed delegation this method does not specially handle -- `EventBus.waterfall`''s own
+    existing arity-mismatch behavior governs it unchanged, matching the review''s own explicit
+    instruction. `_Reservation.envelopes` is now a READ-ONLY property backed by a private
+    `_envelopes` slot with no setter at all -- assignment raises `AttributeError` before any
+    caller-supplied value could ever reach `.rollback()`, closing `L09-R017` structurally rather
+    than by adding a defensive copy or an isinstance check.
+
+    Four new/rewritten tests: `test_pre_step_cannot_drop_the_instance_for_a_later_listener` and
+    `test_prepare_next_turn_cannot_drop_the_instance_for_a_later_listener` (`agent_loop/
+    test_active_abort.py`) rewritten to use TRUE omission (`next_(reason, messages)`/`next_(message,
+    tool_results, context, new_messages)`), reproducing the review''s own exact scenario -- the
+    PASS-8 versions are corrected in place, not merely renamed, since their own non-discriminating
+    `next_()` body was itself the defect the review flagged; `test_envelopes_has_no_setter` and
+    `test_reassigning_envelopes_is_refused` (`agent/test_inbox.py`) added, the latter reproducing
+    the review''s own exact `L09-R017` scenario (reserve `A`, attempt to reassign to a foreign
+    queued `B`, roll back) and confirming the reassignment itself is refused before `.rollback()` is
+    ever reached, so `A` is never lost and `B` is never duplicated. Confirmed via revert-and-confirm
+    against the exact rejected PASS-8 candidate SHA (`551aa162cb0ff0c6b052f6a1500d8687d0ded825`):
+    all four FAILED as expected -- the two omission witnesses raised `IndexError` (the downstream
+    listener never appended, reproducing the review''s own represented-failure finding) and the two
+    `_Reservation` witnesses failed to raise `AttributeError` at all (assignment silently succeeded)
+    -- then PASSED once the fixes were restored. Fresh full gate run: 1125 passed, 19 xfailed, 100%
+    coverage, ruff/mypy clean, `ruff format --check` unchanged at the same seven pre-existing drift
+    files.'
   tests:
   - test_a_fresh_controller_is_not_aborted (runtime/test_signal.py)
   - test_abort_sets_the_signal_aborted (runtime/test_signal.py)
@@ -1121,9 +1184,11 @@ rows:
   - test_a_running_observer_that_claims_and_returns_finds_nothing_and_entry_proceeds (agent_loop/test_active_abort.py, L09-R014)
   - test_a_running_observer_that_clears_and_enqueues_then_throws_restores_ahead_of_it (agent_loop/test_active_abort.py)
   - test_pre_step_cannot_redirect_a_later_listener_to_a_replacement_instance (agent_loop/test_active_abort.py, L09-R015)
-  - test_pre_step_cannot_drop_the_instance_for_a_later_listener (agent_loop/test_active_abort.py, L09-R015)
+  - test_pre_step_cannot_drop_the_instance_for_a_later_listener (agent_loop/test_active_abort.py, L09-R015, PASS 9: true omission)
   - test_prepare_next_turn_cannot_redirect_to_a_replacement_instance (agent_loop/test_active_abort.py, L09-R015)
-  - test_prepare_next_turn_cannot_drop_the_instance_for_a_later_listener (agent_loop/test_active_abort.py, L09-R015)
+  - test_prepare_next_turn_cannot_drop_the_instance_for_a_later_listener (agent_loop/test_active_abort.py, L09-R015, PASS 9: true omission)
+  - test_envelopes_has_no_setter (agent/test_inbox.py, L09-R017)
+  - test_reassigning_envelopes_is_refused (agent/test_inbox.py, L09-R017)
   - test_reserve_atomically_claims_the_selected_batch (agent/test_inbox.py)
   - test_reserve_matches_claim_for_all_policy (agent/test_inbox.py)
   - test_reserve_on_an_empty_target_returns_an_empty_reservation (agent/test_inbox.py)
@@ -1139,7 +1204,7 @@ rows:
   - test_rollback_precedes_input_enqueued_after_the_reservation (agent/test_inbox.py)
   - test_a_reentrant_claim_on_the_same_target_sees_only_unrelated_input (agent/test_inbox.py)
   - test_a_represented_aborted_terminal_is_unaffected_by_layer_09 (agent_loop/test_active_abort.py)
-  python: src/minion_agent/runtime/signal.py::RunSignal, RunAbortController; src/minion_agent/agent/instance.py::AgentInstance.signal (read-only property)/abort/_start_run_signal/_end_run_signal/_force_idle_after_failed_entry_notification; src/minion_agent/agent_loop/driver.py::AgentLoop._run_wrapped (RUNNING-failure rollback + entry_reservation.rollback/commit, IDLE-failure exit reorder), continue_ (_reserve, L09-R012/R013/R014), run_until_idle (_reserve, L09-R012/R013/R014), _run_step (Request.signal, _transform_context), _prepare_next_turn (normalize_step=_restore_instance, L09-R015), _pre_step (normalize_step=_restore_instance, L09-R015), _settle_run_failure (ABORTED classification), _transform_context; src/minion_agent/agent/events.py::AGENT_TRANSFORM_CONTEXT; src/minion_agent/agent/inbox.py::_Reservation, Inbox._reserve (L09-R012/R013/R014, replaces the removed Inbox.peek/_commit_claim)
+  python: src/minion_agent/runtime/signal.py::RunSignal, RunAbortController; src/minion_agent/agent/instance.py::AgentInstance.signal (read-only property)/abort/_start_run_signal/_end_run_signal/_force_idle_after_failed_entry_notification; src/minion_agent/agent_loop/driver.py::AgentLoop._run_wrapped (RUNNING-failure rollback + entry_reservation.rollback/commit, IDLE-failure exit reorder), continue_ (_reserve, L09-R012/R013/R014), run_until_idle (_reserve, L09-R012/R013/R014), _run_step (Request.signal, _transform_context), _prepare_next_turn (normalize_step=_restore_instance, arity-aware since PASS 9, L09-R015), _pre_step (normalize_step=_restore_instance, arity-aware since PASS 9, L09-R015), _settle_run_failure (ABORTED classification), _transform_context; src/minion_agent/agent/events.py::AGENT_TRANSFORM_CONTEXT; src/minion_agent/agent/inbox.py::_Reservation (envelopes -- read-only property since PASS 9, L09-R017), Inbox._reserve (L09-R012/R013/R014, replaces the removed Inbox.peek/_commit_claim)
   rust: NOT_APPLICABLE -- Python/shared candidate awaiting independent Rust contract review; certified Rust Layer 06''s own ToolExecutionSignal seam remains reserved, unexercised
   disposition: adopted
 - id: AG-008
@@ -1847,7 +1912,11 @@ rows:
     reservation-rollback, not peek-then-commit. `Inbox._reserve(target, policy)` (PRIVATE,
     Layer-08-only) atomically `claim()`s the selected batch immediately -- removing it from `target`
     at RESERVE time, not at some later commit -- and returns a private, one-shot `_Reservation`
-    bound to exactly that batch (`.envelopes`, read-only). Exactly one of `.commit()` (settles the
+    bound to exactly that batch (`.envelopes`, a read-only PROPERTY backed by a private slot with no
+    setter -- PASS 8''s own first implementation exposed it as a plain writable `__slots__`
+    attribute instead, letting a caller reassign the reservation to a foreign envelope before
+    rollback and manufacture a duplicate id, `L09-R017`; PASS 9 closes it structurally). Exactly one
+    of `.commit()` (settles the
     removal permanently) or `.rollback()` (restores the exact reserved batch, verbatim and in order,
     ahead of whatever `target` holds by then) may ever be called on a given reservation, and each
     takes NO argument at all -- a second call to either, after the first, raises `RuntimeError`.

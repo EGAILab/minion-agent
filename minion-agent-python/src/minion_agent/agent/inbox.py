@@ -53,17 +53,33 @@ class _Reservation:
     enqueued in the meantime). Only THIS reservation's own claimed batch is ever rolled back;
     anything else a `RUNNING` observer did to `Inbox` (a genuinely unrelated claim, a clear, new
     enqueued input) is never reversed -- this mechanism protects exactly one thing, not the whole
-    `Inbox` as a general transaction."""
+    `Inbox` as a general transaction.
 
-    __slots__ = ("_inbox", "_settled", "_target", "envelopes")
+    `.envelopes` is a READ-ONLY property, not a plain writable attribute (`L09-R017`): an earlier
+    revision exposed it as an ordinary `__slots__` attribute, letting a caller reassign it to an
+    arbitrary foreign tuple before calling `.rollback()` -- the independent review's own executed
+    witness reassigned a reservation holding `A` to a foreign envelope `B` still queued elsewhere,
+    then rolled back, which restored `B` (not the genuinely reserved `A`, which was lost) and left
+    two copies of `B`'s own id across both queues. The bound batch is now stored only in a private
+    `_envelopes` slot with no setter of any kind, so it cannot be substituted after construction --
+    `.rollback()` can only ever restore the exact envelopes THIS reservation's own `claim()` call
+    removed."""
+
+    __slots__ = ("_envelopes", "_inbox", "_settled", "_target")
 
     def __init__(
         self, inbox: Inbox, target: InboxTarget, envelopes: tuple[InputEnvelope, ...]
     ) -> None:
         self._inbox = inbox
         self._target = target
-        self.envelopes = envelopes
+        self._envelopes = envelopes
         self._settled = False
+
+    @property
+    def envelopes(self) -> tuple[InputEnvelope, ...]:
+        """The exact batch this reservation's own `claim()` call removed. Read-only -- no setter
+        exists (`L09-R017`)."""
+        return self._envelopes
 
     def commit(self) -> None:
         """Leave the claimed batch removed. A no-op beyond marking this reservation settled --
@@ -77,8 +93,8 @@ class _Reservation:
         if self._settled:
             raise RuntimeError("reservation already settled")
         self._settled = True
-        if self.envelopes:
-            self._inbox._queues[self._target][0:0] = self.envelopes
+        if self._envelopes:
+            self._inbox._queues[self._target][0:0] = self._envelopes
 
 
 class NotJsonSafeOriginError(TypeError):

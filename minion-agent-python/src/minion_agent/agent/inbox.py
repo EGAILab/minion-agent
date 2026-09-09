@@ -145,17 +145,37 @@ class Inbox:
 
     def _commit_claim(self, target: InboxTarget, envelopes: tuple[InputEnvelope, ...]) -> None:
         """Remove exactly `envelopes` -- the exact prefix a PRIOR `peek(target, ...)` call on
-        this SAME `Inbox` just returned, with no intervening `await` -- from `target` (Layer 08
-        only, `AgentLoop._run_wrapped`'s own run-entry commit, `L09-R010`). Not part of this
-        class's own public API, the same "Layer 07 owns vocabulary, Layer 08 owns per-run
-        lifecycle" split already established for `AgentInstance._start_run_signal`/`_end_run_
-        signal`. Removal-only, by COUNT from the front -- unlike the removed public `restore()`,
-        this method can never INSERT an envelope, so it structurally cannot manufacture a
-        duplicate id no matter how or how often it is called; calling it again (misuse, or a
-        caller that bypasses the `_` convention) only ever removes more of whatever is CURRENTLY
-        at the front, never duplicates anything."""
+        this SAME `Inbox` just returned -- from `target` (Layer 08 only, `AgentLoop._run_wrapped`'s
+        own run-entry commit). Not part of this class's own public API, the same "Layer 07 owns
+        vocabulary, Layer 08 owns per-run lifecycle" split already established for `AgentInstance.
+        _start_run_signal`/`_end_run_signal`.
+
+        Verified by IDENTITY, position by position, not merely by COUNT (`L09-R011`): between a
+        caller's own `peek()` and this commit, the synchronous RUNNING-notification observer
+        `AgentLoop._run_wrapped` awaits in between (`AGENT_STATUS`/`on_status_change`) may itself
+        call any public `Inbox` operation on the SAME target before returning normally -- claim
+        the very envelopes this run peeked, clear the target, enqueue more input, or any
+        combination. A count-only removal (`queue[:len(envelopes)] = []`, an earlier revision)
+        would then silently delete whatever CURRENTLY sits at the front, which may no longer be
+        the peeked batch at all -- an independent Rust review's own executable witness: `A, B`
+        queued, `A` peeked, the RUNNING observer itself claims `A` and returns, and a count-only
+        commit deleted `B` too, input never selected for this run and never touched by the
+        observer's own action. This method instead removes `envelopes` ONLY if they are STILL
+        (by `is`, not equality) the exact objects occupying `target`'s own front, in the same
+        order; otherwise it removes nothing at all, leaving whatever the observer itself already
+        did as the sole source of truth for that target -- an observer's own reentrant mutation is
+        never silently undone, broadened, or treated as though it never happened. Removal-only, by
+        construction: unlike the removed public `restore()`, this method can never INSERT an
+        envelope, so it structurally cannot manufacture a duplicate id no matter how or how often
+        it is called -- calling it again with a batch that is no longer at the front (already
+        committed, or displaced by an observer) is a safe no-op, not a repeat deletion."""
+        if not envelopes:
+            return
         queue = self._queues[target]
-        queue[: len(envelopes)] = []
+        count = len(envelopes)
+        if len(queue) < count or any(queue[i] is not envelopes[i] for i in range(count)):
+            return
+        del queue[:count]
 
     def clear(self, target: InboxTarget) -> None:
         """Discard whatever is queued at `target`, unclaimed (pinned Pi's

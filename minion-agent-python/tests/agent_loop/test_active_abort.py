@@ -538,6 +538,71 @@ async def test_run_until_idle_restores_a_preclaimed_follow_up_on_a_running_failu
     assert any(text_of(m) == "go" for m in loop.instance.messages)
 
 
+# -- Layer 09, `L09-R011`: a reentrant RUNNING observer must not lose unrelated input -----------
+
+
+async def test_a_running_observer_that_claims_the_peeked_input_does_not_lose_other_input() -> None:
+    """`L09-R011` witness 1: `ONE_AT_A_TIME`, queue `A, B`. A synchronous RUNNING observer itself
+    calls `inbox.claim(...)`, removing `A` -- the very envelope this run peeked -- and returns
+    normally (no exception). `_run_wrapped`'s own commit must not then delete `B`: it was never
+    part of this run's own selected batch, and a count-only commit would have deleted it anyway
+    since it was now at the queue's own front. The continued turn is scripted as a represented
+    `aborted` terminal so the run returns immediately after it, without reaching Layer 08's own
+    separate, already-certified POST-turn steering poll (`_run_step`'s own `_claim_step_input`)
+    -- which would otherwise legitimately claim `B` itself moments later for an unrelated reason,
+    making this witness observe the wrong thing."""
+    loop = _loop_with_adapter(
+        ScriptedResponse((TextBlock(text="hi"),), StopReason.STOP),
+        ScriptedResponse((), StopReason.ABORTED, error_message="terminal"),
+    )[0]
+    await loop.prompt(_say("hello"))
+    loop.instance.inbox.steer(_say("A"))
+    envelope_b = loop.instance.inbox.steer(_say("B"))
+
+    def on_status_change(status: AgentStatus) -> None:
+        if status is AgentStatus.RUNNING:
+            loop.instance.inbox.claim(InboxTarget.NEXT_STEP, ClaimPolicy.ONE_AT_A_TIME)
+
+    loop.instance.on_status_change = on_status_change
+
+    await loop.continue_()  # must not raise -- the observer returns normally
+
+    pending = loop.instance.inbox.pending(InboxTarget.NEXT_STEP)
+    assert len(pending) == 1
+    assert pending[0].id == envelope_b.id
+
+
+async def test_a_running_observer_that_clears_and_enqueues_does_not_lose_the_new_input() -> None:
+    """`L09-R011` witness 2: `ClaimPolicy.ALL`, queue `A, B`. A synchronous RUNNING observer
+    clears the SAME target entirely and enqueues `C` before returning normally.
+    `_run_wrapped`'s own commit must not remove `C` as if it were part of the earlier peek -- a
+    count-only commit would have deleted it anyway, since it was the only thing at the queue's
+    own front. The continued turn is scripted as a represented `aborted` terminal for the same
+    reason as witness 1 above: so the run returns immediately, before Layer 08's own separate
+    post-turn steering poll could legitimately claim `C` itself for an unrelated reason."""
+    loop = _loop_with_adapter(
+        ScriptedResponse((TextBlock(text="hi"),), StopReason.STOP),
+        ScriptedResponse((), StopReason.ABORTED, error_message="terminal"),
+    )[0]
+    loop.next_step_policy = ClaimPolicy.ALL
+    await loop.prompt(_say("hello"))
+    loop.instance.inbox.steer(_say("A"))
+    loop.instance.inbox.steer(_say("B"))
+
+    def on_status_change(status: AgentStatus) -> None:
+        if status is AgentStatus.RUNNING:
+            loop.instance.inbox.clear(InboxTarget.NEXT_STEP)
+            loop.instance.inbox.steer(_say("C"))
+
+    loop.instance.on_status_change = on_status_change
+
+    await loop.continue_()  # must not raise -- the observer returns normally
+
+    pending = loop.instance.inbox.pending(InboxTarget.NEXT_STEP)
+    assert len(pending) == 1
+    assert text_of(pending[0].message) == "C"
+
+
 async def test_a_represented_aborted_terminal_is_unaffected_by_layer_09() -> None:
     """Regression: pinned Pi's own represented-`aborted` short-circuit (already Layer-08-owned,
     `runLoop`'s `stopReason === "aborted"` check) is a scripted terminal, not something Layer 09

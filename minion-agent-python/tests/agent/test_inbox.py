@@ -156,6 +156,15 @@ def test_a_failed_commit_never_happening_leaves_peeked_input_exactly_as_queued()
     assert inbox.pending(InboxTarget.NEXT_TURN) == (envelope,)
 
 
+def test_committing_an_empty_batch_is_a_harmless_no_op() -> None:
+    inbox = Inbox()
+    envelope = inbox.followup(_message("untouched"))
+
+    inbox._commit_claim(InboxTarget.NEXT_TURN, ())
+
+    assert inbox.pending(InboxTarget.NEXT_TURN) == (envelope,)
+
+
 def test_the_old_public_restore_method_no_longer_exists() -> None:
     """`L09-R010`: an independent Rust review found the PASS-5 candidate's public `Inbox.restore
     (target, envelopes)` callable by ANY caller with ANY envelope tuple -- including one still
@@ -183,24 +192,39 @@ def test_the_reviewers_duplicate_id_witness_is_no_longer_expressible() -> None:
     assert [item.id for item in inbox.pending(InboxTarget.NEXT_TURN)] == [envelope.id]
 
 
-def test_calling_commit_claim_repeatedly_only_removes_never_duplicates() -> None:
-    """Even a caller that bypasses the `_` convention and calls the private commit method
-    directly, more than once, can only ever REMOVE queue items -- `_commit_claim` has no way to
-    INSERT an envelope, so, unlike the removed public `restore()`, it cannot manufacture a
-    duplicate id no matter how or how often it is called."""
+def test_calling_commit_claim_again_with_a_stale_batch_is_a_safe_no_op() -> None:
+    """`L09-R011`: a caller that calls the private commit method again with a batch that is no
+    longer at the queue's own front (already committed once) must NOT delete unrelated input --
+    `_commit_claim` checks IDENTITY, not merely count, so a stale/repeated call is a no-op rather
+    than a repeat deletion. (An earlier revision of this test asserted the opposite -- that a
+    second call also removed an unrelated envelope `B` -- which an independent Rust review
+    correctly flagged as codifying the exact `L09-R011` defect rather than guarding against it.)"""
     inbox = Inbox()
-    a = inbox.followup(_message("A"))
+    inbox.followup(_message("A"))
     b = inbox.followup(_message("B"))
     peeked = inbox.peek(InboxTarget.NEXT_TURN, ClaimPolicy.ONE_AT_A_TIME)
 
-    inbox._commit_claim(InboxTarget.NEXT_TURN, peeked)
-    inbox._commit_claim(InboxTarget.NEXT_TURN, peeked)  # called again -- still only removes
+    inbox._commit_claim(InboxTarget.NEXT_TURN, peeked)  # removes A
+    inbox._commit_claim(InboxTarget.NEXT_TURN, peeked)  # stale -- A is gone; must not touch B
 
     pending = inbox.pending(InboxTarget.NEXT_TURN)
-    ids = [envelope.id for envelope in pending]
-    assert len(ids) == len(set(ids))  # no duplicate ids, ever
-    assert a.id not in ids
-    assert b.id not in ids
+    assert [envelope.id for envelope in pending] == [b.id]
+
+
+def test_commit_claim_does_nothing_if_the_front_no_longer_matches_the_peeked_batch() -> None:
+    """`L09-R011`'s own required unit-level witness: a reentrant mutation (here, simulated
+    directly -- see `test_active_abort.py` for the through-the-real-driver version) that removes
+    the peeked envelope before commit runs must not cause commit to delete whatever unrelated
+    input has since taken its place at the front."""
+    inbox = Inbox()
+    inbox.steer(_message("A"))
+    b = inbox.steer(_message("B"))
+    peeked = inbox.peek(InboxTarget.NEXT_STEP, ClaimPolicy.ONE_AT_A_TIME)  # (A,)
+
+    inbox.claim(InboxTarget.NEXT_STEP, ClaimPolicy.ONE_AT_A_TIME)  # a reentrant claim removes A
+    inbox._commit_claim(InboxTarget.NEXT_STEP, peeked)  # must not now delete B
+
+    assert inbox.pending(InboxTarget.NEXT_STEP) == (b,)
 
 
 def test_every_envelope_gets_a_unique_id() -> None:

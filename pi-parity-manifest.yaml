@@ -947,7 +947,42 @@ rows:
     PASS-5 candidate and FAILED as expected (the two negative witnesses specifically reproduced the
     review''s own duplicate-id defect before the fix, and correctly could not after), then PASSED
     once restored; the eight `test_active_abort.py` witnesses were confirmed unaffected by the
-    revert (passed both before and after, since they exercise observable behavior only).'
+    revert (passed both before and after, since they exercise observable behavior only).
+
+    PASS 7 (targeted re-review of the PASS-6 candidate): `L09-R007`/`L09-R010` `PROVISIONALLY
+    CLOSED`, but two new findings blocked the final review -- `L09-R011` (`CONTRACT_ASSURANCE_
+    DEFECT`) and `L09-R012` (`CONTRACT_ASSURANCE_DEFECT`, documentary, see `AG-011`).
+
+    `L09-R011`: PASS 6''s own `_commit_claim` removed envelopes by COUNT from the queue''s own
+    front (`queue[:len(envelopes)] = []`), never checking that the envelopes actually still
+    occupying that front were the SAME ones a prior `peek()` returned. The synchronous RUNNING
+    notification `_run_wrapped` awaits BETWEEN peek and commit may itself call any public `Inbox`
+    operation on the same target before returning normally -- claim the peeked envelopes itself,
+    clear the target, enqueue more input, or any combination. The independent review''s own
+    executable witness: queue `A, B`; `A` peeked; the RUNNING observer itself claims `A` and
+    returns (queue now `[B]`); a count-only commit for the peeked `(A,)` then deleted `B` too --
+    input never selected for this run and never touched by the observer''s own action. Remediation:
+    `_commit_claim` now verifies IDENTITY, position by position (`queue[i] is not envelopes[i]`),
+    not merely count, before removing anything -- if the queue''s own front no longer matches
+    exactly what was peeked, it removes NOTHING at all, leaving whatever the observer itself
+    already did as the sole source of truth for that target. Two new through-the-real-driver
+    witnesses reproduce the review''s own required scenarios (`ONE_AT_A_TIME` observer-claims-the-
+    peeked-envelope; `ClaimPolicy.ALL` observer-clears-and-enqueues), plus two new `Inbox`-level
+    unit tests; the existing `test_calling_commit_claim_repeatedly_only_removes_never_duplicates`
+    (PASS 6) was itself flagged by the review as codifying the exact defect (it asserted an
+    UNRELATED envelope `B` was ALSO removed by a second commit call) and is corrected to assert
+    the fixed, safe-no-op behavior instead -- renamed `test_calling_commit_claim_again_with_a_
+    stale_batch_is_a_safe_no_op`.
+
+    `L09-R012` (documentary only, no code/behavior change): `AG-011`''s own `python:` evidence
+    pointer still named the removed `Inbox.restore`, contradicting that same row''s own already-
+    corrected prose (updated under `L09-R010`) and the actual current implementation. Corrected to
+    name `Inbox.peek`/`Inbox._commit_claim`.
+
+    Confirmed via revert-and-confirm: the two new through-the-driver witnesses and the two new/
+    corrected `Inbox`-level unit tests were run against the reverted (count-only) PASS-6 candidate
+    and all FAILED as expected, reproducing the review''s own witness exactly (`B`/`C` incorrectly
+    lost), then PASSED once the identity check was restored.'
   tests:
   - test_a_fresh_controller_is_not_aborted (runtime/test_signal.py)
   - test_abort_sets_the_signal_aborted (runtime/test_signal.py)
@@ -980,17 +1015,21 @@ rows:
   - test_continue_restores_preclaimed_follow_up_on_a_running_failure (agent_loop/test_active_abort.py)
   - test_restored_preclaimed_input_precedes_input_the_failing_observer_itself_enqueues (agent_loop/test_active_abort.py)
   - test_run_until_idle_restores_a_preclaimed_follow_up_on_a_running_failure (agent_loop/test_active_abort.py)
+  - test_a_running_observer_that_claims_the_peeked_input_does_not_lose_other_input (agent_loop/test_active_abort.py)
+  - test_a_running_observer_that_clears_and_enqueues_does_not_lose_the_new_input (agent_loop/test_active_abort.py)
   - test_peek_returns_what_claim_would_without_removing_it (agent/test_inbox.py)
   - test_peek_matches_claim_for_all_policy (agent/test_inbox.py)
   - test_peek_on_an_empty_target_returns_nothing (agent/test_inbox.py)
   - test_commit_claim_removes_exactly_the_peeked_envelopes (agent/test_inbox.py)
   - test_peek_then_commit_behaves_exactly_like_claim (agent/test_inbox.py)
   - test_a_failed_commit_never_happening_leaves_peeked_input_exactly_as_queued (agent/test_inbox.py)
+  - test_committing_an_empty_batch_is_a_harmless_no_op (agent/test_inbox.py)
   - test_the_old_public_restore_method_no_longer_exists (agent/test_inbox.py)
   - test_the_reviewers_duplicate_id_witness_is_no_longer_expressible (agent/test_inbox.py)
-  - test_calling_commit_claim_repeatedly_only_removes_never_duplicates (agent/test_inbox.py)
+  - test_calling_commit_claim_again_with_a_stale_batch_is_a_safe_no_op (agent/test_inbox.py)
+  - test_commit_claim_does_nothing_if_the_front_no_longer_matches_the_peeked_batch (agent/test_inbox.py)
   - test_a_represented_aborted_terminal_is_unaffected_by_layer_09 (agent_loop/test_active_abort.py)
-  python: src/minion_agent/runtime/signal.py::RunSignal, RunAbortController; src/minion_agent/agent/instance.py::AgentInstance.signal (read-only property)/abort/_start_run_signal/_end_run_signal/_force_idle_after_failed_entry_notification; src/minion_agent/agent_loop/driver.py::AgentLoop._run_wrapped (RUNNING-failure rollback + commit_entry_claim, IDLE-failure exit reorder), continue_ (peek + commit_entry_claim closures, L09-R010), run_until_idle (peek + commit_entry_claim closure, L09-R010), _run_step (Request.signal, _transform_context), _settle_run_failure (ABORTED classification), _transform_context; src/minion_agent/agent/events.py::AGENT_TRANSFORM_CONTEXT; src/minion_agent/agent/inbox.py::Inbox.peek, Inbox._commit_claim (L09-R010, replaces the removed public Inbox.restore)
+  python: src/minion_agent/runtime/signal.py::RunSignal, RunAbortController; src/minion_agent/agent/instance.py::AgentInstance.signal (read-only property)/abort/_start_run_signal/_end_run_signal/_force_idle_after_failed_entry_notification; src/minion_agent/agent_loop/driver.py::AgentLoop._run_wrapped (RUNNING-failure rollback + commit_entry_claim, IDLE-failure exit reorder), continue_ (peek + commit_entry_claim closures, L09-R010), run_until_idle (peek + commit_entry_claim closure, L09-R010), _run_step (Request.signal, _transform_context), _settle_run_failure (ABORTED classification), _transform_context; src/minion_agent/agent/events.py::AGENT_TRANSFORM_CONTEXT; src/minion_agent/agent/inbox.py::Inbox.peek, Inbox._commit_claim (L09-R010/L09-R011, identity-checked, replaces the removed public Inbox.restore)
   rust: NOT_APPLICABLE -- Python/shared candidate awaiting independent Rust contract review; certified Rust Layer 06''s own ToolExecutionSignal seam remains reserved, unexercised
   disposition: adopted
 - id: AG-008
@@ -1731,7 +1770,7 @@ rows:
   - test_inject_delegates_to_the_inbox_without_waking
   - agent-inbox-queue-mode-fifo (L07-R004, language-neutral canonical)
   - agent-inbox-queue-independence-and-clearing (L07-R004, language-neutral canonical)
-  python: src/minion_agent/agent/inbox.py::Inbox, Inbox.restore (Layer 09, L09-R007 convergence -- see AG-007); src/minion_agent/agent/envelope.py::InboxTarget/InputEnvelope, src/minion_agent/agent/instance.py::AgentInstance.steer/follow_up/inject
+  python: src/minion_agent/agent/inbox.py::Inbox, Inbox.peek, Inbox._commit_claim (Layer 09, L09-R007/L09-R010/L09-R011 -- see AG-007; Inbox.restore, PASS 5's own mechanism, was removed under L09-R010); src/minion_agent/agent/envelope.py::InboxTarget/InputEnvelope, src/minion_agent/agent/instance.py::AgentInstance.steer/follow_up/inject
   rust: crates/minion-agent/src/agent/inbox.rs::Inbox; crates/minion-agent/tests/agent_inbox.rs; crates/minion-agent/tests/agent_inbox_conformance.rs
   disposition: adopted
 - id: AG-012

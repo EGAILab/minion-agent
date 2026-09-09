@@ -136,6 +136,7 @@ from ..llm import (
     UserContentBlock,
     UserMessage,
 )
+from ..runtime.errors import WaterfallError
 from ..session import (
     ArtifactStore,
     EventKind,
@@ -886,21 +887,56 @@ class AgentLoop:
         local `messages` variable, never `currentContext.messages`, so a transform's own output is
         provider-local for THIS request only.
 
-        `signal` is AUTHORITATIVE event metadata, not a listener's own to replace, redirect, or
-        drop (`L09-R006`, an independent Rust review's own finding against an earlier revision
-        that let a raw listener delegate with a fabricated replacement signal, observed by a
-        later listener instead of the real one): `_restore_signal` below forces `instance`/
-        `signal` back to their ORIGINAL values at every listener-to-listener handoff, matching the
-        SAME restoration discipline `tools/post-execute` already applies to execution identity
-        (`L06-R003`) -- only `messages` (position 2) is genuinely the listener's own to transform.
-        A listener no longer needs to re-supply `signal` when delegating with a replacement.
+        `instance`/`signal` are AUTHORITATIVE event metadata, not a listener's own to replace,
+        redirect, or drop (`L09-R006`, an independent Rust review's own finding against an earlier
+        revision that let a raw listener delegate with a fabricated replacement signal, observed
+        by a later listener instead of the real one): `_restore_signal` below forces both back to
+        their ORIGINAL values at every listener-to-listener handoff, matching the SAME restoration
+        discipline `tools/post-execute` already applies to execution identity (`L06-R003`) -- only
+        `messages` (the middle position) is genuinely the listener's own to transform. A listener
+        no longer needs to re-supply EITHER authoritative field when delegating with a replacement.
+
+        This payload SANDWICHES its one transformable field (`messages`) between its two
+        authoritative fields (`instance` leading, `signal` trailing) -- unlike every other
+        authoritative-metadata waterfall in this codebase, which has exactly one authoritative
+        field, always at position 0. A two-element partial delegation is therefore inherently
+        AMBIGUOUS between "the leading `instance` was omitted" (`next_(messages, signal)`) and
+        "the trailing `signal` was omitted" (`next_(instance, messages)`) -- both produce an
+        identical length-2 tuple, and nothing about a bare tuple's own length or position
+        (without inspecting content -- explicitly rejected as "type/position guessing") can tell
+        them apart (`L09-R018`, `L09-R018` convergence, `assurance/layers/09-active-abort-
+        contract-checkpoint-r018-convergence.md`, revisions 1-2, `CONVERGENCE CONTRACT AGREED
+        FOR IMPLEMENTATION`). An earlier revision silently committed to ONE interpretation
+        unconditionally (treating any `current` of length >= 2 as `(instance_attempt, messages,
+        ...)`) -- correct for genuine trailing-signal omission, but for genuine leading-instance
+        omission this discarded the caller's real `messages` value and forwarded a live
+        `RunSignal` downstream AS `messages`, corrupting the eventual provider request. `_restore_
+        signal` below instead accepts ONLY the two UNAMBIGUOUS lengths -- 1 (exactly the
+        transformable field, both authoritative fields restored) and 3 (full, explicit) -- and
+        REJECTS every other length (in practice, only 2) directly at this authority boundary by
+        raising `WaterfallError`, before the malformed tuple is ever forwarded to a later
+        listener: rejection is structural, not dependent on a downstream listener's own arity
+        happening to mismatch (a variadic or short-circuit-capable listener could otherwise
+        silently absorb it). Because this dispatch runs inside `_execute_run`'s own `try`/`except
+        Exception` boundary (`L08-R002`, unchanged), the raised error is caught there and routed
+        to `_settle_run_failure` exactly like any other run-executor failure -- `prompt()`/
+        `continue_()` completes normally, with a synthesized terminal `error` assistant message,
+        never a bare escaping exception.
         """
         original_instance = self.instance
         original_signal = self.instance.signal
 
         def _restore_signal(current: tuple[object, ...]) -> tuple[object, ...]:
-            current_messages = current[1]
-            return (original_instance, current_messages, original_signal)
+            if len(current) == 1:
+                return (original_instance, current[0], original_signal)
+            if len(current) == 3:
+                return (original_instance, current[1], original_signal)
+            raise WaterfallError(
+                f"AGENT_TRANSFORM_CONTEXT: ambiguous delegation of length {len(current)} -- a "
+                "partial replacement must supply exactly the transformable field (`messages` "
+                "alone) or the full payload; a two-element replacement cannot be disambiguated "
+                "between an omitted leading Agent and an omitted trailing signal"
+            )
 
         transformed: tuple[Message, ...] = await self.instance.ctx.events.waterfall(
             AGENT_TRANSFORM_CONTEXT,

@@ -1146,7 +1146,19 @@ rows:
     `_Reservation` witnesses failed to raise `AttributeError` at all (assignment silently succeeded)
     -- then PASSED once the fixes were restored. Fresh full gate run: 1125 passed, 19 xfailed, 100%
     coverage, ruff/mypy clean, `ruff format --check` unchanged at the same seven pre-existing drift
-    files.'
+    files.
+
+    PASS 10 (`L09-R018` convergence -- full finding, root cause, agreed `{0, 1, 3}` delegation
+    grammar, and evidence at `AG-023`, not duplicated here): the mandatory `§11.8.8` final review
+    of the PASS-9 candidate rejected it on `AGENT_TRANSFORM_CONTEXT`''s own delegation-omission
+    ambiguity -- the only current waterfall payload with authoritative fields on BOTH sides of its
+    transformable field. Closed via a two-revision `§11.8.4`/`§11.8.5` convergence checkpoint
+    (`assurance/layers/09-active-abort-contract-checkpoint-r018-convergence.md`, `CONVERGENCE
+    CONTRACT AGREED FOR IMPLEMENTATION`); the fix restricts legal `_transform_context` delegation
+    lengths to `{0, 1, 3}` and rejects any other length directly at the authority boundary via
+    `WaterfallError`, settled as an ordinary represented Layer-08 run failure. Fresh full gate run:
+    1131 passed, 19 xfailed, 100% coverage, ruff/mypy clean, `ruff format --check` unchanged at the
+    same seven pre-existing drift files.'
   tests:
   - test_a_fresh_controller_is_not_aborted (runtime/test_signal.py)
   - test_abort_sets_the_signal_aborted (runtime/test_signal.py)
@@ -1204,7 +1216,7 @@ rows:
   - test_rollback_precedes_input_enqueued_after_the_reservation (agent/test_inbox.py)
   - test_a_reentrant_claim_on_the_same_target_sees_only_unrelated_input (agent/test_inbox.py)
   - test_a_represented_aborted_terminal_is_unaffected_by_layer_09 (agent_loop/test_active_abort.py)
-  python: src/minion_agent/runtime/signal.py::RunSignal, RunAbortController; src/minion_agent/agent/instance.py::AgentInstance.signal (read-only property)/abort/_start_run_signal/_end_run_signal/_force_idle_after_failed_entry_notification; src/minion_agent/agent_loop/driver.py::AgentLoop._run_wrapped (RUNNING-failure rollback + entry_reservation.rollback/commit, IDLE-failure exit reorder), continue_ (_reserve, L09-R012/R013/R014), run_until_idle (_reserve, L09-R012/R013/R014), _run_step (Request.signal, _transform_context), _prepare_next_turn (normalize_step=_restore_instance, arity-aware since PASS 9, L09-R015), _pre_step (normalize_step=_restore_instance, arity-aware since PASS 9, L09-R015), _settle_run_failure (ABORTED classification), _transform_context; src/minion_agent/agent/events.py::AGENT_TRANSFORM_CONTEXT; src/minion_agent/agent/inbox.py::_Reservation (envelopes -- read-only property since PASS 9, L09-R017), Inbox._reserve (L09-R012/R013/R014, replaces the removed Inbox.peek/_commit_claim)
+  python: src/minion_agent/runtime/signal.py::RunSignal, RunAbortController; src/minion_agent/agent/instance.py::AgentInstance.signal (read-only property)/abort/_start_run_signal/_end_run_signal/_force_idle_after_failed_entry_notification; src/minion_agent/agent_loop/driver.py::AgentLoop._run_wrapped (RUNNING-failure rollback + entry_reservation.rollback/commit, IDLE-failure exit reorder), continue_ (_reserve, L09-R012/R013/R014), run_until_idle (_reserve, L09-R012/R013/R014), _run_step (Request.signal, _transform_context), _prepare_next_turn (normalize_step=_restore_instance, arity-aware since PASS 9, L09-R015), _pre_step (normalize_step=_restore_instance, arity-aware since PASS 9, L09-R015), _settle_run_failure (ABORTED classification), _transform_context (_restore_signal -- arity-aware {0,1,3} delegation grammar with explicit WaterfallError rejection since PASS 10, L09-R018 -- see AG-023 for full detail); src/minion_agent/agent/events.py::AGENT_TRANSFORM_CONTEXT; src/minion_agent/agent/inbox.py::_Reservation (envelopes -- read-only property since PASS 9, L09-R017), Inbox._reserve (L09-R012/R013/R014, replaces the removed Inbox.peek/_commit_claim)
   rust: NOT_APPLICABLE -- Python/shared candidate awaiting independent Rust contract review; certified Rust Layer 06''s own ToolExecutionSignal seam remains reserved, unexercised
   disposition: adopted
 - id: AG-008
@@ -1854,12 +1866,75 @@ rows:
     closure-captured original at every listener-to-listener handoff -- the same mechanism applied
     to `TOOLS_PRE_EXECUTE`/`TOOLS_POST_EXECUTE` (`TOOL-024`) for the identical finding. A dedicated
     regression test confirmed genuinely discriminating via revert-and-confirm (FAILED with
-    `normalize_step` stripped, PASSED once restored).'
+    `normalize_step` stripped, PASSED once restored).
+
+    PASS 10 (`L09-R018` convergence, `PI_PARITY_DEFECT`; mandatory `§11.8.8` final review of the
+    PASS-9 candidate, `minion-agent-docs#38`, then a two-revision `§11.8.4`/`§11.8.5` checkpoint
+    cycle, `assurance/layers/09-active-abort-contract-checkpoint-r018-convergence.md`,
+    `CONVERGENCE CONTRACT AGREED FOR IMPLEMENTATION` at `minion-agent-docs#40` @
+    `15d5173d5d7a18c35f7841fe42d533e74bb672a2`): `AGENT_TRANSFORM_CONTEXT`''s own payload,
+    `(instance, messages, signal)`, sandwiches its ONE transformable field between its TWO
+    authoritative fields -- the ONLY current waterfall dispatch with this shape (every other
+    authoritative-metadata waterfall in this codebase has exactly one authoritative field, always
+    at a fixed end). PASS 3''s own `_restore_signal` treated ANY `current` of length >= 2 as
+    `(instance_attempt, messages, ...)` unconditionally -- correct for a listener genuinely
+    omitting only `signal` (`next_(instance_attempt, messages)`), but SILENTLY WRONG for one
+    genuinely omitting only `instance` (`next_(messages, signal)`): both produce an identical
+    length-2 tuple, so the code could not tell them apart, and for the untested direction it
+    discarded the caller''s real `messages` and forwarded a live `RunSignal` downstream, and
+    eventually into the real provider request, AS `messages` -- an independent Rust review''s own
+    executed witness reproduced exactly this (`downstream_messages_type RunSignal`,
+    `request_messages_type RunSignal`).
+
+    The agreed remediation does not add a case-by-case check for the untested direction: it
+    restricts the legal delegation grammar to exactly `{0, 1, 3}` -- length 0 (no-op forward),
+    length 1 (`next_(new_messages)`, supplying ONLY the transformable field, both authoritative
+    fields always restored -- a strict generalization of the original "no need to re-supply
+    `signal`" convenience to "no need to re-supply EITHER authoritative field"), and length 3
+    (full explicit, unchanged). Length 2 -- inherently ambiguous, since two DIFFERENT single-field
+    omissions collapse to the identical length -- is no longer silently guessed at all: `_restore_
+    signal` raises `WaterfallError` (`runtime/errors.py`, already certified) DIRECTLY at this
+    authority boundary, before the malformed tuple is ever forwarded to a later listener, so no
+    downstream listener -- however permissive its own signature -- can ever observe or absorb it
+    (verified by a required negative witness: a deliberately variadic downstream listener, proven
+    never invoked). Because `_transform_context` runs inside `AgentLoop._execute_run`''s own
+    `try`/`except Exception` boundary (`L08-R002`, unchanged), the raised error is caught there and
+    routed to `_settle_run_failure` exactly like any other run-executor failure -- `prompt()`/
+    `continue_()` completes normally, with a synthesized terminal `error` assistant message, never
+    a bare escaping exception; the real provider request is never sent for that turn.
+
+    A type-based disambiguation alternative (inspecting whether a given position''s value is a
+    `RunSignal` instance) was considered and rejected during convergence -- exactly the "type/
+    position guessing" the reviewing party''s own requirement prohibited, fragile against a
+    `RunSignal` subclass or mock, and not specifiable language-neutrally without effectively
+    re-deriving a typed/discriminated representation anyway. A full re-audit of every other
+    authoritative-metadata waterfall (`AGENT_PRE_STEP`, `AGENT_PREPARE_NEXT_TURN`,
+    `TOOLS_PRE_EXECUTE`, `TOOLS_POST_EXECUTE`) confirmed none share this two-authoritative-fields-
+    sandwiching-a-transformable-field ambiguity -- each has exactly one authoritative field, always
+    at a fixed end, so arity alone already resolves omission unambiguously there (`L09-R015`).
+
+    Seven required witnesses (two direct, immediate-`WaterfallError`-with-non-forwarding-proof;
+    two real-loop, represented-Layer-08-failure; one message-only positive case; the unchanged
+    full-length redirect regression guard; one message-only-as-first-listener case), all confirmed
+    via revert-and-confirm against the exact PASS-9 candidate SHA
+    (`e015c20c25b3506372c1887a6f7b079a7f8d9e7a`): six genuinely FAILED as expected (two by never
+    raising -- the leading-omission shape silently corrupted the payload instead; two by the
+    provider being reached when it should not have been -- PASS 9 ACCEPTED the trailing-omission
+    shape rather than refusing it; two by `IndexError`, since `current[1]` assumed at least two
+    elements), the seventh (the unchanged redirect test) remained the already-green regression
+    guard throughout, and all six PASSED once the arity-aware, explicitly-rejecting `_restore_
+    signal` was restored.'
   tests:
   - test_transform_context_receives_messages_and_the_active_signal (agent_loop/test_active_abort.py)
   - test_transform_context_output_is_provider_local_not_persistent (agent_loop/test_active_abort.py)
   - test_a_transform_listener_cannot_redirect_a_later_listener_to_a_replacement_signal (agent_loop/test_active_abort.py)
-  python: src/minion_agent/agent/events.py::AGENT_TRANSFORM_CONTEXT; src/minion_agent/agent_loop/driver.py::AgentLoop._transform_context (dispatch, _restore_signal normalize_step), _run_step (dispatch point, before Request construction)
+  - test_transform_context_rejects_leading_agent_omission_before_forwarding (agent_loop/test_active_abort.py, L09-R018)
+  - test_transform_context_rejects_trailing_signal_omission_before_forwarding (agent_loop/test_active_abort.py, L09-R018)
+  - test_transform_context_leading_omission_settles_as_a_represented_run_failure (agent_loop/test_active_abort.py, L09-R018)
+  - test_transform_context_trailing_omission_settles_as_a_represented_run_failure (agent_loop/test_active_abort.py, L09-R018)
+  - test_transform_context_message_only_delegation_preserves_both_authoritative_fields (agent_loop/test_active_abort.py, L09-R018)
+  - test_transform_context_message_only_delegation_as_the_first_listener (agent_loop/test_active_abort.py, L09-R018)
+  python: src/minion_agent/agent/events.py::AGENT_TRANSFORM_CONTEXT; src/minion_agent/agent_loop/driver.py::AgentLoop._transform_context (dispatch, _restore_signal normalize_step -- arity-aware {0,1,3} grammar with explicit WaterfallError rejection, L09-R018), _run_step (dispatch point, before Request construction)
   rust: NOT_APPLICABLE -- Python/shared candidate awaiting independent Rust contract review
   disposition: adopted
 - id: AG-011

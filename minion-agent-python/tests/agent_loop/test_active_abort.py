@@ -26,7 +26,7 @@ from minion_agent.agent.instance import AgentActiveError
 from minion_agent.agent.projection import MessageStart
 from minion_agent.llm import StopReason, TextBlock, ToolCallBlock, UserMessage, text_of
 from minion_agent.llm.adapters.mock import ScriptedResponse
-from minion_agent.runtime import RunAbortController
+from minion_agent.runtime import RunAbortController, WaterfallError
 from minion_agent.tools.decisions import Proceed
 from minion_agent.tools.events import TOOLS_PRE_EXECUTE
 
@@ -263,6 +263,145 @@ async def test_a_transform_listener_cannot_redirect_a_later_listener_to_a_replac
 
     assert seen[0] is not forged  # NOT the forgery listener A delegated with
     assert seen[0] is adapter.requests[0].signal  # the SAME signal the real request received
+
+
+async def test_transform_context_rejects_leading_agent_omission_before_forwarding() -> None:
+    """`L09-R018` (`C18-1`): a listener that genuinely omits the leading authoritative `instance`
+    (`next_(messages, signal)`, length 2 -- indistinguishable by length alone from the OLD
+    trailing-signal-omission shape) is refused DIRECTLY at the authority boundary
+    (`_transform_context`'s own `normalize_step`), before the malformed tuple is ever forwarded to
+    a later listener -- proven with a deliberately VARIADIC, short-circuit-capable downstream
+    listener that would happily absorb the malformed tuple if it were ever actually forwarded,
+    confirming rejection does not depend on a fixed next listener's own incompatible arity."""
+    loop = _loop_with_adapter(ScriptedResponse((), StopReason.STOP))[0]
+    sneaky_calls: list[Any] = []
+
+    async def listener_a(instance: Any, messages: Any, signal: Any, next_: Any) -> Any:
+        return await next_(messages, signal)  # genuinely omits `instance`
+
+    async def sneaky_listener_b(*args: Any) -> Any:
+        sneaky_calls.append(args)
+        return ()
+
+    loop.instance.ctx.events.on(AGENT_TRANSFORM_CONTEXT, listener_a)
+    loop.instance.ctx.events.on(AGENT_TRANSFORM_CONTEXT, sneaky_listener_b)
+
+    with pytest.raises(WaterfallError):
+        await loop._transform_context((_say("hi"),))
+
+    assert sneaky_calls == []  # never reached -- rejection happened before forwarding
+
+
+async def test_transform_context_rejects_trailing_signal_omission_before_forwarding() -> None:
+    """`L09-R018` (`C18-1`)'s trailing-omission counterpart -- the OLD, previously-supported
+    convenience shape (`next_(instance_attempt, messages)`, length 2) is now refused IDENTICALLY,
+    not selectively, with the same non-forwarding proof."""
+    loop = _loop_with_adapter(ScriptedResponse((), StopReason.STOP))[0]
+    sneaky_calls: list[Any] = []
+
+    async def listener_a(instance: Any, messages: Any, signal: Any, next_: Any) -> Any:
+        return await next_(instance, messages)  # genuinely omits `signal`
+
+    async def sneaky_listener_b(*args: Any) -> Any:
+        sneaky_calls.append(args)
+        return ()
+
+    loop.instance.ctx.events.on(AGENT_TRANSFORM_CONTEXT, listener_a)
+    loop.instance.ctx.events.on(AGENT_TRANSFORM_CONTEXT, sneaky_listener_b)
+
+    with pytest.raises(WaterfallError):
+        await loop._transform_context((_say("hi"),))
+
+    assert sneaky_calls == []  # never reached -- rejection happened before forwarding
+
+
+async def test_transform_context_leading_omission_settles_as_a_represented_run_failure() -> None:
+    """`L09-R018` (`C18-2`): through the REAL Agent loop, a listener's leading-`instance`-omission
+    delegation must not escape as a bare exception -- `_transform_context` runs inside
+    `_execute_run`'s own exception boundary (`L08-R002`), so the raised `WaterfallError` is caught
+    and routed to `_settle_run_failure` like any other run-executor failure: `prompt()` completes
+    normally, the provider is never reached, and the turn settles as a represented `error`."""
+    loop, adapter = _loop_with_adapter(ScriptedResponse((), StopReason.STOP))
+
+    async def listener_a(instance: Any, messages: Any, signal: Any, next_: Any) -> Any:
+        return await next_(messages, signal)
+
+    loop.instance.ctx.events.on(AGENT_TRANSFORM_CONTEXT, listener_a)
+
+    await loop.prompt(_say("hello"))  # completes normally -- no escaping exception
+
+    assert adapter.requests == []  # the provider was never reached
+    assert loop.instance.status is AgentStatus.IDLE
+    failures = [
+        m for m in loop.instance.messages if getattr(m, "stop_reason", None) is StopReason.ERROR
+    ]
+    assert len(failures) == 1
+    assert "ambiguous delegation" in (failures[0].error_message or "")
+
+
+async def test_transform_context_trailing_omission_settles_as_a_represented_run_failure() -> None:
+    """`L09-R018` (`C18-2`)'s trailing-omission counterpart -- the SAME represented-failure
+    treatment, not a bare escaping exception, for the OLD convenience shape too."""
+    loop, adapter = _loop_with_adapter(ScriptedResponse((), StopReason.STOP))
+
+    async def listener_a(instance: Any, messages: Any, signal: Any, next_: Any) -> Any:
+        return await next_(instance, messages)
+
+    loop.instance.ctx.events.on(AGENT_TRANSFORM_CONTEXT, listener_a)
+
+    await loop.prompt(_say("hello"))
+
+    assert adapter.requests == []
+    assert loop.instance.status is AgentStatus.IDLE
+    failures = [
+        m for m in loop.instance.messages if getattr(m, "stop_reason", None) is StopReason.ERROR
+    ]
+    assert len(failures) == 1
+    assert "ambiguous delegation" in (failures[0].error_message or "")
+
+
+async def test_transform_context_message_only_delegation_preserves_both_authoritative_fields() -> (
+    None
+):
+    """`L09-R018`'s own new sole legal shorthand: a listener delegates via `next_(new_messages)`
+    (length 1) -- the NEXT listener must still observe the ORIGINAL `instance` and `signal` (not
+    `None`, not a forgery), and the real provider request must carry the transformed `messages`."""
+    loop, adapter = _loop_with_adapter(ScriptedResponse((), StopReason.STOP))
+    marker = UserMessage(content=(TextBlock(text="INJECTED"),), timestamp=0)
+    seen: list[Any] = []
+
+    async def listener_a(instance: Any, messages: Any, signal: Any, next_: Any) -> Any:
+        return await next_((*messages, marker))
+
+    async def listener_b(instance: Any, messages: Any, signal: Any, next_: Any) -> Any:
+        seen.append((instance, signal))
+        return await next_()
+
+    loop.instance.ctx.events.on(AGENT_TRANSFORM_CONTEXT, listener_a)
+    loop.instance.ctx.events.on(AGENT_TRANSFORM_CONTEXT, listener_b)
+
+    await loop.prompt(_say("hello"))
+
+    assert seen[0][0] is loop.instance
+    assert seen[0][1] is adapter.requests[0].signal
+    assert marker in adapter.requests[0].messages
+
+
+async def test_transform_context_message_only_delegation_as_the_first_listener() -> None:
+    """The same shorthand works even as the VERY FIRST step in the chain, not only when chained
+    after a prior full-length or no-op step -- confirms `_restore_signal` handles a length-1
+    `current` correctly regardless of chain position."""
+    loop, adapter = _loop_with_adapter(ScriptedResponse((), StopReason.STOP))
+    marker = UserMessage(content=(TextBlock(text="FIRST"),), timestamp=0)
+
+    async def only_listener(instance: Any, messages: Any, signal: Any, next_: Any) -> Any:
+        return await next_((*messages, marker))
+
+    loop.instance.ctx.events.on(AGENT_TRANSFORM_CONTEXT, only_listener)
+
+    await loop.prompt(_say("hello"))
+
+    assert marker in adapter.requests[0].messages
 
 
 async def test_the_running_status_observer_sees_a_live_signal_and_the_idle_observer_sees_none() -> (

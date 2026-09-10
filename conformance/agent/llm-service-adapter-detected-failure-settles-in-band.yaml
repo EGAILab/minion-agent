@@ -31,8 +31,8 @@ llm_service:
       behavior: reject
       reject_message: invalid provider configuration
   steps:
-    - register: adapter-a
-    - register: adapter-r
+    - register: { adapter: adapter-a, as: handle-a }
+    - register: { adapter: adapter-r, as: handle-r }
     - stream: { identity: { provider: mock, model: alpha, api: mock }, as: ok_call }
     - stream: { identity: { provider: mock, model: rejects, api: mock }, as: rejected_call }
 expect:

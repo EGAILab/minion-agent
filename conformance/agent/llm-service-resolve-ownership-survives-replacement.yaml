@@ -1,0 +1,39 @@
+name: llm-service-resolve-ownership-survives-replacement
+family: agent
+authority: 2026-08-20-minion-agent-design.md
+pi_revision: b7bb00b936dbe21b8e160b3e89efdec361846699
+notes: >
+  L10-R004/C10-C004: this is the exact discriminating witness an independent Rust contract review
+  used to catch a genuine defect in this project's own canonical runner (`llm_service_runner.py`).
+  The runner's own `resolve` query originally located the owning adapter by searching for a
+  VALUE-EQUAL `Request` in each candidate's own `.requests` log -- unsound, because every request
+  built by the runner varies only in `model`, so calling the SAME identity through adapter A first
+  (a setup-only action, never itself named in `expect` -- populating A's own request log is its
+  whole purpose) and then replacing A with adapter B for that SAME identity produces two adapters
+  whose logs both contain a value-equal request. A value-equality search silently picked A (the
+  registration-order-first match), even though B is the identity's real, current owner. The fixed
+  runner instead snapshots each candidate's own request-log length before a `resolve` query's own
+  call and requires EXACTLY one candidate's count to have grown by one, never normalizing a
+  zero- or multiple-match outcome via a first-match search.
+llm_service:
+  adapters:
+    - id: adapter-a
+      provider: mock
+      api: mock
+      models: [alpha]
+      behavior: ok
+    - id: adapter-b
+      provider: mock
+      api: mock
+      models: [alpha]
+      behavior: ok
+  steps:
+    - register: { adapter: adapter-a, as: handle-a }
+    - stream: { identity: { provider: mock, model: alpha, api: mock }, as: setup_call_through_a }
+    - register: { adapter: adapter-b, as: handle-b }
+  queries:
+    - id: alpha_resolves_to_the_current_owner
+      resolve: { provider: mock, model: alpha, api: mock }
+expect:
+  alpha_resolves_to_the_current_owner:
+    resolve: { found: true, adapter: adapter-b }

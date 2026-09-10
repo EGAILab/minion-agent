@@ -26,9 +26,9 @@ llm_service:
       models: [gamma]
       behavior: ok
   steps:
-    - register: adapter-a
-    - register: adapter-b
-    - register: adapter-c
+    - register: { adapter: adapter-a, as: handle-a }
+    - register: { adapter: adapter-b, as: handle-b }
+    - register: { adapter: adapter-c, as: handle-c }
   queries:
     - id: alpha_resolves_to_the_replacement
       resolve: { provider: mock, model: alpha, api: mock }

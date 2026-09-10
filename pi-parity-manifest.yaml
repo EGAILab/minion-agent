@@ -343,29 +343,25 @@ rows:
   disposition: adopted
 - id: AI-028
   phase: 2
-  pi: packages/ai/src/types.ts::ProviderStreams, StreamFunction
-  surface: adapter/implementation-module contract (Layer 10, provider abstraction)
+  pi: packages/ai/src/types.ts::ProviderStreams (stream member only -- see AI-031 for streamSimple), StreamFunction
+  surface: adapter/implementation-module contract -- the `stream` operation (Layer 10, provider abstraction)
   rule: 'Layer 10 PASS 1 (`assurance/layers/10-provider-abstraction-python.md`) formalized this
     contract but MISSTATED pinned Pi''s own required shape and MISCHARACTERIZED current Rust as
     already satisfying the never-raises boundary; an independent Rust contract review
     (`assurance/layers/10-provider-abstraction-rust-contract-review.md`, `L10-R001`/`L10-R003`)
-    caught both, and PASS 2 (this row''s current text) corrects them.
+    caught both, and PASS 2 corrected them but still bundled `streamSimple` under this row''s SAME
+    `adopted` disposition despite `streamSimple` having no Layer-10 surface built at all -- a second
+    independent review (`L10-R001`/`L10-R002`, repeated) and the resulting convergence (`C10-C001`)
+    found the bundling itself defective: one `adopted` disposition cannot honestly cover one
+    operation that IS satisfied and one that is NOT YET BUILT. This row (PASS 3, post-convergence)
+    now covers ONLY `stream`; `streamSimple` has its own row, `AI-031`, with its own `deferred
+    parity` disposition and explicit closure criterion.
 
     Pinned Pi''s own `ProviderStreams` interface (`packages/ai/src/types.ts:272-281`), re-verified:
     `stream(model, context, options?)` and `streamSimple(model, context, options?)` are BOTH
     REQUIRED (no `?` on either) -- an earlier revision of this row incorrectly read `streamSimple`
     as optional alongside `fetchDeferred?`/`cancelDeferred?`, which alone are truly optional
-    (`L10-R001`). `streamSimple` is not a semantically distinct stream operation: reading its own
-    implementations directly (e.g. `packages/ai/src/api/openai-completions.ts:683-702`), it is a
-    thin, PER-API wrapper that translates the provider-neutral `SimpleStreamOptions` (`toolChoice`,
-    `reasoning`, `thinkingBudgets`, `deferred`) into that one API''s own specific `Options` shape,
-    then delegates to that SAME module''s own `stream()`. Its own content is therefore inherently
-    WIRE-PROTOCOL-specific -- there is nothing generic to specify at Layer 10''s own abstraction
-    level until a real provider (Layer 11) exists to receive a translated request. Disposition:
-    `streamSimple` itself is explicitly DEFERRED to Layer 11 (`PROV-###`), not silently declared
-    optional and not silently omitted -- Minion''s own generic `Adapter` protocol at Layer 10 maps
-    only to `stream`, and any future per-provider "simple options" translation is that provider''s
-    own adapter-construction concern, not a Layer-10 `Adapter` protocol method.
+    (`L10-R001`). See `AI-031` for `streamSimple`''s own content and disposition.
 
     Minion''s `Adapter` protocol (`llm/service.py`) is the direct, faithful mapping for `stream`:
     `provider: str`, `api: str`, `models: frozenset[str]` (identity/capability fields Pi''s own
@@ -415,6 +411,42 @@ rows:
   python: src/minion_agent/llm/service.py::Adapter (Protocol); src/minion_agent/llm/adapters/mock.py::MockAdapter/ScriptedResponse/_Replay (reference implementation)
   rust: 'PENDING (L10-R003, open PI_PARITY_DEFECT) -- minion-agent-rust/crates/minion-agent/src/llm/adapter.rs::LlmAdapter::start/AdapterStartError permits an eager typed failure after model resolution/adapter invocation, contradicting the never-raises boundary this row requires; ScriptedAdapter''s own exhausted-script behavior diverges from MockAdapter''s in-band equivalent the same way. Remediation is a future Rust implementation pass, not certified here.'
   disposition: adopted
+- id: AI-031
+  phase: 2
+  pi: packages/ai/src/types.ts::ProviderStreams.streamSimple; packages/ai/src/api/openai-completions.ts:683-702 (reference implementation read for characterization only)
+  surface: adapter/implementation-module contract -- the `streamSimple` operation (Layer 10, provider abstraction)
+  rule: 'Split out of `AI-028` (convergence `C10-C001`, closing the repeated `L10-R001`/`L10-R002`
+    finding that one bundled `adopted` disposition covering two operations of different actual
+    status -- one satisfied, one not built at all -- was itself a defect, not a wording slip).
+
+    Pinned Pi''s own `streamSimple` is a REQUIRED member of `ProviderStreams`
+    (`packages/ai/src/types.ts:272-281`, no `?`), not optional. Reading its own per-API
+    implementations directly (e.g. `packages/ai/src/api/openai-completions.ts:683-702`),
+    `streamSimple` is a thin, PER-API wrapper that translates the provider-neutral
+    `SimpleStreamOptions` (`toolChoice`, `reasoning`, `thinkingBudgets`, `deferred`) into that one
+    API''s own specific `Options` shape, then delegates to that SAME module''s own `stream()`. Its
+    own content is therefore inherently WIRE-PROTOCOL-specific -- there is nothing generic to
+    specify at Layer 10''s own abstraction level until a real provider (Layer 11) exists to receive
+    a translated request.
+
+    Disposition: `deferred parity`, not `adopted` and not silently omitted. Minion''s own generic
+    `Adapter` protocol at Layer 10 maps only to `stream` (`AI-028`); `streamSimple` has no Layer-10
+    surface of its own to build yet, and any future per-provider "simple options" translation is
+    that provider''s own adapter-construction concern, not a Layer-10 `Adapter` protocol method.
+
+    Closure criterion (convergence `C10-C001`, binding on whichever future pass closes this row):
+    the obligation Layer 11 owes is an EXTERNALLY INVOCABLE operation matching Pi''s own
+    `streamSimple(model, context, options) -> AssistantMessageEventStream` shape (the exact
+    language-specific shape may differ) -- NOT merely internal per-provider option-translation
+    plumbing with no caller-facing entry point. A future revision marked "complete" by building some
+    internal translation helper without ever exposing a callable would NOT satisfy this row; it must
+    be re-opened, not silently accepted.'
+  tests:
+  - future Layer 11 conformance evidence (none yet -- this row is deferred parity, not adopted; no
+    fabricated evidence is cited for an operation with no Layer-10 surface to test)
+  python: 'NOT YET IMPLEMENTED -- deferred to Layer 11 (PROV-###), see closure criterion above'
+  rust: 'NOT YET IMPLEMENTED -- deferred to Layer 11 (PROV-###)'
+  disposition: deferred parity
 - id: AI-029
   phase: 2
   pi: packages/ai/src/models.ts::createProvider, apiFor, dispatch
@@ -425,6 +457,19 @@ rows:
     `adopted` disposition; the registration/withdrawal/introspection subject now has its own row,
     `AI-030`, with its own coherent disposition). This row now covers ONLY: how a request''s model
     identity resolves to an implementation, and what happens when it does not.
+
+    Disposition corrected (convergence `C10-C001`/`L10-R002`, repeated finding): this row''s OWN
+    text already characterized Minion''s single eager `UnknownModelError` check as "an intentional,
+    disclosed Minion architectural SIMPLIFICATION of Pi''s two-level Provider/api-map structure, not
+    a literal mechanical port" -- that is a description of `intentional divergence`, not `adopted`.
+    Pi observably distinguishes two failure cases (no `Provider` selected at all, vs. a selected
+    `Provider` with no implementation for this model''s `api`, the latter reported IN-BAND via
+    `ModelsError`) where Minion observably collapses both into one EAGER check; master design''s own
+    eager/lazy boundary authorizes the collapse, but authorization is not the same claim as "matches
+    Pi''s own observable behavior." An earlier revision of this row asserted `adopted` anyway, which
+    is the same category of defect `AI-030` was split out to fix for the registration subject --
+    this row''s own text had already correctly reasoned through the divergence without correcting
+    its own `disposition:` field to match.
 
     Pinned Pi''s own model-resolution mechanism, re-read directly (`models.ts:735-812`): a
     `Provider` is built once via `createProvider({..., api})`, where `api` is EITHER a single
@@ -461,10 +506,11 @@ rows:
     fails) is `AI-028`''s own separate, currently-OPEN concern, not this row''s.'
   tests:
   - llm-service-registration-and-replacement.yaml (new, Layer 10 -- never_registered_identity_is_unresolvable query is this row's own direct discriminating evidence for the eager-unknown-identity boundary, exercised without an Agent loop in the way)
+  - llm-service-resolve-ownership-survives-replacement.yaml (new, Layer 10 -- `L10-R004`/`C10-C004`'s own discriminating witness for the canonical runner's own `resolve` query: a value-equality ownership search previously reported a REPLACED adapter as the owner instead of its replacement; the fixed runner's count-delta-with-exactly-one-owner design reports correctly)
   - eager-invalid-model-fails-before-stream (already certified under AI-012/LLM-018)
   python: src/minion_agent/llm/service.py::LlmService.stream (resolution + eager UnknownModelError); src/minion_agent/llm/errors.py::UnknownModelError
   rust: 'minion-agent-rust/crates/minion-agent/src/llm/service.rs::LlmService::stream (eager UnknownModel rejection) -- CONFIRMED satisfied by direct source read this pass, narrowly for the resolution/unresolvable-identity behavior only; AdapterStart handling is AI-028''s own separate, open concern'
-  disposition: adopted
+  disposition: intentional divergence
 - id: AI-030
   phase: 2
   pi: 'N/A -- Minion registry architecture (Pi has no adapter-registration/withdrawal/introspection
@@ -481,17 +527,48 @@ rows:
     `LlmService.register(adapter)` (`llm/service.py`) populates one registry entry per model the
     adapter declares in its own `adapter.models`, keyed by the full `(adapter.provider, model,
     adapter.api)` triple, and returns a withdrawal handle (a bound closure) scoped to EXACTLY the
-    entries that specific `register()` call added. A later `register()` call for the SAME key
+    entries that specific `register()` CALL added. A later `register()` call for the SAME key
     intentionally REPLACES the earlier entry in place (not an accidental collision -- confirmed and
     already tested, `test_a_later_adapter_replaces_an_earlier_one_for_the_same_model`). Calling an
     EARLIER registration''s own withdrawal handle after a LATER `register()` call has already
-    replaced that same key is a SAFE NO-OP -- the handle only ever removes an entry it can verify it
-    still owns (identity-checked, not merely count-based), so a stale withdrawal can never remove a
-    different registrant''s own later entry. `LlmService.models()` returns every currently
-    resolvable `(provider, model, api)` triple -- Minion''s own minimal introspection surface, with
-    no Pi analogue (Pi''s own `Provider`/`Models` collection exposes richer catalog/refresh
-    semantics -- `fetchModels`, `filterModels`, dynamic overlays -- this project does not need yet,
-    since Minion has no config-driven provider catalog of its own).
+    replaced that same key is a SAFE NO-OP.
+
+    Ownership is per REGISTRATION CALL, not per adapter OBJECT (`C10-C005`, convergence remediation
+    of a genuine PASS-2 production defect, not merely a documentary correction): each `register()`
+    call stores a fresh, opaque per-call token alongside its adapter, and the returned handle''s own
+    withdrawal closure checks that TOKEN, not adapter-object identity, before deleting an entry. An
+    earlier revision checked `self._adapters.get(model_id) is adapter` alone, which conflates
+    "adapter object identity" with "registration call identity" -- correct only when a given adapter
+    object is registered at most once. Registering the IDENTICAL adapter object twice under two
+    SEPARATE `register()` calls must give each call independent ownership of its own entry; the old
+    identity check could not distinguish the two calls, so the FIRST call''s own handle could
+    incorrectly remove the SECOND call''s own live entry (an independent Rust contract review''s own
+    executed witness: `register(a)` twice, `models()` shows one entry, withdrawing the first handle
+    incorrectly dropped it to zero instead of leaving the second registration live).
+
+    Withdrawal is IDEMPOTENT and safely repeat-callable, both for a handle used more than once and
+    for a handle superseded by a later registration: the first successful call to a given handle
+    deletes the entry it still owns outright; every subsequent call to that SAME handle -- whether
+    because the caller invoked it twice, or because a later `register()` call has since replaced its
+    entry -- finds no matching token and does nothing. This is a BINDING, non-negotiable observable
+    rule (convergence agreement, binding implementation clarification): a Rust implementation MAY
+    choose any mechanism it likes to enforce per-call ownership, but a consuming, move-only handle
+    type that makes a second call to an already-withdrawn handle a COMPILE error rather than a
+    runtime no-op would NOT satisfy this row, because it would make the agreed idempotent-repeat-
+    withdrawal observation impossible to express at all.
+
+    The canonical scenario grammar addresses registration by HANDLE id, not by fixture id (Layer-10
+    canonical `llm_service` scenarios: a `register` step is `{adapter: <fixture id>, as: <handle
+    id>}`, and a `withdraw` step names the `as` handle id a prior `register` step declared, never an
+    adapter fixture directly) -- this mirrors the production API''s own handle-returning shape above
+    and lets a scenario express two independent handles for the SAME adapter fixture, which a bare
+    fixture-id-addressed grammar could not.
+
+    `LlmService.models()` returns every currently resolvable `(provider, model, api)` triple --
+    Minion''s own minimal introspection surface, with no Pi analogue (Pi''s own `Provider`/`Models`
+    collection exposes richer catalog/refresh semantics -- `fetchModels`, `filterModels`, dynamic
+    overlays -- this project does not need yet, since Minion has no config-driven provider catalog
+    of its own).
 
     Rust status, corrected (`L10-R002`, an earlier revision of the since-split `AI-029` falsely
     claimed this surface needed no new Rust requirement): current
@@ -511,7 +588,10 @@ rows:
   - llm-service-introspection-reflects-current-registrations.yaml (new, Layer 10 -- models() tracks registration/withdrawal exactly, per-model-name entries)
   - test_service.py::test_registering_an_adapter_carries_its_declared_api (already certified under AI-011/AI-019/LLM-019)
   - test_service.py::test_a_later_adapter_replaces_an_earlier_one_for_the_same_model (already certified under LLM-018)
-  python: src/minion_agent/llm/service.py::LlmService.register (withdrawal handle, per-model iteration), LlmService.models
+  - test_service.py::test_withdrawing_twice_is_harmless (already certified under LLM-018 -- idempotent repeat-withdrawal of the same handle)
+  - test_service.py::test_registering_the_same_adapter_object_twice_gives_each_call_its_own_ownership (new, `C10-C005` -- per-registration-call ownership, direct Python unit witness; RED-confirmed against the exact PASS-2 `llm/service.py` before this fix)
+  - llm-service-same-fixture-two-handles.yaml (new, Layer 10 -- `C10-C005`''s own canonical-DSL witness: one adapter fixture registered under two handles, withdrawing the first must not remove the second)
+  python: src/minion_agent/llm/service.py::LlmService.register (withdrawal handle scoped by per-call token, not adapter-object identity), LlmService.models
   rust: 'PARTIAL (L10-R002, open) -- minion-agent-rust/crates/minion-agent/src/llm/service.rs::LlmService::register replaces-in-place (satisfied) but has no withdrawal handle, no stale-withdrawal protection, and no models() introspection (open, disclosed gaps -- a future Rust implementation pass'' own decision, not certified here)'
   disposition: intentional divergence
 - id: AG-001

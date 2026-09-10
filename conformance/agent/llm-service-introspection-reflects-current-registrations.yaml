@@ -22,9 +22,9 @@ llm_service:
       models: [gamma]
       behavior: ok
   steps:
-    - register: adapter-a
-    - register: adapter-b
-    - withdraw: adapter-a
+    - register: { adapter: adapter-a, as: handle-a }
+    - register: { adapter: adapter-b, as: handle-b }
+    - withdraw: handle-a
   queries:
     - id: current_models
       introspect: models

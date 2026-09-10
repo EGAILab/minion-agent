@@ -421,6 +421,82 @@ def test_agent_inbox_action_accepts_observe_on_claim_or_pending_operations(
     assert not errors, [error.message for error in errors]
 
 
+def _llm_service_document(adapter_entry: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "name": "t",
+        "family": "agent",
+        "authority": "x",
+        "pi_revision": "x",
+        "llm_service": {
+            "adapters": [adapter_entry],
+            "steps": [{"register": {"adapter": adapter_entry["id"], "as": "h"}}],
+            "queries": [{"id": "q", "introspect": "models"}],
+        },
+        "expect": {"q": {"models": []}},
+    }
+
+
+@pytest.mark.parametrize(
+    "adapter_entry",
+    [
+        pytest.param(
+            {"id": "a", "provider": "mock", "api": "mock", "models": ["m"], "behavior": "reject"},
+            id="reject-without-reject_message",
+        ),
+        pytest.param(
+            {
+                "id": "a",
+                "provider": "mock",
+                "api": "mock",
+                "models": ["m"],
+                "behavior": "ok",
+                "reject_message": "unreachable",
+            },
+            id="ok-with-reject_message",
+        ),
+    ],
+)
+def test_llm_service_adapter_entry_ties_reject_message_to_behavior(
+    adapter_entry: dict[str, Any],
+) -> None:
+    """`C10-C002` (revision 1): `reject_message` is required exactly when `behavior: reject`, and
+    forbidden otherwise, so a scenario cannot declare a message that would never be observed
+    (`behavior: ok`) or omit the one an in-band error terminal must carry (`behavior: reject`)."""
+    schema = json.loads(LLM_SERVICE_SCHEMA.read_text(encoding="utf-8"))
+    errors = list(Draft202012Validator(schema).iter_errors(_llm_service_document(adapter_entry)))
+    assert errors, f"expected this adapter entry to be rejected: {adapter_entry}"
+
+
+@pytest.mark.parametrize(
+    "adapter_entry",
+    [
+        pytest.param(
+            {"id": "a", "provider": "mock", "api": "mock", "models": ["m"], "behavior": "ok"},
+            id="ok-without-reject_message",
+        ),
+        pytest.param(
+            {
+                "id": "a",
+                "provider": "mock",
+                "api": "mock",
+                "models": ["m"],
+                "behavior": "reject",
+                "reject_message": "bad configuration",
+            },
+            id="reject-with-reject_message",
+        ),
+    ],
+)
+def test_llm_service_adapter_entry_accepts_the_matching_reject_message_shape(
+    adapter_entry: dict[str, Any],
+) -> None:
+    """The positive counterpart: each `behavior` accepts its own correct `reject_message`
+    presence/absence."""
+    schema = json.loads(LLM_SERVICE_SCHEMA.read_text(encoding="utf-8"))
+    errors = list(Draft202012Validator(schema).iter_errors(_llm_service_document(adapter_entry)))
+    assert not errors, [error.message for error in errors]
+
+
 @pytest.mark.parametrize(
     "action",
     [

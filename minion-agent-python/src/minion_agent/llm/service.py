@@ -88,21 +88,37 @@ class LlmService:
     __service_name__ = "llm"
 
     def __init__(self) -> None:
-        self._adapters: dict[ModelId, Adapter] = {}
+        self._adapters: dict[ModelId, tuple[Adapter, object]] = {}
 
     def register(self, adapter: Adapter) -> Callable[[], None]:
         """Register every model `adapter` supplies; returns a withdrawal handle.
 
-        The handle removes only registrations this adapter still holds, so
-        withdrawing a superseded adapter cannot remove its replacement.
+        The handle removes only registrations THIS CALL added -- ownership is per
+        registration call, not per adapter object (`AI-030`, `C10-C005`). A fresh,
+        opaque `token` (any value unique to this call) is stored alongside the
+        adapter; the withdrawal closure below checks the token, not the adapter
+        object, so two SEPARATE calls that happen to register the IDENTICAL
+        adapter object remain independently ownable -- an earlier revision
+        checked `is adapter` alone, which could not distinguish two such calls
+        and let an earlier call's own handle remove a later call's own entry
+        (an independent Rust contract review's own executed witness:
+        `register(a)` twice, `models()` shows one entry, withdrawing the FIRST
+        handle incorrectly dropped it to zero). Repeated withdrawal of the SAME
+        handle remains a safe, idempotent no-op: the first successful call
+        deletes the entry outright, so a second call finds nothing matching and
+        does nothing -- calling a withdrawal handle more than once, or after a
+        later call has already superseded it, is never an error and never
+        removes a different registration's own entry.
         """
+        token = object()
         ids = [ModelId(adapter.provider, model, adapter.api) for model in adapter.models]
         for model_id in ids:
-            self._adapters[model_id] = adapter
+            self._adapters[model_id] = (adapter, token)
 
         def withdraw() -> None:
             for model_id in ids:
-                if self._adapters.get(model_id) is adapter:
+                entry = self._adapters.get(model_id)
+                if entry is not None and entry[1] is token:
                     del self._adapters[model_id]
 
         return withdraw
@@ -118,11 +134,12 @@ class LlmService:
         a caller bug, discoverable immediately. Everything after this point
         rides the returned stream.
         """
-        adapter = self._adapters.get(request.model)
-        if adapter is None:
+        entry = self._adapters.get(request.model)
+        if entry is None:
             raise UnknownModelError(
                 f"no adapter supplies {request.model.provider}/{request.model.model}"
             )
+        adapter, _token = entry
         return _settled(adapter.stream(request), request)
 
 

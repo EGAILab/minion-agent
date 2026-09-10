@@ -68,19 +68,32 @@
         },
         "reject_message": {
           "type": "string",
-          "description": "Required when behavior is reject; the in-band error_message the settled terminal must carry."
+          "description": "Required when behavior is reject; the in-band error_message the settled terminal must carry. Forbidden when behavior is ok, so a scenario cannot declare a message that would never be observed (C10-C002)."
         }
-      }
+      },
+      "if": { "properties": { "behavior": { "const": "reject" } } },
+      "then": { "required": ["reject_message"] },
+      "else": { "not": { "required": ["reject_message"] } }
     },
     "step": {
+      "$comment": "`register` and `withdraw` address a HANDLE id, never a fixture id directly (C10-C002/AI-030): `register` names the fixture it registers AND the handle id it introduces (`as`), so a single adapter fixture can be registered more than once under independent handles -- the exact shape `AI-030`'s per-registration-call ownership rule needs a scenario able to express. `withdraw` then names an EARLIER `register` step's own `as` handle id, never a fixture id.",
       "type": "object",
       "minProperties": 1,
       "maxProperties": 1,
       "additionalProperties": false,
       "properties": {
-        "register": { "type": "string", "minLength": 1 },
+        "register": { "$ref": "#/$defs/registerStep" },
         "withdraw": { "type": "string", "minLength": 1 },
         "stream": { "$ref": "#/$defs/streamStep" }
+      }
+    },
+    "registerStep": {
+      "type": "object",
+      "required": ["adapter", "as"],
+      "additionalProperties": false,
+      "properties": {
+        "adapter": { "type": "string", "minLength": 1, "description": "The `adapters[].id` fixture this call registers." },
+        "as": { "type": "string", "minLength": 1, "description": "The handle id this call's own withdrawal handle is later addressed by." }
       }
     },
     "streamStep": {

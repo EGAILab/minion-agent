@@ -1,0 +1,51 @@
+name: llm-service-more-than-eight-calls-settle-ok
+family: agent
+authority: 2026-08-20-minion-agent-design.md
+pi_revision: b7bb00b936dbe21b8e160b3e89efdec361846699
+notes: >
+  L10-R007: the canonical runner's own `_build_adapter()` previously hard-coded exactly 8 scripted
+  responses per fixture, regardless of how many times a scenario actually calls `stream()` -- a
+  schema-valid ninth call against the same identity was silently converted into MockAdapter's own
+  exhausted-script error by runner provisioning, not by anything this scenario, the schema, or
+  LlmService itself declares. `behavior: ok` describes the adapter's own behavior (always settles
+  successfully), not a bounded number of successful calls. This scenario drives nine stream()
+  calls against the SAME registered identity through the SAME `behavior: ok` adapter and expects
+  every one to settle `ok` -- the exact discriminating witness an independent Rust contract review
+  used to catch the hidden cap.
+llm_service:
+  adapters:
+    - id: adapter-a
+      provider: mock
+      api: mock
+      models: [alpha]
+      behavior: ok
+  steps:
+    - register: { adapter: adapter-a, as: handle-a }
+    - stream: { identity: { provider: mock, model: alpha, api: mock }, as: call_1 }
+    - stream: { identity: { provider: mock, model: alpha, api: mock }, as: call_2 }
+    - stream: { identity: { provider: mock, model: alpha, api: mock }, as: call_3 }
+    - stream: { identity: { provider: mock, model: alpha, api: mock }, as: call_4 }
+    - stream: { identity: { provider: mock, model: alpha, api: mock }, as: call_5 }
+    - stream: { identity: { provider: mock, model: alpha, api: mock }, as: call_6 }
+    - stream: { identity: { provider: mock, model: alpha, api: mock }, as: call_7 }
+    - stream: { identity: { provider: mock, model: alpha, api: mock }, as: call_8 }
+    - stream: { identity: { provider: mock, model: alpha, api: mock }, as: call_9 }
+expect:
+  call_1:
+    settled: ok
+  call_2:
+    settled: ok
+  call_3:
+    settled: ok
+  call_4:
+    settled: ok
+  call_5:
+    settled: ok
+  call_6:
+    settled: ok
+  call_7:
+    settled: ok
+  call_8:
+    settled: ok
+  call_9:
+    settled: ok

@@ -111,11 +111,24 @@ def _owner_from_growth(before: dict[str, int], adapters: dict[str, MockAdapter])
     return grown[0]
 
 
-def _build_adapter(spec: dict[str, Any]) -> MockAdapter:
+def _max_possible_calls(spec_doc: dict[str, Any]) -> int:
+    """An upper bound on how many `stream()` calls ANY single adapter could receive across the
+    whole scenario (`L10-R007`): every `steps[].stream` action and every `queries[].resolve`
+    query is at most one call to SOME one adapter, so the document's own total count of both is a
+    safe bound for EVERY fixture's own script length, without predicting which adapter the
+    service will actually resolve to (a fixed, hard-coded cap silently converts a schema-valid
+    scenario's own later calls into a fabricated `MockAdapter` exhaustion error that nothing in
+    the scenario, schema, or `LlmService` itself declares)."""
+    stream_calls = sum(1 for step in spec_doc["steps"] if "stream" in step)
+    resolve_calls = sum(1 for query in spec_doc.get("queries", []) if "resolve" in query)
+    return stream_calls + resolve_calls
+
+
+def _build_adapter(spec: dict[str, Any], script_length: int) -> MockAdapter:
     """One `MockAdapter` per scenario adapter entry, scripted to respond identically for
-    however many requests a scenario happens to make against it (registration/replacement/
-    withdrawal scenarios never call `stream()`; failure-settlement scenarios call it once per
-    declared model)."""
+    `script_length` calls -- a safe, non-predictive upper bound on how many requests this
+    specific adapter could actually receive (`_max_possible_calls`), not a fixed cap unrelated to
+    the scenario's own shape."""
     if spec["behavior"] == "ok":
         response = ScriptedResponse(
             content=(TextBlock(text="ok"),),
@@ -127,9 +140,7 @@ def _build_adapter(spec: dict[str, Any]) -> MockAdapter:
             stop_reason=StopReason.ERROR,
             error_message=spec["reject_message"],
         )
-    # Scripted once per model this adapter serves, repeated generously: a scenario's own
-    # `steps` decide how many times `stream()` is actually invoked, not this helper.
-    script = [response] * 8
+    script = [response] * script_length
     adapter = MockAdapter(script)
     adapter.provider = spec["provider"]  # type: ignore[misc]
     adapter.api = spec["api"]  # type: ignore[misc]
@@ -144,7 +155,8 @@ async def run_llm_service_scenario(document: dict[str, Any]) -> dict[str, Any]:
     spec_doc = document["llm_service"]
     _validate_references(spec_doc, document.get("expect", {}))
     service = LlmService()
-    adapters = {entry["id"]: _build_adapter(entry) for entry in spec_doc["adapters"]}
+    script_length = _max_possible_calls(spec_doc)
+    adapters = {entry["id"]: _build_adapter(entry, script_length) for entry in spec_doc["adapters"]}
     handles: dict[str, Any] = {}
     observations: dict[str, Any] = {}
 

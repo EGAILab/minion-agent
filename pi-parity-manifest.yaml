@@ -599,9 +599,10 @@ rows:
   surface: adapter registration, replacement, withdrawal, and introspection (Layer 10, provider abstraction)
   rule: 'Split out of `AI-029` under `L10-R002` (an independent Rust contract review correctly found
     this Minion-only registration surface did not belong under the SAME `adopted` disposition as
-    `AI-029`''s own genuinely Pi-motivated resolution mapping -- there is no Pi behavior to "adopt"
-    here at all, only a Minion architectural extension to disclose coherently, the same treatment
-    `AG-011` already gives `Inbox.inject`).
+    `AI-029`''s own genuinely Pi-motivated resolution mapping). Three real Pi registration surfaces
+    exist (`L10-R005`, see below) but Minion directly adopts NONE of them, so a Minion architectural
+    extension is still the right treatment to disclose coherently, the same treatment `AG-011`
+    already gives `Inbox.inject`.
 
     Pi-source comparison corrected (`L10-R005`, convergence checkpoint
     `10-provider-abstraction-contract-checkpoint-r005-r007-convergence.md`, revision 2,
@@ -703,10 +704,13 @@ rows:
     fixture-id-addressed grammar could not.
 
     `LlmService.models()` returns every currently resolvable `(provider, model, api)` triple --
-    Minion''s own minimal introspection surface, with no Pi analogue (Pi''s own `Provider`/`Models`
-    collection exposes richer catalog/refresh semantics -- `fetchModels`, `filterModels`, dynamic
-    overlays -- this project does not need yet, since Minion has no config-driven provider catalog
-    of its own).
+    Minion''s own minimal introspection surface, at the SAME full-identity granularity as the rest
+    of this row (not any of the three Pi surfaces'' own coarser keys above). Pi''s own
+    `MutableModels.getProviders`/`getProvider`/`getModels`/`getModel` and `compat.ts`''s own
+    `getApiProvider`/`getApiProviders` are real, directly-comparable introspection surfaces (not
+    "no analogue"), but each exposes richer catalog/refresh semantics at ITS OWN coarser key --
+    dynamic model overlays, credential-scoped filtering -- this project does not need yet, since
+    Minion has no config-driven provider catalog of its own.
 
     Rust status, corrected (`L10-R002`, an earlier revision of the since-split `AI-029` falsely
     claimed this surface needed no new Rust requirement): current

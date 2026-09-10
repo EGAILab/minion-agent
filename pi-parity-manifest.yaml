@@ -404,6 +404,7 @@ rows:
     an ADAPTER-detected (as opposed to mid-network) failure at this precise seam.'
   tests:
   - llm-service-adapter-detected-failure-settles-in-band (new, Layer 10 -- the discriminating evidence L10-R004 found missing)
+  - 'llm-service-more-than-eight-calls-settle-ok (new, Layer 10 -- L10-R007''s own discriminating witness: nine `stream` calls against the SAME registered identity through the SAME `behavior: ok` adapter all settle `ok`, proving the adapter/runner seam imposes no hidden numeric cap on repeated successful `stream` calls)'
   - eager-invalid-model-fails-before-stream (already certified under AI-012/LLM-018; proves the SEPARATE unresolvable-identity case, not adapter-detected failure -- see AI-029)
   - public-stream-fuses-after-first-terminal (already certified under AI-012/LLM-018)
   - represented-provider-error-rides-stream (already certified under AI-012/LLM-018 -- a mid-network/provider failure, not an adapter-detected one; both must settle in-band identically)
@@ -582,7 +583,7 @@ rows:
     fails) is `AI-028`''s own separate, currently-OPEN concern, not this row''s.'
   tests:
   - llm-service-registration-and-replacement.yaml (new, Layer 10 -- never_registered_identity_is_unresolvable query is this row's own direct discriminating evidence for the eager-unknown-identity boundary, exercised without an Agent loop in the way)
-  - llm-service-resolve-ownership-survives-replacement.yaml (new, Layer 10 -- `L10-R004`/`C10-C004`'s own discriminating witness for the canonical runner's own `resolve` query: a value-equality ownership search previously reported a REPLACED adapter as the owner instead of its replacement; the fixed runner's count-delta-with-exactly-one-owner design reports correctly)
+  - 'llm-service-resolve-ownership-survives-replacement.yaml (new, Layer 10 -- `L10-R004`/`C10-C004`''s own discriminating witness for the canonical runner''s own `resolve` query: a value-equality ownership search previously reported a REPLACED adapter as the owner instead of its replacement; the fixed runner''s count-delta-with-exactly-one-owner design reports correctly)'
   - eager-invalid-model-fails-before-stream (already certified under AI-012/LLM-018)
   python: src/minion_agent/llm/service.py::LlmService.stream (resolution + eager UnknownModelError); src/minion_agent/llm/errors.py::UnknownModelError
   rust: 'minion-agent-rust/crates/minion-agent/src/llm/service.rs::LlmService::stream (eager UnknownModel rejection) -- CONFIRMED satisfied by direct source read this pass, narrowly for the resolution/unresolvable-identity behavior only; AdapterStart handling is AI-028''s own separate, open concern'
@@ -732,7 +733,7 @@ rows:
   - test_service.py::test_a_later_adapter_replaces_an_earlier_one_for_the_same_model (already certified under LLM-018)
   - test_service.py::test_withdrawing_twice_is_harmless (already certified under LLM-018 -- idempotent repeat-withdrawal of the same handle)
   - test_service.py::test_registering_the_same_adapter_object_twice_gives_each_call_its_own_ownership (new, `C10-C005` -- per-registration-call ownership, direct Python unit witness; RED-confirmed against the exact PASS-2 `llm/service.py` before this fix)
-  - llm-service-same-fixture-two-handles.yaml (new, Layer 10 -- `C10-C005`''s own canonical-DSL witness: one adapter fixture registered under two handles, withdrawing the first must not remove the second)
+  - 'llm-service-same-fixture-two-handles.yaml (new, Layer 10 -- `C10-C005`''s own canonical-DSL witness: one adapter fixture registered under two handles, withdrawing the first must not remove the second)'
   python: src/minion_agent/llm/service.py::LlmService.register (withdrawal handle scoped by per-call token, not adapter-object identity), LlmService.models
   rust: 'PARTIAL (L10-R002, open) -- minion-agent-rust/crates/minion-agent/src/llm/service.rs::LlmService::register replaces-in-place (satisfied) but has no withdrawal handle, no stale-withdrawal protection, and no models() introspection (open, disclosed gaps -- a future Rust implementation pass'' own decision, not certified here)'
   disposition: intentional divergence
@@ -1591,9 +1592,9 @@ rows:
   - test_a_running_observer_that_claims_and_returns_finds_nothing_and_entry_proceeds (agent_loop/test_active_abort.py, L09-R014)
   - test_a_running_observer_that_clears_and_enqueues_then_throws_restores_ahead_of_it (agent_loop/test_active_abort.py)
   - test_pre_step_cannot_redirect_a_later_listener_to_a_replacement_instance (agent_loop/test_active_abort.py, L09-R015)
-  - test_pre_step_cannot_drop_the_instance_for_a_later_listener (agent_loop/test_active_abort.py, L09-R015, PASS 9: true omission)
+  - 'test_pre_step_cannot_drop_the_instance_for_a_later_listener (agent_loop/test_active_abort.py, L09-R015, PASS 9: true omission)'
   - test_prepare_next_turn_cannot_redirect_to_a_replacement_instance (agent_loop/test_active_abort.py, L09-R015)
-  - test_prepare_next_turn_cannot_drop_the_instance_for_a_later_listener (agent_loop/test_active_abort.py, L09-R015, PASS 9: true omission)
+  - 'test_prepare_next_turn_cannot_drop_the_instance_for_a_later_listener (agent_loop/test_active_abort.py, L09-R015, PASS 9: true omission)'
   - test_envelopes_has_no_setter (agent/test_inbox.py, L09-R017)
   - test_reassigning_envelopes_is_refused (agent/test_inbox.py, L09-R017)
   - test_reserve_atomically_claims_the_selected_batch (agent/test_inbox.py)

@@ -6,8 +6,11 @@ notes: >
   register() returns a withdrawal handle scoped to exactly the registrations THAT call made. A
   handle from an earlier, since-overwritten registration must be a safe no-op once a later
   registrant has taken over the same identity -- withdrawing it must never remove the later
-  registrant's own entry. This is Minion-only registry machinery Pi has no analogue for (AI-030);
-  the invariant is about the registry's own internal bookkeeping, not a Pi-parity question.
+  registrant's own entry. Pi's own comparison surfaces (MutableModels, compat's generic API
+  registry, registerFauxProvider's per-call unregister) exist but use different registration
+  granularity/composition rules; Minion's full-identity, per-registration-call withdrawal is the
+  owner-approved intentional divergence (AI-030), not an absence of any Pi concept -- this
+  invariant is about the registry's own internal bookkeeping, not a Pi-parity question.
 llm_service:
   adapters:
     - id: adapter-a

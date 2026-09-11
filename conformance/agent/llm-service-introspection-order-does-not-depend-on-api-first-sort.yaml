@@ -1,0 +1,39 @@
+name: llm-service-introspection-order-does-not-depend-on-api-first-sort
+family: agent
+authority: 2026-08-20-minion-agent-design.md
+pi_revision: b7bb00b936dbe21b8e160b3e89efdec361846699
+notes: >
+  L10-C001 (Rust closure review): LlmService.models() has no required return order (spec/llm.md);
+  a conformance runner in any language must canonicalize an introspect: models observation by
+  sorting (provider, model, api) before comparing against expect.models -- a runner that instead
+  sorts by (provider, api, model), or trusts models()'s own raw order directly, can silently
+  disagree with this one for a multi-entry result whose api/model values cross. This scenario
+  registers two identities that deliberately cross under the two keys: adapter-a (api=zzz-api,
+  model=aaa-model) and adapter-b (api=aaa-api, model=zzz-model), both under provider=mock. Sorted
+  by (provider, model, api) -- the required key -- adapter-a's own identity (model=aaa-model)
+  comes first; sorted by (provider, api, model) instead, adapter-b's own identity (api=aaa-api)
+  would come first, the opposite order. No prior Layer-10 scenario exercised this because none
+  registered more than one identity whose own api/model values cross under the two keys.
+llm_service:
+  adapters:
+    - id: adapter-a
+      provider: mock
+      api: zzz-api
+      models: [aaa-model]
+      behavior: ok
+    - id: adapter-b
+      provider: mock
+      api: aaa-api
+      models: [zzz-model]
+      behavior: ok
+  steps:
+    - register: { adapter: adapter-a, as: handle-a }
+    - register: { adapter: adapter-b, as: handle-b }
+  queries:
+    - id: current_models
+      introspect: models
+expect:
+  current_models:
+    models:
+      - { provider: mock, model: aaa-model, api: zzz-api }
+      - { provider: mock, model: zzz-model, api: aaa-api }

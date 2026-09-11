@@ -37,9 +37,19 @@ def _validate_references(spec_doc: dict[str, Any], expect: dict[str, Any]) -> No
 
     A `withdraw` naming an ALREADY-withdrawn handle is deliberately NOT rejected here -- repeated
     withdrawal of the same handle is a legitimate, idempotent no-op (`AI-030`), not malformed input.
-    An observation id declared by a step/query but never named in `expect` is likewise legitimate
-    -- a "setup-only" action exists to affect state (e.g. populate an adapter's own request log)
-    without itself being asserted on.
+    A `steps[].stream` observation id declared but never named in `expect` is likewise legitimate
+    -- a "setup-only" stream action exists to affect state (e.g. populate an adapter's own request
+    log) without itself being asserted on.
+
+    `L10-C002` (Rust closure review, independently re-verified before this fix): a `queries[].id`
+    declared but never named in `expect` is REJECTED, unlike a setup-only stream action -- a query
+    exists ONLY to be observed (it never mutates registry state the way a `register`/`withdraw`/
+    `stream` step can), so a query nothing ever asserts on serves no purpose and is far more likely
+    a scenario-authoring mistake than an intentional setup-only case. Tightening this closes a
+    latent ambiguity an independent Rust closure review found: Rust's own canonical runner performs
+    a full bidirectional comparison against `expect` and would reject a scenario with an unasserted
+    query, while this validator previously permitted one -- this tightening makes both languages'
+    own interpretation agree, without requiring any Rust-side change.
     """
     adapter_ids = [entry["id"] for entry in spec_doc["adapters"]]
     duplicate_adapters = {i for i in adapter_ids if adapter_ids.count(i) > 1}
@@ -88,6 +98,15 @@ def _validate_references(spec_doc: dict[str, Any], expect: dict[str, Any]) -> No
         raise ValueError(
             f"expect references observation id(s) no query/steps[].stream declares: "
             f"{sorted(dangling)!r} -- malformed canonical input"
+        )
+
+    query_ids = {query["id"] for query in spec_doc.get("queries", [])}
+    unasserted_queries = query_ids - set(expect)
+    if unasserted_queries:
+        raise ValueError(
+            f"query id(s) {sorted(unasserted_queries)!r} are declared but never named in "
+            "expect -- a query exists only to be observed, so it must always be asserted on "
+            "(unlike a steps[].stream action, which may legitimately be setup-only)"
         )
 
 
@@ -219,6 +238,10 @@ async def run_llm_service_scenario(document: dict[str, Any]) -> dict[str, Any]:
             owner = _owner_from_growth(before, adapters)
             observations[query["id"]] = {"resolve": {"found": True, "adapter": owner}}
         elif "introspect" in query:
+            # LlmService.models() has no required return order (spec/llm.md); this sort by
+            # (provider, model, api) is the one REQUIRED canonicalization every conformance
+            # runner, in any language, must apply before comparing against expect.models
+            # (L10-C001) -- not merely this runner's own incidental convenience.
             current = sorted(
                 (_identity_as_dict(model_id) for model_id in service.models()),
                 key=lambda entry: (entry["provider"], entry["model"], entry["api"]),

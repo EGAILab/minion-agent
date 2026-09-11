@@ -3,11 +3,14 @@ family: agent
 authority: 2026-08-20-minion-agent-design.md
 pi_revision: b7bb00b936dbe21b8e160b3e89efdec361846699
 notes: >
-  Pi has no adapter-registration concept at all -- LlmService's own registry is an intentional
-  Minion architectural extension (AI-030). This scenario exercises its two most basic, must-hold
-  invariants directly: registering a later adapter for the SAME identity replaces the earlier one
-  in place (not a duplicate/ambiguous entry), and registering an adapter for a DIFFERENT identity
-  never disturbs an unrelated one's own resolution.
+  Pinned Pi exposes three real registration surfaces (MutableModels, compat's generic API
+  registry, and registerFauxProvider's own per-call unregister handle) -- LlmService's own
+  full-identity, per-registration-call registry adopts none of their exact granularity or
+  composition rules, an intentional Minion divergence the owner has approved (AI-030). This
+  scenario exercises its two most basic, must-hold invariants directly: registering a later
+  adapter for the SAME identity replaces the earlier one in place (not a duplicate/ambiguous
+  entry), and registering an adapter for a DIFFERENT identity never disturbs an unrelated one's
+  own resolution.
 llm_service:
   adapters:
     - id: adapter-a

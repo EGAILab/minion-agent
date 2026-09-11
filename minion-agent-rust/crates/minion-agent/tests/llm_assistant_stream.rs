@@ -2,16 +2,16 @@ use std::sync::Arc;
 
 use futures::{StreamExt, stream};
 use minion_agent::llm::{
-    AdapterStartError, AdapterStreamError, AdapterStreamErrorKind, AssistantContentBlock,
-    AssistantMessage, DoneReason, ErrorReason, LlmAdapter, LlmContext, LlmRequest, LlmService,
-    ModelIdentity, RawAssistantStream, SimpleStreamOptions, StopReason, StreamChunk, TextBlock,
+    AdapterStreamError, AdapterStreamErrorKind, AssistantContentBlock, AssistantMessage,
+    DoneReason, ErrorReason, LlmAdapter, LlmContext, LlmRequest, LlmService, ModelIdentity,
+    RawAssistantStream, SimpleStreamOptions, StopReason, StreamChunk, TextBlock,
 };
 
 struct ItemsAdapter(Vec<Result<StreamChunk, AdapterStreamError>>);
 
 impl LlmAdapter for ItemsAdapter {
-    fn start(&self, _: LlmRequest) -> Result<RawAssistantStream, AdapterStartError> {
-        Ok(Box::pin(stream::iter(self.0.clone())))
+    fn start(&self, _: LlmRequest) -> RawAssistantStream {
+        Box::pin(stream::iter(self.0.clone()))
     }
 }
 

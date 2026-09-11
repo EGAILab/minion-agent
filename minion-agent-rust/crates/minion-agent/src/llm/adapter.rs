@@ -10,18 +10,13 @@ pub type RawAssistantStream =
 
 /// Provider-specific stream creation and decoding.
 ///
-/// Returning [`AdapterStartError`] is an eager failure because no stream exists.
-/// Once returned, expected operational failures use [`AdapterStreamError`].
+/// Once invoked for a resolved model, expected request/provider/runtime failures
+/// use [`AdapterStreamError`] in the returned stream. There is deliberately no
+/// eager expected-error channel at this boundary.
 /// Implementations must not duplicate Minion terminal fusion or premature-EOF
 /// settlement; [`crate::llm::AssistantStream`] owns those rules.
 pub trait LlmAdapter: Send + Sync {
-    fn start(&self, request: LlmRequest) -> Result<RawAssistantStream, AdapterStartError>;
-}
-
-#[derive(Clone, Debug, Error, PartialEq)]
-pub enum AdapterStartError {
-    #[error("adapter rejected request before stream creation: {0}")]
-    Rejected(String),
+    fn start(&self, request: LlmRequest) -> RawAssistantStream;
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]

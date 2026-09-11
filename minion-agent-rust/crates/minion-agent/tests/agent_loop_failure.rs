@@ -642,7 +642,7 @@ fn unknown_model_remains_eager_and_does_not_synthesize_failure() {
 }
 
 #[test]
-fn adapter_start_failure_inside_the_run_enters_recovery() {
+fn exhausted_adapter_settles_as_a_represented_terminal() {
     run(async {
         let (_runtime, driver, agent) = setup([]);
 
@@ -651,17 +651,19 @@ fn adapter_start_failure_inside_the_run_enters_recovery() {
             .await
             .unwrap();
 
+        let represented = match messages.as_slice() {
+            [Message::User(_), Message::Assistant(message)] => message,
+            other => panic!("expected prompt and represented adapter failure, got {other:?}"),
+        };
         assert!(
-            failure_message(&messages)
+            represented
                 .error_message
                 .as_deref()
                 .unwrap()
                 .contains("scripted adapter has no remaining script")
         );
-        assert_eq!(
-            agent.error_message(),
-            failure_message(&messages).error_message
-        );
+        assert_eq!(represented.stop_reason, StopReason::Error);
+        assert_eq!(agent.error_message(), represented.error_message);
         assert_eq!(agent.status(), AgentStatus::Idle);
     });
 }

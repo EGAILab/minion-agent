@@ -410,7 +410,7 @@ rows:
   - represented-provider-error-rides-stream (already certified under AI-012/LLM-018 -- a mid-network/provider failure, not an adapter-detected one; both must settle in-band identically)
   - test_mock_adapter.py (Python, already certified under LLM-018 -- script ordering, tool-call responses, in-band error/abort, request recording, usage pass-through)
   python: src/minion_agent/llm/service.py::Adapter (Protocol); src/minion_agent/llm/adapters/mock.py::MockAdapter/ScriptedResponse/_Replay (reference implementation)
-  rust: 'PENDING (L10-R003, open PI_PARITY_DEFECT) -- minion-agent-rust/crates/minion-agent/src/llm/adapter.rs::LlmAdapter::start/AdapterStartError permits an eager typed failure after model resolution/adapter invocation, contradicting the never-raises boundary this row requires; ScriptedAdapter''s own exhausted-script behavior diverges from MockAdapter''s in-band equivalent the same way. Remediation is a future Rust implementation pass, not certified here.'
+  rust: 'minion-agent-rust/crates/minion-agent/src/llm/adapter.rs::LlmAdapter::start (no expected-error return channel); minion-agent-rust/crates/minion-agent/src/llm/service.rs::LlmService::stream; minion-agent-rust/crates/minion-agent/src/llm/scripted.rs::ScriptedAdapter; minion-agent-rust/crates/minion-agent/tests/llm_adapter.rs::resolved_adapter_detection_failure_settles_in_band/exhausted_scripted_adapter_settles_in_band; minion-agent-rust/crates/minion-agent/tests/llm_service_conformance.rs::all_layer_10_scenarios_drive_the_real_rust_llm_service'
   disposition: adopted
 - id: AI-031
   phase: 2
@@ -748,7 +748,7 @@ rows:
   - 'llm-service-same-fixture-two-handles.yaml (new, Layer 10 -- `C10-C005`''s own canonical-DSL witness: one adapter fixture registered under two handles, withdrawing the first must not remove the second)'
   - 'llm-service-introspection-order-does-not-depend-on-api-first-sort.yaml (new, Layer 10 -- `L10-C001`''s own discriminating witness: two identities whose api/model values cross under (provider, model, api) versus (provider, api, model) sort keys; only the required key reproduces the expected order)'
   python: src/minion_agent/llm/service.py::LlmService.register (withdrawal handle scoped by per-call token, not adapter-object identity), LlmService.models
-  rust: 'PARTIAL (L10-R002, open) -- minion-agent-rust/crates/minion-agent/src/llm/service.rs::LlmService::register replaces-in-place (satisfied) but has no withdrawal handle, no stale-withdrawal protection, and no models() introspection (open, disclosed gaps -- a future Rust implementation pass'' own decision, not certified here)'
+  rust: 'minion-agent-rust/crates/minion-agent/src/llm/service.rs::LlmService::register/register_models/models and LlmRegistration::withdraw; minion-agent-rust/crates/minion-agent/tests/llm_adapter.rs::registration_handles_are_repeatable_stale_safe_and_owned_per_call/one_registration_handle_owns_every_identity_in_that_call; minion-agent-rust/crates/minion-agent/tests/llm_service_conformance.rs::all_layer_10_scenarios_drive_the_real_rust_llm_service'
   disposition: intentional divergence
 - id: AG-001
   phase: 3

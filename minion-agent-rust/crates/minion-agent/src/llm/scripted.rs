@@ -4,7 +4,8 @@ use futures::stream;
 use parking_lot::Mutex;
 
 use super::{
-    AdapterStartError, AdapterStreamError, LlmAdapter, LlmRequest, RawAssistantStream, StreamChunk,
+    AdapterStreamError, AdapterStreamErrorKind, LlmAdapter, LlmRequest, RawAssistantStream,
+    StreamChunk,
 };
 
 #[derive(Clone, Debug)]
@@ -46,16 +47,21 @@ impl ScriptedAdapter {
 }
 
 impl LlmAdapter for ScriptedAdapter {
-    fn start(&self, request: LlmRequest) -> Result<RawAssistantStream, AdapterStartError> {
+    fn start(&self, request: LlmRequest) -> RawAssistantStream {
         self.requests.lock().push(request);
-        let script = self.scripts.lock().pop_front().ok_or_else(|| {
-            AdapterStartError::Rejected("scripted adapter has no remaining script".into())
-        })?;
-        Ok(Box::pin(stream::iter(script.items.into_iter().map(
+        let Some(script) = self.scripts.lock().pop_front() else {
+            return Box::pin(stream::once(async {
+                Err(AdapterStreamError::new(
+                    AdapterStreamErrorKind::Runtime,
+                    "scripted adapter has no remaining script",
+                ))
+            }));
+        };
+        Box::pin(stream::iter(script.items.into_iter().map(
             |item| match item {
                 ScriptItem::Chunk(chunk) => Ok(*chunk),
                 ScriptItem::Error(error) => Err(error),
             },
-        ))))
+        )))
     }
 }

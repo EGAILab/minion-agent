@@ -2006,44 +2006,32 @@ mod tests {
     }
 
     #[test]
-    fn eager_llm_start_errors_remain_typed_and_settle_without_assistant_events() {
+    fn only_unknown_model_resolution_is_an_eager_llm_start_error() {
         run(async {
-            for registered_but_exhausted in [false, true] {
-                let runtime = Runtime::new();
-                let llm = Arc::new(LlmService::new());
-                if registered_but_exhausted {
-                    llm.register(identity(), Arc::new(ScriptedAdapter::new([])));
-                }
-                let (driver, agent) = loop_for_with_llm(
-                    &runtime,
-                    Session::new("room-a", [] as [&str; 0]).unwrap(),
-                    llm,
-                );
-                let prompt = user("prompt");
-                let mut prepared = driver
-                    .prepare_prompt_run(PromptInput::Message(prompt.clone()))
-                    .await
-                    .unwrap();
+            let runtime = Runtime::new();
+            let llm = Arc::new(LlmService::new());
+            let (driver, agent) = loop_for_with_llm(
+                &runtime,
+                Session::new("room-a", [] as [&str; 0]).unwrap(),
+                llm,
+            );
+            let prompt = user("prompt");
+            let mut prepared = driver
+                .prepare_prompt_run(PromptInput::Message(prompt.clone()))
+                .await
+                .unwrap();
 
-                let error = driver.run_provider_turn(&mut prepared).await.unwrap_err();
+            let error = driver.run_provider_turn(&mut prepared).await.unwrap_err();
 
-                if registered_but_exhausted {
-                    assert!(matches!(
-                        error,
-                        AgentLoopError::LlmStart(LlmStartError::AdapterStart(_))
-                    ));
-                } else {
-                    assert!(matches!(
-                        error,
-                        AgentLoopError::LlmStart(LlmStartError::UnknownModel { .. })
-                    ));
-                }
-                assert_eq!(agent.messages().unwrap(), vec![prompt]);
-                assert_eq!(prepared.new_messages.len(), 1);
-                assert_eq!(agent.status(), AgentStatus::Running);
-                drop(prepared);
-                assert_eq!(agent.status(), AgentStatus::Idle);
-            }
+            assert!(matches!(
+                error,
+                AgentLoopError::LlmStart(LlmStartError::UnknownModel { .. })
+            ));
+            assert_eq!(agent.messages().unwrap(), vec![prompt]);
+            assert_eq!(prepared.new_messages.len(), 1);
+            assert_eq!(agent.status(), AgentStatus::Running);
+            drop(prepared);
+            assert_eq!(agent.status(), AgentStatus::Idle);
         });
     }
 

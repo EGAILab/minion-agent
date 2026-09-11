@@ -1,0 +1,34 @@
+name: llm-service-introspection-reflects-current-registrations
+family: agent
+authority: 2026-08-20-minion-agent-design.md
+pi_revision: b7bb00b936dbe21b8e160b3e89efdec361846699
+notes: >
+  models() (AI-030) has no direct Pi analogue -- Pi's own richer Provider/Models catalog exposes
+  dynamic refresh/credential-scoped filtering this project does not need; Minion's own version is a
+  minimal introspection surface over exactly what is currently resolvable. This scenario proves it
+  tracks registration/withdrawal exactly, not a cached or stale snapshot: an adapter serving
+  multiple model names contributes one entry per model, and withdrawal removes only what that
+  adapter's own registration added.
+llm_service:
+  adapters:
+    - id: adapter-a
+      provider: mock
+      api: mock
+      models: [alpha, beta]
+      behavior: ok
+    - id: adapter-b
+      provider: mock
+      api: mock
+      models: [gamma]
+      behavior: ok
+  steps:
+    - register: { adapter: adapter-a, as: handle-a }
+    - register: { adapter: adapter-b, as: handle-b }
+    - withdraw: handle-a
+  queries:
+    - id: current_models
+      introspect: models
+expect:
+  current_models:
+    models:
+      - { provider: mock, model: gamma, api: mock }

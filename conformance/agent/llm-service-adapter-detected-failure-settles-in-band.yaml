@@ -1,0 +1,43 @@
+name: llm-service-adapter-detected-failure-settles-in-band
+family: agent
+authority: 2026-08-20-minion-agent-design.md
+pi_revision: b7bb00b936dbe21b8e160b3e89efdec361846699
+notes: >
+  Pinned Pi's own StreamFunction contract (packages/ai/src/types.ts:324-336, its own doc comment):
+  once a stream() call is invoked, expected request/provider/runtime failures must be encoded in
+  the returned stream, not thrown -- there is no separate error-return channel in the type at all.
+  An adapter that detects an EXPECTED problem synchronously (bad configuration, an unusable
+  request) at the moment it would otherwise start a stream must still return a valid stream whose
+  own terminal is the error, exactly like a provider that fails mid-network-call (already certified
+  under represented-provider-error-rides-stream.yaml, exercised through the full Agent loop). This
+  scenario proves the SAME rule directly at the LlmService/Adapter seam, without an Agent loop in
+  the way (L10-R003/L10-R004): for a resolved identity, `raised: true` is never a legitimate
+  observation -- only an UNRESOLVABLE identity may legitimately raise before any stream exists
+  (AI-029's own eager check, proven by llm-service-registration-and-replacement.yaml's own
+  never_registered_identity_is_unresolvable query, a resolve-only observation with no stream()
+  call at all -- resolution and dispatch are deliberately kept as separate, independently
+  observable actions here).
+llm_service:
+  adapters:
+    - id: adapter-a
+      provider: mock
+      api: mock
+      models: [alpha]
+      behavior: ok
+    - id: adapter-r
+      provider: mock
+      api: mock
+      models: [rejects]
+      behavior: reject
+      reject_message: invalid provider configuration
+  steps:
+    - register: { adapter: adapter-a, as: handle-a }
+    - register: { adapter: adapter-r, as: handle-r }
+    - stream: { identity: { provider: mock, model: alpha, api: mock }, as: ok_call }
+    - stream: { identity: { provider: mock, model: rejects, api: mock }, as: rejected_call }
+expect:
+  ok_call:
+    settled: ok
+  rejected_call:
+    settled: error
+    error_message: invalid provider configuration

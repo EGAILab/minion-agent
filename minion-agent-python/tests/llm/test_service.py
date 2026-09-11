@@ -145,3 +145,25 @@ def test_a_later_adapter_replaces_an_earlier_one_for_the_same_model() -> None:
     withdraw_first()
 
     assert service.models() == frozenset({ModelId("mock", "mock-1")})
+
+
+def test_registering_the_same_adapter_object_twice_gives_each_call_its_own_ownership() -> None:
+    """`C10-C005`: ownership is per REGISTRATION CALL, not per adapter OBJECT -- registering the
+    identical adapter object twice must not let the first call's own handle remove the second
+    call's own entry, and the second (current) handle must still correctly remove its own entry
+    when called. An earlier revision checked `is adapter` alone, which cannot distinguish two
+    calls that happen to share the same object; an independent Rust contract review's own
+    executed witness reproduced exactly this (`register(a)` twice, withdrawing the first handle
+    incorrectly dropped `models()` to empty instead of leaving the second registration live)."""
+    service = LlmService()
+    adapter = GoodAdapter()
+    first = service.register(adapter)
+    second = service.register(adapter)
+
+    first()  # stale -- the second call now owns this identity
+
+    assert service.models() == frozenset({ModelId("mock", "mock-1")})
+
+    second()  # current -- still correctly removes its own entry
+
+    assert service.models() == frozenset()

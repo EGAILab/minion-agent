@@ -1,19 +1,21 @@
 """Every conformance scenario validates against its shape's JSON Schema.
 
-Five scenario shapes currently coexist during the Pi-fidelity realignment (see
+Six scenario shapes currently coexist during the Pi-fidelity realignment (see
 `minion-agent-docs/process/implementation-conformance-workflow.md` section 8.1): the legacy
 per-family shape (`provider_script`/`steps`/`expect_*`, one schema file per family), the unified
 shape (`family`/`status`/`authority`/`pi_revision`/`given`/`when`/`expect`, one shared schema), the
 transform (XFORM) shape (`transform`/`expect`, `agent-transform-scenario.schema.json`), the
 tool-registry (Layer 05) shape (`tool_registry`/`expect`, `tool-registry-scenario.schema.json`),
-and the agent-inbox (Layer 07) shape (`agent_inbox`/`expect`, `agent-inbox-scenario.schema.json`)
--- the second through fourth are all extra schemas for `conformance/agent/`'s own directory, not
-additional canonical families, since XFORM/tool-registry/agent-inbox scenarios each exercise a pure
-library seam (`transform_messages()`, the real `ToolRegistry`/`Context`/scope seam, the real
-`Inbox` primitive) rather than a full agent-loop turn. A scenario's own top-level `tool_registry`
-key routes to the tool-registry schema; `transform` routes to the transform schema; `agent_inbox`
-routes to the agent-inbox schema; `family` routes to the unified schema; otherwise the legacy
-per-family schema governs.
+the agent-inbox (Layer 07) shape (`agent_inbox`/`expect`, `agent-inbox-scenario.schema.json`), and
+the llm-service (Layer 10) shape (`llm_service`/`expect`, `llm-service-scenario.schema.json`) --
+the second through fifth are all extra schemas for `conformance/agent/`'s own directory, not
+additional canonical families, since XFORM/tool-registry/agent-inbox/llm-service scenarios each
+exercise a pure library seam (`transform_messages()`, the real `ToolRegistry`/`Context`/scope seam,
+the real `Inbox` primitive, the real `LlmService`/`Adapter` registration/resolution seam) rather
+than a full agent-loop turn. A scenario's own top-level `tool_registry` key routes to the
+tool-registry schema; `transform` routes to the transform schema; `agent_inbox` routes to the
+agent-inbox schema; `llm_service` routes to the llm-service schema; `family` routes to the unified
+schema; otherwise the legacy per-family schema governs.
 """
 
 import json
@@ -36,6 +38,7 @@ UNIFIED_SCHEMA = CONFORMANCE / "schema" / "scenario.schema.json"
 TRANSFORM_SCHEMA = CONFORMANCE / "schema" / "agent-transform-scenario.schema.json"
 TOOL_REGISTRY_SCHEMA = CONFORMANCE / "schema" / "tool-registry-scenario.schema.json"
 AGENT_INBOX_SCHEMA = CONFORMANCE / "schema" / "agent-inbox-scenario.schema.json"
+LLM_SERVICE_SCHEMA = CONFORMANCE / "schema" / "llm-service-scenario.schema.json"
 
 # Families whose scenarios arrive in a later plan. Their schema must still exist
 # and must still be a valid JSON Schema. Empty now that every family is
@@ -49,12 +52,15 @@ def _scenarios(family: str) -> list[Path]:
 
 def _schema_path_for(document: dict[str, Any], family: str) -> Path:
     """The unified shape's own `family` key, the transform shape's own `transform` key, the
-    tool-registry shape's own `tool_registry` key, and the agent-inbox shape's own `agent_inbox`
-    key are the discriminators (see module docstring)."""
+    tool-registry shape's own `tool_registry` key, the agent-inbox shape's own `agent_inbox` key,
+    and the llm-service shape's own `llm_service` key are the discriminators (see module
+    docstring)."""
     if "tool_registry" in document:
         return TOOL_REGISTRY_SCHEMA
     if "agent_inbox" in document:
         return AGENT_INBOX_SCHEMA
+    if "llm_service" in document:
+        return LLM_SERVICE_SCHEMA
     if "transform" in document:
         return TRANSFORM_SCHEMA
     if "family" in document:
@@ -77,6 +83,7 @@ def test_family_has_scenarios(family: str) -> None:
         TRANSFORM_SCHEMA,
         TOOL_REGISTRY_SCHEMA,
         AGENT_INBOX_SCHEMA,
+        LLM_SERVICE_SCHEMA,
     ],
     ids=lambda p: p.stem,
 )
@@ -411,6 +418,82 @@ def test_agent_inbox_action_accepts_observe_on_claim_or_pending_operations(
     actually return something to check."""
     schema = json.loads(AGENT_INBOX_SCHEMA.read_text(encoding="utf-8"))
     errors = list(Draft202012Validator(schema).iter_errors(_agent_inbox_document(action)))
+    assert not errors, [error.message for error in errors]
+
+
+def _llm_service_document(adapter_entry: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "name": "t",
+        "family": "agent",
+        "authority": "x",
+        "pi_revision": "x",
+        "llm_service": {
+            "adapters": [adapter_entry],
+            "steps": [{"register": {"adapter": adapter_entry["id"], "as": "h"}}],
+            "queries": [{"id": "q", "introspect": "models"}],
+        },
+        "expect": {"q": {"models": []}},
+    }
+
+
+@pytest.mark.parametrize(
+    "adapter_entry",
+    [
+        pytest.param(
+            {"id": "a", "provider": "mock", "api": "mock", "models": ["m"], "behavior": "reject"},
+            id="reject-without-reject_message",
+        ),
+        pytest.param(
+            {
+                "id": "a",
+                "provider": "mock",
+                "api": "mock",
+                "models": ["m"],
+                "behavior": "ok",
+                "reject_message": "unreachable",
+            },
+            id="ok-with-reject_message",
+        ),
+    ],
+)
+def test_llm_service_adapter_entry_ties_reject_message_to_behavior(
+    adapter_entry: dict[str, Any],
+) -> None:
+    """`C10-C002` (revision 1): `reject_message` is required exactly when `behavior: reject`, and
+    forbidden otherwise, so a scenario cannot declare a message that would never be observed
+    (`behavior: ok`) or omit the one an in-band error terminal must carry (`behavior: reject`)."""
+    schema = json.loads(LLM_SERVICE_SCHEMA.read_text(encoding="utf-8"))
+    errors = list(Draft202012Validator(schema).iter_errors(_llm_service_document(adapter_entry)))
+    assert errors, f"expected this adapter entry to be rejected: {adapter_entry}"
+
+
+@pytest.mark.parametrize(
+    "adapter_entry",
+    [
+        pytest.param(
+            {"id": "a", "provider": "mock", "api": "mock", "models": ["m"], "behavior": "ok"},
+            id="ok-without-reject_message",
+        ),
+        pytest.param(
+            {
+                "id": "a",
+                "provider": "mock",
+                "api": "mock",
+                "models": ["m"],
+                "behavior": "reject",
+                "reject_message": "bad configuration",
+            },
+            id="reject-with-reject_message",
+        ),
+    ],
+)
+def test_llm_service_adapter_entry_accepts_the_matching_reject_message_shape(
+    adapter_entry: dict[str, Any],
+) -> None:
+    """The positive counterpart: each `behavior` accepts its own correct `reject_message`
+    presence/absence."""
+    schema = json.loads(LLM_SERVICE_SCHEMA.read_text(encoding="utf-8"))
+    errors = list(Draft202012Validator(schema).iter_errors(_llm_service_document(adapter_entry)))
     assert not errors, [error.message for error in errors]
 
 

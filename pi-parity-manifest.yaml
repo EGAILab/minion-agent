@@ -3823,6 +3823,15 @@ rows:
   - test_w_r006_env_new_key_survives_a_store_round_trip (tests/auth/test_store.py)
   - test_w_r006_extra_nested_mutation_survives_a_store_round_trip (tests/auth/test_store.py)
   - test_w_r009_scalar_field_mutation_survives_a_store_round_trip (tests/auth/test_store.py)
+  - 'tests/typing/valid_auth_credential_mutation.py (permanent static-type evidence, mypy-checked
+    only, never executed by pytest -- the targeted-closure round-2 review''s own finding: an
+    ad-hoc, un-executed mypy probe is not a permanent gate, since reverting env/extra back to a
+    read-only Mapping, or re-adding frozen=True to either credential dataclass, would leave every
+    OTHER configured gate green with no regression signal at all. Independently confirmed
+    discriminating by revert-and-confirm before being committed: reverting env/extra to Mapping
+    reproduces "Unsupported target for indexed assignment"; re-freezing ApiKeyCredential
+    reproduces "Property is read-only" -- both against the real mypy invocation, not simulated.
+    Run via: mypy src/minion_agent tests/typing/valid_auth_credential_mutation.py)'
   python: src/minion_agent/auth/credential.py; src/minion_agent/auth/context.py
   rust: Phase 5 auth foundation (pending independent Rust contract review)
   disposition: adopted

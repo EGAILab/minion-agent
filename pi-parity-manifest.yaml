@@ -3762,26 +3762,47 @@ rows:
     protocol-level requirement; the protocol now correctly permits any conforming implementation to
     resolve a present-but-blank value unchanged, and only the DEFAULT implementation normalizes it.
 
-    `Credential` value semantics (`L11-R006`, remediated, intentional divergence): Pi''s own
-    in-memory store holds mutable objects and exposes live references from `read`/`modify`; this
-    project instead makes `Credential` (and its own embedded `env`/`extra` mappings) a fully
-    immutable VALUE at every level, snapshotting any mapping passed to a constructor rather than
-    aliasing it. `modify()` remains the sole mutation authority either way; since a `Credential` is
-    fully immutable, "by reference" vs. "by value" is not an observable distinction.'
+    `AuthContext.file_exists` (`L11-R008`, remediated): UNLIKE `env`, leading-`~` support IS part
+    of the PROTOCOL contract -- Pi''s own interface places this exact behavior directly on
+    `fileExists`''s own doc comment (`types.ts:99-100`), not only on the default implementation. A
+    remediation of `L11-R003` incorrectly over-generalized that fix to also weaken `file_exists`
+    into a default-only behavior; every conforming `AuthContext` implementation must interpret a
+    leading `~` as the user''s home directory. Pi''s own "always false in browsers" clause is
+    architecturally inapplicable (no browser runtime target here), not weakened or dropped.
+
+    `Credential` value/reference semantics (`L11-R006`, resolved by explicit owner governance
+    decision, `agent-workflow.md` §11.7/§11.8 -- NO intentional divergence approved, entered
+    mandatory convergence after surviving two independent reviews): Pi stores plain, mutable
+    credential objects with no freezing or defensive copying anywhere, and `read`/`modify` expose
+    direct references into the SAME backing store. This row ADOPTS that exact observable behavior:
+    `env`/`extra` are stored EXACTLY as given at construction, with no copy and no freeze at any
+    level, recursively -- mutating the original mapping/list passed to a constructor, OR a nested
+    value reached through the credential itself, remains/becomes observable afterward, including
+    through `CredentialStore.read()`. Two prior candidate revisions each attempted an unapproved,
+    only-shallowly-implemented deep-immutable-value divergence instead; both are corrected here.
+    `CredentialStore.modify()` remains the documented, INTENDED sole mutation authority
+    (`PROV-007`), unaffected by and not dependent on this aliasing behavior -- a caller bypassing
+    it by mutating a retained reference directly is possible, exactly matching Pi''s own documented
+    bypassability, not a new gap this row introduces.'
   tests:
   - test_api_key_credential_defaults_to_no_key_or_env
   - test_api_key_credential_carries_key_and_env
-  - test_api_key_credential_env_is_immutable_and_not_aliased_to_the_constructor_argument
+  - test_w_r006_1_mutating_the_original_env_mapping_after_construction_is_observable
+  - test_w_r006_2_mutating_a_value_reached_through_the_credential_persists
   - test_oauth_credential_requires_access_refresh_expires
   - test_oauth_credential_extra_is_an_open_escape_hatch
-  - test_oauth_credential_extra_is_immutable_and_not_aliased_to_the_constructor_argument
+  - test_w_r006_3_oauth_credential_extra_open_json_domain_round_trips_unchanged
+  - test_w_r006_1_oauth_credential_extra_original_mapping_aliasing
   - test_credential_info_carries_no_secret_fields
   - test_model_auth_is_closed_to_api_key_headers_base_url
   - test_auth_result_carries_env_and_source
   - test_auth_check_reports_type_and_source_only
   - test_auth_operation_options_default_signal_is_none
   - tests/auth/test_context.py (env present/absent/whitespace-blank; file_exists true/false/tilde-
-    expansion; a custom, non-normalizing AuthContext returning a blank value unchanged is conforming)
+    expansion; a custom, non-normalizing AuthContext returning a blank value unchanged is
+    conforming; a second, independently-written AuthContext implementation also supports leading-~,
+    proving that is a protocol-level requirement, not merely DefaultAuthContext's own behavior)
+  - test_w_r006_aliasing_survives_a_modify_read_round_trip_through_the_store (tests/auth/test_store.py)
   python: src/minion_agent/auth/credential.py; src/minion_agent/auth/context.py
   rust: Phase 5 auth foundation (pending independent Rust contract review)
   disposition: adopted

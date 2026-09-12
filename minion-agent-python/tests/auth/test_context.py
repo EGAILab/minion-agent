@@ -24,6 +24,31 @@ async def test_a_custom_context_may_return_a_blank_value_unchanged() -> None:
     assert await ctx.env("TOKEN") == ""
 
 
+class _SecondNativeAuthContext:
+    """A second, independently-written `AuthContext` implementation (deliberately NOT
+    `DefaultAuthContext`) -- proving leading-`~` support is a PROTOCOL-level expectation every
+    conforming implementation follows, not merely `DefaultAuthContext`'s own default behavior
+    (`L11-R008`; Pi's own interface doc comment states this directly on `fileExists` itself,
+    `types.ts:99-100`, unlike `env`'s blank-normalization, which is default-implementation-only)."""
+
+    async def env(self, name: str) -> str | None:
+        return os.environ.get(name)
+
+    async def file_exists(self, path: str) -> bool:
+        resolved = os.path.expanduser(path)
+        return Path(resolved).exists()
+
+
+async def test_w_r008_1_a_second_native_auth_context_also_supports_leading_tilde() -> None:
+    """`L11-R008`: leading-`~` support belongs to the `AuthContext` protocol itself, so a SEPARATE,
+    independently-written implementation must interpret it as the user's home directory too, not
+    only `DefaultAuthContext` -- this witness is deliberately distinct from
+    `test_file_exists_expands_a_leading_tilde` below, which only exercises the default."""
+    ctx = _SecondNativeAuthContext()
+    home_relative = os.path.expanduser("~")
+    assert await ctx.file_exists(home_relative) is True
+
+
 async def test_env_returns_a_set_value() -> None:
     ctx = DefaultAuthContext()
     os.environ["MINION_AUTH_TEST_VAR"] = "value"

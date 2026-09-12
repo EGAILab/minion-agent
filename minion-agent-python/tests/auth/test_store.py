@@ -17,6 +17,23 @@ async def _to(credential: Credential) -> Credential:
     return credential
 
 
+async def test_w_r006_aliasing_survives_a_modify_read_round_trip_through_the_store() -> None:
+    """`L11-R006` (owner-decided Pi-parity): the store itself performs no defensive copy either --
+    mutating a nested value reached through a credential returned by `modify()` is observed by a
+    later `read()` for the same provider id, exactly matching Pi's own `InMemoryCredentialStore`,
+    which holds direct references into its own backing `Map`."""
+    store = InMemoryCredentialStore()
+    stored = ApiKeyCredential(key="sk-test", env={"nested": {"value": "A"}})
+
+    committed = await store.modify("p", lambda _c: _to(stored))
+    assert committed is not None and committed.env is not None
+    committed.env["nested"]["value"] = "B"  # type: ignore[index]
+
+    reread = await store.read("p")
+    assert reread is not None and reread.env is not None
+    assert reread.env["nested"] == {"value": "B"}
+
+
 async def test_case1_single_modify_transitions_from_initial_to_new_state() -> None:
     store = InMemoryCredentialStore()
 

@@ -1,7 +1,5 @@
 """Structural-shape tests for the auth vocabulary (`PROV-006`)."""
 
-import pytest
-
 from minion_agent.auth.credential import (
     ApiKeyCredential,
     AuthCheck,
@@ -32,33 +30,70 @@ def test_oauth_credential_requires_access_refresh_expires() -> None:
     assert credential.extra == {}
 
 
-def test_api_key_credential_env_is_immutable_and_not_aliased_to_the_constructor_argument() -> None:
-    """`L11-R006`: Pi's own in-memory store holds mutable objects and exposes live references from
-    `read`/`modify`; this project makes `Credential` a fully immutable VALUE instead (intentional
-    divergence) -- a plain dict passed to the constructor must be snapshotted, not aliased, and the
-    stored mapping itself must reject item assignment."""
-    original = {"CF_ACCOUNT_ID": "abc"}
+def test_w_r006_1_mutating_the_original_env_mapping_after_construction_is_observable() -> None:
+    """`L11-R006` (owner-decided: adopt pinned Pi's own live-reference semantics, no intentional
+    divergence): mutating the ORIGINAL mapping passed to the constructor -- including a NESTED
+    dict/list value inside it, not merely a flat string -- remains observable through the
+    credential afterward, matching Pi's own plain, mutable, reference-shared object exactly."""
+    original = {"CF_ACCOUNT_ID": "abc", "nested": {"value": "A"}, "items": ["A"]}
     credential = ApiKeyCredential(key="sk-test", env=original)
 
     original["CF_ACCOUNT_ID"] = "mutated-after-construction"
+    original["nested"]["value"] = "B"
+    original["items"].append("B")
 
     assert credential.env is not None
-    assert credential.env["CF_ACCOUNT_ID"] == "abc"
-    with pytest.raises(TypeError):
-        credential.env["CF_ACCOUNT_ID"] = "z"  # type: ignore[index]
+    assert credential.env["CF_ACCOUNT_ID"] == "mutated-after-construction"
+    assert credential.env["nested"] == {"value": "B"}
+    assert credential.env["items"] == ["A", "B"]
 
 
-def test_oauth_credential_extra_is_immutable_and_not_aliased_to_the_constructor_argument() -> None:
-    """`L11-R006`, `OAuthCredential`'s own `extra` field -- same value-semantics guarantee as
-    `ApiKeyCredential.env` above."""
-    original = {"accountId": "acc_1"}
+def test_w_r006_2_mutating_a_value_reached_through_the_credential_persists() -> None:
+    """`L11-R006`: mutating a nested dict/list reached through `credential.env` itself succeeds
+    and is observed by a later access -- Pi's own credential objects are not defensively copied
+    or frozen at any level."""
+    credential = ApiKeyCredential(key="sk-test", env={"nested": {"value": "A"}, "items": ["A"]})
+
+    credential.env["nested"]["value"] = "B"  # type: ignore[index]
+    credential.env["items"].append("B")  # type: ignore[union-attr]
+
+    assert credential.env["nested"] == {"value": "B"}
+    assert credential.env["items"] == ["A", "B"]
+
+
+def test_w_r006_3_oauth_credential_extra_open_json_domain_round_trips_unchanged() -> None:
+    """`L11-R006`: no freezing/deep-copy mechanism narrows `extra`'s own open JSON domain --
+    objects, arrays, strings, numbers, booleans, and null all round-trip exactly, and remain
+    the SAME container objects (proving no defensive copy occurred)."""
+    nested_object = {"inner": "value"}
+    nested_array = [1, "two", None, True]
+    extra = {
+        "object": nested_object,
+        "array": nested_array,
+        "string": "s",
+        "number": 3.5,
+        "boolean": False,
+        "null": None,
+    }
+
+    credential = OAuthCredential(access="a", refresh="r", expires=1234.0, extra=extra)
+
+    assert credential.extra == extra
+    assert credential.extra["object"] is nested_object
+    assert credential.extra["array"] is nested_array
+
+
+def test_w_r006_1_oauth_credential_extra_original_mapping_aliasing() -> None:
+    """`L11-R006`, `OAuthCredential`'s own `extra` field -- same constructor-aliasing guarantee as
+    `ApiKeyCredential.env` above, including a nested mutable value."""
+    original = {"accountId": "acc_1", "nested": {"value": "A"}}
     credential = OAuthCredential(access="a", refresh="r", expires=1234.0, extra=original)
 
     original["accountId"] = "mutated-after-construction"
+    original["nested"]["value"] = "B"
 
-    assert credential.extra["accountId"] == "acc_1"
-    with pytest.raises(TypeError):
-        credential.extra["accountId"] = "z"  # type: ignore[index]
+    assert credential.extra["accountId"] == "mutated-after-construction"
+    assert credential.extra["nested"] == {"value": "B"}
 
 
 def test_oauth_credential_extra_is_an_open_escape_hatch() -> None:

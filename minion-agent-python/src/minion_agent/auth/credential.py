@@ -6,7 +6,6 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from types import MappingProxyType
 from typing import Literal, Protocol
 
 from ..runtime.signal import RunSignal
@@ -23,23 +22,21 @@ class ApiKeyCredential:
     provider-scoped environment/config values (e.g. Cloudflare account/gateway ids) -- not
     request-time headers, which live on `ModelAuth` once auth has been resolved.
 
-    `env`, if given, is snapshotted into an immutable mapping in `__post_init__` (`L11-R006`):
-    Pi's own in-memory store holds mutable objects and returns live references from `read`/
-    `modify`, observably exposing later external mutation; Python instead makes every `Credential`
-    a fully immutable VALUE, an intentional architectural hardening, not a literal port. `modify()`
-    remains the sole supported mutation authority either way -- this only forecloses a SEPARATE,
-    Pi-does-not-even-intend path (mutating a field on an object a `read()`/`modify()` call handed
-    back). Since a `Credential` is fully immutable, "returned by reference" vs "returned by value"
-    is unobservable, which is what actually resolves `L11-R006`, not the choice of container type
-    itself."""
+    `env` is stored EXACTLY as given -- no copy, no freeze, at any level (`L11-R006`, resolved by
+    explicit owner governance decision, `agent-workflow.md` §11.7/§11.8: adopt pinned Pi's own
+    live-reference/shared-mutation behavior, no intentional divergence approved). Pi's own
+    `InMemoryCredentialStore` holds mutable objects and returns live references from `read`/
+    `modify`, so mutating the ORIGINAL mapping passed to this constructor, or mutating a nested
+    value reached through `credential.env` itself, remains observable through this credential
+    afterward -- matching Pi exactly, including a NESTED dict/list value, not merely the outer
+    mapping. `CredentialStore.modify()` remains the documented, INTENDED sole mutation path
+    (`PROV-007`) -- this is unaffected by and does not depend on `env`'s own aliasing behavior;
+    a caller that instead mutates a retained reference directly bypasses that convention, exactly
+    as Pi's own plain-object credential type permits (see `PROV-007`'s own manifest row)."""
 
     key: str | None = None
     env: Mapping[str, str] | None = None
     type: Literal["api_key"] = "api_key"
-
-    def __post_init__(self) -> None:
-        if self.env is not None:
-            object.__setattr__(self, "env", MappingProxyType(dict(self.env)))
 
 
 @dataclass(frozen=True, slots=True)
@@ -57,8 +54,8 @@ class OAuthCredential:
     pass). `extra` is empty until a provider-specific flow populates it; this row does not invent
     a closed shape Pi itself leaves open.
 
-    `extra` is snapshotted into an immutable mapping in `__post_init__`, for the exact same
-    value-semantics reason `ApiKeyCredential.env` is (`L11-R006`, see its own docstring).
+    `extra` is stored EXACTLY as given -- no copy, no freeze, at any level, for the exact same
+    owner-decided Pi-parity reason `ApiKeyCredential.env` is (`L11-R006`, see its own docstring).
     """
 
     access: str
@@ -66,9 +63,6 @@ class OAuthCredential:
     expires: float
     extra: Mapping[str, JsonValue] = field(default_factory=dict)
     type: Literal["oauth"] = "oauth"
-
-    def __post_init__(self) -> None:
-        object.__setattr__(self, "extra", MappingProxyType(dict(self.extra)))
 
 
 Credential = ApiKeyCredential | OAuthCredential
@@ -140,10 +134,21 @@ class AuthContext(Protocol):
     `defaultProviderAuthContext`, `auth/context.ts:25-28`) treats a whitespace-only value as
     absent -- a property of THAT implementation, not a requirement every `AuthContext` must
     satisfy. A caller-supplied test context is free to return `""` for a name it considers
-    "present but empty," and that is conforming, not a bug. `file_exists(path)` reports whether
-    `path` exists, with a leading `~` expanded to the user's home directory (`auth/context.ts:
-    30-43`) -- also specific to `DefaultAuthContext`'s own concrete filesystem behavior, not a
-    protocol-level guarantee.
+    "present but empty," and that is conforming, not a bug.
+
+    `file_exists(path)` reports whether `path` exists, with a leading `~` expanded to the user's
+    home directory -- UNLIKE `env`'s own blank-normalization, tilde support IS part of this
+    PROTOCOL's own contract, not merely `DefaultAuthContext`'s concrete behavior (`L11-R008`: an
+    earlier revision of this docstring incorrectly over-generalized the `L11-R003` fix to cover
+    `file_exists` too). Pi's own interface doc comment states this directly on the interface
+    method itself (`types.ts:99-100`: "Check whether a file exists. Supports a leading `~`. Always
+    false in browsers."), unlike `env`, which carries no interface-level comment about blank
+    values at all -- only `defaultProviderAuthContext`'s own doc comment (`auth/context.ts`)
+    mentions that. ANY conforming `AuthContext` implementation -- not only `DefaultAuthContext` --
+    must interpret a leading `~` as the user's home directory, not a literal relative path
+    component. Pi's own "always false in browsers" clause is architecturally inapplicable here:
+    this project has no browser runtime target, so no implementation needs a browser-specific
+    branch to satisfy this contract.
     """
 
     async def env(self, name: str) -> str | None: ...

@@ -12,7 +12,11 @@ key, agent-inbox-scenario.schema.json): those exercise the real Inbox primitive 
 provider/tool/turn at all, and are executed by test_agent_inbox_conformance.py. Also excludes
 Layer-10 llm-service scenarios (top-level `llm_service` key, llm-service-scenario.schema.json):
 those exercise the real LlmService/Adapter registration/resolution seam directly, with no Agent
-loop at all, and are executed by test_llm_service_conformance.py.
+loop at all, and are executed by test_llm_service_conformance.py. Also excludes Layer-11
+auth-device-code scenarios (top-level `auth_device_code` key,
+auth-device-code-scenario.schema.json): those exercise the real poll_device_code_flow state
+machine directly, with no Agent loop at all, and are executed by
+test_auth_device_code_conformance.py.
 """
 
 from pathlib import Path
@@ -36,6 +40,7 @@ def _is_full_loop_scenario(path: Path) -> bool:
             or "tool_registry" in document
             or "agent_inbox" in document
             or "llm_service" in document
+            or "auth_device_code" in document
         )
     )
 

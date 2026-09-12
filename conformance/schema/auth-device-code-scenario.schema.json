@@ -1,0 +1,94 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$comment": "Layer 11 Pass 1 (auth foundation) canonical shape, discriminated by a top-level `auth_device_code` key -- another schema for conformance/agent/'s own directory, not a new canonical family: scenarios here drive the real `poll_device_code_flow` state machine directly through a scripted `poll` sequence, with no real sleep/clock/network involved. Timing/abort precision is deliberately NOT part of this canonical shape (PROV-010's own explicit `IMPLEMENTATION` decision) -- it stays Python-only (and a future Rust-only) unit-test concern; this shape proves only the language-neutral SEQUENCE-OF-OUTCOMES to FINAL-RESULT state machine.",
+  "type": "object",
+  "required": ["name", "family", "authority", "pi_revision", "auth_device_code", "expect"],
+  "additionalProperties": false,
+  "properties": {
+    "name": { "type": "string", "minLength": 1 },
+    "family": { "const": "agent" },
+    "authority": { "type": "string", "minLength": 1 },
+    "pi_revision": { "type": "string", "minLength": 1 },
+    "notes": { "type": "string" },
+    "auth_device_code": {
+      "type": "object",
+      "required": ["poll_sequence"],
+      "additionalProperties": false,
+      "properties": {
+        "poll_sequence": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/pollOutcome" }
+        },
+        "interval_seconds": { "type": "number", "exclusiveMinimum": 0 },
+        "expires_in_seconds": { "type": "number", "exclusiveMinimum": 0 }
+      }
+    },
+    "expect": { "$ref": "#/$defs/expect" }
+  },
+  "$defs": {
+    "pollOutcome": {
+      "$comment": "Exactly one outcome per scripted poll attempt, matching `DevicePollResult` exactly (`pending`/`slow_down`/`failed`/`complete`).",
+      "type": "object",
+      "minProperties": 1,
+      "maxProperties": 1,
+      "additionalProperties": false,
+      "properties": {
+        "pending": { "const": true },
+        "slow_down": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "interval_seconds": { "type": "number", "exclusiveMinimum": 0 }
+          }
+        },
+        "failed": {
+          "type": "object",
+          "required": ["message"],
+          "additionalProperties": false,
+          "properties": {
+            "message": { "type": "string", "minLength": 1 }
+          }
+        },
+        "complete": {
+          "type": "object",
+          "required": ["value"],
+          "additionalProperties": false,
+          "properties": {
+            "value": { "type": "string", "minLength": 1 }
+          }
+        }
+      }
+    },
+    "expect": {
+      "$comment": "The runner drives poll_device_code_flow to completion and reports EXACTLY ONE of these outcomes, plus the number of scripted poll attempts actually consumed.",
+      "type": "object",
+      "required": ["poll_count"],
+      "additionalProperties": false,
+      "properties": {
+        "poll_count": { "type": "integer", "minimum": 0 },
+        "complete": {
+          "type": "object",
+          "required": ["value"],
+          "additionalProperties": false,
+          "properties": {
+            "value": { "type": "string", "minLength": 1 }
+          }
+        },
+        "error": {
+          "type": "object",
+          "required": ["type"],
+          "additionalProperties": false,
+          "properties": {
+            "type": { "enum": ["failed", "timed_out"] },
+            "message_contains": { "type": "string", "minLength": 1 }
+          }
+        }
+      },
+      "oneOf": [
+        { "required": ["complete"] },
+        { "required": ["error"] }
+      ]
+    }
+  }
+}

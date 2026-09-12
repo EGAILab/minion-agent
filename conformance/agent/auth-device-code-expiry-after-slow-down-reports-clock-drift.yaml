@@ -1,0 +1,18 @@
+name: auth-device-code-expiry-after-slow-down-reports-clock-drift
+family: agent
+authority: 2026-08-20-minion-agent-design.md
+pi_revision: b7bb00b936dbe21b8e160b3e89efdec361846699
+notes: >
+  Once at least one slow_down response has been seen, a subsequent timeout carries the more
+  specific clock-drift-actionable message rather than the plain timeout message -- Pi's own
+  two-message split (device-code.ts), since a slow_down-then-expire pattern is a specific,
+  actionable symptom (WSL/VM clock drift) rather than a generic timeout.
+auth_device_code:
+  interval_seconds: 5
+  expires_in_seconds: 12
+  poll_sequence:
+    - slow_down: {}
+    - pending: true
+expect:
+  poll_count: 2
+  error: { type: timed_out, message_contains: "clock drift" }

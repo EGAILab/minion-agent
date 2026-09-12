@@ -5,28 +5,35 @@ use std::{
 
 use futures::{Stream, stream};
 use minion_agent::llm::{
-    AdapterStartError, AdapterStreamError, LlmAdapter, LlmContext, LlmRequest, LlmService,
+    AdapterStreamError, AdapterStreamErrorKind, LlmAdapter, LlmContext, LlmRequest, LlmService,
     LlmStartError, ModelIdentity, RawAssistantStream, Script, ScriptItem, ScriptedAdapter,
-    SimpleStreamOptions,
+    SimpleStreamOptions, StopReason,
 };
 
 #[derive(Clone)]
 struct RecordingAdapter {
     requests: Arc<Mutex<Vec<LlmRequest>>>,
-    reject: bool,
 }
 
 impl LlmAdapter for RecordingAdapter {
-    fn start(&self, request: LlmRequest) -> Result<RawAssistantStream, AdapterStartError> {
+    fn start(&self, request: LlmRequest) -> RawAssistantStream {
         self.requests.lock().unwrap().push(request);
-        if self.reject {
-            return Err(AdapterStartError::Rejected(
-                "invalid provider configuration".into(),
-            ));
-        }
         let raw: Pin<Box<dyn Stream<Item = Result<_, AdapterStreamError>> + Send>> =
             Box::pin(stream::empty());
-        Ok(raw)
+        raw
+    }
+}
+
+struct RejectingAdapter;
+
+impl LlmAdapter for RejectingAdapter {
+    fn start(&self, _: LlmRequest) -> RawAssistantStream {
+        Box::pin(stream::once(async {
+            Err(AdapterStreamError::new(
+                AdapterStreamErrorKind::Provider,
+                "invalid provider configuration",
+            ))
+        }))
     }
 }
 
@@ -48,24 +55,26 @@ fn unknown_model_fails_before_adapter_stream_creation() {
 }
 
 #[test]
-fn adapter_start_failure_remains_eager_and_typed() {
-    let identity = ModelIdentity::new("openai", "responses", "gpt-5").unwrap();
-    let requests = Arc::new(Mutex::new(Vec::new()));
-    let service = LlmService::new();
-    service.register(
-        identity.clone(),
-        Arc::new(RecordingAdapter {
-            requests: requests.clone(),
-            reject: true,
-        }),
-    );
+fn resolved_adapter_detection_failure_settles_in_band() {
+    futures::executor::block_on(async {
+        use futures::StreamExt;
 
-    let original = request(identity);
-    assert!(matches!(
-        service.stream(original.clone()),
-        Err(LlmStartError::AdapterStart(_))
-    ));
-    assert_eq!(*requests.lock().unwrap(), vec![original]);
+        let identity = ModelIdentity::new("openai", "responses", "gpt-5").unwrap();
+        let service = LlmService::new();
+        service.register(identity.clone(), Arc::new(RejectingAdapter));
+
+        let terminal = service
+            .stream(request(identity))
+            .expect("resolved adapter invocation returns a stream")
+            .next()
+            .await
+            .expect("expected adapter failure settles terminally");
+        assert_eq!(terminal.partial().stop_reason, StopReason::Error);
+        assert_eq!(
+            terminal.partial().error_message.as_deref(),
+            Some("invalid provider configuration")
+        );
+    });
 }
 
 #[test]
@@ -96,13 +105,83 @@ fn scripted_adapter_records_requests_and_only_emits_raw_script_items() {
 }
 
 #[test]
-fn exhausted_scripted_adapter_fails_before_stream_creation() {
-    let identity = ModelIdentity::new("openai", "responses", "gpt-5").unwrap();
-    let adapter = Arc::new(ScriptedAdapter::new([]));
+fn exhausted_scripted_adapter_settles_in_band() {
+    futures::executor::block_on(async {
+        use futures::StreamExt;
+
+        let identity = ModelIdentity::new("openai", "responses", "gpt-5").unwrap();
+        let adapter = Arc::new(ScriptedAdapter::new([]));
+        let service = LlmService::new();
+        service.register(identity.clone(), adapter);
+        let terminal = service
+            .stream(request(identity))
+            .unwrap()
+            .next()
+            .await
+            .unwrap();
+        assert_eq!(terminal.partial().stop_reason, StopReason::Error);
+        assert_eq!(
+            terminal.partial().error_message.as_deref(),
+            Some("scripted adapter has no remaining script")
+        );
+    });
+}
+
+#[test]
+fn registration_handles_are_repeatable_stale_safe_and_owned_per_call() {
+    let identity = ModelIdentity::new("mock", "mock", "alpha").unwrap();
+    let requests = Arc::new(Mutex::new(Vec::new()));
+    let adapter: Arc<dyn LlmAdapter> = Arc::new(RecordingAdapter {
+        requests: requests.clone(),
+    });
     let service = LlmService::new();
-    service.register(identity.clone(), adapter);
-    assert!(matches!(
-        service.stream(request(identity)),
-        Err(LlmStartError::AdapterStart(_))
-    ));
+
+    let first = service.register(identity.clone(), adapter.clone());
+    let second = service.register(identity.clone(), adapter);
+    assert_eq!(service.models(), vec![identity.clone()]);
+
+    first.withdraw();
+    assert_eq!(service.models(), vec![identity.clone()]);
+    first.withdraw();
+    assert_eq!(service.models(), vec![identity.clone()]);
+
+    second.withdraw();
+    assert!(service.models().is_empty());
+    second.withdraw();
+    assert!(service.models().is_empty());
+}
+
+#[test]
+fn one_registration_handle_owns_every_identity_in_that_call() {
+    let alpha = ModelIdentity::new("mock", "mock", "alpha").unwrap();
+    let beta = ModelIdentity::new("mock", "mock", "beta").unwrap();
+    let requests = Arc::new(Mutex::new(Vec::new()));
+    let adapter: Arc<dyn LlmAdapter> = Arc::new(RecordingAdapter { requests });
+    let service = LlmService::new();
+
+    let handle = service.register_models(vec![beta.clone(), alpha.clone()], adapter);
+    assert_eq!(service.models(), vec![alpha, beta]);
+    handle.withdraw();
+    assert!(service.models().is_empty());
+}
+
+#[test]
+fn multi_identity_withdrawal_removes_only_entries_the_call_still_owns() {
+    let alpha = ModelIdentity::new("mock", "mock", "alpha").unwrap();
+    let beta = ModelIdentity::new("mock", "mock", "beta").unwrap();
+    let first_adapter: Arc<dyn LlmAdapter> = Arc::new(RecordingAdapter {
+        requests: Arc::new(Mutex::new(Vec::new())),
+    });
+    let replacement: Arc<dyn LlmAdapter> = Arc::new(RecordingAdapter {
+        requests: Arc::new(Mutex::new(Vec::new())),
+    });
+    let service = LlmService::new();
+
+    let first = service.register_models([alpha.clone(), beta.clone()], first_adapter);
+    let beta_replacement = service.register(beta.clone(), replacement);
+    first.withdraw();
+
+    assert_eq!(service.models(), vec![beta.clone()]);
+    beta_replacement.withdraw();
+    assert!(service.models().is_empty());
 }

@@ -17,7 +17,7 @@ pub use adapter::*;
 pub use assistant_stream::AssistantStream;
 pub use model::{ModelIdentity, ModelIdentityError};
 pub use scripted::{Script, ScriptItem, ScriptedAdapter};
-pub use service::{LlmService, LlmStartError};
+pub use service::{LlmRegistration, LlmService, LlmStartError};
 pub use transform::{ToolCallIdNormalizer, TransformTarget, transform_messages};
 #[cfg(feature = "conformance")]
 pub use transform_compat::{TransformCompatError, transform_legacy_messages};

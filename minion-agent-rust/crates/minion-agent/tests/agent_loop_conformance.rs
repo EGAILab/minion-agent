@@ -47,7 +47,7 @@ fn contains_placeholder(value: &Value) -> bool {
 }
 
 fn classify(document: &Value) -> AgentDocumentKind {
-    if ["transform", "tool_registry", "agent_inbox"]
+    if ["transform", "tool_registry", "agent_inbox", "llm_service"]
         .iter()
         .any(|key| document.get(key).is_some())
     {

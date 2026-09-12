@@ -4017,24 +4017,40 @@ rows:
     cross-language mismatch the un-floored candidate exhibited). The fixed +5s `slow_down` fallback
     increment is already a whole-millisecond quantity and needs no additional flooring.
 
-    Non-finite initial-interval regression (`L11-R014`, new, second-final-complete-review finding
-    -- a regression the `L11-R012` fix itself introduced): pinned Pi''s own INITIAL interval option
+    Non-finite initial-interval regression (`L11-R014`, remediated TWICE, entered mandatory §11.8
+    convergence after surviving two independent reviews -- second remediation per
+    `11-auth-foundation-r014-convergence-agreement.md`): pinned Pi''s own INITIAL interval option
     carries NO `Number.isFinite` guard (unlike the `slow_down` server value, which `L11-R004`
     already gates); JS''s own `Math.floor`/`Math.max` never raise for `Infinity`/`NaN`, they
-    propagate the special value arithmetically. The `L11-R012` flooring helper called Python''s
-    `math.floor` unconditionally, which raises `OverflowError`/`ValueError` for exactly these
-    inputs -- a setup-time crash even when the flow never ends up sleeping at all (an immediately-
-    successful first poll returns before any interval is used). Fixed by making the flooring helper
-    a pass-through (no-op) for non-finite input, matching Pi''s own non-throwing numeric behavior,
-    NOT a deliberate narrowing of the caller-facing input domain -- a real such narrowing would be
-    a separate, owner-governed contract decision.'
+    propagate the special value arithmetically. A first remediation made the flooring helper a
+    pass-through for non-finite input, fixing the SETUP-time crash (an immediately-successful
+    first poll now correctly returns before any interval is used) -- but left the USED case
+    (a `pending` response, meaning the interval actually gets scheduled as a sleep) unfixed: `NaN`
+    got silently neutralized to `1.0` only by Python `max()`''s own order-dependent, non-`NaN`-
+    propagating comparison (an accident of argument order, not a deliberate rule), while `Infinity`
+    entered `abortable_sleep`''s own slicing loop and looped FOREVER, since an ever-infinite
+    remaining duration never decreases toward zero. Pi''s own real behavior for a USED non-finite
+    interval is a HOST-timer effect: `setTimeout` clamps an out-of-range delay (`NaN`/`Infinity`
+    both fail its own bounds check identically) to its own minimal schedulable value, letting the
+    next poll happen promptly -- not something the pure `Math.floor`/`Math.max` arithmetic layer
+    itself produces. Second remediation: `abortable_sleep` (the Python analog of that host-timer
+    boundary, not the pure-arithmetic `_floor_to_whole_milliseconds` helper) now explicitly clamps
+    a non-finite `seconds` to `MINIMUM_INTERVAL_SECONDS` via an explicit `math.isfinite` check --
+    never relying on Python `min`/`max`''s own incidental `NaN` comparison behavior -- so BOTH
+    `NaN` and `Infinity` deterministically reach the next poll attempt. The exact clamped duration
+    is deliberately NOT Pi''s own sub-millisecond host-timer latency (host-specific, not
+    normative); only that progress happens is required, and the specific value chosen is the
+    SAME already-established minimum interval every other too-small interval already clamps to,
+    not a new, additional magic constant.'
   tests:
-  - tests/auth/test_device_code.py (24 tests -- immediate success, pending/slow_down combinations
+  - tests/auth/test_device_code.py (26 tests -- immediate success, pending/slow_down combinations
     including a non-finite server interval falling back to the fixed increment and fractional
     initial/server intervals floored to whole milliseconds, non-finite (Infinity/NaN) initial
-    intervals not throwing when the first poll completes immediately, terminal failure, expiry
-    with/without slow_down, abort before/during sleep/during an in-flight poll,
-    wait_before_first_poll, interval clamping/defaulting, abortable_sleep direct tests)
+    intervals not throwing when the first poll completes immediately AND clamping to the minimum
+    interval (reaching the second poll deterministically) when a pending response means the
+    interval is actually used, terminal failure, expiry with/without slow_down, abort before/
+    during sleep/during an in-flight poll, wait_before_first_poll, interval clamping/defaulting,
+    abortable_sleep direct tests)
   - auth-device-code-immediate-success
   - auth-device-code-pending-then-slow-down-then-success
   - auth-device-code-slow-down-prefers-server-interval

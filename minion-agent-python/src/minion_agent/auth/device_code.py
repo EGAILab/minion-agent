@@ -43,17 +43,19 @@ def _floor_to_whole_milliseconds(seconds: float) -> float:
     `1.2349`) must schedule exactly `1.234`, not the raw fractional value. This module's own public
     API stays seconds-based; this helper is the one place the millisecond floor is applied.
 
-    Non-finite input passes through UNCHANGED (`L11-R014`): pinned Pi's own INITIAL interval option
-    (unlike the `slow_down` server value, `PROV-004`) carries no `Number.isFinite` guard at all, and
-    JS's own `Math.floor`/`Math.max` never raise for `Infinity`/`NaN` -- they simply propagate the
-    special value arithmetically (`Math.floor(Infinity) === Infinity`, `Math.floor(NaN) === NaN`).
-    Python's `math.floor` raises `OverflowError`/`ValueError` for exactly these inputs, which a
-    naive port would incorrectly turn into a setup-time crash even when the flow never ends up
-    sleeping at all -- e.g. an immediately-successful first poll returns before this interval is
-    ever used. This early-return is what makes this helper a faithful, non-throwing port of Pi's
-    own numeric behavior rather than a stricter, un-approved narrowing of the caller-facing input
-    domain (a deliberate narrowing would be a separate, governed contract decision, not something
-    this helper introduces incidentally)."""
+    Non-finite input passes through UNCHANGED (`L11-R014`, setup half): pinned Pi's own INITIAL
+    interval option (unlike the `slow_down` server value, `PROV-004`) carries no `Number.isFinite`
+    guard at all, and JS's own `Math.floor`/`Math.max` never raise for `Infinity`/`NaN` -- they
+    simply propagate the special value arithmetically (`Math.floor(Infinity) === Infinity`,
+    `Math.floor(NaN) === NaN`). Python's `math.floor` raises `OverflowError`/`ValueError` for
+    exactly these inputs, which a naive port would incorrectly turn into a setup-time crash even
+    when the flow never ends up sleeping at all -- e.g. an immediately-successful first poll
+    returns before this interval is ever used. This early-return is what makes this helper a
+    faithful, non-throwing port of Pi's own PURE-ARITHMETIC layer, deliberately mirroring it
+    exactly rather than clamping here -- clamping a non-finite value that IS actually used to
+    schedule a sleep is a SEPARATE concern, handled where the sleep is actually scheduled
+    (`abortable_sleep`'s own docstring), matching Pi's own separate host-timer clamping boundary,
+    not this pure-math one."""
     if not math.isfinite(seconds):
         return seconds
     return math.floor(seconds * 1000) / 1000
@@ -137,7 +139,21 @@ async def abortable_sleep(
 
     Raises `DeviceFlowCancelled` immediately if `signal` is already aborted, or as soon as a
     step boundary observes it. `sleep` is injectable so tests never wait in real time.
-    """
+
+    A non-finite `seconds` (`NaN`/`Infinity`) is clamped to `MINIMUM_INTERVAL_SECONDS` (`L11-R014`,
+    resolved by §11.8 convergence agreement, `11-auth-foundation-r014-convergence-agreement.md`):
+    this is the Python analog of Pi's own HOST-timer boundary (`setTimeout` clamps an out-of-range
+    delay -- including `NaN`/`Infinity`, both of which fail its own numeric bounds check -- to its
+    minimal schedulable value, per Node's own documented `setTimeout` contract), not something
+    derivable from the pure `Math.floor`/`Math.max` arithmetic upstream (which never throws and
+    faithfully propagates these special values, matching `_floor_to_whole_milliseconds`'s own
+    pass-through contract for the NOT-yet-scheduled case). The exact clamped duration is
+    deliberately NOT Pi's own sub-millisecond host-timer latency -- that is host-specific and the
+    agreed characterization explicitly does not require matching it -- only that a non-finite
+    requested duration makes PROGRESS rather than raising or looping forever slicing an
+    ever-infinite remaining value."""
+    if not math.isfinite(seconds):
+        seconds = MINIMUM_INTERVAL_SECONDS
     if signal is not None and signal.aborted:
         raise DeviceFlowCancelled(CANCEL_MESSAGE)
     remaining = seconds

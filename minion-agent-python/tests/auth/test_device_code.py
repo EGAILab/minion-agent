@@ -322,6 +322,46 @@ async def test_initial_interval_nan_does_not_throw_when_the_first_poll_completes
     assert poll.call_count == 1
 
 
+async def test_initial_interval_nan_used_for_a_pending_response_clamps_to_the_minimum() -> None:
+    """`L11-R014` (§11.8 convergence, second half): once a first `pending` response means the
+    initial interval is actually USED to schedule a sleep (not merely set up and discarded by an
+    immediate `complete`), a non-finite interval must not prevent progress to the next poll.
+    Matching Pi's own host timer (Node's `setTimeout` clamps an invalid/out-of-range delay to its
+    minimal schedulable value rather than hanging), a non-finite USED interval clamps to
+    `MINIMUM_INTERVAL_SECONDS` -- the exact sub-millisecond host-timer latency is deliberately not
+    made normative (this project's own §11.8 convergence agreement), only that progress happens,
+    deterministically, under the fake clock."""
+    poll = ScriptedPoll([DevicePollPending(), DevicePollComplete("token")])
+    clock = FakeClock()
+
+    result = await poll_device_code_flow(
+        poll, interval_seconds=float("nan"), sleep=clock.sleep, now=clock.now
+    )
+
+    assert result == "token"
+    assert poll.call_count == 2
+    assert clock.elapsed == pytest.approx(1.0)
+
+
+async def test_initial_interval_infinity_used_for_a_pending_response_clamps_to_the_minimum() -> (
+    None
+):
+    """`L11-R014` (§11.8 convergence, second half): the same clamp-to-minimum guarantee for
+    `Infinity` -- a prior revision let this loop forever slicing an ever-infinite remaining
+    duration, never reaching the second poll at all (the review's own exact discriminating
+    witness)."""
+    poll = ScriptedPoll([DevicePollPending(), DevicePollComplete("token")])
+    clock = FakeClock()
+
+    result = await poll_device_code_flow(
+        poll, interval_seconds=float("inf"), sleep=clock.sleep, now=clock.now
+    )
+
+    assert result == "token"
+    assert poll.call_count == 2
+    assert clock.elapsed == pytest.approx(1.0)
+
+
 async def test_abortable_sleep_raises_immediately_if_already_aborted() -> None:
     controller = RunAbortController()
     controller.abort()

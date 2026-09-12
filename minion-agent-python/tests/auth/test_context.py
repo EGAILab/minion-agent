@@ -6,6 +6,24 @@ from pathlib import Path
 from minion_agent.auth.context import DefaultAuthContext
 
 
+class _BlankPassthroughAuthContext:
+    """A conforming `AuthContext` that does NOT normalize a blank value to absent -- proving that
+    behavior is `DefaultAuthContext`'s own, not a protocol-level requirement (`L11-R003`)."""
+
+    async def env(self, name: str) -> str | None:
+        return ""
+
+    async def file_exists(self, path: str) -> bool:
+        return False
+
+
+async def test_a_custom_context_may_return_a_blank_value_unchanged() -> None:
+    """`L11-R003`: Pi's own `AuthContext` interface permits ANY implementation to resolve a
+    present-but-blank value as-is -- only `DefaultAuthContext` additionally normalizes it."""
+    ctx = _BlankPassthroughAuthContext()
+    assert await ctx.env("TOKEN") == ""
+
+
 async def test_env_returns_a_set_value() -> None:
     ctx = DefaultAuthContext()
     os.environ["MINION_AUTH_TEST_VAR"] = "value"

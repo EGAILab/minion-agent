@@ -11,6 +11,7 @@ cross-language proof rather than a runner-side reimplementation.
 from __future__ import annotations
 
 import asyncio
+import math
 import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
@@ -43,7 +44,11 @@ class DevicePollPending:
 @dataclass(frozen=True, slots=True)
 class DevicePollSlowDown:
     """RFC 8628 section 3.5: increase the polling interval before the next attempt.
-    `interval_seconds`, when the server provides one, is preferred over the fixed increment."""
+    `interval_seconds`, when the server provides one, is preferred over the fixed increment --
+    but only when it is finite and positive (`L11-R004`; Pi `device-code.ts`'s own
+    `Number.isFinite(result.intervalSeconds) && result.intervalSeconds > 0` guard). A non-finite
+    value (e.g. `float("inf")`) is treated exactly like an absent one: the fixed +5s increment
+    applies instead, never scheduling a non-finite or non-positive sleep."""
 
     interval_seconds: float | None = None
 
@@ -165,8 +170,13 @@ async def poll_device_code_flow[T](
             raise DeviceFlowFailed(result.message)
         if isinstance(result, DevicePollSlowDown):
             slow_down_responses += 1
-            if result.interval_seconds is not None and result.interval_seconds > 0:
-                interval = max(MINIMUM_INTERVAL_SECONDS, result.interval_seconds)
+            server_interval = result.interval_seconds
+            if (
+                server_interval is not None
+                and math.isfinite(server_interval)
+                and server_interval > 0
+            ):
+                interval = max(MINIMUM_INTERVAL_SECONDS, server_interval)
             else:
                 interval = max(MINIMUM_INTERVAL_SECONDS, interval + SLOW_DOWN_INCREMENT_SECONDS)
         # DevicePollPending (or a handled slow_down above): fall through to sleep-and-retry.

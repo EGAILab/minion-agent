@@ -23,12 +23,18 @@ import time
 from collections.abc import Awaitable, Callable
 
 from .credential import AuthOperationOptions, Credential, OAuthCredential
+from .signal import Abortable, CombinedSignal
 from .store import CredentialStore
 
 DEFAULT_MINIMUM_VALIDITY_MS = 5 * 60 * 1000.0
 """Pi's own default trigger window (`auth/resolve.ts::DEFAULT_OAUTH_MINIMUM_VALIDITY_MS`): a
 credential within five minutes of expiring triggers a refresh. This is a TRIGGER threshold, not an
 enforced contract -- see `minimum_validity_ms`'s own doc below for the difference."""
+
+DEFAULT_REFRESH_TIMEOUT_SECONDS = 15.0
+"""Pi's own fixed refresh budget (`auth/resolve.ts::DEFAULT_OAUTH_REFRESH_TIMEOUT_MS`, 15_000 ms):
+the signal passed to `refresh` aborts on its own after this many seconds even if the caller never
+cancels anything, so a hung refresh call cannot block a credential's own store lock forever."""
 
 
 class AuthorityError(Exception):
@@ -52,10 +58,12 @@ def _expires_soon(credential: OAuthCredential, minimum_validity_ms: float, now_m
 async def refresh_if_expiring(
     store: CredentialStore,
     provider_id: str,
-    refresh: Callable[[OAuthCredential], Awaitable[OAuthCredential]],
+    refresh: Callable[[OAuthCredential, Abortable], Awaitable[OAuthCredential]],
     *,
     minimum_validity_ms: float | None = None,
+    refresh_timeout_seconds: float = DEFAULT_REFRESH_TIMEOUT_SECONDS,
     now_ms: Callable[[], float] = lambda: time.time() * 1000,
+    timeout_now: Callable[[], float] = time.monotonic,
     options: AuthOperationOptions | None = None,
 ) -> OAuthCredential | None:
     """Return the current OAuth credential for `provider_id`, refreshing it FIRST if it is within
@@ -68,6 +76,18 @@ async def refresh_if_expiring(
     is enforced AFTER a refresh -- rejecting a refreshed credential that still does not meet this
     caller's own explicit requirement -- ONLY when the caller passed a value (`None` means "use
     the default trigger, do not enforce anything stronger afterward").
+
+    `refresh` receives the expiring credential AND a second, `Abortable` argument (`L11-R002`; Pi
+    `OAuthAuth.refresh(credential, signal)`, `auth/types.ts:222`) -- a `CombinedSignal` (`signal.
+    py`) that aborts when EITHER `options.signal` aborts OR `refresh_timeout_seconds` elapses
+    (Pi's own `AbortSignal.any([signal, AbortSignal.timeout(15_000)])`, `resolve.ts:149-153`), so a
+    hung refresh call cannot block this credential's own store lock forever even when the caller
+    never cancels anything. This module does not itself abort `refresh`'s own execution -- exactly
+    like Pi, it hands the callable a live signal to poll/honor cooperatively, the same contract
+    every other `Abortable`-consuming seam in this package already follows. `timeout_now` is the
+    injectable monotonic clock `CombinedSignal` measures its own budget against, defaulting to
+    `time.monotonic` -- separate from `now_ms`, which is the wall-clock-epoch-milliseconds clock
+    the EXPIRY trigger check above uses; the two are independent, unrelated clocks.
 
     Returns `None` when no OAuth credential is currently stored for `provider_id` (never stored,
     logged out, or replaced by a non-OAuth credential -- checked both before AND after refreshing,
@@ -94,8 +114,10 @@ async def refresh_if_expiring(
             return None  # Logged out (or replaced by a non-OAuth credential) meanwhile.
         if not _expires_soon(current, trigger_validity_ms, now_ms()):
             return None  # Another concurrent caller already refreshed it under this same lock.
+        caller_signal = options.signal if options is not None else None
+        combined_signal = CombinedSignal(caller_signal, refresh_timeout_seconds, now=timeout_now)
         try:
-            return await refresh(current)
+            return await refresh(current, combined_signal)
         except Exception as error:
             raise OAuthRefreshError(f"OAuth refresh failed for {provider_id!r}") from error
 

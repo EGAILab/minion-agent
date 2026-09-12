@@ -3754,20 +3754,34 @@ rows:
     `[key: string]: unknown` index signature) rather than a closed field set, since a provider-
     specific login flow (e.g. Codex''s own `accountId`, `PROV-011`) attaches fields alongside the
     three required ones without widening the closed core shape. `CredentialInfo` never carries a
-    secret field (`key`/`access`/`refresh`/`extra`). `AuthContext.env` treats a present-but-blank/
-    whitespace-only value as absent, matching Pi''s own `defaultProviderAuthContext` exactly, not
-    merely its default implementation''s incidental behavior.'
+    secret field (`key`/`access`/`refresh`/`extra`).
+
+    `AuthContext.env` (`L11-R003`, remediated): Pi''s own `AuthContext` INTERFACE (`types.ts:97-
+    100`) does NOT require blank-to-absent normalization -- only `defaultProviderAuthContext`, one
+    concrete implementation, does that. A revision of this row previously misstated the trim as a
+    protocol-level requirement; the protocol now correctly permits any conforming implementation to
+    resolve a present-but-blank value unchanged, and only the DEFAULT implementation normalizes it.
+
+    `Credential` value semantics (`L11-R006`, remediated, intentional divergence): Pi''s own
+    in-memory store holds mutable objects and exposes live references from `read`/`modify`; this
+    project instead makes `Credential` (and its own embedded `env`/`extra` mappings) a fully
+    immutable VALUE at every level, snapshotting any mapping passed to a constructor rather than
+    aliasing it. `modify()` remains the sole mutation authority either way; since a `Credential` is
+    fully immutable, "by reference" vs. "by value" is not an observable distinction.'
   tests:
   - test_api_key_credential_defaults_to_no_key_or_env
   - test_api_key_credential_carries_key_and_env
+  - test_api_key_credential_env_is_immutable_and_not_aliased_to_the_constructor_argument
   - test_oauth_credential_requires_access_refresh_expires
   - test_oauth_credential_extra_is_an_open_escape_hatch
+  - test_oauth_credential_extra_is_immutable_and_not_aliased_to_the_constructor_argument
   - test_credential_info_carries_no_secret_fields
   - test_model_auth_is_closed_to_api_key_headers_base_url
   - test_auth_result_carries_env_and_source
   - test_auth_check_reports_type_and_source_only
   - test_auth_operation_options_default_signal_is_none
-  - tests/auth/test_context.py (env present/absent/whitespace-blank; file_exists true/false/tilde-expansion)
+  - tests/auth/test_context.py (env present/absent/whitespace-blank; file_exists true/false/tilde-
+    expansion; a custom, non-normalizing AuthContext returning a blank value unchanged is conforming)
   python: src/minion_agent/auth/credential.py; src/minion_agent/auth/context.py
   rust: Phase 5 auth foundation (pending independent Rust contract review)
   disposition: adopted
@@ -3783,7 +3797,26 @@ rows:
     propagates (CASE 2). `read`/`list` are NOT serialized against `modify`/`delete` (CASE 4).
     `modify` on an absent credential sees `None` (CASE 5). Different provider ids never serialize
     against each other. The in-memory reference implementation proves IN-PROCESS serialization
-    ONLY -- it makes no claim of cross-process, filesystem, or distributed locking.'
+    ONLY -- it makes no claim of cross-process, filesystem, or distributed locking. One call''s own
+    failure never sours the FIFO chain for a later queued call for the same provider id.
+
+    `list()` ordering (`L11-R007`, remediated): pinned as a normative production rule, not merely
+    an incidental property of one language''s map/dict type -- `list()` enumerates providers in
+    INSERTION order of each provider''s own CURRENT entry; a provider deleted and later given a
+    fresh credential re-appears at the END of that order, not its original position.
+
+    Cancellation checkpoints (`L11-R001`, remediated): a prior revision checked the signal only
+    immediately before entering the store''s own lock and again after `fn` resolved, missing TWO
+    Pi checkpoints entirely. The corrected, complete set: (1) immediately, if already aborted;
+    (2) once a queued `modify`/`delete` call''s own turn begins -- after every EARLIER call for the
+    same provider id has settled -- and BEFORE its own `fn`/removal runs at all, so an abort
+    observed here means `fn`/removal never runs; (3) for `modify` only, again immediately after
+    `fn` resolves but before its result would commit, discarding a too-late result; and,
+    independently of all three, (4) the CALLER''S OWN WAIT races against the signal separately (Pi
+    `raceWithAbortSignal`) -- an abort observed while the caller is still waiting, even while `fn`
+    is already running past checkpoint 2, makes the caller''s own call raise promptly WITHOUT
+    stopping the underlying operation, which keeps running to its own natural conclusion (settling
+    checkpoint 3 on its own timetable).'
   tests:
   - test_case1_single_modify_transitions_from_initial_to_new_state
   - test_case2_modify_callback_failure_leaves_stored_credential_unchanged
@@ -3791,13 +3824,18 @@ rows:
   - test_case4_read_is_not_serialized_against_an_in_flight_modify
   - test_case5_modify_on_an_absent_credential_sees_none
   - test_case6_modify_returning_none_leaves_the_entry_unchanged_not_removed
+  - test_a_queued_modify_still_runs_after_an_earlier_queued_modify_raised
   - test_delete_is_the_dedicated_removal_primitive_not_modify
   - test_delete_serializes_against_modify_for_the_same_provider_id
   - test_different_provider_ids_do_not_serialize_against_each_other
-  - test_list_reports_every_provider_without_secrets
+  - test_list_reports_every_provider_without_secrets_in_insertion_order
+  - test_list_order_follows_the_current_entry_not_the_original_insertion
   - test_modify_raises_immediately_if_the_signal_is_already_aborted
   - test_modify_discards_its_result_if_the_signal_aborts_during_fn
   - test_read_and_list_raise_immediately_if_the_signal_is_already_aborted
+  - test_modify_queued_behind_another_never_runs_its_fn_once_aborted_while_still_queued
+  - test_delete_queued_behind_a_modify_never_runs_once_aborted_while_still_queued
+  - test_modify_wait_rejects_promptly_when_aborted_mid_callback_and_result_is_discarded
   python: src/minion_agent/auth/store.py
   rust: Phase 5 auth foundation (pending independent Rust contract review)
   disposition: adopted
@@ -3816,19 +3854,32 @@ rows:
     ONCE -- the second sees the already-refreshed credential and returns it without calling
     `refresh` again. Errors split the same way Pi''s own `ModelsError` code does: the injected
     `refresh` callable failing raises `OAuthRefreshError`; the store''s own read/modify mechanism
-    failing raises `CredentialStoreError`.'
+    failing raises `CredentialStoreError`.
+
+    Refresh signal/timeout (`L11-R002`, remediated): a prior revision called `refresh` with only
+    the expiring credential, omitting Pi''s own `OAuthAuth.refresh(credential, signal)` second
+    argument entirely. The corrected contract: `refresh` receives a live, `Abortable` second
+    argument composing the CALLER''s own cancellation with a fixed 15-second timeout budget (Pi
+    `AbortSignal.any([signal, AbortSignal.timeout(15_000)])`, `resolve.ts:149-153`) -- aborting on
+    its own after the budget elapses even if the caller never cancels anything, so a hung refresh
+    cannot hold this credential''s own store lock forever. This composition is an additive,
+    auth-owned seam (`auth/signal.py::Abortable`/`CombinedSignal`), not a change to certified Layer
+    09''s own poll-only `RunSignal`.'
   tests:
   - test_no_stored_credential_returns_none_without_calling_refresh
   - test_a_non_oauth_stored_credential_returns_none_without_calling_refresh
   - test_a_credential_with_ample_validity_is_returned_unrefreshed
   - test_a_credential_expiring_soon_is_refreshed_and_persisted
+  - test_refresh_receives_a_combined_signal_reflecting_caller_abort
+  - test_refresh_signal_aborts_on_its_own_after_the_timeout_budget_elapses
   - test_refresh_failure_raises_oauth_refresh_error_and_leaves_credential_unchanged
   - test_a_store_modify_failure_unrelated_to_refresh_raises_credential_store_error
   - test_a_store_read_failure_raises_credential_store_error
   - test_two_concurrent_expiring_callers_refresh_exactly_once
   - test_logged_out_meanwhile_returns_none
   - test_explicit_minimum_validity_override_rejects_a_too_short_refresh
-  python: src/minion_agent/auth/refresh.py
+  - tests/auth/test_signal.py (5 tests -- CombinedSignal budget/caller-signal composition)
+  python: src/minion_agent/auth/refresh.py; src/minion_agent/auth/signal.py
   rust: Phase 5 auth foundation (pending independent Rust contract review)
   disposition: adopted
 - id: PROV-009
@@ -3858,19 +3909,24 @@ rows:
   rule: '`poll` is the only transport seam; this module owns every interval/backoff/deadline/
     cancellation decision. A pending response retries at the current interval. A `slow_down`
     response prefers a server-provided interval outright over RFC 8628 section 3.5''s own fixed
-    +5s increment when the server supplies one. A terminal `DevicePollFailed` stops immediately --
-    not retryable. Expiry with no `slow_down` ever observed raises the plain timeout message;
-    expiry after at least one `slow_down` raises the more specific clock-drift-actionable message
-    (Pi''s own two-message split). Abort is observed before the first poll and at
-    `abortable_sleep`''s own short polling-step boundaries between attempts, never racing an
-    in-flight `poll()` call itself (an aborted signal during `poll()` is only observed at the next
-    loop-top check, matching Pi exactly). `abortable_sleep` slices a long sleep into short steps to
-    check the poll-based `RunSignal` (Layer 09) promptly, a disclosed, immaterial divergence from
-    Pi''s own instant-interrupt `AbortSignal`, not a Layer-09 redesign.'
+    +5s increment ONLY when that interval is FINITE and positive (`L11-R004`, remediated -- a
+    prior revision accepted any value greater than zero, including a non-finite one like positive
+    infinity, which Pi''s own `Number.isFinite(...) && ... > 0` guard explicitly excludes; a
+    non-finite/non-positive value now falls back to the fixed increment exactly like an absent
+    one). A terminal `DevicePollFailed` stops immediately -- not retryable. Expiry with no
+    `slow_down` ever observed raises the plain timeout message; expiry after at least one
+    `slow_down` raises the more specific clock-drift-actionable message (Pi''s own two-message
+    split). Abort is observed before the first poll and at `abortable_sleep`''s own short
+    polling-step boundaries between attempts, never racing an in-flight `poll()` call itself (an
+    aborted signal during `poll()` is only observed at the next loop-top check, matching Pi
+    exactly). `abortable_sleep` slices a long sleep into short steps to check the poll-based
+    `RunSignal` (Layer 09) promptly, a disclosed, immaterial divergence from Pi''s own
+    instant-interrupt `AbortSignal`, not a Layer-09 redesign.'
   tests:
-  - tests/auth/test_device_code.py (19 tests -- immediate success, pending/slow_down combinations,
-    terminal failure, expiry with/without slow_down, abort before/during sleep/during an in-flight
-    poll, wait_before_first_poll, interval clamping/defaulting, abortable_sleep direct tests)
+  - tests/auth/test_device_code.py (20 tests -- immediate success, pending/slow_down combinations
+    including a non-finite server interval falling back to the fixed increment, terminal failure,
+    expiry with/without slow_down, abort before/during sleep/during an in-flight poll,
+    wait_before_first_poll, interval clamping/defaulting, abortable_sleep direct tests)
   - auth-device-code-immediate-success
   - auth-device-code-pending-then-slow-down-then-success
   - auth-device-code-slow-down-prefers-server-interval
@@ -3924,6 +3980,33 @@ rows:
     accommodates, not an error condition) -- and must do so with no real live OAuth request in the
     committed test suite (per this project''s own security constraint against live secrets/network
     calls in tests).'
+  tests:
+  - future Layer 11 conformance evidence (none yet -- this row is deferred parity, not adopted; no
+    fabricated evidence is cited for behavior not yet implemented)
+  python: 'NOT YET IMPLEMENTED -- deferred to a future Layer 11 pass, see closure criterion above'
+  rust: 'NOT YET IMPLEMENTED -- deferred to a future Layer 11 pass'
+  disposition: deferred parity
+- id: PROV-013
+  phase: 5
+  pi: 'packages/ai/src/auth/types.ts::AuthPrompt/AuthInfoLink/AuthEvent/AuthInteraction/
+    ProviderAuthInteraction/ApiKeyAuth/OAuthAuth/ProviderAuth; auth/resolve.ts::resolveProviderAuth;
+    models.ts::Models.checkAuth/getAuth/login/logout'
+  surface: Layer 11 -- generic auth/provider orchestration surface (login interactions, per-provider
+    auth-method vocabulary, top-level resolve/check/login/logout orchestration)
+  rule: 'New row (`L11-R005`, independent Rust contract review): this pinned-Pi public auth surface
+    was discovered during Pass-1 review but had NO Layer-11 slice/manifest disposition at all --
+    not a demand to implement it in Pass 1 (interactive login flows, provider-method registration,
+    and top-level auth orchestration have no generic-seam content of their own until a concrete
+    provider exists to exercise them), but a requirement not to silently lose track of it, since two
+    independent future implementers could otherwise reasonably make incompatible choices about
+    whether this vocabulary is even reserved.
+
+    Closure criterion (binding on whichever future pass closes this row): a future Layer-11 pass
+    integrating a real provider''s own login flow (Codex OAuth network integration, slice 11B, or a
+    later provider) must audit this exact Pi vocabulary and either adopt it directly or document a
+    deliberate, disclosed divergence -- it must not invent an unrelated ad hoc login/prompt shape
+    without first comparing it against Pi''s own `AuthPrompt`/`AuthEvent`/`AuthInteraction`
+    vocabulary and `Models`'' own `checkAuth`/`getAuth`/`login`/`logout` orchestration shape.'
   tests:
   - future Layer 11 conformance evidence (none yet -- this row is deferred parity, not adopted; no
     fabricated evidence is cited for behavior not yet implemented)

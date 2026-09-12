@@ -6,6 +6,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass, field
+from types import MappingProxyType
 from typing import Literal, Protocol
 
 from ..runtime.signal import RunSignal
@@ -20,11 +21,25 @@ AuthType = Literal["api_key", "oauth"]
 class ApiKeyCredential:
     """Stored api-key credential (Pi `ApiKeyCredential`, `auth/types.ts:17-21`). `env` carries
     provider-scoped environment/config values (e.g. Cloudflare account/gateway ids) -- not
-    request-time headers, which live on `ModelAuth` once auth has been resolved."""
+    request-time headers, which live on `ModelAuth` once auth has been resolved.
+
+    `env`, if given, is snapshotted into an immutable mapping in `__post_init__` (`L11-R006`):
+    Pi's own in-memory store holds mutable objects and returns live references from `read`/
+    `modify`, observably exposing later external mutation; Python instead makes every `Credential`
+    a fully immutable VALUE, an intentional architectural hardening, not a literal port. `modify()`
+    remains the sole supported mutation authority either way -- this only forecloses a SEPARATE,
+    Pi-does-not-even-intend path (mutating a field on an object a `read()`/`modify()` call handed
+    back). Since a `Credential` is fully immutable, "returned by reference" vs "returned by value"
+    is unobservable, which is what actually resolves `L11-R006`, not the choice of container type
+    itself."""
 
     key: str | None = None
     env: Mapping[str, str] | None = None
     type: Literal["api_key"] = "api_key"
+
+    def __post_init__(self) -> None:
+        if self.env is not None:
+            object.__setattr__(self, "env", MappingProxyType(dict(self.env)))
 
 
 @dataclass(frozen=True, slots=True)
@@ -41,6 +56,9 @@ class OAuthCredential:
     own `accountId`, extracted from the access token's JWT payload (`PROV-011`, deferred in this
     pass). `extra` is empty until a provider-specific flow populates it; this row does not invent
     a closed shape Pi itself leaves open.
+
+    `extra` is snapshotted into an immutable mapping in `__post_init__`, for the exact same
+    value-semantics reason `ApiKeyCredential.env` is (`L11-R006`, see its own docstring).
     """
 
     access: str
@@ -48,6 +66,9 @@ class OAuthCredential:
     expires: float
     extra: Mapping[str, JsonValue] = field(default_factory=dict)
     type: Literal["oauth"] = "oauth"
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "extra", MappingProxyType(dict(self.extra)))
 
 
 Credential = ApiKeyCredential | OAuthCredential
@@ -111,11 +132,18 @@ class AuthContext(Protocol):
     """Environment access for auth resolution, injectable for tests (Pi `AuthContext`,
     `auth/types.ts:97-101`).
 
-    `env(name)` returns the named environment value, or `None` if absent OR present-but-blank --
-    Pi's own `defaultProviderAuthContext` treats whitespace-only values as absent
-    (`auth/context.ts:25-28`), and this protocol's own contract preserves that, not merely its
-    default implementation. `file_exists(path)` reports whether `path` exists, with a leading `~`
-    expanded to the user's home directory (`auth/context.ts:30-43`).
+    `env(name)` returns the named environment value, or `None` if genuinely absent. Pi's own
+    interface (`types.ts:97-100`) permits ANY implementation to resolve a present-but-blank value
+    (e.g. `""`) unchanged -- blank-to-absent normalization is NOT part of this protocol's own
+    contract (`L11-R003`: an earlier revision of this docstring incorrectly claimed it was). Only
+    `DefaultAuthContext` (this module's own default implementation, matching Pi's own
+    `defaultProviderAuthContext`, `auth/context.ts:25-28`) treats a whitespace-only value as
+    absent -- a property of THAT implementation, not a requirement every `AuthContext` must
+    satisfy. A caller-supplied test context is free to return `""` for a name it considers
+    "present but empty," and that is conforming, not a bug. `file_exists(path)` reports whether
+    `path` exists, with a leading `~` expanded to the user's home directory (`auth/context.ts:
+    30-43`) -- also specific to `DefaultAuthContext`'s own concrete filesystem behavior, not a
+    protocol-level guarantee.
     """
 
     async def env(self, name: str) -> str | None: ...

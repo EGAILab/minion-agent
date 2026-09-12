@@ -1,5 +1,7 @@
 """Structural-shape tests for the auth vocabulary (`PROV-006`)."""
 
+import pytest
+
 from minion_agent.auth.credential import (
     ApiKeyCredential,
     AuthCheck,
@@ -28,6 +30,35 @@ def test_oauth_credential_requires_access_refresh_expires() -> None:
     credential = OAuthCredential(access="a", refresh="r", expires=1234.0)
     assert credential.type == "oauth"
     assert credential.extra == {}
+
+
+def test_api_key_credential_env_is_immutable_and_not_aliased_to_the_constructor_argument() -> None:
+    """`L11-R006`: Pi's own in-memory store holds mutable objects and exposes live references from
+    `read`/`modify`; this project makes `Credential` a fully immutable VALUE instead (intentional
+    divergence) -- a plain dict passed to the constructor must be snapshotted, not aliased, and the
+    stored mapping itself must reject item assignment."""
+    original = {"CF_ACCOUNT_ID": "abc"}
+    credential = ApiKeyCredential(key="sk-test", env=original)
+
+    original["CF_ACCOUNT_ID"] = "mutated-after-construction"
+
+    assert credential.env is not None
+    assert credential.env["CF_ACCOUNT_ID"] == "abc"
+    with pytest.raises(TypeError):
+        credential.env["CF_ACCOUNT_ID"] = "z"  # type: ignore[index]
+
+
+def test_oauth_credential_extra_is_immutable_and_not_aliased_to_the_constructor_argument() -> None:
+    """`L11-R006`, `OAuthCredential`'s own `extra` field -- same value-semantics guarantee as
+    `ApiKeyCredential.env` above."""
+    original = {"accountId": "acc_1"}
+    credential = OAuthCredential(access="a", refresh="r", expires=1234.0, extra=original)
+
+    original["accountId"] = "mutated-after-construction"
+
+    assert credential.extra["accountId"] == "acc_1"
+    with pytest.raises(TypeError):
+        credential.extra["accountId"] = "z"  # type: ignore[index]
 
 
 def test_oauth_credential_extra_is_an_open_escape_hatch() -> None:

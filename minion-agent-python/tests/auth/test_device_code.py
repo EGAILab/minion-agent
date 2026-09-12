@@ -96,6 +96,24 @@ async def test_slow_down_without_a_server_interval_increments_by_five_seconds() 
     assert clock.elapsed == pytest.approx(10.0)  # 5 + SLOW_DOWN_INCREMENT_SECONDS (5)
 
 
+async def test_slow_down_with_a_non_finite_server_interval_falls_back_to_the_fixed_increment() -> (
+    None
+):
+    """`L11-R004`: Pi's own guard requires the server-provided interval to be finite AND
+    positive (`Number.isFinite(...) && ... > 0`) before trusting it -- an infinite value must be
+    treated exactly like an absent one (the fixed +5s increment), never scheduled as a real sleep
+    duration."""
+    poll = ScriptedPoll(
+        [DevicePollSlowDown(interval_seconds=float("inf")), DevicePollComplete("token")]
+    )
+    clock = FakeClock()
+
+    result = await poll_device_code_flow(poll, interval_seconds=2, sleep=clock.sleep, now=clock.now)
+
+    assert result == "token"
+    assert clock.elapsed == pytest.approx(7.0)  # 2 + SLOW_DOWN_INCREMENT_SECONDS (5), not inf
+
+
 async def test_pending_then_slow_down_then_success() -> None:
     poll = ScriptedPoll([DevicePollPending(), DevicePollSlowDown(), DevicePollComplete("token")])
     clock = FakeClock()

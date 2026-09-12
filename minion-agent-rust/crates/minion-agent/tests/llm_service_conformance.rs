@@ -278,14 +278,18 @@ async fn run_scenario(scenario: &Scenario) -> Result<Value, String> {
 
     for query in &scenario.llm_service.queries {
         if query.introspect.as_deref() == Some("models") {
+            let mut models = service.models();
+            models.sort_by(|left, right| {
+                (left.provider(), left.model_id(), left.api()).cmp(&(
+                    right.provider(),
+                    right.model_id(),
+                    right.api(),
+                ))
+            });
             actual.insert(
                 query.id.clone(),
                 json!({
-                    "models": service
-                        .models()
-                        .iter()
-                        .map(canonical_identity)
-                        .collect::<Vec<_>>()
+                    "models": models.iter().map(canonical_identity).collect::<Vec<_>>()
                 }),
             );
         } else if let Some(identity) = &query.resolve {
@@ -338,7 +342,7 @@ fn all_layer_10_scenarios_drive_the_real_rust_llm_service() {
             })
             .collect::<Vec<_>>();
         scenarios.sort();
-        assert_eq!(scenarios.len(), 7);
+        assert_eq!(scenarios.len(), 8);
 
         for path in scenarios {
             let scenario: Scenario =

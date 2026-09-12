@@ -1,0 +1,19 @@
+name: auth-device-code-expiry-without-slow-down
+family: agent
+authority: 2026-08-20-minion-agent-design.md
+pi_revision: b7bb00b936dbe21b8e160b3e89efdec361846699
+notes: >
+  With interval_seconds=5 and expires_in_seconds=12, three pending polls (elapsed 0, 5, 10)
+  cross the deadline at elapsed=12 without ever seeing a slow_down response -- the plain
+  timeout message applies, not the clock-drift variant. poll_count pins the exact number of
+  poll() attempts this deterministic schedule consumes before the deadline is reached.
+auth_device_code:
+  interval_seconds: 5
+  expires_in_seconds: 12
+  poll_sequence:
+    - pending: true
+    - pending: true
+    - pending: true
+expect:
+  poll_count: 3
+  error: { type: timed_out, message_contains: "Device flow timed out" }

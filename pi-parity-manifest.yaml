@@ -3743,6 +3743,193 @@ rows:
   python: 'target: openai_completions adapter'
   rust: Phase 5 openai-completions
   disposition: adopted
+- id: PROV-006
+  phase: 5
+  pi: 'packages/ai/src/auth/types.ts::ApiKeyCredential/OAuthCredential/Credential/CredentialInfo/
+    ModelAuth/AuthResult/AuthCheck/AuthOperationOptions/AuthContext; auth/context.ts::defaultProviderAuthContext'
+  surface: Layer 11 Pass 1 -- auth vocabulary and auth-context seam
+  rule: 'Credential representation, ownership, resolution, mutation authority, and provider-facing
+    auth projection are kept as distinct, explicitly-typed concepts, not mechanically reproduced
+    TypeScript mechanics. `OAuthCredential.extra` stays an OPEN escape hatch (mirroring Pi''s own
+    `[key: string]: unknown` index signature) rather than a closed field set, since a provider-
+    specific login flow (e.g. Codex''s own `accountId`, `PROV-011`) attaches fields alongside the
+    three required ones without widening the closed core shape. `CredentialInfo` never carries a
+    secret field (`key`/`access`/`refresh`/`extra`). `AuthContext.env` treats a present-but-blank/
+    whitespace-only value as absent, matching Pi''s own `defaultProviderAuthContext` exactly, not
+    merely its default implementation''s incidental behavior.'
+  tests:
+  - test_api_key_credential_defaults_to_no_key_or_env
+  - test_api_key_credential_carries_key_and_env
+  - test_oauth_credential_requires_access_refresh_expires
+  - test_oauth_credential_extra_is_an_open_escape_hatch
+  - test_credential_info_carries_no_secret_fields
+  - test_model_auth_is_closed_to_api_key_headers_base_url
+  - test_auth_result_carries_env_and_source
+  - test_auth_check_reports_type_and_source_only
+  - test_auth_operation_options_default_signal_is_none
+  - tests/auth/test_context.py (env present/absent/whitespace-blank; file_exists true/false/tilde-expansion)
+  python: src/minion_agent/auth/credential.py; src/minion_agent/auth/context.py
+  rust: Phase 5 auth foundation (pending independent Rust contract review)
+  disposition: adopted
+- id: PROV-007
+  phase: 5
+  pi: packages/ai/src/auth/types.ts::CredentialStore; auth/credential-store.ts::InMemoryCredentialStore
+  surface: Layer 11 Pass 1 -- CredentialStore serialized read-modify-write semantics
+  rule: '`modify(provider_id, fn)` is the ONLY write path; two concurrent `modify()` calls for the
+    SAME provider id never run their own `fn` concurrently -- the second call''s own `fn` sees
+    whatever the first call''s own `fn` committed (CASE 3). `fn` returning `None` leaves the entry
+    UNCHANGED, which is NOT the same as deletion -- `delete()` is the separate, dedicated removal
+    primitive (CASE 6). A raising `fn` leaves the stored credential untouched and its own exception
+    propagates (CASE 2). `read`/`list` are NOT serialized against `modify`/`delete` (CASE 4).
+    `modify` on an absent credential sees `None` (CASE 5). Different provider ids never serialize
+    against each other. The in-memory reference implementation proves IN-PROCESS serialization
+    ONLY -- it makes no claim of cross-process, filesystem, or distributed locking.'
+  tests:
+  - test_case1_single_modify_transitions_from_initial_to_new_state
+  - test_case2_modify_callback_failure_leaves_stored_credential_unchanged
+  - test_case3_two_concurrent_modify_calls_serialize_and_see_committed_state
+  - test_case4_read_is_not_serialized_against_an_in_flight_modify
+  - test_case5_modify_on_an_absent_credential_sees_none
+  - test_case6_modify_returning_none_leaves_the_entry_unchanged_not_removed
+  - test_delete_is_the_dedicated_removal_primitive_not_modify
+  - test_delete_serializes_against_modify_for_the_same_provider_id
+  - test_different_provider_ids_do_not_serialize_against_each_other
+  - test_list_reports_every_provider_without_secrets
+  - test_modify_raises_immediately_if_the_signal_is_already_aborted
+  - test_modify_discards_its_result_if_the_signal_aborts_during_fn
+  - test_read_and_list_raise_immediately_if_the_signal_is_already_aborted
+  python: src/minion_agent/auth/store.py
+  rust: Phase 5 auth foundation (pending independent Rust contract review)
+  disposition: adopted
+- id: PROV-008
+  phase: 5
+  pi: 'packages/ai/src/auth/resolve.ts::resolveStoredOAuth:122-179 (double-checked-locking refresh);
+    resolveProviderAuth:44-49 (stored-credential-owns-the-provider ownership comment)'
+  surface: Layer 11 Pass 1 -- credential ownership / refresh mutation authority
+  rule: 'A stored credential owns the provider: Minion may refresh/mutate it only through the
+    store''s own serialized `modify()`, never by independently reading/rewriting a token from some
+    other source outside this seam (no silent env/external fallback after a failed refresh). A
+    refresh triggers only when a credential is within the trigger window of expiring (default five
+    minutes, matching Pi''s own `DEFAULT_OAUTH_MINIMUM_VALIDITY_MS`); the actual `refresh` callable
+    runs INSIDE `modify()`''s own callback, re-checking expiry under the lock, so two concurrent
+    callers that both observed "expiring soon" via the optimistic outside-lock read refresh EXACTLY
+    ONCE -- the second sees the already-refreshed credential and returns it without calling
+    `refresh` again. Errors split the same way Pi''s own `ModelsError` code does: the injected
+    `refresh` callable failing raises `OAuthRefreshError`; the store''s own read/modify mechanism
+    failing raises `CredentialStoreError`.'
+  tests:
+  - test_no_stored_credential_returns_none_without_calling_refresh
+  - test_a_non_oauth_stored_credential_returns_none_without_calling_refresh
+  - test_a_credential_with_ample_validity_is_returned_unrefreshed
+  - test_a_credential_expiring_soon_is_refreshed_and_persisted
+  - test_refresh_failure_raises_oauth_refresh_error_and_leaves_credential_unchanged
+  - test_a_store_modify_failure_unrelated_to_refresh_raises_credential_store_error
+  - test_a_store_read_failure_raises_credential_store_error
+  - test_two_concurrent_expiring_callers_refresh_exactly_once
+  - test_logged_out_meanwhile_returns_none
+  - test_explicit_minimum_validity_override_rejects_a_too_short_refresh
+  python: src/minion_agent/auth/refresh.py
+  rust: Phase 5 auth foundation (pending independent Rust contract review)
+  disposition: adopted
+- id: PROV-009
+  phase: 5
+  pi: packages/ai/src/auth/oauth/pkce.ts::generatePKCE
+  surface: Layer 11 Pass 1 -- generic PKCE (RFC 7636) verifier/challenge
+  rule: 'The verifier is `VERIFIER_ENTROPY_BYTES` (32) bytes of entropy, base64url-encoded without
+    padding -- exactly RFC 7636 section 4.1''s own MINIMUM allowed length (43 characters), not an
+    arbitrary choice. The challenge is `BASE64URL(SHA256(verifier))`, deterministic given the same
+    verifier, independently confirmed against RFC 7636 Appendix B''s own worked vector before being
+    pinned as a permanent regression witness. No real OAuth request is performed by this row.'
+  tests:
+  - test_derive_pkce_challenge_matches_the_rfc7636_known_vector
+  - test_derive_pkce_challenge_is_deterministic
+  - test_derive_pkce_challenge_differs_for_different_verifiers
+  - test_generate_pkce_produces_a_matching_verifier_and_challenge
+  - test_generate_pkce_produces_two_different_verifiers_across_calls
+  - test_generate_pkce_verifier_meets_rfc7636_length_and_charset_constraints
+  - test_generate_pkce_challenge_is_base64url_without_padding
+  python: src/minion_agent/auth/pkce.py
+  rust: Phase 5 auth foundation (pending independent Rust contract review)
+  disposition: adopted
+- id: PROV-010
+  phase: 5
+  pi: packages/ai/src/auth/oauth/device-code.ts::pollOAuthDeviceCodeFlow/abortableSleep
+  surface: Layer 11 Pass 1 -- generic RFC 8628 device-authorization poll state machine
+  rule: '`poll` is the only transport seam; this module owns every interval/backoff/deadline/
+    cancellation decision. A pending response retries at the current interval. A `slow_down`
+    response prefers a server-provided interval outright over RFC 8628 section 3.5''s own fixed
+    +5s increment when the server supplies one. A terminal `DevicePollFailed` stops immediately --
+    not retryable. Expiry with no `slow_down` ever observed raises the plain timeout message;
+    expiry after at least one `slow_down` raises the more specific clock-drift-actionable message
+    (Pi''s own two-message split). Abort is observed before the first poll and at
+    `abortable_sleep`''s own short polling-step boundaries between attempts, never racing an
+    in-flight `poll()` call itself (an aborted signal during `poll()` is only observed at the next
+    loop-top check, matching Pi exactly). `abortable_sleep` slices a long sleep into short steps to
+    check the poll-based `RunSignal` (Layer 09) promptly, a disclosed, immaterial divergence from
+    Pi''s own instant-interrupt `AbortSignal`, not a Layer-09 redesign.'
+  tests:
+  - tests/auth/test_device_code.py (19 tests -- immediate success, pending/slow_down combinations,
+    terminal failure, expiry with/without slow_down, abort before/during sleep/during an in-flight
+    poll, wait_before_first_poll, interval clamping/defaulting, abortable_sleep direct tests)
+  - auth-device-code-immediate-success
+  - auth-device-code-pending-then-slow-down-then-success
+  - auth-device-code-slow-down-prefers-server-interval
+  - auth-device-code-terminal-failure-stops-immediately
+  - auth-device-code-expiry-without-slow-down
+  - auth-device-code-expiry-after-slow-down-reports-clock-drift
+  python: src/minion_agent/auth/device_code.py
+  rust: Phase 5 auth foundation (pending independent Rust contract review)
+  disposition: adopted
+- id: PROV-011
+  phase: 5
+  pi: 'packages/ai/src/auth/oauth/openai-codex.ts (JWT payload decode for `chatgpt_account_id`;
+    OAuth access token -> bearer/provider-facing `ModelAuth` projection)'
+  surface: Layer 11 -- Codex OAuth account-id projection (pure, non-network semantics)
+  rule: 'Deferred parity, not adopted: characterized now so this pure (non-network) Codex-specific
+    behavior is not silently lost while browser/device network integration is deferred, but not
+    implemented in Pass 1. JWT `chatgpt_account_id` extraction is UNVERIFIED claim extraction only
+    (decoding the payload, never cryptographic signature validation); the extracted account id
+    rides on `OAuthCredential.extra` (`PROV-006`), not a separate wrapper type. An OAuth access
+    token projects to a bearer-style `ModelAuth` (`PROV-006`) for provider-facing requests.
+
+    Closure criterion (binding on whichever future pass closes this row): a future Layer-11 pass
+    implementing the codex-responses adapter''s own auth resolution (Pass 2 or later, once a real
+    Codex OAuth credential first needs to produce provider-facing auth) must implement this exact
+    projection, with synthetic (never real-account) JWT-like fixtures proving the decode is
+    non-cryptographic, per this project''s own security constraint against live secrets in tests.'
+  tests:
+  - future Layer 11 conformance evidence (none yet -- this row is deferred parity, not adopted; no
+    fabricated evidence is cited for behavior not yet implemented)
+  python: 'NOT YET IMPLEMENTED -- deferred to a future Layer 11 pass, see closure criterion above'
+  rust: 'NOT YET IMPLEMENTED -- deferred to a future Layer 11 pass'
+  disposition: deferred parity
+- id: PROV-012
+  phase: 5
+  pi: 'packages/ai/src/auth/oauth/openai-codex.ts (browser callback state validation; the
+    bare-pasted-code state-validation exception/quirk; the browser/PKCE callback flow; device-code
+    Codex endpoint integration)'
+  surface: Layer 11 -- Codex browser callback / device-code endpoint integration
+  rule: 'Deferred parity, not adopted: characterized now, not implemented in Pass 1 -- explicitly
+    OUT OF SCOPE per Pass 1''s own network exclusions (no real auth.openai.com HTTP requests, no
+    local callback HTTP server on :1455, no browser launching, no live device-code HTTP calls).
+    Pass 1 builds only the GENERIC, provider-neutral PKCE (`PROV-009`) and device-code poll state
+    machine (`PROV-010`) this row''s own future implementation will consume as its transport-
+    injected seam; it does not itself perform Codex''s specific browser/device endpoint calls or
+    state-validation rules.
+
+    Closure criterion (binding on whichever future pass closes this row): a future Layer-11 pass
+    integrating real Codex browser/device network transport must audit and preserve Pi''s own exact
+    state-validation behavior, INCLUDING the documented bare-pasted-code exception (a user pasting
+    a bare authorization code, rather than a full callback URL, is a recognized quirk Pi''s own flow
+    accommodates, not an error condition) -- and must do so with no real live OAuth request in the
+    committed test suite (per this project''s own security constraint against live secrets/network
+    calls in tests).'
+  tests:
+  - future Layer 11 conformance evidence (none yet -- this row is deferred parity, not adopted; no
+    fabricated evidence is cited for behavior not yet implemented)
+  python: 'NOT YET IMPLEMENTED -- deferred to a future Layer 11 pass, see closure criterion above'
+  rust: 'NOT YET IMPLEMENTED -- deferred to a future Layer 11 pass'
+  disposition: deferred parity
 - id: MINION-001
   phase: 1
   pi: N/A — Minion plugin architecture

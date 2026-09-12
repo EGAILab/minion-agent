@@ -11,7 +11,10 @@ from pathlib import Path
 import minion_agent
 
 FORBIDDEN = {
-    "runtime": ("llm", "session", "telemetry", "agent", "agent_loop", "tools"),
+    "runtime": ("llm", "session", "telemetry", "agent", "agent_loop", "tools", "auth"),
+    # Auth sits alongside runtime, below the LLM vocabulary: a real provider adapter (Layer 11)
+    # resolves credentials through it, but auth itself knows nothing about messages/streams.
+    "auth": ("llm", "session", "telemetry", "agent", "agent_loop", "tools"),
     "llm": ("session", "agent", "agent_loop", "tools"),
     "session": ("agent", "agent_loop", "tools"),
     "telemetry": ("session", "agent", "agent_loop", "tools"),

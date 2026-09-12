@@ -713,6 +713,18 @@ rows:
     dynamic model overlays, credential-scoped filtering -- this project does not need yet, since
     Minion has no config-driven provider catalog of its own.
 
+    `models()`''s own return order is explicitly NOT part of the observable contract -- any
+    implementation may return identities in any order. The CANONICAL EVIDENCE FORMAT requires ONE
+    specific canonicalization, for tooling reasons only: a conformance runner''s own `introspect:
+    models` observation, in ANY language, MUST be reported sorted by `(provider, model, api)`
+    before comparing against `expect.models` (`L10-C001`, an independent Rust closure review''s own
+    finding: a prior Rust conformance runner instead trusted `LlmService::models()``''s own raw
+    return order directly, which happened to be sorted by the DIFFERENT key `(provider, api,
+    model)` -- undetected by any of the first seven canonical scenarios, none of which registered
+    more than one identity whose own `api`/`model` values cross under the two keys; the new
+    `llm-service-introspection-order-does-not-depend-on-api-first-sort.yaml` scenario is the
+    permanent discriminating witness for this rule).
+
     Rust status, corrected (`L10-R002`, an earlier revision of the since-split `AI-029` falsely
     claimed this surface needed no new Rust requirement): current
     `minion-agent-rust/crates/minion-agent/src/llm/service.rs::LlmService::register` takes ONE
@@ -734,6 +746,7 @@ rows:
   - test_service.py::test_withdrawing_twice_is_harmless (already certified under LLM-018 -- idempotent repeat-withdrawal of the same handle)
   - test_service.py::test_registering_the_same_adapter_object_twice_gives_each_call_its_own_ownership (new, `C10-C005` -- per-registration-call ownership, direct Python unit witness; RED-confirmed against the exact PASS-2 `llm/service.py` before this fix)
   - 'llm-service-same-fixture-two-handles.yaml (new, Layer 10 -- `C10-C005`''s own canonical-DSL witness: one adapter fixture registered under two handles, withdrawing the first must not remove the second)'
+  - 'llm-service-introspection-order-does-not-depend-on-api-first-sort.yaml (new, Layer 10 -- `L10-C001`''s own discriminating witness: two identities whose api/model values cross under (provider, model, api) versus (provider, api, model) sort keys; only the required key reproduces the expected order)'
   python: src/minion_agent/llm/service.py::LlmService.register (withdrawal handle scoped by per-call token, not adapter-object identity), LlmService.models
   rust: 'PARTIAL (L10-R002, open) -- minion-agent-rust/crates/minion-agent/src/llm/service.rs::LlmService::register replaces-in-place (satisfied) but has no withdrawal handle, no stale-withdrawal protection, and no models() introspection (open, disclosed gaps -- a future Rust implementation pass'' own decision, not certified here)'
   disposition: intentional divergence

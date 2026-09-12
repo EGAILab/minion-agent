@@ -10,8 +10,10 @@ deliberately not canonical scenarios themselves; they exercise the runner module
 hand-built, schema-independent documents.
 
 Two cases the runner deliberately does NOT reject, also proven here: withdrawing an
-already-withdrawn handle (idempotent, `AI-030`) and a declared observation id `expect` never
-names (a legitimate "setup-only" action).
+already-withdrawn handle (idempotent, `AI-030`) and a `steps[].stream` observation id `expect`
+never names (a legitimate "setup-only" stream action). A `queries[].id` `expect` never names IS
+rejected (`L10-C002`) -- unlike a stream action, a query exists only to be observed, so one
+nothing ever asserts on is almost certainly a scenario-authoring mistake.
 """
 
 from typing import Any
@@ -190,3 +192,16 @@ async def test_a_declared_observation_id_expect_never_names_is_not_rejected() ->
     observed = await run_llm_service_scenario(document)
     assert "setup_only" in observed
     assert observed["q"] == {"models": [{"provider": "mock", "model": "alpha", "api": "mock"}]}
+
+
+async def test_an_unasserted_query_is_rejected() -> None:
+    """`L10-C002`: unlike a setup-only stream action, a query exists only to be observed -- one
+    `expect` never names is rejected, not silently permitted."""
+    document = _document(
+        adapters=[_adapter("a")],
+        steps=[{"register": {"adapter": "a", "as": "h"}}],
+        queries=[{"id": "unchecked", "introspect": "models"}],
+        expect={},
+    )
+    with pytest.raises(ValueError, match="unchecked"):
+        await run_llm_service_scenario(document)

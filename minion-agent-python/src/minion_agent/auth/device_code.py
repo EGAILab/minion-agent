@@ -41,7 +41,21 @@ def _floor_to_whole_milliseconds(seconds: float) -> float:
     (`L11-R012`; Pi `Math.floor(seconds * 1000)`, both for the caller's own initial interval and a
     finite/positive server-provided `slow_down` interval) -- a fractional-second interval (e.g.
     `1.2349`) must schedule exactly `1.234`, not the raw fractional value. This module's own public
-    API stays seconds-based; this helper is the one place the millisecond floor is applied."""
+    API stays seconds-based; this helper is the one place the millisecond floor is applied.
+
+    Non-finite input passes through UNCHANGED (`L11-R014`): pinned Pi's own INITIAL interval option
+    (unlike the `slow_down` server value, `PROV-004`) carries no `Number.isFinite` guard at all, and
+    JS's own `Math.floor`/`Math.max` never raise for `Infinity`/`NaN` -- they simply propagate the
+    special value arithmetically (`Math.floor(Infinity) === Infinity`, `Math.floor(NaN) === NaN`).
+    Python's `math.floor` raises `OverflowError`/`ValueError` for exactly these inputs, which a
+    naive port would incorrectly turn into a setup-time crash even when the flow never ends up
+    sleeping at all -- e.g. an immediately-successful first poll returns before this interval is
+    ever used. This early-return is what makes this helper a faithful, non-throwing port of Pi's
+    own numeric behavior rather than a stricter, un-approved narrowing of the caller-facing input
+    domain (a deliberate narrowing would be a separate, governed contract decision, not something
+    this helper introduces incidentally)."""
+    if not math.isfinite(seconds):
+        return seconds
     return math.floor(seconds * 1000) / 1000
 
 

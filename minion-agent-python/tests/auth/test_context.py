@@ -155,3 +155,36 @@ async def test_file_exists_returns_false_on_a_filesystem_access_error(
 
     ctx = DefaultAuthContext()
     assert await ctx.file_exists(str(tmp_path)) is False
+
+
+async def test_file_exists_returns_false_on_a_home_resolution_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`L11-R013` (second remediation, targeted-closure-round-2 review): Pi's own `try` encloses
+    HOME-DIRECTORY RESOLUTION too, not only the filesystem access afterward -- a first remediation
+    left `os.path.expanduser("~")` OUTSIDE its own `try` block, so a failure there still propagated
+    uncaught instead of resolving `False`."""
+
+    def _raise(path: str) -> str:
+        raise OSError("home unavailable")
+
+    monkeypatch.setattr(os.path, "expanduser", _raise)
+
+    ctx = DefaultAuthContext()
+    assert await ctx.file_exists("~") is False
+
+
+async def test_file_exists_returns_false_on_a_non_os_error_during_access(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`L11-R013` (second remediation): Pi's own bare `catch {}` filters on nothing -- a first
+    remediation narrowed the catch to `OSError` alone, so a non-`OSError` failure (e.g. a
+    `RuntimeError`) still propagated uncaught instead of resolving `False`."""
+
+    def _raise(self: Path) -> bool:
+        raise RuntimeError("non-os failure")
+
+    monkeypatch.setattr(Path, "exists", _raise)
+
+    ctx = DefaultAuthContext()
+    assert await ctx.file_exists(str(tmp_path)) is False

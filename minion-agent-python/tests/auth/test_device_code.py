@@ -290,6 +290,38 @@ async def test_fractional_server_slow_down_interval_is_floored_to_whole_millisec
     assert clock.elapsed == pytest.approx(1.234, abs=1e-9)
 
 
+async def test_initial_interval_infinity_does_not_throw_when_the_first_poll_completes() -> None:
+    """`L11-R014`: pinned Pi's own INITIAL interval option carries no `Number.isFinite` guard
+    (unlike the `slow_down` server value, `L11-R004`) -- JS's own `Math.floor`/`Math.max` never
+    raise for `Infinity`, they just propagate it arithmetically. An immediately-successful first
+    poll must return the completed value without ever attempting to schedule a sleep, regardless
+    of how nonsensical the configured initial interval is -- a naive Python port that floors
+    unconditionally at setup time would incorrectly crash before `poll` is ever even called."""
+    poll = ScriptedPoll([DevicePollComplete("token")])
+    clock = FakeClock()
+
+    result = await poll_device_code_flow(
+        poll, interval_seconds=float("inf"), sleep=clock.sleep, now=clock.now
+    )
+
+    assert result == "token"
+    assert poll.call_count == 1
+
+
+async def test_initial_interval_nan_does_not_throw_when_the_first_poll_completes() -> None:
+    """`L11-R014`: the same non-throwing setup guarantee for `NaN`, Pi's other special numeric
+    value `Math.floor`/`Math.max` propagate without raising."""
+    poll = ScriptedPoll([DevicePollComplete("token")])
+    clock = FakeClock()
+
+    result = await poll_device_code_flow(
+        poll, interval_seconds=float("nan"), sleep=clock.sleep, now=clock.now
+    )
+
+    assert result == "token"
+    assert poll.call_count == 1
+
+
 async def test_abortable_sleep_raises_immediately_if_already_aborted() -> None:
     controller = RunAbortController()
     controller.abort()

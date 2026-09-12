@@ -3777,16 +3777,23 @@ rows:
     implementation proving the witness now actually discriminates. Pi''s own "always false in
     browsers" clause is architecturally inapplicable (no browser runtime target here).
 
-    `DefaultAuthContext.file_exists`''s own exact behavior (`L11-R013`, new, final-complete-review
-    finding): distinct from the protocol-level `L11-R008` rule above, this concerns ONLY the
-    default implementation''s own fidelity to Pi''s reference `fileExists`. Two corrections: (1)
-    tilde expansion is LITERAL STRING CONCATENATION (Pi `homedir() + path.slice(1)`), not
-    `Path.expanduser()`''s own platform-specific `~username`/Windows conventions -- a prior
-    revision used `Path(path).expanduser()` directly, which diverges observably for a non-
-    separator suffix like `~suffix`. (2) The WHOLE operation is one failure boundary resolving
-    `False` on ANY error (Pi `try { ... } catch { return false; }`), not only "does not exist" --
-    a prior revision let a filesystem access error (e.g. a permission failure) propagate as an
-    uncaught exception instead of resolving `False`.
+    `DefaultAuthContext.file_exists`''s own exact behavior (`L11-R013`, remediated TWICE, entered
+    mandatory §11.8 convergence after surviving two independent reviews -- the second remediation
+    follows the reviewer''s own proposed characterization, independently re-confirmed against
+    pinned Pi source with no revision needed, recorded in
+    `11-auth-foundation-r013-convergence-agreement.md`): distinct from the protocol-level
+    `L11-R008` rule above, this concerns ONLY the default implementation''s own fidelity to Pi''s
+    reference `fileExists`. Two corrections, BOTH required together: (1) tilde expansion is
+    LITERAL STRING CONCATENATION (Pi `homedir() + path.slice(1)`), not `Path.expanduser()`''s own
+    platform-specific `~username`/Windows conventions -- diverges observably for a non-separator
+    suffix like `~suffix`. (2) The WHOLE operation -- INCLUDING home-directory resolution itself,
+    not only the filesystem check that follows -- is ONE failure boundary resolving `False` on ANY
+    error, filtered to no particular exception type (Pi''s own bare `try { ... } catch { return
+    false; }`). A first remediation fixed (1) but only partially fixed (2): it wrapped just the
+    filesystem check in `try`/`except OSError`, leaving home-directory resolution OUTSIDE that
+    boundary (so a resolution failure still propagated) and narrowing the catch to `OSError` alone
+    (so a non-`OSError` failure, e.g. `RuntimeError`, also still propagated) -- both gaps closed by
+    wrapping the ENTIRE method body in one `try`/`except Exception`.
 
     `Credential` value/reference semantics (`L11-R006`/`L11-R009`, resolved by explicit owner
     governance decision, `agent-workflow.md` §11.7/§11.8 -- NO intentional divergence approved,
@@ -3832,7 +3839,9 @@ rows:
     supports leading-~ against a literal input; a negative-control non-expanding implementation
     fails the same literal input, proving the positive witness discriminates; a naive leading-~
     concatenation witness with an injected home directory and a nontrivial "~suffix" input;
-    file_exists resolves False, not an exception, on an injected filesystem access error)
+    file_exists resolves False, not an exception, on an injected filesystem access error; False,
+    not an exception, on an injected home-directory-resolution error; False, not an exception, on
+    a non-OSError access failure such as RuntimeError)
   - test_w_r006_env_new_key_survives_a_store_round_trip (tests/auth/test_store.py)
   - test_w_r006_extra_nested_mutation_survives_a_store_round_trip (tests/auth/test_store.py)
   - test_w_r009_scalar_field_mutation_survives_a_store_round_trip (tests/auth/test_store.py)
@@ -4006,13 +4015,26 @@ rows:
     (e.g. `1.2349`) must schedule exactly `1.234`, not the raw fractional value (whose own
     floating-point representation drifts observably, e.g. `1.2348999999999997`, a genuine
     cross-language mismatch the un-floored candidate exhibited). The fixed +5s `slow_down` fallback
-    increment is already a whole-millisecond quantity and needs no additional flooring.'
+    increment is already a whole-millisecond quantity and needs no additional flooring.
+
+    Non-finite initial-interval regression (`L11-R014`, new, second-final-complete-review finding
+    -- a regression the `L11-R012` fix itself introduced): pinned Pi''s own INITIAL interval option
+    carries NO `Number.isFinite` guard (unlike the `slow_down` server value, which `L11-R004`
+    already gates); JS''s own `Math.floor`/`Math.max` never raise for `Infinity`/`NaN`, they
+    propagate the special value arithmetically. The `L11-R012` flooring helper called Python''s
+    `math.floor` unconditionally, which raises `OverflowError`/`ValueError` for exactly these
+    inputs -- a setup-time crash even when the flow never ends up sleeping at all (an immediately-
+    successful first poll returns before any interval is used). Fixed by making the flooring helper
+    a pass-through (no-op) for non-finite input, matching Pi''s own non-throwing numeric behavior,
+    NOT a deliberate narrowing of the caller-facing input domain -- a real such narrowing would be
+    a separate, owner-governed contract decision.'
   tests:
-  - tests/auth/test_device_code.py (22 tests -- immediate success, pending/slow_down combinations
+  - tests/auth/test_device_code.py (24 tests -- immediate success, pending/slow_down combinations
     including a non-finite server interval falling back to the fixed increment and fractional
-    initial/server intervals floored to whole milliseconds, terminal failure, expiry with/without
-    slow_down, abort before/during sleep/during an in-flight poll, wait_before_first_poll, interval
-    clamping/defaulting, abortable_sleep direct tests)
+    initial/server intervals floored to whole milliseconds, non-finite (Infinity/NaN) initial
+    intervals not throwing when the first poll completes immediately, terminal failure, expiry
+    with/without slow_down, abort before/during sleep/during an in-flight poll,
+    wait_before_first_poll, interval clamping/defaulting, abortable_sleep direct tests)
   - auth-device-code-immediate-success
   - auth-device-code-pending-then-slow-down-then-success
   - auth-device-code-slow-down-prefers-server-interval

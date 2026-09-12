@@ -23,8 +23,9 @@ class DefaultAuthContext:
         return value if value and value.strip() else None
 
     async def file_exists(self, path: str) -> bool:
-        """`L11-R013` (remediated): matches Pi's own `fileExists` exactly, not merely its general
-        shape. Two corrections from a prior revision:
+        """`L11-R013` (remediated twice; second remediation per the agreed §11.8 convergence
+        checkpoint, `11-auth-foundation-r013-convergence-agreement.md`): matches Pi's own
+        `fileExists` exactly, not merely its general shape. Two corrections total:
 
         1. ANY-leading-`~` expansion is literal string concatenation (Pi: `resolved.startsWith("~")
            ? homedir() + resolved.slice(1) : resolved`) -- the home directory replaces ONLY the
@@ -34,16 +35,21 @@ class DefaultAuthContext:
            lookup, or Windows' own differing interpretation of a bare `~` prefix followed by
            non-separator characters) do not match Pi's naive concatenation and can diverge
            observably for an input like `~suffix` (no separator after `~`).
-        2. The WHOLE operation -- module/path resolution and the filesystem access itself -- is
-           one failure boundary that returns `False` on any error (Pi's own `try { ... } catch {
-           return false; }`), not only "the target does not exist." A permission error or other
-           filesystem failure must report `False`, the same as a genuinely missing path -- never
-           propagate the underlying exception.
+        2. The WHOLE operation is one failure boundary that resolves `False` on ANY error (Pi's own
+           `try { ... } catch { return false; }`, with NO type filter on the caught error at all).
+           Pi's own `try` encloses module resolution, `os.homedir()`, the path concatenation, AND
+           the filesystem access together -- a first remediation only wrapped the filesystem access
+           itself, leaving home-directory resolution OUTSIDE the boundary, and narrowed the catch to
+           `OSError` alone (Pi's own bare `catch {}` filters on nothing). Both gaps are closed here:
+           the entire body is one `try`, and the catch is broadened to `Exception` (the ordinary
+           Python operation-error domain -- deliberately not `BaseException`, which would also
+           swallow `KeyboardInterrupt`/`SystemExit`, something JS's own catch-all has no equivalent
+           concept of suppressing).
         """
-        resolved = path
-        if resolved.startswith("~"):
-            resolved = os.path.expanduser("~") + resolved[1:]
         try:
+            resolved = path
+            if resolved.startswith("~"):
+                resolved = os.path.expanduser("~") + resolved[1:]
             return await asyncio.to_thread(Path(resolved).exists)
-        except OSError:
+        except Exception:
             return False

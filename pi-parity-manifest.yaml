@@ -3777,6 +3777,17 @@ rows:
     implementation proving the witness now actually discriminates. Pi''s own "always false in
     browsers" clause is architecturally inapplicable (no browser runtime target here).
 
+    `DefaultAuthContext.file_exists`''s own exact behavior (`L11-R013`, new, final-complete-review
+    finding): distinct from the protocol-level `L11-R008` rule above, this concerns ONLY the
+    default implementation''s own fidelity to Pi''s reference `fileExists`. Two corrections: (1)
+    tilde expansion is LITERAL STRING CONCATENATION (Pi `homedir() + path.slice(1)`), not
+    `Path.expanduser()`''s own platform-specific `~username`/Windows conventions -- a prior
+    revision used `Path(path).expanduser()` directly, which diverges observably for a non-
+    separator suffix like `~suffix`. (2) The WHOLE operation is one failure boundary resolving
+    `False` on ANY error (Pi `try { ... } catch { return false; }`), not only "does not exist" --
+    a prior revision let a filesystem access error (e.g. a permission failure) propagate as an
+    uncaught exception instead of resolving `False`.
+
     `Credential` value/reference semantics (`L11-R006`/`L11-R009`, resolved by explicit owner
     governance decision, `agent-workflow.md` §11.7/§11.8 -- NO intentional divergence approved,
     entered mandatory convergence after `L11-R006` survived three independent reviews): Pi stores
@@ -3819,7 +3830,9 @@ rows:
     expansion via a literal "~" input; a custom, non-normalizing AuthContext returning a blank
     value unchanged is conforming; a second, independently-written AuthContext implementation also
     supports leading-~ against a literal input; a negative-control non-expanding implementation
-    fails the same literal input, proving the positive witness discriminates)
+    fails the same literal input, proving the positive witness discriminates; a naive leading-~
+    concatenation witness with an injected home directory and a nontrivial "~suffix" input;
+    file_exists resolves False, not an exception, on an injected filesystem access error)
   - test_w_r006_env_new_key_survives_a_store_round_trip (tests/auth/test_store.py)
   - test_w_r006_extra_nested_mutation_survives_a_store_round_trip (tests/auth/test_store.py)
   - test_w_r009_scalar_field_mutation_survives_a_store_round_trip (tests/auth/test_store.py)
@@ -3897,14 +3910,15 @@ rows:
   rule: 'A stored credential owns the provider: Minion may refresh/mutate it only through the
     store''s own serialized `modify()`, never by independently reading/rewriting a token from some
     other source outside this seam (no silent env/external fallback after a failed refresh). A
-    refresh triggers only when a credential is within the trigger window of expiring (default five
-    minutes, matching Pi''s own `DEFAULT_OAUTH_MINIMUM_VALIDITY_MS`); the actual `refresh` callable
-    runs INSIDE `modify()`''s own callback, re-checking expiry under the lock, so two concurrent
-    callers that both observed "expiring soon" via the optimistic outside-lock read refresh EXACTLY
-    ONCE -- the second sees the already-refreshed credential and returns it without calling
-    `refresh` again. Errors split the same way Pi''s own `ModelsError` code does: the injected
-    `refresh` callable failing raises `OAuthRefreshError`; the store''s own read/modify mechanism
-    failing raises `CredentialStoreError`.
+    refresh triggers when a credential is within the EFFECTIVE trigger window of expiring --
+    `max(default_five_minutes, explicit_caller_minimum_or_zero)` -- matching Pi''s own
+    `DEFAULT_OAUTH_MINIMUM_VALIDITY_MS`; the actual `refresh` callable runs INSIDE `modify()`''s own
+    callback, re-checking expiry under the lock against that SAME effective threshold, so two
+    concurrent callers that both observed "expiring soon" via the optimistic outside-lock read
+    refresh EXACTLY ONCE -- the second sees the already-refreshed credential and returns it without
+    calling `refresh` again. Errors split the same way Pi''s own `ModelsError` code does: the
+    injected `refresh` callable failing raises `OAuthRefreshError`; the store''s own read/modify
+    mechanism failing raises `CredentialStoreError`.
 
     Refresh signal/timeout (`L11-R002`, remediated): a prior revision called `refresh` with only
     the expiring credential, omitting Pi''s own `OAuthAuth.refresh(credential, signal)` second
@@ -3914,7 +3928,18 @@ rows:
     its own after the budget elapses even if the caller never cancels anything, so a hung refresh
     cannot hold this credential''s own store lock forever. This composition is an additive,
     auth-owned seam (`auth/signal.py::Abortable`/`CombinedSignal`), not a change to certified Layer
-    09''s own poll-only `RunSignal`.'
+    09''s own poll-only `RunSignal`.
+
+    Post-refresh threshold (`L11-R011`, remediated, final-complete-review finding): a prior
+    revision post-validated a refreshed credential''s own new expiry against the RAW,
+    caller-supplied `minimum_validity_ms` directly, instead of the SAME effective (`max`''d)
+    threshold the initial trigger and under-lock recheck both already use. Pi''s own
+    `resolveStoredOAuth` builds exactly ONE `expiresSoon` closure from the effective threshold and
+    reuses it for all three checks -- there is no separate "raw explicit minimum" check anywhere in
+    Pi. The bug was invisible whenever the explicit minimum was >= the five-minute default (the
+    pre-existing test only covered that case); an explicit minimum SMALLER than the default (e.g.
+    one minute) would incorrectly accept a refreshed credential still expiring within the default
+    five-minute window. Corrected to reuse the SAME effective threshold for all three checks.'
   tests:
   - test_no_stored_credential_returns_none_without_calling_refresh
   - test_a_non_oauth_stored_credential_returns_none_without_calling_refresh
@@ -3928,6 +3953,7 @@ rows:
   - test_two_concurrent_expiring_callers_refresh_exactly_once
   - test_logged_out_meanwhile_returns_none
   - test_explicit_minimum_validity_override_rejects_a_too_short_refresh
+  - test_explicit_minimum_smaller_than_default_still_uses_the_effective_threshold
   - tests/auth/test_signal.py (5 tests -- CombinedSignal budget/caller-signal composition)
   python: src/minion_agent/auth/refresh.py; src/minion_agent/auth/signal.py
   rust: Phase 5 auth foundation (pending independent Rust contract review)
@@ -3971,12 +3997,22 @@ rows:
     aborted signal during `poll()` is only observed at the next loop-top check, matching Pi
     exactly). `abortable_sleep` slices a long sleep into short steps to check the poll-based
     `RunSignal` (Layer 09) promptly, a disclosed, immaterial divergence from Pi''s own
-    instant-interrupt `AbortSignal`, not a Layer-09 redesign.'
+    instant-interrupt `AbortSignal`, not a Layer-09 redesign.
+
+    Millisecond flooring (`L11-R012`, remediated, final-complete-review finding): a prior revision
+    scheduled the caller''s own initial interval and a finite/positive server-provided `slow_down`
+    interval directly, with no flooring -- Pi''s own `Math.floor(seconds * 1000)` floors BOTH to
+    whole milliseconds before the 1-second-minimum clamp applies. A fractional-second interval
+    (e.g. `1.2349`) must schedule exactly `1.234`, not the raw fractional value (whose own
+    floating-point representation drifts observably, e.g. `1.2348999999999997`, a genuine
+    cross-language mismatch the un-floored candidate exhibited). The fixed +5s `slow_down` fallback
+    increment is already a whole-millisecond quantity and needs no additional flooring.'
   tests:
-  - tests/auth/test_device_code.py (20 tests -- immediate success, pending/slow_down combinations
-    including a non-finite server interval falling back to the fixed increment, terminal failure,
-    expiry with/without slow_down, abort before/during sleep/during an in-flight poll,
-    wait_before_first_poll, interval clamping/defaulting, abortable_sleep direct tests)
+  - tests/auth/test_device_code.py (22 tests -- immediate success, pending/slow_down combinations
+    including a non-finite server interval falling back to the fixed increment and fractional
+    initial/server intervals floored to whole milliseconds, terminal failure, expiry with/without
+    slow_down, abort before/during sleep/during an in-flight poll, wait_before_first_poll, interval
+    clamping/defaulting, abortable_sleep direct tests)
   - auth-device-code-immediate-success
   - auth-device-code-pending-then-slow-down-then-success
   - auth-device-code-slow-down-prefers-server-interval

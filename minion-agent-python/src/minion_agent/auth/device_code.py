@@ -36,6 +36,15 @@ SLOW_DOWN_TIMEOUT_MESSAGE = (
 )
 
 
+def _floor_to_whole_milliseconds(seconds: float) -> float:
+    """Pi floors a caller/server-provided interval to whole MILLISECONDS before scheduling it
+    (`L11-R012`; Pi `Math.floor(seconds * 1000)`, both for the caller's own initial interval and a
+    finite/positive server-provided `slow_down` interval) -- a fractional-second interval (e.g.
+    `1.2349`) must schedule exactly `1.234`, not the raw fractional value. This module's own public
+    API stays seconds-based; this helper is the one place the millisecond floor is applied."""
+    return math.floor(seconds * 1000) / 1000
+
+
 @dataclass(frozen=True, slots=True)
 class DevicePollPending:
     """The server has not yet authorized the device. Keep polling at the current interval."""
@@ -48,7 +57,10 @@ class DevicePollSlowDown:
     but only when it is finite and positive (`L11-R004`; Pi `device-code.ts`'s own
     `Number.isFinite(result.intervalSeconds) && result.intervalSeconds > 0` guard). A non-finite
     value (e.g. `float("inf")`) is treated exactly like an absent one: the fixed +5s increment
-    applies instead, never scheduling a non-finite or non-positive sleep."""
+    applies instead, never scheduling a non-finite or non-positive sleep. A finite, positive value
+    is FLOORED to whole milliseconds before scheduling (`L11-R012`; see
+    `_floor_to_whole_milliseconds`'s own docstring), the same as the caller's own initial
+    interval."""
 
     interval_seconds: float | None = None
 
@@ -149,7 +161,9 @@ async def poll_device_code_flow[T](
     deadline = now() + expires_in_seconds if expires_in_seconds is not None else float("inf")
     interval = max(
         MINIMUM_INTERVAL_SECONDS,
-        interval_seconds if interval_seconds is not None else DEFAULT_POLL_INTERVAL_SECONDS,
+        _floor_to_whole_milliseconds(
+            interval_seconds if interval_seconds is not None else DEFAULT_POLL_INTERVAL_SECONDS
+        ),
     )
     slow_down_responses = 0
 
@@ -176,7 +190,9 @@ async def poll_device_code_flow[T](
                 and math.isfinite(server_interval)
                 and server_interval > 0
             ):
-                interval = max(MINIMUM_INTERVAL_SECONDS, server_interval)
+                interval = max(
+                    MINIMUM_INTERVAL_SECONDS, _floor_to_whole_milliseconds(server_interval)
+                )
             else:
                 interval = max(MINIMUM_INTERVAL_SECONDS, interval + SLOW_DOWN_INCREMENT_SECONDS)
         # DevicePollPending (or a handled slow_down above): fall through to sleep-and-retry.

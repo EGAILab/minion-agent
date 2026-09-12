@@ -266,6 +266,30 @@ async def test_default_interval_is_five_seconds_when_none_is_given() -> None:
     assert clock.elapsed == pytest.approx(5.0)
 
 
+async def test_fractional_initial_interval_is_floored_to_whole_milliseconds() -> None:
+    """`L11-R012`: Pi floors the caller's own initial interval to whole milliseconds
+    (`Math.floor(seconds * 1000)`) before scheduling -- `1.2349` seconds must schedule exactly
+    `1.234`, not the raw fractional value (whose own float representation would otherwise drift,
+    e.g. `1.2348999999999997`, an observable cross-language mismatch)."""
+    poll = ScriptedPoll([DevicePollPending(), DevicePollComplete("token")])
+    clock = FakeClock()
+
+    await poll_device_code_flow(poll, interval_seconds=1.2349, sleep=clock.sleep, now=clock.now)
+
+    assert clock.elapsed == pytest.approx(1.234, abs=1e-9)
+
+
+async def test_fractional_server_slow_down_interval_is_floored_to_whole_milliseconds() -> None:
+    """`L11-R012`: the same whole-millisecond floor applies to a finite, positive server-provided
+    `slow_down` interval, not only the caller's own initial one."""
+    poll = ScriptedPoll([DevicePollSlowDown(interval_seconds=1.2349), DevicePollComplete("token")])
+    clock = FakeClock()
+
+    await poll_device_code_flow(poll, interval_seconds=5, sleep=clock.sleep, now=clock.now)
+
+    assert clock.elapsed == pytest.approx(1.234, abs=1e-9)
+
+
 async def test_abortable_sleep_raises_immediately_if_already_aborted() -> None:
     controller = RunAbortController()
     controller.abort()

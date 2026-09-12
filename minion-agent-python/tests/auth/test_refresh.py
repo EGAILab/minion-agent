@@ -283,3 +283,25 @@ async def test_explicit_minimum_validity_override_rejects_a_too_short_refresh() 
         await refresh_if_expiring(
             store, "p", refresh, minimum_validity_ms=FIVE_MINUTES_MS, now_ms=lambda: 0.0
         )
+
+
+async def test_explicit_minimum_smaller_than_default_still_uses_the_effective_threshold() -> None:
+    """`L11-R011`: an explicit minimum SMALLER than the five-minute default must still be
+    post-validated against the EFFECTIVE (`max`'d) threshold, not the raw caller value -- Pi's own
+    `resolveStoredOAuth` reuses the SAME `expiresSoon` closure (built from the effective threshold)
+    for the initial trigger, the under-lock recheck, AND the post-refresh validation; there is only
+    ever one threshold in Pi, not two. A refreshed credential expiring at 120_000ms, with now=0 and
+    an explicit minimum of 60_000ms, is still inside the EFFECTIVE 300_000ms window and must be
+    rejected -- the pre-existing `..._rejects_a_too_short_refresh` test above uses an explicit
+    minimum EQUAL to the default and cannot discriminate raw-vs-effective at all."""
+    store = InMemoryCredentialStore()
+    stored = OAuthCredential(access="a1", refresh="r1", expires=0.0)
+    await store.modify("p", lambda _c: _set(stored))
+
+    async def refresh(_credential: OAuthCredential, _signal: Abortable) -> OAuthCredential:
+        return OAuthCredential(access="a2", refresh="r2", expires=120_000.0)
+
+    with pytest.raises(OAuthRefreshError, match="expires too soon"):
+        await refresh_if_expiring(
+            store, "p", refresh, minimum_validity_ms=60_000.0, now_ms=lambda: 0.0
+        )

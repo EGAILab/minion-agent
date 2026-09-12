@@ -72,10 +72,16 @@ async def refresh_if_expiring(
     once the first caller's own refresh has already committed (Pi `resolveStoredOAuth`).
 
     `minimum_validity_ms` serves two roles Pi keeps distinct: it is ALWAYS combined with
-    `DEFAULT_MINIMUM_VALIDITY_MS` (via `max`) to decide whether a refresh triggers at all, but it
-    is enforced AFTER a refresh -- rejecting a refreshed credential that still does not meet this
-    caller's own explicit requirement -- ONLY when the caller passed a value (`None` means "use
-    the default trigger, do not enforce anything stronger afterward").
+    `DEFAULT_MINIMUM_VALIDITY_MS` (via `max`) to decide whether a refresh triggers at all, and that
+    SAME effective (`max`'d) threshold is what the post-refresh check enforces too -- rejecting a
+    refreshed credential that still does not meet it -- ONLY when the caller passed a value (`None`
+    means "use the default trigger, do not enforce anything stronger afterward"). `L11-R011`
+    (remediated): a prior revision post-validated against the RAW caller-supplied value instead of
+    the effective one, so an explicit minimum SMALLER than the five-minute default (e.g. one
+    minute) would incorrectly accept a refreshed credential still expiring within the default
+    five-minute window -- Pi's own `resolveStoredOAuth` reuses the SAME `expiresSoon` closure
+    (built from the effective threshold) for the initial trigger, the under-lock recheck, AND the
+    post-refresh validation; there is only ever one threshold in Pi, not two.
 
     `refresh` receives the expiring credential AND a second, `Abortable` argument (`L11-R002`; Pi
     `OAuthAuth.refresh(credential, signal)`, `auth/types.ts:222`) -- a `CombinedSignal` (`signal.
@@ -131,7 +137,7 @@ async def refresh_if_expiring(
     if not isinstance(result, OAuthCredential):
         return None  # Logged out meanwhile.
 
-    if minimum_validity_ms is not None and _expires_soon(result, minimum_validity_ms, now_ms()):
+    if minimum_validity_ms is not None and _expires_soon(result, trigger_validity_ms, now_ms()):
         raise OAuthRefreshError(
             f"OAuth refresh returned a token that expires too soon for {provider_id!r}"
         )

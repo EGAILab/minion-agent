@@ -157,8 +157,11 @@ class AuthContext(Protocol):
     values at all -- only `defaultProviderAuthContext`'s own doc comment (`auth/context.ts`)
     mentions that. ANY conforming `AuthContext` implementation -- not only `DefaultAuthContext` --
     must interpret a leading `~` as the user's home directory, not a literal relative path
-    component. Pi's own "always false in browsers" clause is architecturally inapplicable here:
-    this project has no browser runtime target, so no implementation needs a browser-specific
+    component -- `DefaultAuthContext`'s own exact expansion algorithm and its failure-boundary
+    behavior (`L11-R013`) are that implementation's own concrete fidelity to Pi's reference
+    implementation, not a mechanism this protocol itself mandates for every implementation. Pi's
+    own "always false in browsers" clause is architecturally inapplicable here: this project has
+    no browser runtime target, so no implementation needs a browser-specific
     branch to satisfy this contract.
     """
 

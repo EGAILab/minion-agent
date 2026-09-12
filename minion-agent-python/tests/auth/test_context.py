@@ -3,6 +3,8 @@
 import os
 from pathlib import Path
 
+import pytest
+
 from minion_agent.auth.context import DefaultAuthContext
 
 
@@ -115,3 +117,41 @@ async def test_file_exists_expands_a_leading_tilde() -> None:
     finding against a similarly-shaped witness for `_SecondNativeAuthContext`, above)."""
     ctx = DefaultAuthContext()
     assert await ctx.file_exists("~") is True
+
+
+async def test_file_exists_naive_leading_tilde_concatenation_for_a_nontrivial_suffix(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`L11-R013`: Pi's own tilde expansion is LITERAL STRING CONCATENATION (`homedir() +
+    path.slice(1)`), not path-join or `~username`-lookup semantics -- `~suffix` (no separator
+    after the `~`) must resolve to `<homedir>suffix` (the home directory's own string with
+    `suffix` appended directly), never `<homedir>/suffix` or a `~username` home-directory lookup.
+    An injected, known home directory proves this precisely -- `Path(path).expanduser()`'s own
+    differing platform conventions (a POSIX `~username` lookup, or Windows' own differing
+    interpretation) would not produce this exact result."""
+    fake_home = tmp_path / "home"
+    fake_home.mkdir()
+    monkeypatch.setattr(os.path, "expanduser", lambda p: str(fake_home) if p == "~" else p)
+
+    concatenated_marker = Path(str(fake_home) + "-marker")
+    concatenated_marker.mkdir()
+
+    ctx = DefaultAuthContext()
+    assert await ctx.file_exists("~-marker") is True
+
+
+async def test_file_exists_returns_false_on_a_filesystem_access_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`L11-R013`: Pi's own `fileExists` wraps the ENTIRE operation -- module/path resolution and
+    the filesystem access itself -- in one failure boundary that returns `False` on ANY error
+    (`try { ... } catch { return false; }`), not only "the target does not exist." A permission
+    error or other filesystem failure must report `False`, never propagate the exception."""
+
+    def _raise(self: Path) -> bool:
+        raise OSError("denied")
+
+    monkeypatch.setattr(Path, "exists", _raise)
+
+    ctx = DefaultAuthContext()
+    assert await ctx.file_exists(str(tmp_path)) is False

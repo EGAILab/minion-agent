@@ -16,30 +16,35 @@ AuthType = Literal["api_key", "oauth"]
 """The closed set of credential kinds (Pi `AuthType`, `auth/types.ts:117`)."""
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class ApiKeyCredential:
     """Stored api-key credential (Pi `ApiKeyCredential`, `auth/types.ts:17-21`). `env` carries
     provider-scoped environment/config values (e.g. Cloudflare account/gateway ids) -- not
-    request-time headers, which live on `ModelAuth` once auth has been resolved.
+    request-time headers, which live on `ModelAuth` once auth has been resolved. `env`'s own
+    domain is pinned Pi's own `ProviderEnv = Record<string, string>` (`types.ts:113`) -- a FLAT
+    string-to-string mapping, never recursive JSON (`L11-R010`; recursive values belong to
+    `OAuthCredential.extra`'s own open domain below, not here).
 
-    `env` is stored EXACTLY as given -- no copy, no freeze, at any level (`L11-R006`, resolved by
-    explicit owner governance decision, `agent-workflow.md` §11.7/§11.8: adopt pinned Pi's own
-    live-reference/shared-mutation behavior, no intentional divergence approved). Pi's own
-    `InMemoryCredentialStore` holds mutable objects and returns live references from `read`/
-    `modify`, so mutating the ORIGINAL mapping passed to this constructor, or mutating a nested
-    value reached through `credential.env` itself, remains observable through this credential
-    afterward -- matching Pi exactly, including a NESTED dict/list value, not merely the outer
-    mapping. `CredentialStore.modify()` remains the documented, INTENDED sole mutation path
-    (`PROV-007`) -- this is unaffected by and does not depend on `env`'s own aliasing behavior;
-    a caller that instead mutates a retained reference directly bypasses that convention, exactly
-    as Pi's own plain-object credential type permits (see `PROV-007`'s own manifest row)."""
+    This dataclass is NOT frozen, and `env` is a genuinely MUTABLE `dict` (`L11-R006`/`L11-R009`,
+    resolved by explicit owner governance decision, `agent-workflow.md` §11.7/§11.8: adopt pinned
+    Pi's own live-reference/shared-mutation behavior in full, no intentional divergence approved --
+    including ordinary SCALAR field reassignment, not only nested-value mutation). Pi's own
+    `InMemoryCredentialStore` holds and returns live references to ordinary mutable objects, so:
+    reassigning `credential.key` directly, mutating the ORIGINAL mapping passed to this
+    constructor, and assigning a brand-new top-level key on `credential.env` itself, all remain
+    observable through this credential afterward, including through a later `CredentialStore.
+    read()` for the same provider id. `CredentialStore.modify()` remains the documented, INTENDED
+    sole mutation path (`PROV-007`) -- this is unaffected by and does not depend on this aliasing
+    behavior; a caller that instead mutates a retained reference directly bypasses that
+    convention, exactly as Pi's own plain-object credential type permits (see `PROV-007`'s own
+    manifest row)."""
 
     key: str | None = None
-    env: Mapping[str, str] | None = None
+    env: dict[str, str] | None = None
     type: Literal["api_key"] = "api_key"
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class OAuthCredential:
     """Stored canonical OAuth credential (Pi `OAuthCredential`, `auth/types.ts:24-34`).
 
@@ -52,16 +57,22 @@ class OAuthCredential:
     login flow attach additional fields alongside the three required ones -- for example Codex's
     own `accountId`, extracted from the access token's JWT payload (`PROV-011`, deferred in this
     pass). `extra` is empty until a provider-specific flow populates it; this row does not invent
-    a closed shape Pi itself leaves open.
+    a closed shape Pi itself leaves open. Unlike `ApiKeyCredential.env`, `extra`'s own domain is
+    full recursive JSON (`L11-R010`): pinned Pi's own index signature is `[key: string]: unknown`,
+    not `ProviderEnv`'s flat string-to-string shape.
 
-    `extra` is stored EXACTLY as given -- no copy, no freeze, at any level, for the exact same
-    owner-decided Pi-parity reason `ApiKeyCredential.env` is (`L11-R006`, see its own docstring).
+    This dataclass is NOT frozen, and `extra` is a genuinely MUTABLE `dict`, for the exact same
+    owner-decided Pi-parity reason `ApiKeyCredential` is not frozen (`L11-R006`/`L11-R009`, see its
+    own docstring) -- scalar fields (`access`, `refresh`, `expires`) are reassignable directly, and
+    `extra`'s own nested values, and brand-new top-level keys on `extra` itself, all remain mutable
+    and observable through this credential afterward, recursively, including through a later
+    `CredentialStore.read()` for the same provider id.
     """
 
     access: str
     refresh: str
     expires: float
-    extra: Mapping[str, JsonValue] = field(default_factory=dict)
+    extra: dict[str, JsonValue] = field(default_factory=dict)
     type: Literal["oauth"] = "oauth"
 
 

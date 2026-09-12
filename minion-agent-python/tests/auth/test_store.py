@@ -8,7 +8,12 @@ import asyncio
 
 import pytest
 
-from minion_agent.auth.credential import ApiKeyCredential, AuthOperationOptions, Credential
+from minion_agent.auth.credential import (
+    ApiKeyCredential,
+    AuthOperationOptions,
+    Credential,
+    OAuthCredential,
+)
 from minion_agent.auth.store import CredentialStoreOperationCancelled, InMemoryCredentialStore
 from minion_agent.runtime.signal import RunAbortController
 
@@ -17,21 +22,54 @@ async def _to(credential: Credential) -> Credential:
     return credential
 
 
-async def test_w_r006_aliasing_survives_a_modify_read_round_trip_through_the_store() -> None:
+async def test_w_r006_env_new_key_survives_a_store_round_trip() -> None:
     """`L11-R006` (owner-decided Pi-parity): the store itself performs no defensive copy either --
-    mutating a nested value reached through a credential returned by `modify()` is observed by a
-    later `read()` for the same provider id, exactly matching Pi's own `InMemoryCredentialStore`,
-    which holds direct references into its own backing `Map`."""
+    assigning a brand-new top-level key on `env` through a credential returned by `modify()` is
+    observed by a later `read()` for the same provider id, exactly matching Pi's own
+    `InMemoryCredentialStore`, which holds direct references into its own backing `Map`. `env`'s
+    own domain stays flat (`L11-R010`); the nested-value equivalent lives on `extra` below."""
     store = InMemoryCredentialStore()
-    stored = ApiKeyCredential(key="sk-test", env={"nested": {"value": "A"}})
+    stored = ApiKeyCredential(key="sk-test", env={})
 
     committed = await store.modify("p", lambda _c: _to(stored))
     assert committed is not None and committed.env is not None
-    committed.env["nested"]["value"] = "B"  # type: ignore[index]
+    committed.env["NEW"] = "v"
 
     reread = await store.read("p")
     assert reread is not None and reread.env is not None
-    assert reread.env["nested"] == {"value": "B"}
+    assert reread.env == {"NEW": "v"}
+
+
+async def test_w_r006_extra_nested_mutation_survives_a_store_round_trip() -> None:
+    """`L11-R006`: same round-trip guarantee as above, exercised on `OAuthCredential.extra`'s own
+    recursive JSON domain -- a NESTED value mutation persists through the store."""
+    store = InMemoryCredentialStore()
+    extra = {"nested": {"value": "A"}}
+    stored = OAuthCredential(access="a", refresh="r", expires=1234.0, extra=extra)
+
+    committed = await store.modify("p", lambda _c: _to(stored))
+    assert isinstance(committed, OAuthCredential)
+    committed.extra["nested"]["value"] = "B"  # type: ignore[index]
+
+    reread = await store.read("p")
+    assert isinstance(reread, OAuthCredential)
+    assert reread.extra["nested"] == {"value": "B"}
+
+
+async def test_w_r009_scalar_field_mutation_survives_a_store_round_trip() -> None:
+    """`L11-R009`: Pi's own returned live credential permits mutating a scalar field directly, and
+    a later `read()` observes it -- the store performs no defensive copy of the credential object
+    itself, so this is a genuine end-to-end proof, not merely a bare-dataclass-level one."""
+    store = InMemoryCredentialStore()
+    stored = ApiKeyCredential(key="A")
+
+    committed = await store.modify("p", lambda _c: _to(stored))
+    assert isinstance(committed, ApiKeyCredential)
+    committed.key = "B"
+
+    reread = await store.read("p")
+    assert isinstance(reread, ApiKeyCredential)
+    assert reread.key == "B"
 
 
 async def test_case1_single_modify_transitions_from_initial_to_new_state() -> None:

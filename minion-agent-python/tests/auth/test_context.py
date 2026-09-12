@@ -39,14 +39,38 @@ class _SecondNativeAuthContext:
         return Path(resolved).exists()
 
 
+class _NonExpandingAuthContext:
+    """A NEGATIVE CONTROL: a conforming-shaped `AuthContext` that does NOT expand a leading `~` --
+    included only to prove the positive `W-R008-1` witness below actually discriminates (the
+    targeted-closure review's own finding: a witness passing an ALREADY-EXPANDED path cannot tell
+    a compliant implementation apart from this non-compliant one, since both would report the same
+    -- correct-looking -- result for that input)."""
+
+    async def env(self, name: str) -> str | None:
+        return os.environ.get(name)
+
+    async def file_exists(self, path: str) -> bool:
+        return Path(path).exists()  # deliberately no expanduser() call
+
+
 async def test_w_r008_1_a_second_native_auth_context_also_supports_leading_tilde() -> None:
-    """`L11-R008`: leading-`~` support belongs to the `AuthContext` protocol itself, so a SEPARATE,
-    independently-written implementation must interpret it as the user's home directory too, not
-    only `DefaultAuthContext` -- this witness is deliberately distinct from
-    `test_file_exists_expands_a_leading_tilde` below, which only exercises the default."""
+    """`L11-R008` (targeted-closure finding): the witness must pass a LITERAL leading-`~` input
+    (not a pre-expanded absolute path, which cannot discriminate expansion from a literal-path
+    bug) -- a SEPARATE, independently-written implementation must still interpret it as the
+    user's home directory, not only `DefaultAuthContext`."""
     ctx = _SecondNativeAuthContext()
-    home_relative = os.path.expanduser("~")
-    assert await ctx.file_exists(home_relative) is True
+    assert await ctx.file_exists("~") is True
+
+
+async def test_w_r008_1_negative_control_a_non_expanding_context_fails_the_same_literal_input() -> (
+    None
+):
+    """Proves the witness above actually discriminates: an implementation that does NOT expand a
+    leading `~` reports the literal path `"~"` as nonexistent -- exactly the contract violation
+    `L11-R008` exists to catch, and exactly what the ORIGINAL (pre-expanded) witness could not
+    detect."""
+    ctx = _NonExpandingAuthContext()
+    assert await ctx.file_exists("~") is False
 
 
 async def test_env_returns_a_set_value() -> None:
@@ -86,6 +110,8 @@ async def test_file_exists_false_for_a_missing_file(tmp_path: Path) -> None:
 
 
 async def test_file_exists_expands_a_leading_tilde() -> None:
+    """Passes the LITERAL `"~"` string, not a pre-expanded absolute path -- an already-expanded
+    input cannot discriminate real expansion from a literal-relative-path bug (`L11-R008`'s own
+    finding against a similarly-shaped witness for `_SecondNativeAuthContext`, above)."""
     ctx = DefaultAuthContext()
-    home_relative = os.path.expanduser("~")
-    assert await ctx.file_exists(home_relative) is True
+    assert await ctx.file_exists("~") is True

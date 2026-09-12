@@ -3750,11 +3750,16 @@ rows:
   surface: Layer 11 Pass 1 -- auth vocabulary and auth-context seam
   rule: 'Credential representation, ownership, resolution, mutation authority, and provider-facing
     auth projection are kept as distinct, explicitly-typed concepts, not mechanically reproduced
-    TypeScript mechanics. `OAuthCredential.extra` stays an OPEN escape hatch (mirroring Pi''s own
-    `[key: string]: unknown` index signature) rather than a closed field set, since a provider-
-    specific login flow (e.g. Codex''s own `accountId`, `PROV-011`) attaches fields alongside the
-    three required ones without widening the closed core shape. `CredentialInfo` never carries a
-    secret field (`key`/`access`/`refresh`/`extra`).
+    TypeScript mechanics. `CredentialInfo` never carries a secret field (`key`/`access`/`refresh`/
+    `extra`).
+
+    `env`/`extra` DOMAIN split (`L11-R010`, remediated): a prior revision applied one recursive-
+    JSON rule to both fields. Pinned Pi keeps them DIFFERENT: `ApiKeyCredential.env` is `ProviderEnv
+    = Record<string, string>` (`types.ts:113`) -- FLAT string-to-string only, never nested. Only
+    `OAuthCredential.extra` is the OPEN escape hatch (mirroring Pi''s own `[key: string]: unknown`
+    index signature), admitting arbitrary recursive JSON, since a provider-specific login flow
+    (e.g. Codex''s own `accountId`, `PROV-011`) attaches fields of any shape. Evidence for one field
+    must never be constructed using the other field''s own domain.
 
     `AuthContext.env` (`L11-R003`, remediated): Pi''s own `AuthContext` INTERFACE (`types.ts:97-
     100`) does NOT require blank-to-absent normalization -- only `defaultProviderAuthContext`, one
@@ -3762,24 +3767,32 @@ rows:
     protocol-level requirement; the protocol now correctly permits any conforming implementation to
     resolve a present-but-blank value unchanged, and only the DEFAULT implementation normalizes it.
 
-    `AuthContext.file_exists` (`L11-R008`, remediated): UNLIKE `env`, leading-`~` support IS part
-    of the PROTOCOL contract -- Pi''s own interface places this exact behavior directly on
+    `AuthContext.file_exists` (`L11-R008`, remediated twice): UNLIKE `env`, leading-`~` support IS
+    part of the PROTOCOL contract -- Pi''s own interface places this exact behavior directly on
     `fileExists`''s own doc comment (`types.ts:99-100`), not only on the default implementation. A
     remediation of `L11-R003` incorrectly over-generalized that fix to also weaken `file_exists`
-    into a default-only behavior; every conforming `AuthContext` implementation must interpret a
-    leading `~` as the user''s home directory. Pi''s own "always false in browsers" clause is
-    architecturally inapplicable (no browser runtime target here), not weakened or dropped.
+    into a default-only behavior (fixed); a first fix''s own W-R008-1 witness then passed an
+    ALREADY-EXPANDED path, which cannot discriminate real tilde expansion from a literal-relative-
+    path bug -- a second remediation replaced it with a LITERAL `"~"` input plus a negative-control
+    implementation proving the witness now actually discriminates. Pi''s own "always false in
+    browsers" clause is architecturally inapplicable (no browser runtime target here).
 
-    `Credential` value/reference semantics (`L11-R006`, resolved by explicit owner governance
-    decision, `agent-workflow.md` §11.7/§11.8 -- NO intentional divergence approved, entered
-    mandatory convergence after surviving two independent reviews): Pi stores plain, mutable
-    credential objects with no freezing or defensive copying anywhere, and `read`/`modify` expose
-    direct references into the SAME backing store. This row ADOPTS that exact observable behavior:
-    `env`/`extra` are stored EXACTLY as given at construction, with no copy and no freeze at any
-    level, recursively -- mutating the original mapping/list passed to a constructor, OR a nested
-    value reached through the credential itself, remains/becomes observable afterward, including
-    through `CredentialStore.read()`. Two prior candidate revisions each attempted an unapproved,
-    only-shallowly-implemented deep-immutable-value divergence instead; both are corrected here.
+    `Credential` value/reference semantics (`L11-R006`/`L11-R009`, resolved by explicit owner
+    governance decision, `agent-workflow.md` §11.7/§11.8 -- NO intentional divergence approved,
+    entered mandatory convergence after `L11-R006` survived three independent reviews): Pi stores
+    plain, mutable credential objects with no freezing or defensive copying anywhere, AT ANY FIELD,
+    and `read`/`modify` expose direct references into the SAME backing store. This row ADOPTS that
+    exact observable behavior IN FULL: SCALAR fields (`key`; `access`/`refresh`/`expires`) are
+    directly reassignable (`L11-R009` -- a first remediation adopted this for `env`/`extra` but left
+    the dataclasses themselves non-reassignable at the scalar level, an inconsistent partial
+    application of the SAME owner decision, now corrected: neither dataclass is `frozen` anymore);
+    mutating the original mapping/list passed to a constructor, OR assigning a BRAND-NEW top-level
+    key directly on `credential.env`/`credential.extra` itself, remains/becomes observable
+    afterward, including through `CredentialStore.read()` (a first remediation''s own witnesses
+    proved only nested-value mutation, never a genuine new-key assignment, which a rejected
+    `MappingProxyType`-wrapped candidate would ALSO have passed -- now corrected with an explicit
+    new-key witness). For `extra` only (never `env`, per its own flat domain above): nested dict/
+    list mutation reached through the credential itself also persists, recursively.
     `CredentialStore.modify()` remains the documented, INTENDED sole mutation authority
     (`PROV-007`), unaffected by and not dependent on this aliasing behavior -- a caller bypassing
     it by mutating a retained reference directly is possible, exactly matching Pi''s own documented
@@ -3788,21 +3801,28 @@ rows:
   - test_api_key_credential_defaults_to_no_key_or_env
   - test_api_key_credential_carries_key_and_env
   - test_w_r006_1_mutating_the_original_env_mapping_after_construction_is_observable
-  - test_w_r006_2_mutating_a_value_reached_through_the_credential_persists
+  - test_w_r006_2_assigning_a_new_top_level_key_on_env_persists
+  - test_w_r009_api_key_credential_scalar_fields_are_reassignable
   - test_oauth_credential_requires_access_refresh_expires
   - test_oauth_credential_extra_is_an_open_escape_hatch
   - test_w_r006_3_oauth_credential_extra_open_json_domain_round_trips_unchanged
   - test_w_r006_1_oauth_credential_extra_original_mapping_aliasing
+  - test_w_r006_2_mutating_a_nested_value_reached_through_extra_persists
+  - test_w_r006_new_top_level_key_assignment_on_extra_persists
+  - test_w_r009_oauth_credential_scalar_fields_are_reassignable
   - test_credential_info_carries_no_secret_fields
   - test_model_auth_is_closed_to_api_key_headers_base_url
   - test_auth_result_carries_env_and_source
   - test_auth_check_reports_type_and_source_only
   - test_auth_operation_options_default_signal_is_none
   - tests/auth/test_context.py (env present/absent/whitespace-blank; file_exists true/false/tilde-
-    expansion; a custom, non-normalizing AuthContext returning a blank value unchanged is
-    conforming; a second, independently-written AuthContext implementation also supports leading-~,
-    proving that is a protocol-level requirement, not merely DefaultAuthContext's own behavior)
-  - test_w_r006_aliasing_survives_a_modify_read_round_trip_through_the_store (tests/auth/test_store.py)
+    expansion via a literal "~" input; a custom, non-normalizing AuthContext returning a blank
+    value unchanged is conforming; a second, independently-written AuthContext implementation also
+    supports leading-~ against a literal input; a negative-control non-expanding implementation
+    fails the same literal input, proving the positive witness discriminates)
+  - test_w_r006_env_new_key_survives_a_store_round_trip (tests/auth/test_store.py)
+  - test_w_r006_extra_nested_mutation_survives_a_store_round_trip (tests/auth/test_store.py)
+  - test_w_r009_scalar_field_mutation_survives_a_store_round_trip (tests/auth/test_store.py)
   python: src/minion_agent/auth/credential.py; src/minion_agent/auth/context.py
   rust: Phase 5 auth foundation (pending independent Rust contract review)
   disposition: adopted

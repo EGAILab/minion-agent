@@ -4072,17 +4072,35 @@ rows:
     result. The exact sub-millisecond precision Pi''s own host runtime would produce is still not
     made normative (Python''s own scheduler cannot guarantee it either) -- only the MAGNITUDE
     (roughly one millisecond, not roughly one second) is adopted as the portable, cross-language
-    rule.'
+    rule.
+
+    Negative-`Infinity` regression (`L11-R016`, new, fifth-final-complete-review finding -- a
+    regression the second remediation itself introduced by treating every non-finite value
+    identically): pinned Pi''s own `Math.max(MINIMUM_INTERVAL_MS, Math.floor(-Infinity * 1000))`
+    resolves ORDINARILY to `MINIMUM_INTERVAL_MS` -- negative `Infinity` is a valid, comparable
+    number that simply LOSES every `Math.max` comparison against a finite value, so it NEVER
+    reaches the host timer as an "invalid delay" the way `NaN`/positive `Infinity` do; the
+    one-millisecond host-timer-clamp fallback this row otherwise adopts is never even consulted
+    for it. The second remediation''s own `not math.isfinite(...)` check incorrectly routed
+    negative `Infinity` through that SAME one-millisecond clamp too, an observable divergence in
+    the OPPOSITE direction from the original `L11-R014` mistake (0.001s instead of Pi''s own real
+    1.0s for this specific input). Fixed with a new `_needs_host_timer_clamp` predicate
+    (`math.isnan(x) or x == math.inf`, explicitly EXCLUDING negative `Infinity`) at all three
+    affected call sites, so negative `Infinity` instead takes the ordinary `max(MINIMUM_INTERVAL_
+    SECONDS, ...)` branch, which Python''s own plain `max()` already resolves correctly (unlike
+    `NaN`, negative `Infinity` participates normally in ordering comparisons).'
   tests:
-  - tests/auth/test_device_code.py (27 tests -- immediate success, pending/slow_down combinations
+  - tests/auth/test_device_code.py (28 tests -- immediate success, pending/slow_down combinations
     including a non-finite server interval falling back to the fixed increment and fractional
-    initial/server intervals floored to whole milliseconds, non-finite (Infinity/NaN) initial
+    initial/server intervals floored to whole milliseconds, NaN/positive-Infinity initial
     intervals not throwing when the first poll completes immediately AND clamping to Pi's own
     one-millisecond magnitude (reaching the second poll deterministically) when a pending response
-    means the interval is actually used, a NaN initial interval staying non-finite through a
-    slow_down fallback increment before being clamped, terminal failure, expiry with/without
-    slow_down, abort before/during sleep/during an in-flight poll, wait_before_first_poll, interval
-    clamping/defaulting, abortable_sleep direct tests)
+    means the interval is actually used, a NEGATIVE-Infinity initial interval instead clamping to
+    the ordinary one-second RFC-8628 floor (not the one-millisecond host-timer clamp), a NaN
+    initial interval staying non-finite through a slow_down fallback increment before being
+    clamped, terminal failure, expiry with/without slow_down, abort before/during sleep/during an
+    in-flight poll, wait_before_first_poll, interval clamping/defaulting, abortable_sleep direct
+    tests)
   - auth-device-code-immediate-success
   - auth-device-code-pending-then-slow-down-then-success
   - auth-device-code-slow-down-prefers-server-interval

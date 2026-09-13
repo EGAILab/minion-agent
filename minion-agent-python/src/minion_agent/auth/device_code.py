@@ -29,21 +29,43 @@ seconds, UNLESS the server's own response names a new interval directly (Pi's ow
 WSL/VM clock drift, so a server-provided interval is preferred when present)."""
 
 NON_FINITE_INTERVAL_FALLBACK_SECONDS = 0.001
-"""`L11-R014` (§11.8 convergence, revision 2): the delay a non-finite (`NaN`/`Infinity`) interval
-clamps to when it is actually USED to schedule a sleep. NOT `MINIMUM_INTERVAL_SECONDS` -- that
-constant is RFC 8628's own "never poll faster than this" floor for ORDINARY, finite intervals, a
-different concept entirely. This value instead matches pinned Pi's own OBSERVABLE magnitude as
-closely as Python reasonably can: Pi hands a non-finite delay straight through to the host
-`setTimeout`, and Node's own documented contract ("If delay is larger than 2147483647 or less than
-1, the delay will be set to 1") clamps ANY out-of-range delay -- `NaN` fails both bounds (every
-comparison against `NaN` is `false`), `Infinity` fails the upper bound -- to exactly ONE
-MILLISECOND, independently confirmed live against a real Node process by an earlier review. A
-revision of this constant previously chose `MINIMUM_INTERVAL_SECONDS` (one full second) instead,
-three orders of magnitude larger than Pi's own real value, which is an unapproved observable
-departure this revision corrects -- not merely "good enough progress," but the actual pinned
-magnitude, disclosed as approximate only in that Python's own scheduler cannot guarantee
-sub-millisecond precision, the same kind of immaterial mechanism difference `abortable_sleep`'s
-own 50 ms signal-polling slice already discloses elsewhere in this module."""
+"""`L11-R014` (§11.8 convergence, revision 2): the delay `NaN` or POSITIVE `Infinity` clamps to
+when actually USED to schedule a sleep. NOT `MINIMUM_INTERVAL_SECONDS` -- that constant is RFC
+8628's own "never poll faster than this" floor for ORDINARY, finite intervals, a different concept
+entirely. This value instead matches pinned Pi's own OBSERVABLE magnitude as closely as Python
+reasonably can: Pi hands an invalid delay straight through to the host `setTimeout`, and Node's own
+documented contract ("If delay is larger than 2147483647 or less than 1, the delay will be set to
+1") clamps ANY out-of-range delay -- `NaN` fails both bounds (every comparison against `NaN` is
+`false`), positive `Infinity` fails the upper bound -- to exactly ONE MILLISECOND, independently
+confirmed live against a real Node process by an earlier review. A revision of this constant
+previously chose `MINIMUM_INTERVAL_SECONDS` (one full second) instead, three orders of magnitude
+larger than Pi's own real value, which is an unapproved observable departure this revision
+corrects -- not merely "good enough progress," but the actual pinned magnitude, disclosed as
+approximate only in that Python's own scheduler cannot guarantee sub-millisecond precision, the
+same kind of immaterial mechanism difference `abortable_sleep`'s own 50 ms signal-polling slice
+already discloses elsewhere in this module.
+
+Deliberately EXCLUDES negative `Infinity` (`L11-R016`): pinned Pi's own `Math.max(MINIMUM_INTERVAL_
+MS, Math.floor(-Infinity * 1000))` resolves ORDINARILY to `MINIMUM_INTERVAL_MS` -- negative
+`Infinity` is a valid, comparable number that simply LOSES every `Math.max` comparison against a
+finite value, so it never reaches `setTimeout` as an "invalid delay" at all; the host-timer clamp
+this constant models is never even consulted for it. See `_needs_host_timer_clamp`'s own docstring
+for the exact predicate that keeps negative `Infinity` on the ordinary `max()` path instead."""
+
+
+def _needs_host_timer_clamp(seconds: float) -> bool:
+    """True only for `NaN` or POSITIVE `Infinity` (`L11-R016`) -- the two values that fail Node's
+    own `setTimeout` numeric bounds check and get clamped to its documented one-millisecond
+    minimum (`NON_FINITE_INTERVAL_FALLBACK_SECONDS`'s own docstring). Negative `Infinity` is
+    EXPLICITLY EXCLUDED: it is a valid, comparable number Python's own ordinary `max()` already
+    resolves CORRECTLY against `MINIMUM_INTERVAL_SECONDS` (unlike `NaN`, which Python's `max()`
+    mishandles via its own order-dependent comparison, `L11-R014`/`L11-R015`) -- routing negative
+    `Infinity` through this predicate's own `True` branch would incorrectly apply the host-timer
+    clamp to a value that never actually needs it, an earlier revision's own exact mistake (`L11-
+    R016`: pinned Pi's `Math.max(1000, -Infinity)` already yields plain `1000`, never reaching
+    `setTimeout` as an invalid delay at all)."""
+    return math.isnan(seconds) or seconds == math.inf
+
 
 CANCEL_MESSAGE = "Login cancelled"
 TIMEOUT_MESSAGE = "Device flow timed out"
@@ -169,8 +191,12 @@ async def abortable_sleep(
     docstring for why this is Pi's actual observed magnitude, not an independently-chosen
     "good enough" value -- a first convergence revision used `MINIMUM_INTERVAL_SECONDS` (one full
     second) instead, which an independent review correctly identified as an unapproved, three-
-    orders-of-magnitude-larger observable departure from Pi's own real behavior."""
-    if not math.isfinite(seconds):
+    orders-of-magnitude-larger observable departure from Pi's own real behavior. Negative
+    `Infinity` is deliberately NOT clamped here (`L11-R016`; see `_needs_host_timer_clamp`'s own
+    docstring) -- it falls through to the ordinary `remaining > 0` check below, which already
+    treats any non-positive duration as "no wait needed," matching Pi's own arithmetic-layer
+    resolution of negative `Infinity` to a plain, ordinary, non-special value."""
+    if _needs_host_timer_clamp(seconds):
         seconds = NON_FINITE_INTERVAL_FALLBACK_SECONDS
     if signal is not None and signal.aborted:
         raise DeviceFlowCancelled(CANCEL_MESSAGE)
@@ -210,16 +236,19 @@ async def poll_device_code_flow[T](
     _initial_floored = _floor_to_whole_milliseconds(
         interval_seconds if interval_seconds is not None else DEFAULT_POLL_INTERVAL_SECONDS
     )
-    # A non-finite floored value is left UNCHANGED here (`L11-R014`) -- Python's own two-argument
+    # `NaN`/positive `Infinity` are left UNCHANGED here (`L11-R014`) -- Python's own two-argument
     # `max()` would silently neutralize a NaN operand via its own order-dependent comparison
     # (`max(MINIMUM_INTERVAL_SECONDS, nan)` returns `MINIMUM_INTERVAL_SECONDS`, since `nan >
     # MINIMUM_INTERVAL_SECONDS` is `False`), which would incorrectly bypass `abortable_sleep`'s own
-    # explicit `math.isfinite` clamp below before it ever runs. Deferring to that single clamp point
-    # keeps NaN and Infinity on the exact same path, rather than one being neutralized here and the
-    # other reaching `abortable_sleep` still non-finite.
+    # explicit host-timer clamp below before it ever runs. Deferring to that single clamp point
+    # keeps NaN and positive Infinity on the exact same path, rather than one being neutralized
+    # here and the other reaching `abortable_sleep` still non-finite. NEGATIVE Infinity is
+    # deliberately EXCLUDED from this deferral (`L11-R016`) -- it takes the ordinary `max()` branch
+    # below, exactly like any other finite-but-too-small value, since Python's `max()` already
+    # resolves it correctly (unlike `NaN`) and Pi's own `Math.max` does the exact same thing.
     interval = (
         _initial_floored
-        if not math.isfinite(_initial_floored)
+        if _needs_host_timer_clamp(_initial_floored)
         else max(MINIMUM_INTERVAL_SECONDS, _initial_floored)
     )
     slow_down_responses = 0
@@ -251,15 +280,18 @@ async def poll_device_code_flow[T](
                     MINIMUM_INTERVAL_SECONDS, _floor_to_whole_milliseconds(server_interval)
                 )
             else:
-                # `interval + SLOW_DOWN_INCREMENT_SECONDS` stays non-finite if `interval` itself
-                # still is (an unclamped NaN/Infinity initial interval, `L11-R014`) -- the SAME
-                # `max()`-neutralization hazard as the initial-interval computation above applies
-                # here too, so it gets the same explicit non-finite check rather than relying on
-                # `max()`'s own order-dependent NaN comparison.
+                # `interval + SLOW_DOWN_INCREMENT_SECONDS` stays NaN/positive-Infinity if `interval`
+                # itself still is (an unclamped initial interval deferred by the SAME predicate
+                # above, `L11-R014`/`L11-R016`) -- the SAME `max()`-neutralization hazard as the
+                # initial-interval computation above applies here too, so it gets the same explicit
+                # host-timer-clamp check rather than relying on `max()`'s own order-dependent NaN
+                # comparison. `interval` is never negative-Infinity by this point (already resolved
+                # ordinarily at setup), but the SAME predicate is used here for correctness-by-
+                # construction rather than relying on that invariant holding forever.
                 _incremented = interval + SLOW_DOWN_INCREMENT_SECONDS
                 interval = (
                     _incremented
-                    if not math.isfinite(_incremented)
+                    if _needs_host_timer_clamp(_incremented)
                     else max(MINIMUM_INTERVAL_SECONDS, _incremented)
                 )
         # DevicePollPending (or a handled slow_down above): fall through to sleep-and-retry.

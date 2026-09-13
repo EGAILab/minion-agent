@@ -362,6 +362,27 @@ async def test_initial_interval_infinity_used_for_a_pending_response_clamps_to_p
     assert clock.elapsed == pytest.approx(0.001)
 
 
+async def test_negative_infinity_used_for_a_pending_response_clamps_to_the_rfc_floor() -> None:
+    """`L11-R016`: pinned Pi's own `Math.max(MINIMUM_INTERVAL_MS, Math.floor(-Infinity * 1000))`
+    resolves ORDINARILY to `MINIMUM_INTERVAL_MS` (one second) -- negative `Infinity` is a valid,
+    comparable number that simply LOSES every `Math.max` comparison against a finite value, so it
+    NEVER reaches `setTimeout` as an "invalid delay" the way `NaN`/POSITIVE `Infinity` do. A
+    candidate that treats every non-finite value alike (clamping negative `Infinity` to the SAME
+    one-millisecond `NON_FINITE_INTERVAL_FALLBACK_SECONDS` as `NaN`/positive `Infinity`) diverges
+    from Pi by three orders of magnitude in the OPPOSITE direction from `L11-R014`'s own original
+    mistake -- Pi actually waits the FULL one-second RFC-8628 floor here, not one millisecond."""
+    poll = ScriptedPoll([DevicePollPending(), DevicePollComplete("token")])
+    clock = FakeClock()
+
+    result = await poll_device_code_flow(
+        poll, interval_seconds=float("-inf"), sleep=clock.sleep, now=clock.now
+    )
+
+    assert result == "token"
+    assert poll.call_count == 2
+    assert clock.elapsed == pytest.approx(1.0)
+
+
 async def test_nan_initial_interval_stays_non_finite_through_a_slow_down_fallback_increment() -> (
     None
 ):

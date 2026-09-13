@@ -4117,9 +4117,39 @@ rows:
     coverage the direct-call boundary requires. `spec/auth.md` (`L11-R018`) was also corrected: a
     prior revision''s general "non-finite interval clamps to one millisecond" sentence was scoped
     too broadly, contradicting the negative-Infinity paragraph beside it; the spec now names the
-    two boundaries explicitly and scopes each rule to the boundary it actually governs.'
+    two boundaries explicitly and scopes each rule to the boundary it actually governs.
+
+    Direct-call fractional-millisecond truncation (`L11-R019`, seventh-final-complete-review
+    finding): a VALID delay (one `_needs_setimeout_clamp` accepts, i.e. in `[1, 2147483647]` ms) is
+    still not Pi-faithful at its own exact fractional-millisecond value -- Node''s real `setTimeout`
+    internally truncates ANY accepted delay to a whole integer millisecond count before scheduling
+    it (`Math.trunc`), independently of the documented invalid-range clamp `L11-R017` already
+    covers. `abortable_sleep(0.0019, ...)` (1.9 ms), called directly, is neither `NaN`/`Infinity`
+    nor outside the valid range, so `_needs_setimeout_clamp` left it untouched at its raw 1.9 ms --
+    but Pi''s own real `setTimeout` truncates it to exactly 1 ms. Fixed by reusing
+    `_floor_to_whole_milliseconds` (already `L11-R012`''s own helper for the poll loop''s explicit
+    upstream `Math.floor`) as `abortable_sleep`''s OWN post-clamp step for any delay that was NOT
+    routed through the invalid-delay fallback -- safe to reuse because a poll-loop-sourced delay is
+    already whole-millisecond by construction (flooring it again is a no-op) and a direct-call raw
+    fractional delay is now correctly truncated too. Discovered, during this same remediation, that
+    naively reusing a bare `math.floor` here regressed the canonical
+    `auth-device-code-expiry-without-slow-down` conformance scenario: the poll loop''s own
+    deadline-capped `min(interval, remaining)` sleep amount is `remaining = deadline - now()`, a
+    value DERIVED from repeated floating-point clock arithmetic (via `abortable_sleep`''s own
+    slicing loop, a disclosed Python-only mechanic, not a Pi behavior) that can carry `~1e-13`s of
+    summation drift -- a value MEANT to be an exact whole millisecond (e.g. `2000.0`) could arrive
+    as `1999.999999999973`, and a bare floor would incorrectly truncate that to `1999` instead of
+    the intended `2000`, undershooting the deadline and triggering one extra, unscripted poll()
+    call. Fixed with a `1e-6` ms epsilon tolerance inside `_floor_to_whole_milliseconds` itself
+    (`math.floor(seconds * 1000 + 1e-6) / 1000`) -- many orders of magnitude larger than any
+    float-summation drift this module produces, yet many orders of magnitude smaller than the
+    smallest genuinely-fractional delay any caller passes (e.g. the `1.9` ms witness above), so it
+    corrects the former without ever masking the latter. This epsilon addition applies to EVERY
+    caller of the helper (including the pre-existing `L11-R012` upstream-flooring call sites), but
+    changes no previously-tested behavior there, since none of those literal, caller-supplied
+    interval values were ever within `1e-6` ms of a whole-millisecond boundary to begin with.'
   tests:
-  - tests/auth/test_device_code.py (31 tests -- immediate success, pending/slow_down combinations
+  - tests/auth/test_device_code.py (32 tests -- immediate success, pending/slow_down combinations
     including a non-finite server interval falling back to the fixed increment and fractional
     initial/server intervals floored to whole milliseconds, NaN/positive-Infinity initial
     intervals not throwing when the first poll completes immediately AND clamping to Pi's own
@@ -4129,9 +4159,10 @@ rows:
     through the poll loop's own normalization, a NaN initial interval staying non-finite through a
     slow_down fallback increment before being clamped, terminal failure, expiry with/without
     slow_down, abort before/during sleep/during an in-flight poll, wait_before_first_poll, interval
-    clamping/defaulting, abortable_sleep direct tests INCLUDING three new direct (non-poll-loop)
-    calls proving negative Infinity, raw zero, and raw negative-finite delays all clamp to the
-    same one-millisecond magnitude when abortable_sleep is called standalone)
+    clamping/defaulting, abortable_sleep direct tests INCLUDING three direct (non-poll-loop) calls
+    proving negative Infinity, raw zero, and raw negative-finite delays all clamp to the same
+    one-millisecond magnitude when abortable_sleep is called standalone, PLUS one direct call
+    proving a raw 1.9ms delay truncates to exactly 1ms, matching Node's own setTimeout truncation)
   - auth-device-code-immediate-success
   - auth-device-code-pending-then-slow-down-then-success
   - auth-device-code-slow-down-prefers-server-interval

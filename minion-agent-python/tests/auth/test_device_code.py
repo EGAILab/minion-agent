@@ -506,5 +506,27 @@ async def test_abortable_sleep_direct_call_with_negative_finite_clamps_to_pi_mag
     assert total == pytest.approx(0.001)
 
 
+async def test_abortable_sleep_direct_call_with_fractional_millisecond_truncates_like_node() -> (
+    None
+):
+    """`L11-R019`: `0.0019` seconds (1.9 ms) is a VALID delay -- neither `NaN`/`Infinity` nor
+    outside `[1, 2147483647]` ms, so `_needs_setimeout_clamp` does not touch it -- but Node's real
+    `setTimeout` internally truncates ANY accepted delay to a whole integer millisecond count
+    before scheduling it, independently of that invalid-range clamp. `abortable_sleep` must
+    therefore schedule exactly `0.001` seconds (1 ms), not the raw `0.0019`."""
+    total = 0.0
+    calls = 0
+
+    async def track_sleep(seconds: float) -> None:
+        nonlocal total, calls
+        total += seconds
+        calls += 1
+
+    await abortable_sleep(0.0019, None, sleep=track_sleep, poll_interval_seconds=0.1)
+
+    assert calls >= 1
+    assert total == pytest.approx(0.001)
+
+
 async def _noop() -> None:
     pass

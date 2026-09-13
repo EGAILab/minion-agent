@@ -102,10 +102,23 @@ def _floor_to_whole_milliseconds(seconds: float) -> float:
     exactly rather than clamping here -- clamping a non-finite value that IS actually used to
     schedule a sleep is a SEPARATE concern, handled where the sleep is actually scheduled
     (`abortable_sleep`'s own docstring), matching Pi's own separate host-timer clamping boundary,
-    not this pure-math one."""
+    not this pure-math one.
+
+    Floors with a sub-nanosecond epsilon tolerance (`1e-6` ms), not a bare `math.floor`: a caller
+    that derives `seconds` from repeated floating-point clock arithmetic (`abortable_sleep`'s own
+    `L11-R019` use of this helper on a deadline-capped `remaining` value, itself the difference of
+    two floats each already carrying accumulated summation error from unrelated slicing) can hand
+    this function a value that is MEANT to be an exact whole millisecond but is actually a few
+    `1e-13`s below it (e.g. `1999.999999999973` instead of `2000.0`). A bare floor would silently
+    truncate that down to the WRONG lower millisecond, not because the underlying delay is
+    genuinely fractional, but purely as an artifact of unrelated floating-point noise nowhere near
+    Node's own actual millisecond-truncation contract. `1e-6` ms is many orders of magnitude larger
+    than any such accumulated float-summation drift this module produces, yet many orders of
+    magnitude smaller than the smallest genuinely-fractional delay any caller passes (e.g. `1.9`
+    ms) -- so this tolerance corrects the former without ever masking the latter."""
     if not math.isfinite(seconds):
         return seconds
-    return math.floor(seconds * 1000) / 1000
+    return math.floor(seconds * 1000 + 1e-6) / 1000
 
 
 @dataclass(frozen=True, slots=True)
@@ -199,9 +212,27 @@ async def abortable_sleep(
     docstring for the full two-boundary explanation). A caller invoking THIS function directly with
     a raw negative `Infinity` (or any other invalid delay) -- bypassing the poll loop's own
     normalization entirely -- still gets the SAME one-millisecond clamp `NaN`/positive `Infinity`
-    already receive, matching Pi's own exported function exactly."""
+    already receive, matching Pi's own exported function exactly.
+
+    A VALID delay (one `_needs_setimeout_clamp` does not reject) is still not scheduled at its own
+    exact fractional-millisecond value (`L11-R019`): Node's real `setTimeout` internally truncates
+    ANY accepted delay to a whole integer millisecond count before scheduling it, independently of
+    the documented invalid-range clamp above -- a delay of `0.0019` seconds (1.9 ms), called
+    directly, is neither `NaN`/`Infinity` nor outside `[1, 2147483647]` ms, so it is NOT touched by
+    `_needs_setimeout_clamp`, yet Node still truncates it to exactly 1 ms, not 1.9 ms. This is a
+    THIRD, separate rule from both the poll loop's own explicit `Math.floor` (`L11-R012`, applied to
+    the interval BEFORE `Math.max`, as part of Pi's own visible arithmetic) and this function's own
+    invalid-delay clamp above: it is `setTimeout`'s own internal behavior on an already-VALID delay,
+    so it applies here unconditionally, even to a delay the poll loop's own upstream flooring never
+    touched (a raw fractional-millisecond value passed directly to this exported function). Reusing
+    `_floor_to_whole_milliseconds` is safe here specifically because this branch is only reached for
+    an already-finite `seconds` (the non-finite/out-of-range cases all take the clamp branch above),
+    and flooring an already-whole-millisecond value (as every poll-loop-sourced call already is, per
+    `L11-R012`) is a no-op, so no double-application hazard exists for that caller."""
     if _needs_setimeout_clamp(seconds):
         seconds = NON_FINITE_INTERVAL_FALLBACK_SECONDS
+    else:
+        seconds = _floor_to_whole_milliseconds(seconds)
     if signal is not None and signal.aborted:
         raise DeviceFlowCancelled(CANCEL_MESSAGE)
     remaining = seconds

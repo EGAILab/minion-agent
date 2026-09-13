@@ -1,0 +1,18 @@
+name: auth-device-code-pending-then-slow-down-then-success
+family: agent
+authority: 2026-08-20-minion-agent-design.md
+pi_revision: b7bb00b936dbe21b8e160b3e89efdec361846699
+notes: >
+  A pending response is a plain retry-at-the-current-interval; a slow_down response with no
+  server-provided interval falls back to RFC 8628 section 3.5's own fixed +5s increment
+  (SLOW_DOWN_INCREMENT_SECONDS) rather than any Minion-invented value. Both must be survivable
+  on the way to an eventual success, not just individually.
+auth_device_code:
+  interval_seconds: 5
+  poll_sequence:
+    - pending: true
+    - slow_down: {}
+    - complete: { value: device-token-2 }
+expect:
+  poll_count: 3
+  complete: { value: device-token-2 }

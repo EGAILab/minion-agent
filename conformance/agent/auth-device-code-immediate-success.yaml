@@ -1,0 +1,13 @@
+name: auth-device-code-immediate-success
+family: agent
+authority: 2026-08-20-minion-agent-design.md
+pi_revision: b7bb00b936dbe21b8e160b3e89efdec361846699
+notes: >
+  The simplest possible device-flow outcome: the very first poll already reports
+  DevicePollComplete -- no sleep, no retry, poll_device_code_flow returns immediately.
+auth_device_code:
+  poll_sequence:
+    - complete: { value: device-token-1 }
+expect:
+  poll_count: 1
+  complete: { value: device-token-1 }

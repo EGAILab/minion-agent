@@ -1,0 +1,23 @@
+name: auth-device-code-slow-down-prefers-server-interval
+family: agent
+authority: 2026-08-20-minion-agent-design.md
+pi_revision: b7bb00b936dbe21b8e160b3e89efdec361846699
+notes: >
+  When the server's own slow_down response names an explicit interval, that value governs the
+  next wait outright -- it is not merely added on top of the fixed +5s increment (RFC 8628
+  section 3.5, Pi's own device-code.ts comment on trusting a server-provided interval over a
+  client-tracked one under clock drift). This scenario cannot observe elapsed seconds directly
+  (this canonical shape asserts only the outcome/poll_count, not timing), but a Rust
+  implementation that instead applied the fixed increment on top of the server's interval, or
+  ignored the server's interval entirely, still passes THIS scenario -- the corresponding
+  Python-only unit test (`test_slow_down_then_success_uses_server_provided_interval`) is what
+  pins the elapsed-time distinction; this scenario exists to keep the interval-selection branch
+  itself exercised through the shared seam.
+auth_device_code:
+  interval_seconds: 5
+  poll_sequence:
+    - slow_down: { interval_seconds: 9 }
+    - complete: { value: device-token-3 }
+expect:
+  poll_count: 2
+  complete: { value: device-token-3 }

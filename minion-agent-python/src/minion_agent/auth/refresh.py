@@ -19,6 +19,7 @@ was given.
 
 from __future__ import annotations
 
+import math
 import time
 from collections.abc import Awaitable, Callable
 
@@ -55,6 +56,23 @@ def _expires_soon(credential: OAuthCredential, minimum_validity_ms: float, now_m
     return now_ms + minimum_validity_ms >= credential.expires
 
 
+def _js_style_max(a: float, b: float) -> float:
+    """Matches JS `Math.max` exactly, including its own NaN-propagation rule (`L11-R015`):
+    `Math.max` returns `NaN` if EITHER argument is `NaN`, per the ECMAScript spec's own "if any
+    value is NaN, return NaN" step. Python's own two-argument `max()` instead performs an ordinary
+    `>`/`<` comparison, which silently treats `NaN` as "not greater," producing an ORDER-DEPENDENT
+    result that does NOT propagate `NaN` (`max(300000.0, float("nan"))` returns `300000.0`, not
+    `NaN`) -- exactly the mismatch this finding caught: an explicit `NaN` `minimum_validity_ms`
+    must poison the effective trigger threshold into `NaN` too, which then makes EVERY subsequent
+    `_expires_soon` comparison `False` (matching Python's -- and JS's -- own `NaN`-comparison
+    semantics, which already agree: any comparison against `NaN` is `False` in both languages).
+    That correctly SUPPRESSES refresh entirely for a `NaN` explicit minimum, matching Pi exactly,
+    rather than silently falling back to the ordinary five-minute default trigger."""
+    if math.isnan(a) or math.isnan(b):
+        return math.nan
+    return max(a, b)
+
+
 async def refresh_if_expiring(
     store: CredentialStore,
     provider_id: str,
@@ -82,6 +100,13 @@ async def refresh_if_expiring(
     five-minute window -- Pi's own `resolveStoredOAuth` reuses the SAME `expiresSoon` closure
     (built from the effective threshold) for the initial trigger, the under-lock recheck, AND the
     post-refresh validation; there is only ever one threshold in Pi, not two.
+
+    An explicit `NaN` `minimum_validity_ms` SUPPRESSES refresh entirely (`L11-R015`): the effective
+    threshold computation matches JS `Math.max`'s own NaN-propagation rule (`_js_style_max`), not
+    Python's own order-dependent `max()` (which would silently discard the `NaN` and fall back to
+    the five-minute default instead) -- a `NaN` threshold poisons every subsequent `_expires_soon`
+    comparison to `False`, so a credential is returned unrefreshed regardless of how close to
+    expiry it actually is, exactly matching pinned Pi's own observable behavior for this input.
 
     `refresh` receives the expiring credential AND a second, `Abortable` argument (`L11-R002`; Pi
     `OAuthAuth.refresh(credential, signal)`, `auth/types.ts:222`) -- a `CombinedSignal` (`signal.
@@ -111,7 +136,7 @@ async def refresh_if_expiring(
     if not isinstance(stored, OAuthCredential):
         return None
 
-    trigger_validity_ms = max(DEFAULT_MINIMUM_VALIDITY_MS, minimum_validity_ms or 0.0)
+    trigger_validity_ms = _js_style_max(DEFAULT_MINIMUM_VALIDITY_MS, minimum_validity_ms or 0.0)
     if not _expires_soon(stored, trigger_validity_ms, now_ms()):
         return stored
 

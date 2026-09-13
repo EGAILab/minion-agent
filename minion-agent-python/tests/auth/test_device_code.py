@@ -322,15 +322,15 @@ async def test_initial_interval_nan_does_not_throw_when_the_first_poll_completes
     assert poll.call_count == 1
 
 
-async def test_initial_interval_nan_used_for_a_pending_response_clamps_to_the_minimum() -> None:
-    """`L11-R014` (§11.8 convergence, second half): once a first `pending` response means the
+async def test_initial_interval_nan_used_for_a_pending_response_clamps_to_pi_magnitude() -> None:
+    """`L11-R014` (§11.8 convergence, revision 2): once a first `pending` response means the
     initial interval is actually USED to schedule a sleep (not merely set up and discarded by an
-    immediate `complete`), a non-finite interval must not prevent progress to the next poll.
-    Matching Pi's own host timer (Node's `setTimeout` clamps an invalid/out-of-range delay to its
-    minimal schedulable value rather than hanging), a non-finite USED interval clamps to
-    `MINIMUM_INTERVAL_SECONDS` -- the exact sub-millisecond host-timer latency is deliberately not
-    made normative (this project's own §11.8 convergence agreement), only that progress happens,
-    deterministically, under the fake clock."""
+    immediate `complete`), a non-finite interval must not prevent progress to the next poll --
+    AND must clamp to Pi's own real observable magnitude, not an independently-chosen, three-
+    orders-of-magnitude-larger value. Pi hands a non-finite delay straight to Node's own
+    `setTimeout`, which clamps any out-of-range delay to ONE MILLISECOND (`Number.isFinite`-free
+    numeric bounds check); a revision that instead used `MINIMUM_INTERVAL_SECONDS` (one full
+    second) was an unapproved observable departure from that real magnitude, corrected here."""
     poll = ScriptedPoll([DevicePollPending(), DevicePollComplete("token")])
     clock = FakeClock()
 
@@ -340,16 +340,16 @@ async def test_initial_interval_nan_used_for_a_pending_response_clamps_to_the_mi
 
     assert result == "token"
     assert poll.call_count == 2
-    assert clock.elapsed == pytest.approx(1.0)
+    assert clock.elapsed == pytest.approx(0.001)
 
 
-async def test_initial_interval_infinity_used_for_a_pending_response_clamps_to_the_minimum() -> (
+async def test_initial_interval_infinity_used_for_a_pending_response_clamps_to_pi_magnitude() -> (
     None
 ):
-    """`L11-R014` (§11.8 convergence, second half): the same clamp-to-minimum guarantee for
-    `Infinity` -- a prior revision let this loop forever slicing an ever-infinite remaining
-    duration, never reaching the second poll at all (the review's own exact discriminating
-    witness)."""
+    """`L11-R014` (§11.8 convergence, revision 2): the same Pi-magnitude clamp for `Infinity` -- an
+    earlier revision let this loop forever slicing an ever-infinite remaining duration, never
+    reaching the second poll at all; a later revision fixed the hang but clamped to a value three
+    orders of magnitude larger than Pi's own real one-millisecond host-timer clamp."""
     poll = ScriptedPoll([DevicePollPending(), DevicePollComplete("token")])
     clock = FakeClock()
 
@@ -359,7 +359,29 @@ async def test_initial_interval_infinity_used_for_a_pending_response_clamps_to_t
 
     assert result == "token"
     assert poll.call_count == 2
-    assert clock.elapsed == pytest.approx(1.0)
+    assert clock.elapsed == pytest.approx(0.001)
+
+
+async def test_nan_initial_interval_stays_non_finite_through_a_slow_down_fallback_increment() -> (
+    None
+):
+    """`L11-R014` (§11.8 convergence, revision 2): a `slow_down` response with no server-provided
+    interval increments the CURRENT interval by the fixed fallback amount
+    (`interval + SLOW_DOWN_INCREMENT_SECONDS`) -- if that current interval is still an unclamped
+    `NaN` (because the caller's own initial interval was `NaN` and no sleep has happened yet), the
+    incremented result (`NaN + 5.0 == NaN`) must ALSO stay non-finite rather than being silently
+    neutralized by `max()`'s own order-dependent `NaN` comparison, so the SAME `abortable_sleep`
+    clamp point still gets a chance to normalize it deterministically."""
+    poll = ScriptedPoll([DevicePollSlowDown(), DevicePollComplete("token")])
+    clock = FakeClock()
+
+    result = await poll_device_code_flow(
+        poll, interval_seconds=float("nan"), sleep=clock.sleep, now=clock.now
+    )
+
+    assert result == "token"
+    assert poll.call_count == 2
+    assert clock.elapsed == pytest.approx(0.001)
 
 
 async def test_abortable_sleep_raises_immediately_if_already_aborted() -> None:

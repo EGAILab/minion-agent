@@ -3948,7 +3948,18 @@ rows:
     Pi. The bug was invisible whenever the explicit minimum was >= the five-minute default (the
     pre-existing test only covered that case); an explicit minimum SMALLER than the default (e.g.
     one minute) would incorrectly accept a refreshed credential still expiring within the default
-    five-minute window. Corrected to reuse the SAME effective threshold for all three checks.'
+    five-minute window. Corrected to reuse the SAME effective threshold for all three checks.
+
+    Explicit-`NaN` threshold (`L11-R015`, new, fourth-final-complete-review finding): the effective
+    threshold computation (`max(DEFAULT_MINIMUM_VALIDITY_MS, minimum_validity_ms or 0.0)`) used
+    Python''s own plain `max()`, which silently discards a `NaN` `minimum_validity_ms` and falls
+    back to the five-minute default (`max(300000.0, nan)` returns `300000.0` in Python) -- whereas
+    Pi''s own `Math.max` PROPAGATES `NaN` if EITHER argument is `NaN`, making the effective
+    threshold `NaN` too, which then makes EVERY `expiresSoon` comparison `False` (a comparison
+    against `NaN` is always `False`), permanently SUPPRESSING refresh for that call regardless of
+    actual proximity to expiry. Fixed with a dedicated `_js_style_max` helper that explicitly
+    checks `math.isnan` on both operands before falling back to ordinary comparison, matching JS
+    `Math.max`''s own NaN-propagation rule exactly rather than Python''s incidental one.'
   tests:
   - test_no_stored_credential_returns_none_without_calling_refresh
   - test_a_non_oauth_stored_credential_returns_none_without_calling_refresh
@@ -3963,6 +3974,7 @@ rows:
   - test_logged_out_meanwhile_returns_none
   - test_explicit_minimum_validity_override_rejects_a_too_short_refresh
   - test_explicit_minimum_smaller_than_default_still_uses_the_effective_threshold
+  - test_explicit_minimum_validity_nan_suppresses_refresh_entirely
   - tests/auth/test_signal.py (5 tests -- CombinedSignal budget/caller-signal composition)
   python: src/minion_agent/auth/refresh.py; src/minion_agent/auth/signal.py
   rust: Phase 5 auth foundation (pending independent Rust contract review)
@@ -4033,24 +4045,44 @@ rows:
     interval is a HOST-timer effect: `setTimeout` clamps an out-of-range delay (`NaN`/`Infinity`
     both fail its own bounds check identically) to its own minimal schedulable value, letting the
     next poll happen promptly -- not something the pure `Math.floor`/`Math.max` arithmetic layer
-    itself produces. Second remediation: `abortable_sleep` (the Python analog of that host-timer
-    boundary, not the pure-arithmetic `_floor_to_whole_milliseconds` helper) now explicitly clamps
-    a non-finite `seconds` to `MINIMUM_INTERVAL_SECONDS` via an explicit `math.isfinite` check --
-    never relying on Python `min`/`max`''s own incidental `NaN` comparison behavior -- so BOTH
-    `NaN` and `Infinity` deterministically reach the next poll attempt. The exact clamped duration
-    is deliberately NOT Pi''s own sub-millisecond host-timer latency (host-specific, not
-    normative); only that progress happens is required, and the specific value chosen is the
-    SAME already-established minimum interval every other too-small interval already clamps to,
-    not a new, additional magic constant.'
+    itself produces. Second remediation (§11.8 convergence revision 1): `abortable_sleep` (the
+    Python analog of that host-timer boundary, not the pure-arithmetic
+    `_floor_to_whole_milliseconds` helper) now explicitly clamped a non-finite `seconds` to
+    `MINIMUM_INTERVAL_SECONDS` via an explicit `math.isfinite` check, never relying on Python
+    `min`/`max`''s own incidental `NaN` comparison behavior -- so BOTH `NaN` and `Infinity`
+    deterministically reached the next poll attempt. This closed the HANG but a further
+    independent review correctly found it introduced its OWN new, unapproved observable Pi
+    divergence: clamping to `MINIMUM_INTERVAL_SECONDS` (one full second) is three orders of
+    magnitude larger than Pi''s own real host-timer clamp (Node''s own documented `setTimeout`
+    contract clamps an out-of-range delay -- `NaN`/`Infinity` both fail its bounds check
+    identically -- to exactly ONE MILLISECOND, independently confirmed live against a real Node
+    process by that review), while this row continued to claim `adopted` (Pi-parity) disposition
+    for a materially different, undisclosed replacement value.
+
+    Third remediation (§11.8 convergence revision 2): a DEDICATED constant
+    `NON_FINITE_INTERVAL_FALLBACK_SECONDS` (0.001s, distinct from `MINIMUM_INTERVAL_SECONDS`,
+    which remains RFC 8628''s own unrelated "never poll faster than this" floor for ORDINARY
+    finite intervals) now replaces the one-second clamp, matching Pi''s own real magnitude rather
+    than an independently-invented "good enough" value. Two further NaN-neutralization hazards at
+    OTHER `max()` call sites in this same function (the initial-interval setup itself, and the
+    slow_down fallback increment applied to a still-unclamped `NaN` current interval) were also
+    found and fixed the same way -- an explicit `math.isfinite` check deferring to
+    `abortable_sleep`''s own single clamp point, rather than each site''s own accidental,
+    order-dependent `max()` behavior potentially producing yet another DIFFERENT, inconsistent
+    result. The exact sub-millisecond precision Pi''s own host runtime would produce is still not
+    made normative (Python''s own scheduler cannot guarantee it either) -- only the MAGNITUDE
+    (roughly one millisecond, not roughly one second) is adopted as the portable, cross-language
+    rule.'
   tests:
-  - tests/auth/test_device_code.py (26 tests -- immediate success, pending/slow_down combinations
+  - tests/auth/test_device_code.py (27 tests -- immediate success, pending/slow_down combinations
     including a non-finite server interval falling back to the fixed increment and fractional
     initial/server intervals floored to whole milliseconds, non-finite (Infinity/NaN) initial
-    intervals not throwing when the first poll completes immediately AND clamping to the minimum
-    interval (reaching the second poll deterministically) when a pending response means the
-    interval is actually used, terminal failure, expiry with/without slow_down, abort before/
-    during sleep/during an in-flight poll, wait_before_first_poll, interval clamping/defaulting,
-    abortable_sleep direct tests)
+    intervals not throwing when the first poll completes immediately AND clamping to Pi's own
+    one-millisecond magnitude (reaching the second poll deterministically) when a pending response
+    means the interval is actually used, a NaN initial interval staying non-finite through a
+    slow_down fallback increment before being clamped, terminal failure, expiry with/without
+    slow_down, abort before/during sleep/during an in-flight poll, wait_before_first_poll, interval
+    clamping/defaulting, abortable_sleep direct tests)
   - auth-device-code-immediate-success
   - auth-device-code-pending-then-slow-down-then-success
   - auth-device-code-slow-down-prefers-server-interval

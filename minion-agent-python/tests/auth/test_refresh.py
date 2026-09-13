@@ -305,3 +305,30 @@ async def test_explicit_minimum_smaller_than_default_still_uses_the_effective_th
         await refresh_if_expiring(
             store, "p", refresh, minimum_validity_ms=60_000.0, now_ms=lambda: 0.0
         )
+
+
+async def test_explicit_minimum_validity_nan_suppresses_refresh_entirely() -> None:
+    """`L11-R015`: pinned Pi's own `Math.max(300000, NaN)` returns `NaN` (JS `Math.max` propagates
+    `NaN` if EITHER argument is `NaN`), and `expiresSoon`'s own `>=` comparison against a `NaN`
+    threshold is ALWAYS `False` -- so an explicit `NaN` `minimum_validity_ms` suppresses refresh
+    entirely, regardless of how close to expiry the stored credential actually is. Python's own
+    order-dependent `max(300000.0, float("nan"))` instead silently returns `300000.0`, which would
+    incorrectly trigger and commit a refresh here -- the provider mutation authority is invoked in
+    one implementation and not the other, exactly the discriminating dimension this finding
+    caught."""
+    store = InMemoryCredentialStore()
+    stored = OAuthCredential(access="a1", refresh="r1", expires=120_000.0)
+    await store.modify("p", lambda _c: _set(stored))
+    refresh_calls = 0
+
+    async def refresh(credential: OAuthCredential, _signal: Abortable) -> OAuthCredential:
+        nonlocal refresh_calls
+        refresh_calls += 1
+        return OAuthCredential(access="a2", refresh="r2", expires=999_999.0)
+
+    result = await refresh_if_expiring(
+        store, "p", refresh, minimum_validity_ms=float("nan"), now_ms=lambda: 0.0
+    )
+
+    assert result == stored
+    assert refresh_calls == 0

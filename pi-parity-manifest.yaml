@@ -3855,7 +3855,8 @@ rows:
     reproduces "Property is read-only" -- both against the real mypy invocation, not simulated.
     Run via: mypy src/minion_agent tests/typing/valid_auth_credential_mutation.py)'
   python: src/minion_agent/auth/credential.py; src/minion_agent/auth/context.py
-  rust: Phase 5 auth foundation (pending independent Rust contract review)
+  rust: 'minion-agent-rust/crates/minion-agent/src/auth/credential.rs and context.rs;
+    tests/auth_foundation.rs (Layer 11 Rust certification candidate)'
   disposition: adopted
 - id: PROV-007
   phase: 5
@@ -3909,7 +3910,8 @@ rows:
   - test_delete_queued_behind_a_modify_never_runs_once_aborted_while_still_queued
   - test_modify_wait_rejects_promptly_when_aborted_mid_callback_and_result_is_discarded
   python: src/minion_agent/auth/store.py
-  rust: Phase 5 auth foundation (pending independent Rust contract review)
+  rust: 'minion-agent-rust/crates/minion-agent/src/auth/store.rs;
+    tests/auth_foundation.rs (Layer 11 Rust certification candidate)'
   disposition: adopted
 - id: PROV-008
   phase: 5
@@ -3977,7 +3979,8 @@ rows:
   - test_explicit_minimum_validity_nan_suppresses_refresh_entirely
   - tests/auth/test_signal.py (5 tests -- CombinedSignal budget/caller-signal composition)
   python: src/minion_agent/auth/refresh.py; src/minion_agent/auth/signal.py
-  rust: Phase 5 auth foundation (pending independent Rust contract review)
+  rust: 'minion-agent-rust/crates/minion-agent/src/auth/refresh.rs and signal.rs;
+    tests/auth_foundation.rs (Layer 11 Rust certification candidate)'
   disposition: adopted
 - id: PROV-009
   phase: 5
@@ -3997,7 +4000,8 @@ rows:
   - test_generate_pkce_verifier_meets_rfc7636_length_and_charset_constraints
   - test_generate_pkce_challenge_is_base64url_without_padding
   python: src/minion_agent/auth/pkce.py
-  rust: Phase 5 auth foundation (pending independent Rust contract review)
+  rust: 'minion-agent-rust/crates/minion-agent/src/auth/pkce.rs;
+    tests/auth_foundation.rs (Layer 11 Rust certification candidate)'
   disposition: adopted
 - id: PROV-010
   phase: 5
@@ -4250,7 +4254,8 @@ rows:
   - auth-device-code-expiry-without-slow-down
   - auth-device-code-expiry-after-slow-down-reports-clock-drift
   python: src/minion_agent/auth/device_code.py
-  rust: Phase 5 auth foundation (pending independent Rust contract review)
+  rust: 'minion-agent-rust/crates/minion-agent/src/auth/device_code.rs;
+    tests/auth_foundation.rs and auth_device_code_conformance.rs (Layer 11 Rust certification candidate)'
   disposition: adopted
 - id: PROV-011
   phase: 5

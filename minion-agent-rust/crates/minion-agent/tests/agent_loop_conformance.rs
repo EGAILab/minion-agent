@@ -47,9 +47,15 @@ fn contains_placeholder(value: &Value) -> bool {
 }
 
 fn classify(document: &Value) -> AgentDocumentKind {
-    if ["transform", "tool_registry", "agent_inbox", "llm_service"]
-        .iter()
-        .any(|key| document.get(key).is_some())
+    if [
+        "transform",
+        "tool_registry",
+        "agent_inbox",
+        "llm_service",
+        "auth_device_code",
+    ]
+    .iter()
+    .any(|key| document.get(key).is_some())
     {
         AgentDocumentKind::Primitive
     } else if contains_placeholder(document) {

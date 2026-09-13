@@ -4147,9 +4147,45 @@ rows:
     corrects the former without ever masking the latter. This epsilon addition applies to EVERY
     caller of the helper (including the pre-existing `L11-R012` upstream-flooring call sites), but
     changes no previously-tested behavior there, since none of those literal, caller-supplied
-    interval values were ever within `1e-6` ms of a whole-millisecond boundary to begin with.'
+    interval values were ever within `1e-6` ms of a whole-millisecond boundary to begin with.
+
+    CORRECTION (`L11-R020`, eighth-final-complete-review finding -- the above ''epsilon-neutrality''
+    claim was WRONG): the `L11-R019` remediation''s own reasoning ("changes no previously-tested
+    behavior") was true only because no EXISTING test happened to exercise a genuine near-boundary
+    input -- it did not establish that the epsilon was actually SAFE for one. It was not: `1.9999995`
+    ms is a genuine, valid public delay (`_needs_setimeout_clamp` does not touch it, being well
+    inside `[1, 2147483647]` ms), and pinned Pi''s real `setTimeout` (`Math.trunc`, which always
+    rounds toward zero, never to nearest) truncates it DOWN to `1` ms -- but the global `1e-6` ms
+    epsilon added by `L11-R019` rounded it UP to `2` ms instead, silently changing an observable
+    result for a genuine caller/server-supplied delay, not merely correcting internal clock-drift
+    noise as intended. The epsilon''s own justification (drift is always many orders of magnitude
+    SMALLER than any genuine fractional delay) was correct for delay values seen so far in this
+    project''s own tests, but the claim conflated "no CURRENTLY-TESTED input is affected" with "no
+    POSSIBLE public input is affected" -- a public delay chosen deliberately close to a
+    millisecond boundary (as this review''s own witness now permanently pins) is exactly the case
+    the epsilon was never entitled to touch.
+
+    Fixed by REMOVING the epsilon from `_floor_to_whole_milliseconds` entirely, restoring it to an
+    EXACT `math.floor(seconds * 1000) / 1000` used for every genuine, publicly-observable delay
+    (`L11-R012`''s own upstream flooring, and `L11-R019`''s own `abortable_sleep` direct-call
+    truncation) -- these must always match Pi''s own exact `Math.trunc` with zero tolerance. The
+    clock-drift-tolerance concept `L11-R019` was actually solving for is REAL and still needed, but
+    only for ONE specific internally-derived value: `poll_device_code_flow`''s own deadline
+    remainder (`deadline - now()`), which is the difference of two floats that can carry
+    `abortable_sleep`''s own signal-polling-slicing summation drift (a disclosed, Python-only
+    mechanic -- never a genuine external input). A new, narrowly-named helper,
+    `_snap_deadline_remainder_to_whole_milliseconds`, carries the SAME `1e-6` ms epsilon tolerance
+    but is used ONLY at the two call sites that compute that specific remainder (the
+    `wait_before_first_poll` branch and the main poll loop''s own retry-sleep computation) --
+    never anywhere a genuine caller/server-supplied delay could reach it. The permanent
+    `1.9999995` ms -> `1` ms witness this review required is now pinned directly against
+    `abortable_sleep`, proving the exact-truncation contract holds for a genuine near-boundary
+    public delay, while the pre-existing `auth-device-code-expiry-without-slow-down` conformance
+    scenario (this project''s own regression witness for the clock-drift problem `L11-R019`
+    originally fixed) continues to pass unchanged, confirming the isolated fix still resolves that
+    drift case without reintroducing the boundary-rounding defect this finding identified.'
   tests:
-  - tests/auth/test_device_code.py (32 tests -- immediate success, pending/slow_down combinations
+  - tests/auth/test_device_code.py (33 tests -- immediate success, pending/slow_down combinations
     including a non-finite server interval falling back to the fixed increment and fractional
     initial/server intervals floored to whole milliseconds, NaN/positive-Infinity initial
     intervals not throwing when the first poll completes immediately AND clamping to Pi's own
@@ -4161,8 +4197,11 @@ rows:
     slow_down, abort before/during sleep/during an in-flight poll, wait_before_first_poll, interval
     clamping/defaulting, abortable_sleep direct tests INCLUDING three direct (non-poll-loop) calls
     proving negative Infinity, raw zero, and raw negative-finite delays all clamp to the same
-    one-millisecond magnitude when abortable_sleep is called standalone, PLUS one direct call
-    proving a raw 1.9ms delay truncates to exactly 1ms, matching Node's own setTimeout truncation)
+    one-millisecond magnitude when abortable_sleep is called standalone, one direct call proving a
+    raw 1.9ms delay truncates to exactly 1ms matching Node's own setTimeout truncation, PLUS the
+    permanent L11-R020 witness proving a raw 1.9999995ms delay -- deliberately chosen a hair below
+    the 2ms boundary -- truncates DOWN to exactly 1ms, not rounded up, confirming the exact
+    (non-epsilon-tolerant) truncation contract holds for a genuine near-boundary public delay)
   - auth-device-code-immediate-success
   - auth-device-code-pending-then-slow-down-then-success
   - auth-device-code-slow-down-prefers-server-interval

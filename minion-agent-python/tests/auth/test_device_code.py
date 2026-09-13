@@ -528,5 +528,27 @@ async def test_abortable_sleep_direct_call_with_fractional_millisecond_truncates
     assert total == pytest.approx(0.001)
 
 
+async def test_abortable_sleep_direct_call_near_millisecond_boundary_truncates_exactly() -> None:
+    """`L11-R020`: `1.9999995` ms is a GENUINE public delay, deliberately chosen a hair below the
+    `2` ms boundary -- Pi's real `setTimeout` (`Math.trunc`, never rounds) truncates it DOWN to
+    `1` ms, exactly like any other value in `[1, 2)` ms. An earlier revision's epsilon-tolerant
+    `_floor_to_whole_milliseconds` incorrectly rounded this UP to `2` ms, conflating a genuine
+    near-boundary public input with the unrelated internal floating-point drift that only
+    `poll_device_code_flow`'s own deadline remainder can exhibit. `abortable_sleep`'s own
+    truncation must stay EXACT for a direct-call delay: this witness pins that permanently."""
+    total = 0.0
+    calls = 0
+
+    async def track_sleep(seconds: float) -> None:
+        nonlocal total, calls
+        total += seconds
+        calls += 1
+
+    await abortable_sleep(0.0019999995, None, sleep=track_sleep, poll_interval_seconds=0.1)
+
+    assert calls >= 1
+    assert total == pytest.approx(0.001)
+
+
 async def _noop() -> None:
     pass

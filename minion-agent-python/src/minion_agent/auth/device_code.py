@@ -104,21 +104,44 @@ def _floor_to_whole_milliseconds(seconds: float) -> float:
     (`abortable_sleep`'s own docstring), matching Pi's own separate host-timer clamping boundary,
     not this pure-math one.
 
-    Floors with a sub-nanosecond epsilon tolerance (`1e-6` ms), not a bare `math.floor`: a caller
-    that derives `seconds` from repeated floating-point clock arithmetic (`abortable_sleep`'s own
-    `L11-R019` use of this helper on a deadline-capped `remaining` value, itself the difference of
-    two floats each already carrying accumulated summation error from unrelated slicing) can hand
-    this function a value that is MEANT to be an exact whole millisecond but is actually a few
-    `1e-13`s below it (e.g. `1999.999999999973` instead of `2000.0`). A bare floor would silently
-    truncate that down to the WRONG lower millisecond, not because the underlying delay is
-    genuinely fractional, but purely as an artifact of unrelated floating-point noise nowhere near
-    Node's own actual millisecond-truncation contract. `1e-6` ms is many orders of magnitude larger
-    than any such accumulated float-summation drift this module produces, yet many orders of
-    magnitude smaller than the smallest genuinely-fractional delay any caller passes (e.g. `1.9`
-    ms) -- so this tolerance corrects the former without ever masking the latter."""
+    EXACT truncation, no epsilon tolerance (`L11-R020`): this helper is used for every genuine,
+    PUBLICLY-OBSERVABLE delay this module truncates -- the caller's own initial interval and a
+    server-provided `slow_down` interval (`L11-R012`), and `abortable_sleep`'s own direct-call
+    truncation of an already-valid delay (`L11-R019`). An earlier revision added a `1e-6` ms
+    epsilon tolerance HERE to work around unrelated floating-point drift in a completely different
+    value (`poll_device_code_flow`'s own internally-derived deadline remainder, `deadline -
+    now()`) -- but that made this helper WRONG for a genuine input near a millisecond boundary: Pi's
+    own real `setTimeout` truncates `1.9999995` ms down to `1` ms (`Math.trunc` never rounds), while
+    the epsilon-tolerant version incorrectly rounded it UP to `2` ms, silently changing an
+    observable result for a value nothing about this helper's own contract should ever touch. Any
+    tolerance for float-summation drift belongs ONLY at the single internal call site that actually
+    produces drift-prone values (`_snap_deadline_remainder_to_whole_milliseconds`, immediately
+    below) -- never here, where every input is a genuine public delay that must truncate exactly."""
     if not math.isfinite(seconds):
         return seconds
-    return math.floor(seconds * 1000 + 1e-6) / 1000
+    return math.floor(seconds * 1000) / 1000
+
+
+def _snap_deadline_remainder_to_whole_milliseconds(remaining: float) -> float:
+    """ONLY for `poll_device_code_flow`'s own internally-derived deadline remainder (`deadline -
+    now()`), NEVER for a genuine caller/server-supplied delay (`L11-R020`): unlike a literal input
+    value, `remaining` is the DIFFERENCE of two floats, each potentially carrying accumulated
+    floating-point summation error from `abortable_sleep`'s own signal-polling slicing loop (a
+    disclosed, Python-only mechanic -- see `abortable_sleep`'s own docstring -- not a Pi behavior).
+    A `remaining` value MEANT to be an exact whole millisecond (because the deadline and every
+    elapsed sleep leading to it were themselves whole-millisecond quantities) can therefore arrive a
+    few `1e-13`s below it (e.g. `1999.999999999973` instead of `2000.0`). A bare floor would
+    truncate that down to the WRONG lower millisecond, undershooting the deadline and triggering an
+    extra, unscripted poll attempt -- not because `remaining` is genuinely fractional, but purely as
+    an artifact of this module's own slicing implementation. A `1e-6` ms epsilon tolerance, applied
+    ONLY here, corrects that: many orders of magnitude larger than any float-summation drift this
+    module's own slicing produces, yet many orders of magnitude smaller than the smallest
+    genuinely-fractional delay a caller could ever supply, so it never masks a real input --
+    because it is never applied to one. `_floor_to_whole_milliseconds` itself, used for every
+    PUBLIC delay, stays exact."""
+    if not math.isfinite(remaining):
+        return remaining
+    return math.floor(remaining * 1000 + 1e-6) / 1000
 
 
 @dataclass(frozen=True, slots=True)
@@ -291,6 +314,10 @@ async def poll_device_code_flow[T](
     if wait_before_first_poll:
         remaining = deadline - now()
         if remaining > 0:
+            # `_snap_deadline_remainder_to_whole_milliseconds`, NOT `_floor_to_whole_milliseconds`
+            # (`L11-R020`): `remaining` is internally derived from clock arithmetic, not a genuine
+            # caller/server delay -- see that helper's own docstring.
+            remaining = _snap_deadline_remainder_to_whole_milliseconds(remaining)
             await abortable_sleep(min(interval, remaining), signal, sleep=sleep)
 
     while now() < deadline:
@@ -338,6 +365,10 @@ async def poll_device_code_flow[T](
         remaining = deadline - now()
         if remaining <= 0:
             break
+        # `_snap_deadline_remainder_to_whole_milliseconds`, NOT `_floor_to_whole_milliseconds`
+        # (`L11-R020`): `remaining` is internally derived from clock arithmetic, not a genuine
+        # caller/server delay -- see that helper's own docstring.
+        remaining = _snap_deadline_remainder_to_whole_milliseconds(remaining)
         await abortable_sleep(min(interval, remaining), signal, sleep=sleep)
 
     message = SLOW_DOWN_TIMEOUT_MESSAGE if slow_down_responses > 0 else TIMEOUT_MESSAGE

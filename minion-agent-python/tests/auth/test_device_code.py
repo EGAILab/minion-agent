@@ -443,5 +443,68 @@ async def test_abortable_sleep_completes_normally_without_a_signal() -> None:
     assert total == pytest.approx(0.25)
 
 
+async def test_abortable_sleep_direct_call_with_negative_infinity_clamps_to_pi_magnitude() -> None:
+    """`L11-R017`: pinned Pi's own EXPORTED `abortableSleep` has NO preceding normalization of its
+    own -- it hands `ms` straight to `setTimeout`, which clamps ANY invalid delay (including
+    NEGATIVE `Infinity`, not just `NaN`/positive `Infinity`) to Node's documented one-millisecond
+    floor. This is DIFFERENT from `test_negative_infinity_used_for_a_pending_response_clamps_to_
+    the_rfc_floor` above, which calls negative `Infinity` THROUGH `poll_device_code_flow`'s own
+    upstream `Math.max`-analog normalization -- that normalization resolves negative `Infinity` to
+    the ordinary one-second RFC floor BEFORE it would ever reach `abortable_sleep`. Called
+    directly, with no such normalization in front of it, negative `Infinity` must clamp to the
+    SAME one-millisecond magnitude as `NaN`/positive `Infinity`, not perform zero sleep at all (the
+    pre-fix bug: `while remaining > 0` with `remaining=-inf` is immediately `False`, so no sleep
+    call happens)."""
+    total = 0.0
+    calls = 0
+
+    async def track_sleep(seconds: float) -> None:
+        nonlocal total, calls
+        total += seconds
+        calls += 1
+
+    await abortable_sleep(float("-inf"), None, sleep=track_sleep, poll_interval_seconds=0.1)
+
+    assert calls >= 1
+    assert total == pytest.approx(0.001)
+
+
+async def test_abortable_sleep_direct_call_with_zero_clamps_to_pi_magnitude() -> None:
+    """`L11-R017` (explicitly requested characterization): a raw ZERO delay passed directly to
+    `abortable_sleep` is also outside Node's documented `setTimeout` valid range (`[1,
+    2147483647]` milliseconds) and must clamp to the same one-millisecond magnitude, not complete
+    with zero sleep calls."""
+    total = 0.0
+    calls = 0
+
+    async def track_sleep(seconds: float) -> None:
+        nonlocal total, calls
+        total += seconds
+        calls += 1
+
+    await abortable_sleep(0.0, None, sleep=track_sleep, poll_interval_seconds=0.1)
+
+    assert calls >= 1
+    assert total == pytest.approx(0.001)
+
+
+async def test_abortable_sleep_direct_call_with_negative_finite_clamps_to_pi_magnitude() -> None:
+    """`L11-R017` (explicitly requested characterization): a raw negative FINITE delay passed
+    directly to `abortable_sleep` is likewise outside Node's valid `setTimeout` range and must
+    clamp to the same one-millisecond magnitude, not complete with zero sleep calls."""
+    total = 0.0
+    calls = 0
+
+    async def track_sleep(seconds: float) -> None:
+        nonlocal total, calls
+        total += seconds
+        calls += 1
+
+    await abortable_sleep(-5.0, None, sleep=track_sleep, poll_interval_seconds=0.1)
+
+    assert calls >= 1
+    assert total == pytest.approx(0.001)
+
+
 async def _noop() -> None:
     pass

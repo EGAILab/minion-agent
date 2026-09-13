@@ -4088,19 +4088,50 @@ rows:
     (`math.isnan(x) or x == math.inf`, explicitly EXCLUDING negative `Infinity`) at all three
     affected call sites, so negative `Infinity` instead takes the ordinary `max(MINIMUM_INTERVAL_
     SECONDS, ...)` branch, which Python''s own plain `max()` already resolves correctly (unlike
-    `NaN`, negative `Infinity` participates normally in ordering comparisons).'
+    `NaN`, negative `Infinity` participates normally in ordering comparisons).
+
+    Direct-call `abortable_sleep` regression (`L11-R017`, sixth-final-complete-review finding --
+    the fourth remediation''s own `_needs_host_timer_clamp` predicate was correct for values
+    reaching `abortable_sleep` THROUGH the poll loop''s own upstream normalization, but wrong for
+    the SAME function called directly, standalone): pinned Pi''s own `abortableSleep` is ALSO an
+    INDEPENDENTLY EXPORTED function, not merely a private detail of `pollOAuthDeviceCodeFlow`.
+    Called directly -- bypassing the poll loop''s own `Math.max`-based normalization entirely --
+    it has NO normalization step of its own and hands its raw `ms` argument straight to
+    `setTimeout`, which clamps ANY delay outside `[1, 2147483647]` milliseconds (`NaN`, positive
+    `Infinity`, NEGATIVE `Infinity`, zero, any other negative number, or any positive
+    sub-millisecond number, ALL alike) to exactly one millisecond. `_needs_host_timer_clamp`
+    explicitly excluded negative `Infinity` -- correct for the poll-loop-normalized case (`L11-
+    R016`), but wrong for this direct-call boundary, where a raw negative `Infinity` reaching
+    `abortable_sleep`''s own `while remaining > 0` loop with `remaining=-inf` performed ZERO sleep
+    calls instead of Pi''s real one-millisecond wait. Fixed by replacing `_needs_host_timer_clamp`
+    with a new `_needs_setimeout_clamp` predicate that models Node''s FULL documented `setTimeout`
+    bounds check directly (`not (1 <= seconds*1000 <= 2_147_483_647)`, requiring no explicit `NaN`/
+    `Infinity` special-casing at all -- ordinary chained comparison against `NaN` already evaluates
+    `False` in both Python and JS, matching the predicate''s intended answer for it) as
+    `abortable_sleep`''s OWN clamp, while the poll loop''s own two upstream call sites (initial-
+    interval setup and the slow_down fallback increment) are simplified to check only
+    `math.isnan(...)` before deferring to ordinary `max()` -- positive AND negative `Infinity` both
+    already resolve correctly through plain Python `max()` at THAT boundary without any exclusion
+    needed, so no behavioral change results for either value at those two call sites; only the
+    `abortable_sleep` predicate itself gained the negative-Infinity (and raw zero/negative-finite)
+    coverage the direct-call boundary requires. `spec/auth.md` (`L11-R018`) was also corrected: a
+    prior revision''s general "non-finite interval clamps to one millisecond" sentence was scoped
+    too broadly, contradicting the negative-Infinity paragraph beside it; the spec now names the
+    two boundaries explicitly and scopes each rule to the boundary it actually governs.'
   tests:
-  - tests/auth/test_device_code.py (28 tests -- immediate success, pending/slow_down combinations
+  - tests/auth/test_device_code.py (31 tests -- immediate success, pending/slow_down combinations
     including a non-finite server interval falling back to the fixed increment and fractional
     initial/server intervals floored to whole milliseconds, NaN/positive-Infinity initial
     intervals not throwing when the first poll completes immediately AND clamping to Pi's own
     one-millisecond magnitude (reaching the second poll deterministically) when a pending response
     means the interval is actually used, a NEGATIVE-Infinity initial interval instead clamping to
-    the ordinary one-second RFC-8628 floor (not the one-millisecond host-timer clamp), a NaN
-    initial interval staying non-finite through a slow_down fallback increment before being
-    clamped, terminal failure, expiry with/without slow_down, abort before/during sleep/during an
-    in-flight poll, wait_before_first_poll, interval clamping/defaulting, abortable_sleep direct
-    tests)
+    the ordinary one-second RFC-8628 floor (not the one-millisecond host-timer clamp) when routed
+    through the poll loop's own normalization, a NaN initial interval staying non-finite through a
+    slow_down fallback increment before being clamped, terminal failure, expiry with/without
+    slow_down, abort before/during sleep/during an in-flight poll, wait_before_first_poll, interval
+    clamping/defaulting, abortable_sleep direct tests INCLUDING three new direct (non-poll-loop)
+    calls proving negative Infinity, raw zero, and raw negative-finite delays all clamp to the
+    same one-millisecond magnitude when abortable_sleep is called standalone)
   - auth-device-code-immediate-success
   - auth-device-code-pending-then-slow-down-then-success
   - auth-device-code-slow-down-prefers-server-interval

@@ -2,6 +2,7 @@
 
 pub mod agent;
 pub mod agent_loop;
+pub mod auth;
 pub mod llm;
 pub mod runtime;
 pub mod session;

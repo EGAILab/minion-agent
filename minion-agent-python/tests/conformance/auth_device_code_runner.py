@@ -33,7 +33,14 @@ class _InstantClock:
     """A monotonic-shaped fake clock advanced only by the amount its own `sleep` is asked to
     wait -- no real wall-clock time passes. Identical in kind to `test_device_code.py`'s own
     `FakeClock`; kept as a separate class here since a conformance runner must not import test
-    helpers from `tests/auth/`."""
+    helpers from `tests/auth/`.
+
+    Rounds `elapsed` to nanosecond precision after every increment (`L11-R021`), for the same
+    reason `FakeClock` does: a REAL monotonic clock is read directly, with no accumulated
+    summation error, but this fake one advances by repeatedly summing whatever durations
+    `abortable_sleep`'s own signal-polling slicing loop requests, and that repeated float addition
+    does not sum back to an exact whole number. That drift belongs to this test double, never to
+    production scheduling arithmetic, which must stay exactly tolerance-free for every input."""
 
     def __init__(self) -> None:
         self.elapsed = 0.0
@@ -42,7 +49,7 @@ class _InstantClock:
         return self.elapsed
 
     async def sleep(self, seconds: float) -> None:
-        self.elapsed += seconds
+        self.elapsed = round(self.elapsed + seconds, 9)
 
 
 def _build_outcome(entry: dict[str, Any]) -> DevicePollResult[str]:

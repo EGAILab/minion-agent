@@ -4183,9 +4183,46 @@ rows:
     public delay, while the pre-existing `auth-device-code-expiry-without-slow-down` conformance
     scenario (this project''s own regression witness for the clock-drift problem `L11-R019`
     originally fixed) continues to pass unchanged, confirming the isolated fix still resolves that
-    drift case without reintroducing the boundary-rounding defect this finding identified.'
+    drift case without reintroducing the boundary-rounding defect this finding identified.
+
+    CORRECTION (`L11-R021`, ninth-final-complete-review finding -- the above ''never anywhere a
+    genuine caller/server-supplied delay could reach it'' provenance claim was WRONG): `L11-R020`''s
+    own reasoning assumed `poll_device_code_flow`''s own `remaining = deadline - now()` is always
+    INTERNALLY DERIVED and therefore always safe to tolerance-snap -- but `remaining` is not
+    reliably drift-affected at all. On a FIRST computation (`wait_before_first_poll=True`, no sleep
+    yet performed), `remaining` is `deadline - now()` where `now()` has not advanced by any
+    summation yet -- it is arithmetic-identical to the caller''s own supplied `expires_in_seconds`,
+    a genuine public value. With `expires_in_seconds=0.0019999995` (1.9999995 ms) and
+    `wait_before_first_poll=True` on a stable clock, `_snap_deadline_remainder_to_whole_milliseconds`
+    rounded this genuine caller-supplied expiry UP to `2` ms -- pinned Pi''s real `setTimeout`
+    truncates it DOWN to `1` ms. The distinction `L11-R020` drew ("internal deadline remainder" vs.
+    "genuine public delay") does not correspond to any real boundary in the code: the SAME
+    expression, `deadline - now()`, is sometimes an exact copy of a public input and sometimes a
+    drift-affected internal computation, depending only on how many sleeps happened to precede it --
+    a property no amount of narrowing WHERE the tolerance is applied can fix, because the value
+    itself is ambiguous, not the call site.
+
+    Fixed by removing `_snap_deadline_remainder_to_whole_milliseconds` and ALL tolerance from this
+    module''s own production scheduling arithmetic entirely: `_floor_to_whole_milliseconds` is now
+    the ONLY truncation this module performs, applied identically and exactly to every delay
+    `abortable_sleep` ever schedules, with no exceptions and no epsilon anywhere, matching Pi''s own
+    real `Math.trunc` with zero tolerance for every input regardless of provenance. The
+    floating-point summation drift the two prior revisions were actually trying to compensate for
+    is entirely a property of the TEST DOUBLE clocks (`FakeClock` in `tests/auth/test_device_code.py`
+    and `_InstantClock` in `tests/conformance/auth_device_code_runner.py`), which advance by
+    repeatedly SUMMING whatever durations `abortable_sleep`''s own signal-polling slicing loop
+    requests -- a REAL monotonic clock is read directly and carries no such compounding summation
+    error. Both fake clocks now round their own accumulated `elapsed` value to nanosecond precision
+    (`round(self.elapsed + seconds, 9)`) after every increment, which prevents the ~`1e-13`s of
+    per-slice error from ever compounding across many slices, while never touching any delay value
+    this module actually schedules -- the fix lives entirely in the test doubles that manufacture
+    the drift, never in production arithmetic that must stay exact for every input. The permanent
+    `expires_in_seconds=0.0019999995`/`wait_before_first_poll=True` witness this review required is
+    now pinned directly against `poll_device_code_flow`, and the pre-existing
+    `auth-device-code-expiry-without-slow-down` conformance scenario continues to pass via the fake
+    clocks'' own rounding fix, confirmed by revert-and-confirm in both directions.'
   tests:
-  - tests/auth/test_device_code.py (33 tests -- immediate success, pending/slow_down combinations
+  - tests/auth/test_device_code.py (34 tests -- immediate success, pending/slow_down combinations
     including a non-finite server interval falling back to the fixed increment and fractional
     initial/server intervals floored to whole milliseconds, NaN/positive-Infinity initial
     intervals not throwing when the first poll completes immediately AND clamping to Pi's own
@@ -4198,10 +4235,14 @@ rows:
     clamping/defaulting, abortable_sleep direct tests INCLUDING three direct (non-poll-loop) calls
     proving negative Infinity, raw zero, and raw negative-finite delays all clamp to the same
     one-millisecond magnitude when abortable_sleep is called standalone, one direct call proving a
-    raw 1.9ms delay truncates to exactly 1ms matching Node's own setTimeout truncation, PLUS the
+    raw 1.9ms delay truncates to exactly 1ms matching Node's own setTimeout truncation, the
     permanent L11-R020 witness proving a raw 1.9999995ms delay -- deliberately chosen a hair below
     the 2ms boundary -- truncates DOWN to exactly 1ms, not rounded up, confirming the exact
-    (non-epsilon-tolerant) truncation contract holds for a genuine near-boundary public delay)
+    (non-epsilon-tolerant) truncation contract holds for a genuine near-boundary public delay, PLUS
+    the permanent L11-R021 witness proving expires_in_seconds=0.0019999995 with
+    wait_before_first_poll=True on a stable clock also truncates its own deadline-derived remainder
+    to exactly 1ms, not 2ms, confirming no tolerance survives anywhere a genuine caller-supplied
+    delay can reach)
   - auth-device-code-immediate-success
   - auth-device-code-pending-then-slow-down-then-success
   - auth-device-code-slow-down-prefers-server-interval

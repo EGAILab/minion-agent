@@ -19,7 +19,18 @@ from minion_agent.runtime.signal import RunAbortController
 
 
 class FakeClock:
-    """A monotonic-shaped fake clock, advanced only by the fake `sleep` it is paired with."""
+    """A monotonic-shaped fake clock, advanced only by the fake `sleep` it is paired with.
+
+    Rounds `elapsed` to nanosecond precision after every increment (`L11-R021`): a REAL monotonic
+    clock is read directly, with no accumulated summation error -- but this fake one advances by
+    repeatedly summing whatever durations `abortable_sleep`'s own signal-polling slicing loop
+    requests, and IEEE-754 float addition does not sum many small increments (e.g. one hundred
+    `0.05`s) back to an exact whole number. That drift is an artifact of THIS test double, never of
+    production code or of Pi's own real timing -- production's own scheduling arithmetic
+    (`_floor_to_whole_milliseconds`) must stay exactly tolerance-free for every input, including a
+    genuine caller-supplied value that happens to reach it through a deadline computation
+    (`L11-R021`'s own finding), so any drift correction belongs here, in the fake clock the drift
+    actually comes from, not in that shared production arithmetic."""
 
     def __init__(self) -> None:
         self.elapsed = 0.0
@@ -28,7 +39,7 @@ class FakeClock:
         return self.elapsed
 
     async def sleep(self, seconds: float) -> None:
-        self.elapsed += seconds
+        self.elapsed = round(self.elapsed + seconds, 9)
 
 
 class ScriptedPoll:
@@ -245,6 +256,31 @@ async def test_wait_before_first_poll_sleeps_once_before_the_first_attempt() -> 
 
     assert result == "token"
     assert clock.elapsed == pytest.approx(5.0)
+    assert poll.call_count == 1
+
+
+async def test_wait_before_first_poll_exact_expiry_remainder_truncates_like_node() -> None:
+    """`L11-R021`: with a SHORT `expires_in_seconds` (`0.0019999995`s = 1.9999995 ms) and
+    `wait_before_first_poll=True`, `deadline - now()` on this FIRST computation -- before any sleep
+    has happened, so no clock-arithmetic drift exists yet -- is EXACTLY the caller's own supplied
+    expiry value: a genuine public input, not an internally-drifted one. Pinned Pi's real
+    `setTimeout` (`Math.trunc`) truncates it DOWN to `1` ms; two earlier revisions each applied a
+    tolerance to this same `remaining` computation that instead rounded it UP to `2` ms, silently
+    changing a real caller-supplied expiry. This must schedule exactly `0.001` seconds, not
+    `0.002`."""
+    poll = ScriptedPoll([DevicePollComplete("token")])
+    clock = FakeClock()
+
+    result = await poll_device_code_flow(
+        poll,
+        expires_in_seconds=0.0019999995,
+        wait_before_first_poll=True,
+        sleep=clock.sleep,
+        now=clock.now,
+    )
+
+    assert result == "token"
+    assert clock.elapsed == pytest.approx(0.001)
     assert poll.call_count == 1
 
 

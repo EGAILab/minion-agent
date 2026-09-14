@@ -4399,31 +4399,115 @@ rows:
   disposition: deferred parity
 - id: PROV-013
   phase: 5
-  pi: 'packages/ai/src/auth/types.ts::AuthPrompt/AuthInfoLink/AuthEvent/AuthInteraction/
-    ProviderAuthInteraction/ApiKeyAuth/OAuthAuth/ProviderAuth; auth/resolve.ts::resolveProviderAuth;
-    models.ts::Models.checkAuth/getAuth/login/logout'
-  surface: Layer 11 -- generic auth/provider orchestration surface (login interactions, per-provider
-    auth-method vocabulary, top-level resolve/check/login/logout orchestration)
-  rule: 'New row (`L11-R005`, independent Rust contract review): this pinned-Pi public auth surface
-    was discovered during Pass-1 review but had NO Layer-11 slice/manifest disposition at all --
-    not a demand to implement it in Pass 1 (interactive login flows, provider-method registration,
-    and top-level auth orchestration have no generic-seam content of their own until a concrete
-    provider exists to exercise them), but a requirement not to silently lose track of it, since two
-    independent future implementers could otherwise reasonably make incompatible choices about
-    whether this vocabulary is even reserved.
+  pi: 'packages/ai/src/auth/resolve.ts::resolveProviderAuth/resolveStoredOAuth/resolveApiKey;
+    models.ts::Models.checkAuth/getAuth/login/logout/getAvailable'
+  surface: Layer 11 -- generic auth/provider ORCHESTRATION surface (top-level resolve/check/login/
+    logout dispatch built on top of the `PROV-014` interaction/auth-method vocabulary)
+  rule: 'SPLIT (owner-approved, 2026-09-14, durably recorded verbatim at
+    `https://github.com/EGAILab/minion-agent/issues/29#issuecomment-5659001629`, the
+    `GOVERNANCE_SOURCE` for this decision per `agent-workflow.md` §11.10): this row previously
+    bundled BOTH the login-interaction/auth-method VOCABULARY (`AuthPrompt`/`AuthEvent`/
+    `AuthInteraction`/`ProviderAuthInteraction`/`ApiKeyAuth`/`OAuthAuth`/`ProviderAuth`) and the
+    real dispatcher/orchestration BUILT ON TOP of it (`resolveProviderAuth`, `Models`-level
+    `checkAuth`/`getAuth`/`login`/`logout`). Pass-2 Slice A''s own PROV-011 closure criterion
+    needed the vocabulary directly (a concrete provider''s own `login()` must conform to Pi''s
+    `ProviderAuthInteraction` shape) with NO dependency on the orchestration half being ready --
+    reason enough that "deferred merely because generic Models-level orchestration is deferred"
+    was no longer an accurate disposition for the vocabulary specifically. The vocabulary now has
+    its OWN row, `PROV-014`, `adopted` in Pass 2 Slice B. This row keeps ONLY the orchestration
+    half, still `deferred parity`, unchanged in substance from the original `L11-R005` discovery
+    (independent Rust contract review): `resolveProviderAuth`''s own dispatch to stored-OAuth vs.
+    api-key vs. ambient-env resolution, and `Models`-level `checkAuth`/`getAuth`/`login`/`logout`/
+    `getAvailable`, require a real `Provider{id, auth: ProviderAuth, getModels()}`-shaped registry
+    Minion''s own `LlmService` (`register`/`models`/`stream` only, confirmed fresh during the
+    Pass-2 restart audit) does not have yet -- extending `LlmService` or inventing a replacement
+    orchestration service remains explicitly OUT OF SCOPE for Pass 2 (same governance source).
+    `Models.login`''s own commit-race-safety semantics (an abort-vs-mutation-started race, `resolve.
+    ts`/`models.ts:565-615`) additionally need their own careful design when this row is eventually
+    closed, not a trivial wire-up.
 
-    Closure criterion (binding on whichever future pass closes this row): a future Layer-11 pass
-    integrating a real provider''s own login flow (Codex OAuth network integration, slice 11B, or a
-    later provider) must audit this exact Pi vocabulary and either adopt it directly or document a
-    deliberate, disclosed divergence -- it must not invent an unrelated ad hoc login/prompt shape
-    without first comparing it against Pi''s own `AuthPrompt`/`AuthEvent`/`AuthInteraction`
-    vocabulary and `Models`'' own `checkAuth`/`getAuth`/`login`/`logout` orchestration shape.'
+    Closure criterion (binding on whichever future pass closes this row, UNCHANGED from the
+    original `L11-R005` discovery other than the vocabulary split above): a future pass that
+    introduces the provider/auth composition surface actually needing `Models`-equivalent
+    `login`/`logout`/`checkAuth`/`getAuth` orchestration must design the integration contract-first
+    against pinned Pi, consuming `PROV-014`''s own already-adopted vocabulary directly rather than
+    inventing an ad hoc replacement shape.'
   tests:
   - future Layer 11 conformance evidence (none yet -- this row is deferred parity, not adopted; no
     fabricated evidence is cited for behavior not yet implemented)
   python: 'NOT YET IMPLEMENTED -- deferred to a future Layer 11 pass, see closure criterion above'
   rust: 'NOT YET IMPLEMENTED -- deferred to a future Layer 11 pass'
   disposition: deferred parity
+- id: PROV-014
+  phase: 5
+  pi: 'packages/ai/src/auth/types.ts::AuthPrompt/AuthInfoLink/AuthEvent/AuthInteraction/
+    ProviderAuthInteraction/ApiKeyAuth/OAuthAuth/ProviderAuth (`types.ts:118-241`)'
+  surface: Layer 11 Pass 2, Slice B -- provider-auth interaction and auth-method VOCABULARY
+    (contract-first, no orchestration)
+  rule: 'Adopted in Pass 2 Slice B (owner-approved split out of the previously-bundled `PROV-013`,
+    2026-09-14, durably recorded verbatim at
+    `https://github.com/EGAILab/minion-agent/issues/29#issuecomment-5659001629`, the
+    `GOVERNANCE_SOURCE` for this decision per `agent-workflow.md` §11.10): the login-interaction/
+    prompt/notification vocabulary a provider''s own login flow uses (`AuthPrompt`/`AuthInfoLink`/
+    `AuthEvent`/`AuthInteraction`/`ProviderAuthInteraction`), and the per-provider auth-METHOD
+    vocabulary a concrete provider registers (`ApiKeyAuth`/`OAuthAuth`/`ProviderAuth`). Adopted
+    directly because `PROV-012`''s own Codex `login()` contract (a later Pass-2 slice, not yet
+    implemented) consumes this exact shape -- it is no longer deferred merely because the
+    SEPARATE, still-deferred `PROV-013` orchestration (`resolveProviderAuth`/`Models.*`) built on
+    top of it is not ready.
+
+    VOCABULARY ONLY, per explicit owner instruction: no `Models`-equivalent dispatcher, no
+    `LlmService` extension, no new generic `AuthService`/`AuthManager` architecture. A concrete
+    provider''s own login flow constructs and consumes these types directly; nothing in this row
+    wires them to a provider registry.
+
+    `AuthPrompt` (`types.ts:125-130`) is a tagged union of four variants
+    (`AuthPromptText`/`AuthPromptSecret`/`AuthPromptSelect`/`AuthPromptManualCode`), matching Pi''s
+    own discriminated-union shape via the project''s own established per-variant-dataclass-plus-
+    type-alias pattern (`DevicePollResult`, `PROV-010`). `AuthPromptSelect.options`'' own selected
+    value is the chosen option''s own `id`, never its `label` -- Pi''s own doc comment states this
+    explicitly. `AuthEvent` (`types.ts:137-147`) is the matching four-variant notification union
+    (`info`/`auth_url`/`device_code`/`progress`); `AuthEventUrl` carries a URL only -- browser
+    LAUNCHING itself is confirmed, independently during the Pass-2 restart audit, to live entirely
+    outside `packages/ai/src` (`packages/coding-agent/src/utils/open-browser.ts`, a CLI-layer
+    concern Minion has no equivalent of), so emitting this event is not the same as opening a
+    browser.
+
+    `AuthInteraction`/`ProviderAuthInteraction` are modeled as SEPARATE, standalone `Protocol`
+    classes (not one narrowing the other through inheritance) -- `signal`''s own declared type
+    differs (`Abortable | None` vs. required `Abortable`), and a mutable `Protocol` attribute is
+    invariant, so narrowing through inheritance would not type-check safely; `Protocol`''s own
+    structural typing means any object satisfying both shapes conforms to both regardless of
+    declared inheritance. `signal` reuses the ALREADY-CERTIFIED `Abortable` structural protocol
+    (`auth/signal.py`, `PROV-008`) -- no new cancellation primitive introduced; the per-prompt
+    `AuthPrompt.signal` racing pattern Pi''s own doc comment names ("a `manual_code` prompt raced
+    against a callback server, aborted when the callback wins") is directly realizable with the
+    ALREADY-CERTIFIED Layer-09 `RunAbortController`/`RunSignal` split, but wiring that race is
+    `PROV-012`''s own concern (Slice C), not resolved by this vocabulary-only row.
+
+    `ApiKeyAuth`/`OAuthAuth` are modeled as frozen dataclasses of `Callable`-typed fields (matching
+    the project''s own established convention for an injected callable, e.g. `refresh.py`''s own
+    `RefreshOperation`), constructible directly by a provider module rather than requiring class
+    inheritance. `ProviderAuth` enforces, at construction time via `__post_init__`, Pi''s own
+    binding doc-comment requirement that at least one of `api_key`/`oauth` is present ("even
+    ambient-credential providers and keyless local servers provide `apiKey` auth whose `resolve()`
+    reports whether the provider is configured") -- a real invariant, not left an unchecked
+    convention.'
+  tests:
+  - 'tests/auth/test_interaction.py (14 tests -- AuthPromptText/Secret/Select/ManualCode
+    construction and field defaults, AuthPromptSelect option id vs label, AuthEventInfo/Url/
+    DeviceCode/Progress construction and field defaults, ProviderAuth''s own __post_init__
+    invariant -- rejects zero of api_key/oauth, accepts api_key-only, oauth-only, and both --
+    ApiKeyAuth login/check defaulting to None, OAuthAuth is_subscription/login_label defaults)'
+  - 'tests/typing/valid_interaction_vocabulary.py (permanent static-type evidence, mypy-checked
+    only, never executed by pytest -- proves a PROPERLY-typed provider implementation, not
+    pytest''s own loosely-typed inline callbacks, actually satisfies AuthInteraction/
+    ProviderAuthInteraction''s own structural Protocol shape and every Callable type alias under
+    full mypy strictness. Run via: mypy src/minion_agent tests/typing/valid_interaction_vocabulary.py)'
+  python: src/minion_agent/auth/interaction.py
+  rust: 'NOT YET IMPLEMENTED -- Pass-2 Slice B Python-only per this pass''s own certification gate;
+    Rust implementation is a separate, later handoff'
+  disposition: adopted
 - id: MINION-001
   phase: 1
   pi: N/A — Minion plugin architecture

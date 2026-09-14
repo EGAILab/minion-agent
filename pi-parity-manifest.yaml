@@ -4372,29 +4372,66 @@ rows:
   disposition: adopted
 - id: PROV-012
   phase: 5
-  pi: 'packages/ai/src/auth/oauth/openai-codex.ts (browser callback state validation; the
-    bare-pasted-code state-validation exception/quirk; the browser/PKCE callback flow; device-code
-    Codex endpoint integration)'
-  surface: Layer 11 -- Codex browser callback / device-code endpoint integration
-  rule: 'Deferred parity, not adopted: characterized now, not implemented in Pass 1 -- explicitly
-    OUT OF SCOPE per Pass 1''s own network exclusions (no real auth.openai.com HTTP requests, no
-    local callback HTTP server on :1455, no browser launching, no live device-code HTTP calls).
-    Pass 1 builds only the GENERIC, provider-neutral PKCE (`PROV-009`) and device-code poll state
-    machine (`PROV-010`) this row''s own future implementation will consume as its transport-
-    injected seam; it does not itself perform Codex''s specific browser/device endpoint calls or
-    state-validation rules.
+  pi: 'packages/ai/src/auth/oauth/openai-codex.ts (browser/PKCE flow, local callback server,
+    manual-code racing, device-code flow, token exchange/refresh); packages/ai/src/utils/abort.ts
+    (`raceWithAbortSignal`, characterized here to distinguish it from this row''s own required
+    transport-cancellation behavior, NOT itself consumed by this row)'
+  surface: Layer 11 Pass 2, Slice C -- Codex OAuth NETWORK integration, consuming the already-
+    adopted `PROV-011` (account-id projection) and `PROV-014` (interaction/auth-method vocabulary)
+  rule: 'CONTRACT-FIRST (per the owner''s own Pass-2 scope decision, `GOVERNANCE_SOURCE`,
+    `https://github.com/EGAILab/minion-agent/issues/29#issuecomment-5659001629`, "Slice C: PROV-012
+    ... consuming Slice B vocabulary"): this row previously recorded only a characterization-level
+    placeholder (audit not yet performed against real Pi source, no function-level behavior
+    specified). A fresh, complete audit of pinned Pi''s own network half is now recorded in full,
+    normatively, in `spec/auth.md`''s own `PROV-012` section (fixed identity/endpoint constants;
+    login-method selection; the full browser/PKCE flow including the local callback server''s own
+    exact route/status-code rules and its own silent-bind-failure behavior; the concurrent
+    server-vs-manual-code race''s own exact precedence across every combination, not one
+    happy-path example; `parse_authorization_input`''s three input shapes, INCLUDING the
+    JS-`split(#,2)`-vs-a-host-language''s-own-unlimited-split fidelity trap; the device-code flow''s
+    own endpoint/validation rules and its own exact HTTP-response-to-`PROV-010`-poll-outcome
+    mapping; token exchange/refresh''s own shared response-parsing rule AND their DELIBERATELY
+    asymmetric cancellation/error-wrapping behavior; the disclosed poll-based-cancellation mapping
+    an HTTP transport must implement, explicitly distinguished from `raceWithAbortSignal`''s own
+    narrower, non-cancelling "stop waiting" behavior which this row does NOT reuse). `httpx` is
+    approved as the Python implementation mechanism for outbound requests, subject to six explicit
+    constraints (injectable transport seam, no httpx types in shared contracts, deterministic fake
+    transport in every test, no live secrets/network calls, cancellation mapped through the
+    existing `Abortable`/`RunSignal` contract) -- all restated in `spec/auth.md`''s own dedicated
+    subsection.
 
-    Closure criterion (binding on whichever future pass closes this row): a future Layer-11 pass
-    integrating real Codex browser/device network transport must audit and preserve Pi''s own exact
-    state-validation behavior, INCLUDING the documented bare-pasted-code exception (a user pasting
-    a bare authorization code, rather than a full callback URL, is a recognized quirk Pi''s own flow
-    accommodates, not an error condition) -- and must do so with no real live OAuth request in the
-    committed test suite (per this project''s own security constraint against live secrets/network
-    calls in tests).'
+    This row remains `deferred parity`, NOT `adopted`: the contract above is complete, but Python
+    implementation, tests, and gates for it do not exist yet -- a subsequent implementation pass
+    against this exact contract is required before this row can become `adopted`. Recording a
+    complete, audited contract before any code exists is the CONTRACT-FIRST discipline the owner''s
+    own Pass-2 slice ordering required for Slice C specifically (`GOVERNANCE_SOURCE` above: "Slice
+    C ... consuming Slice B vocabulary," ordered after, not merged into, Slice B''s own vocabulary
+    freeze) -- this is not the SAME thing Pass 1''s own placeholder characterization was (an
+    unaudited scope note), even though both use the identical `deferred parity` disposition value.
+
+    Out of scope for this row (owner-confirmed): browser LAUNCHING itself (this row only emits the
+    `auth_url` notification event, matching Pi''s own `packages/ai` boundary, since Pi''s own
+    browser-opening utility lives entirely in a separate CLI-layer package); the `codex-responses`
+    LLM wire adapter; `PROV-013`''s own generic `Models`-level orchestration (this row''s own
+    `login`/`refresh`/`to_auth` are the PER-PROVIDER vocabulary that orchestration would eventually
+    consume, not that orchestration itself); a Codex CLI credential-file loader.
+
+    Closure criterion (binding on the implementation pass that closes this row): implement against
+    this exact contract, with permanent regression evidence for every discriminating case in
+    `spec/auth.md`''s own behavior tables above (not merely a happy-path test per function) using
+    only synthetic fixtures and a deterministic fake transport -- no live `auth.openai.com` request,
+    no real secret, in the committed test suite, matching `PROV-011`''s own established security
+    constraint. If implementation discovers this contract cannot be expressed through the
+    already-certified `PROV-008`/`PROV-009`/`PROV-010` seams without changing their own observable
+    semantics, that is an `IMPLEMENTATION_DISCOVERED_CONTRACT_DEFECT` requiring owner governance
+    before proceeding, per the owner''s own Pass-2 scope decision -- those seams'' own certified
+    contracts are not silently widened to accommodate this row.'
   tests:
-  - future Layer 11 conformance evidence (none yet -- this row is deferred parity, not adopted; no
+  - future Layer 11 conformance evidence (none yet -- the CONTRACT is now complete and audited, but
+    this row remains deferred parity until a Python implementation pass against it exists; no
     fabricated evidence is cited for behavior not yet implemented)
-  python: 'NOT YET IMPLEMENTED -- deferred to a future Layer 11 pass, see closure criterion above'
+  python: 'NOT YET IMPLEMENTED -- contract complete (see `rule:` and `spec/auth.md`''s own PROV-012
+    section), implementation is a subsequent pass'
   rust: 'NOT YET IMPLEMENTED -- deferred to a future Layer 11 pass'
   disposition: deferred parity
 - id: PROV-013

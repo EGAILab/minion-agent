@@ -206,7 +206,32 @@ class AuthInteraction(Protocol):
     satisfies `AuthInteraction`'s own wider `Abortable | None` requirement, matching Pi exactly. A
     concrete implementation is unaffected: an ordinary mutable instance attribute (not itself a
     `@property`) still satisfies a Protocol's own read-only property requirement, since Protocol
-    matching only checks the READ side."""
+    matching only checks the READ side.
+
+    INTENTIONAL, NARROW, OWNER-APPROVED LANGUAGE-BINDING DIVERGENCE (`L11-SB-R006`,
+    `GOVERNANCE_SOURCE`: owner decision recorded verbatim at
+    `https://github.com/EGAILab/minion-agent/issues/29#issuecomment-5664609556`, per
+    `agent-workflow.md` §11.10): pinned Pi's own TypeScript type system additionally permits
+    ASSIGNING through an `AuthInteraction`-typed reference (`signal` is a plain, writable property
+    there, not `readonly`) -- a capability this read-only `@property` design does NOT reproduce.
+    This is a GENUINE, UNAVOIDABLE trade-off, not an oversight: TypeScript's own structural typing
+    for mutable object properties is well-documented to be UNSOUND for exactly this combination
+    (a required-property type narrowing a wider optional-property type, both independently
+    writable) -- Python's own sound type system cannot safely replicate that unsoundness no matter
+    how `signal` is modeled (a full read/write `@property` with a matching `.setter` was tried and
+    independently confirmed to reintroduce the ORIGINAL `L11-SB-R002` subtyping failure instead,
+    since a writable property is invariant for the identical reason a plain attribute is). Owner
+    governance explicitly chose to preserve the SUBTYPING relationship and the provider-login
+    guaranteed-`signal` invariant over widened-reference assignability, having confirmed (by
+    grepping the entire pinned Pi source tree) that NO actual Pi call site ever reassigns an
+    interaction's own `signal` after construction -- the sacrificed capability is a static
+    permission Pi's own real code never exercises. This divergence is SCOPED EXCLUSIVELY to
+    assignment through a value statically typed as `AuthInteraction`/`ProviderAuthInteraction`;
+    it does NOT require a concrete implementation's own runtime object to be immutable -- a
+    concrete class is free to expose its own mutable `signal` attribute or setter through its OWN
+    concrete type, matching Pi's own real object behavior exactly, as long as this Protocol's own
+    read-only view remains what generic vocabulary-consuming code sees. Tracked as a separate
+    manifest subject (`PROV-015`), NOT mixed into this row's own `adopted` disposition."""
 
     @property
     def signal(self) -> Abortable | None: ...
@@ -220,8 +245,9 @@ class ProviderAuthInteraction(Protocol):
     is REQUIRED, not optional: by the time a provider's own `login()` callable is invoked, the
     caller has already normalized an absent top-level signal into a real, always-present one. See
     `AuthInteraction`'s own docstring for why `signal` is a read-only `@property` here (covariant,
-    correctly subtyping `AuthInteraction`), not a plain mutable attribute (invariant, which broke
-    that same relationship in an earlier revision, `L11-SB-R002`)."""
+    correctly subtyping `AuthInteraction`, `L11-SB-R002`) and for the owner-approved, narrow
+    divergence this entails for widened-reference assignment specifically (`L11-SB-R006`,
+    tracked at `PROV-015`)."""
 
     @property
     def signal(self) -> Abortable: ...

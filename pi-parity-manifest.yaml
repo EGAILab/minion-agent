@@ -4531,7 +4531,48 @@ rows:
       fields are not). Fixed: `frozen=True` removed from all thirteen dataclasses (kept
       `slots=True`), matching this project''s own already-established precedent for the identical
       question on Layer-11 credentials (`PROV-006`/`L11-R006`/`L11-R009`: adopt Pi''s assignable
-      fields in full, no intentional divergence approved). Permanent mutation witnesses added.'
+      fields in full, no intentional divergence approved). Permanent mutation witnesses added.
+
+    SECOND CORRECTION (`L11-SB-R003` continued, second independent review -- `L11-SB-R003` survived
+    two reviews, triggering `agent-workflow.md` §11.8 contract convergence): the first correction
+    above closed the input-GROUPING ambiguity but left every async callable''s own FAILURE/DELIVERY
+    semantics unstated. Independently re-confirmed directly against pinned Pi before fixing further:
+    `ApiKeyAuth.check` (`models.ts:495-504`), `ApiKeyAuth.resolve` (`resolve.ts:188-192`), and
+    `OAuthAuth.to_auth` (`resolve.ts:174-178`) are each `await`ed inside their own real call site''s
+    `try`/`catch`, confirming all three MAY raise/reject (correcting a prior revision''s own wrong
+    "`to_auth` is not expected to raise" claim -- side-effect-free and "can fail" are independent
+    properties). `AuthInteraction.notify()` (`openai-codex.ts:429`, `:456`) is a direct, un-awaited,
+    un-wrapped synchronous statement at both real call sites, with no enclosing `try`/`catch` and no
+    detachment mechanism -- a synchronous throw propagates directly, correcting the prior "sync,
+    fire-and-forget" phrasing (ambiguous, could be misread as "failures are swallowed"). Every
+    affected callable''s own docstring, and `spec/auth.md`''s own PROV-014 section, now state this
+    failure/delivery contract explicitly. No behavior change -- Python''s own `Callable[...,
+    Awaitable[T]]` already permitted raising, and a bare `def notify(...) -> None` already
+    propagates synchronously; only the PROSE was incomplete.
+
+    NEW FINDING `L11-SB-R006` (`PI_PARITY_DEFECT`, found alongside the `L11-SB-R003` re-review):
+    the `L11-SB-R002` read-only-`@property` fix closes subtyping but, as a direct mathematical
+    consequence, also makes `signal` NOT assignable through an `AuthInteraction`-typed reference --
+    pinned Pi''s own TypeScript type permits that assignment (`signal` is a plain, non-`readonly`
+    property there). Independently confirmed this is NOT fixable by rearranging Python code: a full
+    read/write `@property` with a matching `.setter` was tried and confirmed (by direct `mypy`
+    probe) to reintroduce the ORIGINAL `L11-SB-R002` subtyping failure instead, since a writable
+    property is invariant for the identical reason a plain attribute is -- `ProviderAuthInteraction`
+    would need a NARROWER setter (`Abortable` only) than `AuthInteraction`''s own wider setter
+    (`Abortable | None`), which violates Liskov substitution regardless of how `signal` is modeled.
+    Pinned Pi''s own TypeScript type system is well-documented to be UNSOUND for exactly this
+    mutable-property-variance combination; Python''s own sound type system cannot safely replicate
+    that unsoundness. RESOLVED by explicit owner governance decision (`GOVERNANCE_SOURCE`, verbatim
+    at `https://github.com/EGAILab/minion-agent/issues/29#issuecomment-5664609556`, per
+    `agent-workflow.md` §11.10): preserve the `ProviderAuthInteraction <: AuthInteraction` subtyping
+    relationship and the provider-login guaranteed-`signal` invariant (keep the read-only
+    `@property` design); accept, as an INTENTIONAL, NARROW, OWNER-APPROVED language-binding
+    divergence, that assignment through a widened `AuthInteraction`-typed reference is not part of
+    the Python static contract -- confirmed, by grepping the entire pinned Pi source tree, that NO
+    actual Pi call site ever exercises this assignment. This divergence does NOT require a concrete
+    implementation''s own runtime object to be immutable; only the Protocol''s own widened-reference
+    view is affected. Tracked as its OWN manifest subject, `PROV-015`, per the owner''s own explicit
+    instruction not to silently mix a divergence into this otherwise fully-`adopted` row.'
   tests:
   - 'tests/auth/test_interaction.py (16 tests -- AuthPromptText/Secret/Select/ManualCode
     construction and field defaults, AuthPromptSelect stores DISTINCT id/label fields (construction/
@@ -4553,6 +4594,66 @@ rows:
   rust: 'NOT YET IMPLEMENTED -- Pass-2 Slice B Python-only per this pass''s own certification gate;
     Rust implementation is a separate, later handoff'
   disposition: adopted
+- id: PROV-015
+  phase: 5
+  pi: 'packages/ai/src/auth/types.ts::AuthInteraction/ProviderAuthInteraction (`signal` field
+    mutability specifically, `types.ts:156-164`)'
+  surface: Layer 11 Pass 2, Slice B -- Python-binding language-mechanics divergence for
+    AuthInteraction.signal widened-reference assignability (`L11-SB-R006`)
+  rule: 'INTENTIONAL, NARROW, OWNER-APPROVED LANGUAGE-BINDING DIVERGENCE (`L11-SB-R006`, second
+    independent Rust contract review; `GOVERNANCE_SOURCE` recorded verbatim at
+    `https://github.com/EGAILab/minion-agent/issues/29#issuecomment-5664609556`, per
+    `agent-workflow.md` §11.10). Deliberately SEPARATE from `PROV-014`''s own row, per the owner''s
+    own explicit instruction not to silently mix a divergence into an otherwise fully-`adopted`
+    interaction-vocabulary surface.
+
+    Pinned Pi''s own TypeScript type system permits TWO properties of `AuthInteraction`/
+    `ProviderAuthInteraction`''s own `signal` field simultaneously: (1) `ProviderAuthInteraction =
+    AuthInteraction & { signal: AbortSignal }` is a genuine SUBTYPE of `AuthInteraction` (a
+    normalized interaction with a REQUIRED `signal` remains usable anywhere the wider, OPTIONAL-
+    `signal` `AuthInteraction` is expected); and (2) `signal` is a plain, non-`readonly` property on
+    BOTH types, assignable through either. Independently and mathematically confirmed (via direct
+    `mypy` probes, not merely asserted) that Python''s own SOUND static type system cannot express
+    BOTH properties simultaneously for two protocols whose own `signal` type genuinely differs
+    (`Abortable | None` vs. required `Abortable`): a mutable Protocol attribute, OR a full read/
+    write `@property` with a matching `.setter`, is INVARIANT for structural-typing purposes, which
+    breaks property (1); a READ-ONLY `@property` restores property (1) (COVARIANT) but necessarily
+    forfeits assignment through the WIDENED `AuthInteraction`-typed reference specifically -- this
+    is not a Python implementation gap to be fixed with cleverer code, but a genuine, unavoidable
+    consequence of TypeScript''s own well-documented UNSOUNDNESS for this exact mutable-property-
+    variance combination, which a sound type system cannot safely replicate.
+
+    Owner governance explicitly chose to preserve property (1) (the subtyping relationship and the
+    provider-login guaranteed-`signal` invariant `L11-SB-R002` itself restored) over property (2)
+    (widened-reference assignability), after confirming -- by grepping the ENTIRE pinned Pi source
+    tree (`packages/ai/src`, `packages/coding-agent/src`) -- that NO actual Pi call site anywhere
+    ever reassigns an interaction''s own `signal` after construction. The sacrificed capability is a
+    STATIC PERMISSION Pi''s own real code never exercises, not an observed runtime behavior.
+
+    SCOPE, EXACTLY: code holding a value statically typed as `AuthInteraction`/
+    `ProviderAuthInteraction` cannot assign `.signal` through that Protocol-typed reference in
+    Python (`mypy` reports `Property "signal" ... is read-only`). This divergence does NOT extend
+    to runtime behavior or to any CONCRETE implementation: a concrete class backing either Protocol
+    remains free to expose its own mutable `signal` attribute or setter through its OWN concrete
+    type -- matching Pi''s own real object behavior exactly -- as long as the Protocol''s own
+    read-only view is what generic, vocabulary-consuming code sees. No runtime immutability is
+    introduced anywhere by this divergence.
+
+    RUST: this decision does not prescribe Python property mechanics for Rust. Rust must preserve
+    the language-neutral semantic contract this row states -- `ProviderAuthInteraction` specializes
+    `AuthInteraction`; a provider''s own `login()` receives a guaranteed-present `signal` -- using
+    whatever mutability representation is idiomatic and sound for Rust''s own type system; that
+    representation is reviewed independently when Rust implements this row, not prescribed here.'
+  tests:
+  - 'tests/typing/valid_interaction_vocabulary.py (the SAME permanent static-type evidence file as
+    `PROV-014`, since this divergence is a property of that same module''s own two Protocol
+    classes -- the `_as_base_interaction`/`_also_base_interaction` assignability witnesses prove
+    property (1), the subtyping relationship this divergence was chosen to preserve, is intact)'
+  python: src/minion_agent/auth/interaction.py
+  rust: 'NOT YET IMPLEMENTED -- Pass-2 Slice B Python-only per this pass''s own certification gate;
+    Rust implementation is a separate, later handoff; see this row''s own RUST note above for the
+    language-neutral contract a future Rust implementation must independently satisfy'
+  disposition: intentional divergence
 - id: MINION-001
   phase: 1
   pi: N/A — Minion plugin architecture

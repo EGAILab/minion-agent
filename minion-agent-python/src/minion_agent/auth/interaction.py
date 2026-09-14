@@ -179,6 +179,19 @@ class AuthInteraction(Protocol):
     cancels the WHOLE login flow; per-prompt cancellation instead uses that specific
     `AuthPrompt`'s own `signal` field.
 
+    `notify()` is a DIRECT SYNCHRONOUS call, not fire-and-forget/detached delivery (`L11-SB-R003`,
+    second independent review, CORRECTING an earlier revision's own ambiguous "sync,
+    fire-and-forget" phrasing, which could be misread as "delivery failures are swallowed"):
+    confirmed directly against pinned Pi's own real call sites (`openai-codex.ts:429`, `:456`) --
+    `interaction.notify({...})` is an ordinary, un-awaited, un-wrapped statement in the middle of
+    an `async` function's own body, with NO enclosing `try`/`catch` at either call site and no
+    detachment mechanism (no `setTimeout`, no `.catch()`, no fire-and-forget queuing) -- a
+    synchronous throw from `notify()` propagates directly out of the caller exactly like any other
+    synchronous statement would, becoming a rejected promise for the whole `login()` call. This
+    project's own bare `def notify(...)` (not `async def`) already models this correctly (a
+    synchronous Python exception propagates the same way); this note exists because the PROSE
+    describing it was previously ambiguous, not because the TYPE signature was wrong.
+
     `signal` is declared as a READ-ONLY `@property`, not a plain mutable instance attribute
     (`L11-SB-R002`, independent review): pinned Pi's own `ProviderAuthInteraction = AuthInteraction
     & { signal: AbortSignal }` is a TypeScript intersection type, under which a normalized
@@ -246,7 +259,15 @@ other injected-callable convention already established in this codebase (e.g. `r
 supplies the identical three pieces of information either way. `credential`/`signal`'s own
 requiredness is unchanged from Pi (`credential` may be absent/`None`; `ctx`/`signal` are always
 present); the return type (`AuthCheck | None`, async) is unchanged from Pi (`None` means not
-configured, exactly matching `ApiKeyResolve` below)."""
+configured, exactly matching `ApiKeyResolve` below).
+
+MAY RAISE/REJECT (`L11-SB-R003`, second independent review): confirmed directly against pinned Pi
+(`models.ts:495-504`) -- `Models.checkProviderAuth` `await`s `apiKey.check(...)` inside its own
+`try`/`catch`, wrapping a rejection as an auth-check failure. `ApiKeyCheck` itself carries NO
+error-suppression contract of its own; a caller CONSUMING this callable (a future orchestration
+layer, `PROV-013`, not this row) owns deciding how a raised exception is wrapped/reported --
+`PROV-014` states only that raising is a valid, expected outcome, matching Pi's own `catch`-wrapped
+call site."""
 
 type ApiKeyResolve = Callable[
     [AuthContext, ApiKeyCredential | None, Abortable], Awaitable[AuthResult | None]
@@ -255,7 +276,12 @@ type ApiKeyResolve = Callable[
 `types.ts:194-198`), merging per field. `None` means not configured. Same three-positional-
 parameter mapping from Pi's own structured `{ctx, credential?, signal}` input as `ApiKeyCheck`
 above -- see that type's own docstring for why this is a disclosed language mapping, not an
-observable semantic change."""
+observable semantic change.
+
+MAY RAISE/REJECT (`L11-SB-R003`, second independent review): confirmed directly against pinned Pi
+(`resolve.ts:188-192`, `resolveApiKey`) -- `await`ed inside a `try`/`catch`, wrapping a rejection
+as an auth failure. Same "raising is valid, wrapping is the future orchestration owner's own
+concern" contract as `ApiKeyCheck` above."""
 
 
 @dataclass(slots=True)
@@ -289,8 +315,16 @@ type OAuthToAuth = Callable[[OAuthCredential], Awaitable[ModelAuth]]
 """Side-effect-free derivation of request auth from a valid credential (Pi `OAuthAuth.toAuth`,
 `types.ts:229`) -- covers per-credential `base_url` (e.g. GitHub Copilot). ONE required positional
 parameter (unbundled 1:1 from Pi's own single-argument signature); async so a lazy wrapper can
-load its own implementation on first use, but otherwise side-effect-free and not expected to
-raise for a valid credential."""
+load its own implementation on first use.
+
+MAY RAISE/REJECT (`L11-SB-R003`, second independent review, CORRECTING an earlier revision's own
+"not expected to raise" claim): confirmed directly against pinned Pi (`resolve.ts:174-178`,
+`resolveStoredOAuth`) -- `await oauth.toAuth(credential)` runs inside a `try`/`catch`, wrapping a
+rejection as an OAuth-derivation failure. Pi's own real call site treats this exactly like
+`ApiKeyCheck`/`ApiKeyResolve` above (raising is a valid, expected outcome the future orchestration
+owner wraps), NOT as a function that is side-effect-free THEREFORE never fails -- those are
+independent properties; "side-effect-free" describes what `to_auth` does to the WORLD, not whether
+it can fail on an unexpected/malformed credential."""
 
 
 @dataclass(slots=True)

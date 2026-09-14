@@ -4541,14 +4541,37 @@ rows:
     `OAuthAuth.to_auth` (`resolve.ts:174-178`) are each `await`ed inside their own real call site''s
     `try`/`catch`, confirming all three MAY raise/reject (correcting a prior revision''s own wrong
     "`to_auth` is not expected to raise" claim -- side-effect-free and "can fail" are independent
-    properties). `AuthInteraction.notify()` (`openai-codex.ts:429`, `:456`) is a direct, un-awaited,
-    un-wrapped synchronous statement at both real call sites, with no enclosing `try`/`catch` and no
-    detachment mechanism -- a synchronous throw propagates directly, correcting the prior "sync,
-    fire-and-forget" phrasing (ambiguous, could be misread as "failures are swallowed"). Every
-    affected callable''s own docstring, and `spec/auth.md`''s own PROV-014 section, now state this
-    failure/delivery contract explicitly. No behavior change -- Python''s own `Callable[...,
-    Awaitable[T]]` already permitted raising, and a bare `def notify(...) -> None` already
-    propagates synchronously; only the PROSE was incomplete.
+    properties). `AuthInteraction.notify()` (`packages/ai/src/auth/oauth/openai-codex.ts:429`,
+    `:456`) is a direct, un-awaited, un-wrapped synchronous statement at both real call sites, with
+    no enclosing `try`/`catch` and no detachment mechanism -- a synchronous throw propagates
+    directly, correcting the prior "sync, fire-and-forget" phrasing (ambiguous, could be misread as
+    "failures are swallowed"). Every affected callable''s own docstring, and `spec/auth.md`''s own
+    PROV-014 section, now state this failure/delivery contract explicitly. No behavior change --
+    Python''s own `Callable[..., Awaitable[T]]` already permitted raising, and a bare
+    `def notify(...) -> None` already propagates synchronously; only the PROSE was incomplete.
+
+    THIRD CORRECTION (`L11-SB-R007`, `CONTRACT_ASSURANCE_DEFECT`, third independent review --
+    documentary/traceability only, no production behavior changed): the second correction above
+    described the failure/delivery contract as one blanket rule ("every async callable''s real call
+    site wraps rejection") without distinguishing that `ApiKeyAuth.login`/`OAuthAuth.login` are NOT
+    wrapped at their own real call site. Independently re-confirmed directly against pinned Pi:
+    `Models.login()` (`models.ts:565-575`) calls `method.login({...interaction, signal})` and awaits
+    the result through `raceWithAbortSignal(loginOperation, signal)` directly, with no enclosing
+    `try`/`catch` around that call; `Models.login()`''s own LATER `try`/`catch`
+    (`models.ts:591-613`) covers only the subsequent credential-store mutation step, not the login
+    call itself. `spec/auth.md`''s own PROV-014 section and this row now distinguish the two groups
+    explicitly (`check`/`resolve`/`to_auth`/`refresh` wrapped at their own cited call sites;
+    `login` unwrapped, propagating through `raceWithAbortSignal`) rather than generalizing one
+    group''s own wrapping behavior to the other. §11.8''s mandatory trigger check: `L11-SB-R007` is
+    a NEW finding ID with zero prior rejections on this exact ID, so the "same finding survives two
+    reviews" condition does not apply to it; the layer/slice AS A WHOLE has now accumulated three
+    rejected contract reviews (docs PR #78, #79, #80), meeting the OTHER §11.8 trigger condition on
+    its own terms. Proceeding with an ordinary targeted point-fix instead of re-entering full
+    convergence is deliberate, not an oversight: the third review''s own evidence already narrowed
+    the remaining surface to two mechanically-bounded, directly-cited documentary corrections (this
+    paragraph, and the assurance-artifact path correction below) with no new semantic disagreement
+    or unresolved behavior matrix -- not genuine unresolved semantic breadth requiring another
+    characterization/challenge cycle.
 
     NEW FINDING `L11-SB-R006` (`PI_PARITY_DEFECT`, found alongside the `L11-SB-R003` re-review):
     the `L11-SB-R002` read-only-`@property` fix closes subtyping but, as a direct mathematical

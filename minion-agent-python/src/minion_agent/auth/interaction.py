@@ -182,7 +182,8 @@ class AuthInteraction(Protocol):
     `notify()` is a DIRECT SYNCHRONOUS call, not fire-and-forget/detached delivery (`L11-SB-R003`,
     second independent review, CORRECTING an earlier revision's own ambiguous "sync,
     fire-and-forget" phrasing, which could be misread as "delivery failures are swallowed"):
-    confirmed directly against pinned Pi's own real call sites (`openai-codex.ts:429`, `:456`) --
+    confirmed directly against pinned Pi's own real call sites
+    (`packages/ai/src/auth/oauth/openai-codex.ts:429`, `:456`) --
     `interaction.notify({...})` is an ordinary, un-awaited, un-wrapped statement in the middle of
     an `async` function's own body, with NO enclosing `try`/`catch` at either call site and no
     detachment mechanism (no `setTimeout`, no `.catch()`, no fire-and-forget queuing) -- a
@@ -262,7 +263,17 @@ type ApiKeyLogin = Callable[[ProviderAuthInteraction], Awaitable[ApiKeyCredentia
 parameter (the normalized interaction); returns the newly-obtained credential, or raises/rejects
 on failure/cancellation -- Pi's own signature has no separate error channel. Absent means
 ambient-only (no interactive setup; the provider relies solely on `resolve`'s own ambient-source
-fallback)."""
+fallback).
+
+UNWRAPPED AT PI'S OWN REAL CALL SITE (`L11-SB-R007`, third independent review): unlike
+`ApiKeyCheck`/`ApiKeyResolve`/`OAuthToAuth` above, confirmed directly against pinned Pi that
+`Models.login()` (`models.ts:565-575`) calls `method.login({...interaction, signal})` and awaits
+the result through `raceWithAbortSignal(loginOperation, signal)` directly, with NO enclosing
+`try`/`catch` around that call -- a rejection propagates straight out of `Models.login()` itself.
+(`Models.login()` has a LATER `try`/`catch`, `models.ts:591-613`, but that covers only the
+subsequent credential-store mutation step, not the login call.) A future orchestration layer
+consuming this callable therefore has no existing Pi wrapping convention to mirror for login
+failures specifically, unlike the four callables above."""
 
 type ApiKeyCheck = Callable[
     [AuthContext, ApiKeyCredential | None, Abortable], Awaitable[AuthCheck | None]
@@ -328,7 +339,12 @@ type OAuthLogin = Callable[[ProviderAuthInteraction], Awaitable[OAuthCredential]
 REQUIRED: every OAuth auth method has an interactive setup flow. ONE required positional parameter
 (the normalized interaction, unbundled 1:1 from Pi's own single-argument signature -- no grouping
 ambiguity here, unlike `ApiKeyCheck`/`ApiKeyResolve` above); returns the newly-obtained credential,
-or raises/rejects on failure/cancellation."""
+or raises/rejects on failure/cancellation.
+
+UNWRAPPED AT PI'S OWN REAL CALL SITE (`L11-SB-R007`, third independent review): the SAME
+`Models.login()` call site as `ApiKeyLogin` above (both auth-method variants share it,
+`models.ts:565-575`) -- see `ApiKeyLogin`'s own docstring for the exact citation and reasoning.
+A rejection here propagates unwrapped, unlike `OAuthRefresh`/`OAuthToAuth` below."""
 
 type OAuthRefresh = Callable[[OAuthCredential, Abortable], Awaitable[OAuthCredential]]
 """Exchange the refresh token (Pi `OAuthAuth.refresh`, `types.ts:222`) -- a network call; TWO

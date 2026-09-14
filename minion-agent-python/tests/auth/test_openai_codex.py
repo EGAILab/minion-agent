@@ -79,6 +79,68 @@ def test_decode_jwt_rejects_base64url_alphabet_characters() -> None:
     assert decode_jwt(token) is None
 
 
+# `L11-SA-R001`: six independent-review witnesses, each independently re-confirmed against a live
+# Node v22 process before fixing (not merely trusting the review's own table).
+
+
+def test_decode_jwt_tolerates_ascii_whitespace_anywhere_in_the_payload_segment() -> None:
+    """`atob` implements the WHATWG "forgiving-base64 decode" algorithm, whose first step strips
+    EVERY ASCII whitespace character (tab/LF/FF/CR/space) anywhere in the input before decoding --
+    confirmed live: `atob("  MTIzNA==  ")` and `atob("MTIz\\tNA==")` both succeed, identically to
+    the unspaced form. A payload segment with an interior space must therefore still decode, not
+    be rejected as an invalid character the way a naive `base64.b64decode` port would."""
+    token = "header.eyJh IjoxfQ==.sig"
+    assert decode_jwt(token) == {"a": 1}
+
+
+def test_decode_jwt_rejects_malformed_partial_padding_rather_than_repairing_it() -> None:
+    """`atob("MTIzNA=")` (length 7, one `=` where the WHATWG algorithm's own exact condition --
+    length a multiple of 4, ending in exactly one or two `=` -- is not met) THROWS, confirmed
+    live -- even though `base64.b64decode` would happily re-pad and decode it to `"1234"`. This is
+    genuinely malformed padding Pi itself rejects, not merely omitted padding Pi tolerates
+    (`test_decode_jwt_accepts_missing_base64_padding` above covers the tolerated case, a payload
+    segment with NO trailing `=` at all)."""
+    token = "header.MTIzNA=.sig"
+    assert decode_jwt(token) is None
+
+
+def test_decode_jwt_rejects_the_bare_nan_literal() -> None:
+    """JS `JSON.parse("NaN")` throws (`"NaN" is not valid JSON`), confirmed live -- Python's own
+    `json.loads` accepts the bare token `NaN` by default as a non-standard extension. A JWT payload
+    containing this literal anywhere must fail to decode, not silently produce `float('nan')`."""
+    token = "header.TmFO.sig"  # base64 of the literal text "NaN"
+    assert decode_jwt(token) is None
+
+
+def test_decode_jwt_rejects_the_bare_infinity_literal() -> None:
+    """Same defect class as the `NaN` witness above, for `JSON.parse("Infinity")`, confirmed live
+    to throw identically."""
+    token = "header.SW5maW5pdHk=.sig"  # base64 of the literal text "Infinity"
+    assert decode_jwt(token) is None
+
+
+def test_decode_jwt_large_integers_lose_precision_like_js_json_parse() -> None:
+    """JS `JSON.parse` parses EVERY number as an IEEE-754 double, losing precision beyond `2**53` --
+    confirmed live: `JSON.parse("9007199254740993") === 9007199254740992`. Python's own `json.loads`
+    instead preserves the exact, arbitrary-precision integer by default, an observable divergence
+    for any JWT claim carrying a large numeric value. `decode_jwt` must silently lose the SAME
+    precision JS does, not preserve exactness JS never had."""
+    token = "header.OTAwNzE5OTI1NDc0MDk5Mw==.sig"  # base64 of the literal text "9007199254740993"
+    assert decode_jwt(token) == 9007199254740992.0
+
+
+def test_decode_jwt_preserves_negative_zero_like_js_json_parse() -> None:
+    """JS `JSON.parse("-0")` produces the IEEE-754 negative zero, distinct from `+0` under
+    `Object.is`, confirmed live. Python's own `json.loads("-0")` instead produces the plain integer
+    `0` by default, which has no sign to preserve. `decode_jwt` must keep the sign JS does."""
+    import math
+
+    token = "header.LTA=.sig"  # base64 of the literal text "-0"
+    result = decode_jwt(token)
+    assert result == 0.0
+    assert math.copysign(1.0, result) == -1.0  # genuinely -0.0, not +0.0
+
+
 def test_decode_jwt_returns_none_for_a_token_that_is_not_three_segments() -> None:
     assert decode_jwt("only.two") is None
     assert decode_jwt("one") is None

@@ -13,6 +13,18 @@ VOCABULARY ONLY -- no orchestration, no `Models`-equivalent dispatcher, no `LlmS
 extension. A concrete provider's own login flow (e.g. `PROV-012`'s Codex OAuth integration, a
 later Pass-2 slice) constructs and consumes these types directly; nothing here wires them to a
 provider registry.
+
+Every dataclass below is genuinely MUTABLE (`slots=True`, deliberately NOT `frozen=True`),
+matching pinned Pi's own public object/interface field shapes, none of which are `readonly`
+(`L11-SB-R005`, independent review; only the two COLLECTION fields, `AuthPromptSelect.options`/
+`AuthEventInfo.links`, are `readonly` in Pi, and stay `tuple`s here for exactly that reason -- an
+ordinary field being freely reassignable is a DIFFERENT question from a collection's own elements
+being replaceable one at a time, and only the latter is restricted in Pi). This project already
+resolved the identical "should an adopted public value be frozen despite Pi's own assignable
+fields" question for Layer-11 credentials (`PROV-006`, `L11-R006`/`L11-R009`, owner-decided:
+adopt Pi's assignable fields in full, no intentional divergence approved) -- freezing this newly
+adopted vocabulary without an equivalent, separately-recorded owner approval would silently
+reopen that same resolved question for a new type family.
 """
 
 from __future__ import annotations
@@ -34,7 +46,7 @@ from .signal import Abortable
 # --- AuthPrompt: the shapes a prompt shown to the user during login can take -----------------
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class AuthPromptText:
     """A free-text prompt (Pi `AuthPrompt`'s own `{type: "text", ...}` variant, `types.ts:126`).
     `signal` lets the flow cancel THIS pending prompt when an out-of-band event resolves the step
@@ -47,7 +59,7 @@ class AuthPromptText:
     signal: Abortable | None = None
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class AuthPromptSecret:
     """A masked/secret-entry prompt (Pi `{type: "secret", ...}`, `types.ts:127`) -- the same shape
     as `AuthPromptText`, distinguished only by display treatment (never echoed/logged in plain
@@ -58,7 +70,7 @@ class AuthPromptSecret:
     signal: Abortable | None = None
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class AuthPromptOption:
     """One selectable option for `AuthPromptSelect` (Pi's own inline `{id, label, description?}`
     object literal, `types.ts:128`)."""
@@ -68,7 +80,7 @@ class AuthPromptOption:
     description: str | None = None
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class AuthPromptSelect:
     """A single-choice prompt from a fixed option set (Pi `{type: "select", ...}`, `types.ts:128`).
     `prompt()`'s own return value for THIS variant is the chosen option's own `id`, never its
@@ -80,7 +92,7 @@ class AuthPromptSelect:
     signal: Abortable | None = None
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class AuthPromptManualCode:
     """A manual-entry fallback prompt (Pi `{type: "manual_code", ...}`, `types.ts:129`) -- used
     when an interactive callback (e.g. a local OAuth server) is racing this same prompt; Pi's own
@@ -101,7 +113,7 @@ type AuthPrompt = AuthPromptText | AuthPromptSecret | AuthPromptSelect | AuthPro
 # --- AuthEvent: the notifications a login flow may emit ---------------------------------------
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class AuthInfoLink:
     """A link accompanying an `AuthEventInfo` notification (Pi `AuthInfoLink`,
     `types.ts:132-135`)."""
@@ -110,7 +122,7 @@ class AuthInfoLink:
     label: str | None = None
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class AuthEventInfo:
     """An informational notification, optionally with supporting links (Pi `{type: "info", ...}`,
     `types.ts:138`)."""
@@ -119,7 +131,7 @@ class AuthEventInfo:
     links: tuple[AuthInfoLink, ...] | None = None
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class AuthEventUrl:
     """A URL the user should open to continue login (Pi `{type: "auth_url", ...}`, `types.ts:139`)
     -- e.g. Codex's own browser-flow authorization URL (`PROV-012`). Emitting this event is NOT
@@ -132,7 +144,7 @@ class AuthEventUrl:
     instructions: str | None = None
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class AuthEventDeviceCode:
     """RFC 8628 device-code details the user must act on (Pi `{type: "device_code", ...}`,
     `types.ts:140-146`) -- the notification counterpart to the already-certified `PROV-010` poll
@@ -145,7 +157,7 @@ class AuthEventDeviceCode:
     expires_in_seconds: float | None = None
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class AuthEventProgress:
     """A free-text progress update with no further structure (Pi `{type: "progress", ...}`,
     `types.ts:147`)."""
@@ -165,10 +177,26 @@ class AuthInteraction(Protocol):
     `AuthInteraction`, `types.ts:156-161`). `prompt()` returns the entered/selected string
     (`select` returns the chosen option's own `id`); raises/rejects on cancel/abort. `signal`
     cancels the WHOLE login flow; per-prompt cancellation instead uses that specific
-    `AuthPrompt`'s own `signal` field."""
+    `AuthPrompt`'s own `signal` field.
 
-    signal: Abortable | None
+    `signal` is declared as a READ-ONLY `@property`, not a plain mutable instance attribute
+    (`L11-SB-R002`, independent review): pinned Pi's own `ProviderAuthInteraction = AuthInteraction
+    & { signal: AbortSignal }` is a TypeScript intersection type, under which a normalized
+    interaction (required `signal`) remains a valid `AuthInteraction` (optional `signal`) --
+    ordinary structural subtyping, since "always present with this type" trivially satisfies
+    "optionally present with this type." A mutable Protocol attribute is INVARIANT under Python's
+    own static-typing rules (a consumer could otherwise assign an incompatible value through the
+    narrower reference), which silently broke this exact subtype relationship in an earlier
+    revision: `ProviderAuthInteraction` could not be used anywhere `AuthInteraction` was expected,
+    contradicting Pi's own intersection-type semantics. A read-only property is instead
+    COVARIANT -- `ProviderAuthInteraction`'s own narrower `Abortable` return type correctly
+    satisfies `AuthInteraction`'s own wider `Abortable | None` requirement, matching Pi exactly. A
+    concrete implementation is unaffected: an ordinary mutable instance attribute (not itself a
+    `@property`) still satisfies a Protocol's own read-only property requirement, since Protocol
+    matching only checks the READ side."""
 
+    @property
+    def signal(self) -> Abortable | None: ...
     async def prompt(self, prompt: AuthPrompt) -> str: ...
     def notify(self, event: AuthEvent) -> None: ...
 
@@ -177,15 +205,13 @@ class ProviderAuthInteraction(Protocol):
     """The NORMALIZED interaction passed to a concrete provider's own login implementation (Pi
     `ProviderAuthInteraction`, `types.ts:164`) -- identical to `AuthInteraction` except `signal`
     is REQUIRED, not optional: by the time a provider's own `login()` callable is invoked, the
-    caller has already normalized an absent top-level signal into a real, always-present one.
-    Declared as a SEPARATE, standalone `Protocol` rather than narrowing `AuthInteraction.signal`
-    through inheritance -- `Protocol`'s own structural typing means any object whose `prompt`/
-    `notify`/`signal` shape matches BOTH protocols conforms to both simultaneously regardless of
-    declared inheritance, and narrowing a mutable Protocol attribute through a subclass runs into
-    ordinary invariance rules for no real benefit here."""
+    caller has already normalized an absent top-level signal into a real, always-present one. See
+    `AuthInteraction`'s own docstring for why `signal` is a read-only `@property` here (covariant,
+    correctly subtyping `AuthInteraction`), not a plain mutable attribute (invariant, which broke
+    that same relationship in an earlier revision, `L11-SB-R002`)."""
 
-    signal: Abortable
-
+    @property
+    def signal(self) -> Abortable: ...
     async def prompt(self, prompt: AuthPrompt) -> str: ...
     def notify(self, event: AuthEvent) -> None: ...
 
@@ -193,24 +219,46 @@ class ProviderAuthInteraction(Protocol):
 # --- ApiKeyAuth / OAuthAuth / ProviderAuth: the per-provider auth-method vocabulary ------------
 
 type ApiKeyLogin = Callable[[ProviderAuthInteraction], Awaitable[ApiKeyCredential]]
-"""Interactive api-key setup (Pi `ApiKeyAuth.login?`, `types.ts:175`). Absent means ambient-only
-(no interactive setup; the provider relies solely on `resolve`'s own ambient-source fallback)."""
+"""Interactive api-key setup (Pi `ApiKeyAuth.login?`, `types.ts:175`). ONE required positional
+parameter (the normalized interaction); returns the newly-obtained credential, or raises/rejects
+on failure/cancellation -- Pi's own signature has no separate error channel. Absent means
+ambient-only (no interactive setup; the provider relies solely on `resolve`'s own ambient-source
+fallback)."""
 
 type ApiKeyCheck = Callable[
     [AuthContext, ApiKeyCredential | None, Abortable], Awaitable[AuthCheck | None]
 ]
 """Optional side-effect-free availability check (Pi `ApiKeyAuth.check?`, `types.ts:182-186`) --
 use when `resolve()` may itself execute commands or perform other request-time work; absent means
-availability is instead checked by resolving auth directly."""
+availability is instead checked by resolving auth directly.
+
+DISCLOSED MAPPING, not a Pi-visible semantic change (`L11-SB-R003`, independent review): pinned
+Pi's own signature takes ONE structured input object, `{ctx, credential?, signal}` -- `credential`
+OMITTED when none is stored, `ctx`/`signal` always present. This project represents that SAME
+three-field bundle as three ordinary POSITIONAL parameters instead (`ctx, credential, signal`, with
+`credential` typed `ApiKeyCredential | None` -- Python has no direct equivalent of "the whole
+object argument is required, but one of its OWN member fields may be omitted," so an always-present
+parameter that may be `None` is the faithful rendering, not an optional parameter position, which
+would instead model an OMITTED ARGUMENT -- a different thing Pi's own signature does not have
+here). This is a LANGUAGE MAPPING for how the SAME three logical values are passed, matching every
+other injected-callable convention already established in this codebase (e.g. `refresh.py`'s own
+`RefreshOperation`) -- it changes no observable input value, requiredness, or behavior; a caller
+supplies the identical three pieces of information either way. `credential`/`signal`'s own
+requiredness is unchanged from Pi (`credential` may be absent/`None`; `ctx`/`signal` are always
+present); the return type (`AuthCheck | None`, async) is unchanged from Pi (`None` means not
+configured, exactly matching `ApiKeyResolve` below)."""
 
 type ApiKeyResolve = Callable[
     [AuthContext, ApiKeyCredential | None, Abortable], Awaitable[AuthResult | None]
 ]
 """Resolve auth from the stored credential and/or ambient sources (Pi `ApiKeyAuth.resolve`,
-`types.ts:194-198`), merging per field. `None` means not configured."""
+`types.ts:194-198`), merging per field. `None` means not configured. Same three-positional-
+parameter mapping from Pi's own structured `{ctx, credential?, signal}` input as `ApiKeyCheck`
+above -- see that type's own docstring for why this is a disclosed language mapping, not an
+observable semantic change."""
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class ApiKeyAuth:
     """Api-key auth-method vocabulary a concrete provider registers (Pi `ApiKeyAuth`,
     `types.ts:170-199`): stored key/provider env plus ambient sources (env vars, AWS profiles, ADC
@@ -225,21 +273,27 @@ class ApiKeyAuth:
 
 type OAuthLogin = Callable[[ProviderAuthInteraction], Awaitable[OAuthCredential]]
 """Interactive OAuth login (Pi `OAuthAuth.login`, `types.ts:216`) -- unlike `ApiKeyAuth.login`,
-REQUIRED: every OAuth auth method has an interactive setup flow."""
+REQUIRED: every OAuth auth method has an interactive setup flow. ONE required positional parameter
+(the normalized interaction, unbundled 1:1 from Pi's own single-argument signature -- no grouping
+ambiguity here, unlike `ApiKeyCheck`/`ApiKeyResolve` above); returns the newly-obtained credential,
+or raises/rejects on failure/cancellation."""
 
 type OAuthRefresh = Callable[[OAuthCredential, Abortable], Awaitable[OAuthCredential]]
-"""Exchange the refresh token (Pi `OAuthAuth.refresh`, `types.ts:222`) -- a network call; raises
-on failure (invalid_grant etc.). Already-certified `PROV-008`'s own `refresh_if_expiring_at` runs
-this under the credential store's own lock, matching Pi's own `Models`-level locked-refresh
-design."""
+"""Exchange the refresh token (Pi `OAuthAuth.refresh`, `types.ts:222`) -- a network call; TWO
+required positional parameters (unbundled 1:1 from Pi's own two-argument signature), raises on
+failure (invalid_grant etc.), no separate error channel. Already-certified `PROV-008`'s own
+`refresh_if_expiring_at` runs this under the credential store's own lock, matching Pi's own
+`Models`-level locked-refresh design."""
 
 type OAuthToAuth = Callable[[OAuthCredential], Awaitable[ModelAuth]]
 """Side-effect-free derivation of request auth from a valid credential (Pi `OAuthAuth.toAuth`,
-`types.ts:229`) -- covers per-credential `base_url` (e.g. GitHub Copilot); async so a lazy wrapper
-can load its own implementation on first use."""
+`types.ts:229`) -- covers per-credential `base_url` (e.g. GitHub Copilot). ONE required positional
+parameter (unbundled 1:1 from Pi's own single-argument signature); async so a lazy wrapper can
+load its own implementation on first use, but otherwise side-effect-free and not expected to
+raise for a valid credential."""
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class OAuthAuth:
     """OAuth auth-method vocabulary a concrete provider registers (Pi `OAuthAuth`,
     `types.ts:206-230`). The `refresh`/`to_auth` split lets a future orchestration layer own the
@@ -252,15 +306,21 @@ class OAuthAuth:
     login: OAuthLogin
     refresh: OAuthRefresh
     to_auth: OAuthToAuth
-    is_subscription: bool = False
+    is_subscription: bool | None = None
     """Whether access through this auth method is backed by a provider subscription (Pi
-    `isSubscription?`, `types.ts:211`)."""
+    `isSubscription?`, `types.ts:211`). GENUINELY three-valued, not two (`L11-SB-R001`,
+    independent review): pinned Pi's own field is OPTIONAL (`boolean | undefined`), and an absent
+    value is observably distinct from an explicit `false` -- collapsing "omitted" into a `bool`
+    field defaulting to `False` would make those two states indistinguishable, silently narrowing
+    Pi's own optional field. `None` here means "not stated," matching Pi's own absent/`undefined`
+    exactly; only an explicit `True`/`False` means the auth method actually asserts a value either
+    way."""
     login_label: str | None = None
     """Selector label for the OAuth login option, e.g. "Sign in with SuperGrok or X Premium" (Pi
     `loginLabel?`, `types.ts:214`)."""
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class ProviderAuth:
     """Per-provider auth-method registration (Pi `ProviderAuth`, `types.ts:237-240`). At least one
     of `api_key`/`oauth` MUST be present -- Pi's own doc comment states this as a real constraint,

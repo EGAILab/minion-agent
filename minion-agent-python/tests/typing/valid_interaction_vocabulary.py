@@ -46,10 +46,12 @@ from minion_agent.auth.signal import Abortable
 # Properly-typed implementations of the `AuthInteraction`/`ProviderAuthInteraction` callback shape
 # a concrete login flow could receive -- assigning each to its own Protocol-typed variable below is
 # the actual type-check under test; a signature mismatch here is a `mypy` error, not a runtime
-# failure. TWO separate classes, not one: `signal`'s own declared type differs between the two
-# Protocols (`Abortable | None` vs `Abortable`), and a mutable Protocol attribute is invariant, so
-# no single class attribute type can satisfy both simultaneously (matching `interaction.py`'s own
-# docstring on why `ProviderAuthInteraction` is a standalone Protocol, not a narrowing subclass).
+# failure. TWO separate classes below (not because one couldn't satisfy both -- an ordinary mutable
+# attribute satisfies a Protocol's own READ-ONLY `@property` declaration either way, and Pi's own
+# intersection type is exactly "strengthen `signal` to required" -- but to exercise BOTH the
+# `AuthInteraction`-only shape and the `ProviderAuthInteraction`-only shape as genuinely distinct
+# concrete implementations, matching how a real provider and a real caller-side normalizer would
+# typically be two different objects in practice).
 class _FakeInteraction:
     signal: Abortable | None = None
 
@@ -81,6 +83,21 @@ class _FakeSignal:
 
 _interaction: AuthInteraction = _FakeInteraction()
 _provider_interaction: ProviderAuthInteraction = _FakeProviderInteraction(_FakeSignal())
+
+
+def _as_base_interaction(value: ProviderAuthInteraction) -> AuthInteraction:
+    """`L11-SB-R002`'s own exact required witness: a `ProviderAuthInteraction` (required `signal`)
+    must be statically usable anywhere `AuthInteraction` (optional `signal`) is expected, matching
+    pinned Pi's own `ProviderAuthInteraction = AuthInteraction & { signal: AbortSignal }`
+    intersection-type subtyping. This is a MYPY-level assertion -- the function body merely returns
+    its own argument, but the DECLARED return type is the real assertion under test; this failed
+    to type-check before `signal` was changed from a mutable attribute to a read-only `@property`
+    in both Protocols (mutable Protocol attributes are invariant; read-only properties are
+    covariant)."""
+    return value
+
+
+_also_base_interaction: AuthInteraction = _as_base_interaction(_provider_interaction)
 
 
 async def _api_key_login(interaction: ProviderAuthInteraction) -> ApiKeyCredential:

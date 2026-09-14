@@ -33,7 +33,15 @@ def test_auth_prompt_secret_has_the_same_shape_as_text() -> None:
     assert prompt.placeholder is None
 
 
-def test_auth_prompt_select_carries_options_as_a_tuple() -> None:
+def test_auth_prompt_select_stores_options_with_distinct_id_and_label_fields() -> None:
+    """Construction/shape only -- `AuthPromptOption` carries `id` and `label` as two DISTINCT
+    fields (deliberately given different values below so a future accidental field swap would be
+    caught). This does NOT prove that some `AuthInteraction.prompt()` implementation actually
+    returns the `id`, not the `label`, when resolving a `select` prompt -- Slice B defines
+    vocabulary only and implements no concrete `AuthInteraction`, so no such behavioral witness is
+    possible yet. That behavioral claim belongs to whichever later slice first supplies a real
+    interaction seam to test against (`L11-SB-R004`, independent review -- an earlier revision of
+    this test's own manifest description overclaimed this)."""
     options = (
         AuthPromptOption(id="browser", label="Browser login (default)"),
         AuthPromptOption(id="device_code", label="Device code login (headless)"),
@@ -41,6 +49,8 @@ def test_auth_prompt_select_carries_options_as_a_tuple() -> None:
     prompt = AuthPromptSelect(message="Select login method:", options=options)
     assert prompt.options == options
     assert prompt.options[0].id == "browser"
+    assert prompt.options[0].label == "Browser login (default)"
+    assert prompt.options[0].id != prompt.options[0].label
 
 
 def test_auth_prompt_manual_code_carries_message_placeholder_and_signal() -> None:
@@ -143,7 +153,13 @@ def test_api_key_auth_login_and_check_default_to_none() -> None:
     assert auth.check is None
 
 
-def test_oauth_auth_defaults_is_subscription_false_and_login_label_none() -> None:
+def test_oauth_auth_is_subscription_defaults_to_none_not_false() -> None:
+    """`L11-SB-R001`: pinned Pi's own `isSubscription?: boolean` is genuinely OPTIONAL -- absent,
+    explicit `false`, and explicit `true` are three distinct observable states. Defaulting the
+    Python field to `False` would make "omitted" indistinguishable from "explicitly false,"
+    silently narrowing Pi's own three-valued field to two. `login_label` defaults to `None`
+    (unchanged -- always genuinely optional in Pi with no analogous collapse risk)."""
+
     async def login(interaction):  # type: ignore[no-untyped-def]
         raise NotImplementedError
 
@@ -154,5 +170,68 @@ def test_oauth_auth_defaults_is_subscription_false_and_login_label_none() -> Non
         raise NotImplementedError
 
     auth = OAuthAuth(name="Test OAuth", login=login, refresh=refresh, to_auth=to_auth)
-    assert auth.is_subscription is False
+    assert auth.is_subscription is None
     assert auth.login_label is None
+
+
+def test_oauth_auth_is_subscription_distinguishes_absent_false_and_true() -> None:
+    """The permanent three-state witness `L11-SB-R001` requires: absent (`None`), explicit
+    `False`, and explicit `True` must all be independently observable, not collapsed into two
+    states by a bare-`bool`-with-`False`-default field."""
+
+    async def login(interaction):  # type: ignore[no-untyped-def]
+        raise NotImplementedError
+
+    async def refresh(credential, signal):  # type: ignore[no-untyped-def]
+        raise NotImplementedError
+
+    async def to_auth(credential):  # type: ignore[no-untyped-def]
+        raise NotImplementedError
+
+    absent = OAuthAuth(name="Absent", login=login, refresh=refresh, to_auth=to_auth)
+    explicit_false = OAuthAuth(
+        name="Explicit false", login=login, refresh=refresh, to_auth=to_auth, is_subscription=False
+    )
+    explicit_true = OAuthAuth(
+        name="Explicit true", login=login, refresh=refresh, to_auth=to_auth, is_subscription=True
+    )
+    assert absent.is_subscription is None
+    assert explicit_false.is_subscription is False
+    assert explicit_true.is_subscription is True
+
+
+def test_public_vocabulary_fields_are_mutable_matching_pi() -> None:
+    """`L11-SB-R005`: pinned Pi's own public object/interface field shapes are NOT `readonly`
+    (only the two collection fields, `AuthPromptSelect.options`/`AuthEventInfo.links`, are --
+    unaffected here, and stay `tuple`s deliberately). Ordinary field reassignment must succeed,
+    not raise `FrozenInstanceError`, for every adopted vocabulary type -- construct-then-mutate is
+    the only faithful reproduction of Pi's own assignable-property semantics; a frozen dataclass
+    would be an unapproved, undisclosed divergence (this project's own established precedent for
+    the identical question on Layer-11 credentials, `PROV-006`/`L11-R006`/`L11-R009`, resolved it
+    the same way: adopt Pi's assignable fields in full)."""
+    prompt = AuthPromptText(message="original")
+    prompt.message = "replaced"
+    assert prompt.message == "replaced"
+
+    option = AuthPromptOption(id="a", label="A")
+    option.label = "A (renamed)"
+    assert option.label == "A (renamed)"
+
+    event = AuthEventProgress(message="original")
+    event.message = "replaced"
+    assert event.message == "replaced"
+
+    async def login(interaction):  # type: ignore[no-untyped-def]
+        raise NotImplementedError
+
+    async def refresh(credential, signal):  # type: ignore[no-untyped-def]
+        raise NotImplementedError
+
+    async def to_auth(credential):  # type: ignore[no-untyped-def]
+        raise NotImplementedError
+
+    auth = OAuthAuth(name="original", login=login, refresh=refresh, to_auth=to_auth)
+    auth.name = "renamed"
+    auth.is_subscription = True
+    assert auth.name == "renamed"
+    assert auth.is_subscription is True

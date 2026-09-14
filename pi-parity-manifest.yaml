@@ -4464,46 +4464,91 @@ rows:
     `AuthPrompt` (`types.ts:125-130`) is a tagged union of four variants
     (`AuthPromptText`/`AuthPromptSecret`/`AuthPromptSelect`/`AuthPromptManualCode`), matching Pi''s
     own discriminated-union shape via the project''s own established per-variant-dataclass-plus-
-    type-alias pattern (`DevicePollResult`, `PROV-010`). `AuthPromptSelect.options`'' own selected
-    value is the chosen option''s own `id`, never its `label` -- Pi''s own doc comment states this
-    explicitly. `AuthEvent` (`types.ts:137-147`) is the matching four-variant notification union
-    (`info`/`auth_url`/`device_code`/`progress`); `AuthEventUrl` carries a URL only -- browser
-    LAUNCHING itself is confirmed, independently during the Pass-2 restart audit, to live entirely
-    outside `packages/ai/src` (`packages/coding-agent/src/utils/open-browser.ts`, a CLI-layer
-    concern Minion has no equivalent of), so emitting this event is not the same as opening a
-    browser.
+    type-alias pattern (`DevicePollResult`, `PROV-010`). `AuthPromptSelect`''s own resolved value,
+    once some concrete `AuthInteraction` resolves it, is the chosen option''s own `id`, never its
+    `label` -- Pi''s own doc comment states this explicitly (this row itself defines vocabulary
+    only and implements no such resolving `AuthInteraction`; see `L11-SB-R004`''s own correction
+    below for the evidence-scope this claim actually has). `AuthEvent` (`types.ts:137-147`) is the
+    matching four-variant notification union (`info`/`auth_url`/`device_code`/`progress`);
+    `AuthEventUrl` carries a URL only -- browser LAUNCHING itself is confirmed, independently
+    during the Pass-2 restart audit, to live entirely outside `packages/ai/src`
+    (`packages/coding-agent/src/utils/open-browser.ts`, a CLI-layer concern Minion has no
+    equivalent of), so emitting this event is not the same as opening a browser.
 
     `AuthInteraction`/`ProviderAuthInteraction` are modeled as SEPARATE, standalone `Protocol`
     classes (not one narrowing the other through inheritance) -- `signal`''s own declared type
-    differs (`Abortable | None` vs. required `Abortable`), and a mutable `Protocol` attribute is
-    invariant, so narrowing through inheritance would not type-check safely; `Protocol`''s own
-    structural typing means any object satisfying both shapes conforms to both regardless of
-    declared inheritance. `signal` reuses the ALREADY-CERTIFIED `Abortable` structural protocol
-    (`auth/signal.py`, `PROV-008`) -- no new cancellation primitive introduced; the per-prompt
-    `AuthPrompt.signal` racing pattern Pi''s own doc comment names ("a `manual_code` prompt raced
-    against a callback server, aborted when the callback wins") is directly realizable with the
-    ALREADY-CERTIFIED Layer-09 `RunAbortController`/`RunSignal` split, but wiring that race is
-    `PROV-012`''s own concern (Slice C), not resolved by this vocabulary-only row.
+    differs (`Abortable | None` vs. required `Abortable`). `signal` reuses the ALREADY-CERTIFIED
+    `Abortable` structural protocol (`auth/signal.py`, `PROV-008`) -- no new cancellation primitive
+    introduced; the per-prompt `AuthPrompt.signal` racing pattern Pi''s own doc comment names ("a
+    `manual_code` prompt raced against a callback server, aborted when the callback wins") is
+    directly realizable with the ALREADY-CERTIFIED Layer-09 `RunAbortController`/`RunSignal` split,
+    but wiring that race is `PROV-012`''s own concern (Slice C), not resolved by this
+    vocabulary-only row.
 
-    `ApiKeyAuth`/`OAuthAuth` are modeled as frozen dataclasses of `Callable`-typed fields (matching
+    `ApiKeyAuth`/`OAuthAuth` are modeled as MUTABLE dataclasses of `Callable`-typed fields (matching
     the project''s own established convention for an injected callable, e.g. `refresh.py`''s own
     `RefreshOperation`), constructible directly by a provider module rather than requiring class
     inheritance. `ProviderAuth` enforces, at construction time via `__post_init__`, Pi''s own
     binding doc-comment requirement that at least one of `api_key`/`oauth` is present ("even
     ambient-credential providers and keyless local servers provide `apiKey` auth whose `resolve()`
     reports whether the provider is configured") -- a real invariant, not left an unchecked
-    convention.'
+    convention.
+
+    CORRECTIONS (`L11-SB-R001` through `L11-SB-R005`, first independent Rust contract review --
+    ALL closed by this exact remediation, independently re-confirmed by revert-and-confirm before
+    being reported closed here):
+
+    - `L11-SB-R001` (`PI_PARITY_DEFECT`): `OAuthAuth.is_subscription` was `bool = False`,
+      collapsing Pi''s own genuinely three-valued optional field (absent / `false` / `true`) into
+      two observable states. Fixed: `bool | None = None`. Permanent three-state witness added.
+    - `L11-SB-R002` (`PI_PARITY_DEFECT`): `AuthInteraction`/`ProviderAuthInteraction` declared
+      `signal` as a plain MUTABLE instance attribute, which is INVARIANT under Python''s own
+      static-typing rules -- silently breaking Pi''s own intersection-type subtyping (`Pi
+      ProviderAuthInteraction = AuthInteraction & { signal: AbortSignal }`, under which a
+      normalized interaction with a REQUIRED `signal` remains a valid `AuthInteraction` with an
+      OPTIONAL one). Fixed: `signal` is now a READ-ONLY `@property` in both protocols -- COVARIANT,
+      correctly matching Pi''s own subtyping, with no effect on a concrete implementation (an
+      ordinary mutable attribute still satisfies a Protocol''s own read-only property requirement).
+      The exact `ProviderAuthInteraction -> AuthInteraction` assignability witness the review
+      itself specified is now a permanent typing-fixture check.
+    - `L11-SB-R003` (`CONTRACT_ASSURANCE_DEFECT`): the normative spec left every callable''s own
+      input bundle, requiredness, and async-result shape implicit, and did not disclose that
+      `ApiKeyAuth.check`/`resolve`''s own Python rendering (three positional parameters) is a
+      MAPPING of Pi''s own single structured `{ctx, credential?, signal}` input, not an
+      independent design choice two implementers could resolve differently. Fixed: `spec/auth.md`
+      now states every callable''s full signature, explicitly discloses the check/resolve mapping,
+      and states it changes no observable input value, requiredness, or result shape.
+    - `L11-SB-R004` (`CONTRACT_ASSURANCE_DEFECT`): the `tests:` entry below claimed
+      `test_interaction.py` covers "AuthPromptSelect option id vs label" as if it proved
+      `prompt()`''s own return-value behavior; the actual test only asserted the CONSTRUCTED
+      option''s own stored `id`/`label` fields, never invoking any interaction. Fixed: the test
+      (renamed) and this row''s own `tests:` description now scope that claim honestly to
+      construction/shape evidence only; the behavioral return-value claim is explicitly deferred to
+      whichever later slice first supplies a real `AuthInteraction` implementation to test against.
+    - `L11-SB-R005` (`PI_PARITY_DEFECT`): every new dataclass was `frozen=True`, an unapproved,
+      undisclosed observable divergence from pinned Pi''s own assignable public object/interface
+      fields (only the two COLLECTION fields, `options`/`links`, are `readonly` in Pi; ordinary
+      fields are not). Fixed: `frozen=True` removed from all thirteen dataclasses (kept
+      `slots=True`), matching this project''s own already-established precedent for the identical
+      question on Layer-11 credentials (`PROV-006`/`L11-R006`/`L11-R009`: adopt Pi''s assignable
+      fields in full, no intentional divergence approved). Permanent mutation witnesses added.'
   tests:
-  - 'tests/auth/test_interaction.py (14 tests -- AuthPromptText/Secret/Select/ManualCode
-    construction and field defaults, AuthPromptSelect option id vs label, AuthEventInfo/Url/
-    DeviceCode/Progress construction and field defaults, ProviderAuth''s own __post_init__
-    invariant -- rejects zero of api_key/oauth, accepts api_key-only, oauth-only, and both --
-    ApiKeyAuth login/check defaulting to None, OAuthAuth is_subscription/login_label defaults)'
+  - 'tests/auth/test_interaction.py (16 tests -- AuthPromptText/Secret/Select/ManualCode
+    construction and field defaults, AuthPromptSelect stores DISTINCT id/label fields (construction/
+    shape evidence only -- does NOT prove any AuthInteraction implementation''s own prompt() return
+    value; see L11-SB-R004), AuthEventInfo/Url/DeviceCode/Progress construction and field defaults,
+    ProviderAuth''s own __post_init__ invariant -- rejects zero of api_key/oauth, accepts
+    api_key-only, oauth-only, and both -- ApiKeyAuth login/check defaulting to None, OAuthAuth
+    is_subscription genuinely three-valued (absent/False/True, L11-SB-R001) with login_label
+    defaulting to None, every public vocabulary field remains assignable after construction
+    matching Pi (L11-SB-R005))'
   - 'tests/typing/valid_interaction_vocabulary.py (permanent static-type evidence, mypy-checked
     only, never executed by pytest -- proves a PROPERLY-typed provider implementation, not
     pytest''s own loosely-typed inline callbacks, actually satisfies AuthInteraction/
     ProviderAuthInteraction''s own structural Protocol shape and every Callable type alias under
-    full mypy strictness. Run via: mypy src/minion_agent tests/typing/valid_interaction_vocabulary.py)'
+    full mypy strictness, INCLUDING the exact ProviderAuthInteraction -> AuthInteraction
+    assignability witness L11-SB-R002 required. Run via:
+    mypy src/minion_agent tests/typing/valid_interaction_vocabulary.py)'
   python: src/minion_agent/auth/interaction.py
   rust: 'NOT YET IMPLEMENTED -- Pass-2 Slice B Python-only per this pass''s own certification gate;
     Rust implementation is a separate, later handoff'

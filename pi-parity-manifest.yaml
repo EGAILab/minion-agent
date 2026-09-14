@@ -4261,25 +4261,59 @@ rows:
   phase: 5
   pi: 'packages/ai/src/auth/oauth/openai-codex.ts (JWT payload decode for `chatgpt_account_id`;
     OAuth access token -> bearer/provider-facing `ModelAuth` projection)'
-  surface: Layer 11 -- Codex OAuth account-id projection (pure, non-network semantics)
-  rule: 'Deferred parity, not adopted: characterized now so this pure (non-network) Codex-specific
-    behavior is not silently lost while browser/device network integration is deferred, but not
-    implemented in Pass 1. JWT `chatgpt_account_id` extraction is UNVERIFIED claim extraction only
-    (decoding the payload, never cryptographic signature validation); the extracted account id
-    rides on `OAuthCredential.extra` (`PROV-006`), not a separate wrapper type. An OAuth access
-    token projects to a bearer-style `ModelAuth` (`PROV-006`) for provider-facing requests.
+  surface: Layer 11 Pass 2, Slice A -- Codex OAuth account-id projection (pure, non-network
+    semantics)
+  rule: 'Adopted in Pass 2 (owner-approved scope, 2026-09-14, after incident containment and a
+    clean fresh re-audit; see `minion-agent#29`): the pure (non-network) Codex-specific projection
+    characterized but deferred in Pass 1. `decode_jwt` (Pi `decodeJwt`, `openai-codex.ts:103-113`)
+    is UNVERIFIED claim extraction only -- decoding the JWT payload segment, never cryptographic
+    signature validation, matching this project''s own security constraint against treating an
+    unverified claim as authenticated identity. No signature verification was added where Pi
+    performs only unverified decoding, per explicit owner instruction.
 
-    Closure criterion (binding on whichever future pass closes this row): a future Layer-11 pass
-    implementing the codex-responses adapter''s own auth resolution (Pass 2 or later, once a real
-    Codex OAuth credential first needs to produce provider-facing auth) must implement this exact
-    projection, with synthetic (never real-account) JWT-like fixtures proving the decode is
-    non-cryptographic, per this project''s own security constraint against live secrets in tests.'
+    TWO independently-confirmed-against-a-live-Node-process (v22) `atob`/`JSON.parse` quirks are
+    faithfully reproduced, not "fixed": (1) `atob` decodes STANDARD base64 only, REJECTING
+    base64url''s `-`/`_` alphabet characters outright while ACCEPTING missing padding -- Python''s
+    `base64.b64decode(..., validate=True)` on a manually-repadded input matches both halves; (2)
+    `atob`''s return value is a LATIN-1 binary string, never UTF-8-decoded, so a non-ASCII JWT
+    claim VALUE silently mojibakes rather than round-tripping -- reproduced via
+    `bytes.decode("latin-1")` before `json.loads`, pinned to exact codepoints cross-checked live
+    against Node, not merely "some corruption occurs". `decode_jwt` itself never validates the
+    parsed shape is an object, matching Pi''s own `JSON.parse(decoded) as JwtPayload` (a
+    compile-time-only assertion with no runtime check) -- the graceful `None`-on-non-object
+    tolerance lives in `get_account_id`, exactly where Pi''s own optional chaining
+    (`payload?.[JWT_CLAIM_PATH]`) provides it, not inside `decode_jwt`.
+
+    `credentials_from_token` raises `ValueError` when no usable `chatgpt_account_id` is present,
+    matching Pi''s own `throw new Error("Failed to extract accountId from token")`. `to_auth` is
+    Pi''s own trivial `{apiKey: credential.access}` bearer projection, unchanged.
+
+    MINION-SPECIFIC MAPPING, not direct Pi parity: pinned Pi''s own `OAuthCredential` type carries
+    `accountId` as a literal top-level field; this project''s own `OAuthCredential` (`PROV-006`)
+    keeps it under the OPEN `extra` escape hatch (`extra["account_id"]`) instead, rather than
+    widening the shared credential shape every other provider''s own OAuth flow also uses, for one
+    Codex-specific field -- disclosed here explicitly, not claimed as direct-parity field
+    placement.
+
+    Takes `access`/`refresh`/`expires` as plain scalars, not a Pi-shaped `OAuthToken` object --
+    that type belongs to `PROV-012`''s own network/token-exchange layer (Slice C, not yet
+    implemented), and this row does not presuppose its shape.'
   tests:
-  - future Layer 11 conformance evidence (none yet -- this row is deferred parity, not adopted; no
-    fabricated evidence is cited for behavior not yet implemented)
-  python: 'NOT YET IMPLEMENTED -- deferred to a future Layer 11 pass, see closure criterion above'
-  rust: 'NOT YET IMPLEMENTED -- deferred to a future Layer 11 pass'
-  disposition: deferred parity
+  - 'tests/auth/test_openai_codex.py (17 tests -- decode_jwt: full payload round-trip, the Latin-1
+    mojibake witness pinned to exact codepoints cross-checked against a live Node process,
+    a revert-and-confirm witness proving the mojibake is genuinely from Latin-1 not UTF-8, missing
+    base64 padding accepted, base64url alphabet characters rejected (fixture deliberately
+    constructed so a non-validating decoder would still succeed, discriminating the real defect
+    from an unrelated empty-payload parse failure), malformed token segment counts, invalid JSON,
+    the JSON-`null`-literal/malformed-token ambiguity faithfully reproduced from Pi; get_account_id:
+    valid extraction, malformed token, non-object decoded payload (array/string) does not raise,
+    missing claim namespace, non-object claim namespace, non-string/empty account id;
+    credentials_from_token: builds the credential with account_id under extra, raises ValueError
+    on failure; to_auth: bearer api_key projection)'
+  python: src/minion_agent/auth/openai_codex.py
+  rust: 'NOT YET IMPLEMENTED -- Pass-2 Slice A Python-only per this pass''s own certification gate;
+    Rust implementation is a separate, later handoff'
+  disposition: adopted
 - id: PROV-012
   phase: 5
   pi: 'packages/ai/src/auth/oauth/openai-codex.ts (browser callback state validation; the

@@ -4372,29 +4372,279 @@ rows:
   disposition: adopted
 - id: PROV-012
   phase: 5
-  pi: 'packages/ai/src/auth/oauth/openai-codex.ts (browser callback state validation; the
-    bare-pasted-code state-validation exception/quirk; the browser/PKCE callback flow; device-code
-    Codex endpoint integration)'
-  surface: Layer 11 -- Codex browser callback / device-code endpoint integration
-  rule: 'Deferred parity, not adopted: characterized now, not implemented in Pass 1 -- explicitly
-    OUT OF SCOPE per Pass 1''s own network exclusions (no real auth.openai.com HTTP requests, no
-    local callback HTTP server on :1455, no browser launching, no live device-code HTTP calls).
-    Pass 1 builds only the GENERIC, provider-neutral PKCE (`PROV-009`) and device-code poll state
-    machine (`PROV-010`) this row''s own future implementation will consume as its transport-
-    injected seam; it does not itself perform Codex''s specific browser/device endpoint calls or
-    state-validation rules.
+  pi: 'packages/ai/src/auth/oauth/openai-codex.ts (browser/PKCE flow, local callback server,
+    manual-code racing, device-code flow, token exchange/refresh); packages/ai/src/utils/abort.ts
+    (`raceWithAbortSignal`, characterized here to distinguish it from this row''s own required
+    transport-cancellation behavior, NOT itself consumed by this row)'
+  surface: Layer 11 Pass 2, Slice C -- Codex OAuth NETWORK integration, consuming the already-
+    adopted `PROV-011` (account-id projection) and `PROV-014` (interaction/auth-method vocabulary)
+  rule: 'CONTRACT-FIRST (per the owner''s own Pass-2 scope decision, `GOVERNANCE_SOURCE`,
+    `https://github.com/EGAILab/minion-agent/issues/29#issuecomment-5659001629`, "Slice C: PROV-012
+    ... consuming Slice B vocabulary"): this row previously recorded only a characterization-level
+    placeholder (audit not yet performed against real Pi source, no function-level behavior
+    specified). A fresh, complete audit of pinned Pi''s own network half is now recorded in full,
+    normatively, in `spec/auth.md`''s own `PROV-012` section (fixed identity/endpoint constants;
+    login-method selection; the full browser/PKCE flow including the local callback server''s own
+    exact route/status-code rules and its own silent-bind-failure behavior; the concurrent
+    server-vs-manual-code race''s own exact precedence across every combination, not one
+    happy-path example; `parse_authorization_input`''s three input shapes, INCLUDING the
+    JS-`split(#,2)`-vs-a-host-language''s-own-unlimited-split fidelity trap; the device-code flow''s
+    own endpoint/validation rules and its own exact HTTP-response-to-`PROV-010`-poll-outcome
+    mapping; token exchange/refresh''s own shared response-parsing rule AND their DELIBERATELY
+    asymmetric cancellation/error-wrapping behavior; the disclosed poll-based-cancellation mapping
+    an HTTP transport must implement, explicitly distinguished from `raceWithAbortSignal`''s own
+    narrower, non-cancelling "stop waiting" behavior which this row does NOT reuse). `httpx` is
+    approved as the Python implementation mechanism for outbound requests, subject to six explicit
+    constraints (injectable transport seam, no httpx types in shared contracts, deterministic fake
+    transport in every test, no live secrets/network calls, cancellation mapped through the
+    existing `Abortable`/`RunSignal` contract) -- all restated in `spec/auth.md`''s own dedicated
+    subsection.
 
-    Closure criterion (binding on whichever future pass closes this row): a future Layer-11 pass
-    integrating real Codex browser/device network transport must audit and preserve Pi''s own exact
-    state-validation behavior, INCLUDING the documented bare-pasted-code exception (a user pasting
-    a bare authorization code, rather than a full callback URL, is a recognized quirk Pi''s own flow
-    accommodates, not an error condition) -- and must do so with no real live OAuth request in the
-    committed test suite (per this project''s own security constraint against live secrets/network
-    calls in tests).'
+    This row remains `deferred parity`, NOT `adopted`: the contract above is complete, but Python
+    implementation, tests, and gates for it do not exist yet -- a subsequent implementation pass
+    against this exact contract is required before this row can become `adopted`. Recording a
+    complete, audited contract before any code exists is the CONTRACT-FIRST discipline the owner''s
+    own Pass-2 slice ordering required for Slice C specifically (`GOVERNANCE_SOURCE` above: "Slice
+    C ... consuming Slice B vocabulary," ordered after, not merged into, Slice B''s own vocabulary
+    freeze) -- this is not the SAME thing Pass 1''s own placeholder characterization was (an
+    unaudited scope note), even though both use the identical `deferred parity` disposition value.
+
+    Out of scope for this row (owner-confirmed): browser LAUNCHING itself (this row only emits the
+    `auth_url` notification event, matching Pi''s own `packages/ai` boundary, since Pi''s own
+    browser-opening utility lives entirely in a separate CLI-layer package); the `codex-responses`
+    LLM wire adapter; `PROV-013`''s own generic `Models`-level orchestration (this row''s own
+    `login`/`refresh`/`to_auth` are the PER-PROVIDER vocabulary that orchestration would eventually
+    consume, not that orchestration itself); a Codex CLI credential-file loader.
+
+    CORRECTION (`L11-SC-R001` through `L11-SC-R004`, first independent Rust contract review of this
+    contract, all four independently re-verified directly against pinned Pi before fixing):
+
+    - `L11-SC-R001` (`PI_PARITY_DEFECT`): the original contract overclaimed unconditional cleanup
+      for the browser flow. Pinned Pi''s own `interaction.notify({type: "auth_url", ...})`
+      (`openai-codex.ts:456-460`) executes BEFORE the surrounding `try`/`finally` (`:462-505`) is
+      entered -- a synchronous `notify()` throw at that point bypasses ALL cleanup (server never
+      closed, flow-level abort listener never detached, manual-prompt abort controller never
+      aborted), since execution never reaches the `try` at all. Fixed: `spec/auth.md`''s own step 5
+      now states this exact boundary and requires a discriminating test asserting cleanup does NOT
+      occur on a `notify()` failure at this point.
+    - `L11-SC-R002` (`CONTRACT_ASSURANCE_DEFECT`): the browser race/state matrix omitted three
+      discriminating outcomes. Fixed, all independently re-traced against `openai-codex.ts:462-505`
+      line by line: (1) a manual prompt resolving FIRST with an empty/whitespace value still cancels
+      the server (its own falsy-value side effect is unconditional, not gated on non-emptiness), and
+      the flow then raises "Missing authorization code" rather than falling back to the
+      already-cancelled server; (2) a flow-level `signal` abort while a manual prompt remains pending
+      cancels ONLY the server''s own wait, NOT the manual prompt''s own separate per-prompt signal
+      (that only happens in the flow''s own final `finally`) -- the operation therefore does NOT
+      promptly resolve on a flow-level abort alone while a manual prompt is still outstanding; (3)
+      manual state validation (`parsed.state && parsed.state !== state`) is a TRUTHINESS check, not
+      a presence check -- an empty parsed `state` (e.g. input `"code#"`) is treated exactly like an
+      absent one and SKIPS validation, which the contract''s prior "state is present" wording could
+      be misread as requiring a mismatch for instead.
+    - `L11-SC-R003` (`PI_PARITY_DEFECT`): the original contract required non-empty STRINGS for
+      `device_auth_id`/`user_code`/`authorization_code`/`code_verifier`/`access_token`/
+      `refresh_token`. Pinned Pi''s own TypeScript field annotations for these are ERASED at
+      runtime; the actual guards (`openai-codex.ts:219-224,254,138`) are JAVASCRIPT TRUTHINESS
+      checks accepting ANY truthy value of ANY type, not only strings (`expires_in` alone gets a
+      REAL `typeof ... !== "number"` check, a genuine mix within the same validation, confirmed at
+      `:138`). Fixed: `spec/auth.md`''s own device-flow and token-response sections now state the
+      truthy-of-any-type rule explicitly, requiring owner approval for any future stricter
+      string-typed divergence. Also fixed: the `interval` string-coercion rule was underspecified --
+      a live-Node-verified `Number(trimmed)` grammar (empty string coerces to `0`, NOT rejected;
+      hex/octal/binary-prefixed strings parse in that base; `Infinity` tokens fail via the separate
+      finiteness check, not the coercion itself) now replaces the vague "coercible to a finite
+      number" phrasing, matching this row''s own established `L11-SA-R001` live-verification
+      discipline.
+    - `L11-SC-R004` (`CONTRACT_ASSURANCE_DEFECT`): three inaccuracies/omissions in the failure
+      surface, all fixed: (1) the "Login cancelled" cancellation translation was stated as scoped
+      only to exchange, but pinned Pi''s own `fetchWithLoginCancellation` helper is ALSO the real
+      transport for device-start (`:192`) and every device-poll attempt (`:241`) -- all three now
+      share the stated rule, restated once and cross-referenced from both device-flow steps; (2) a
+      `2xx`-response JSON-parse failure was not distinguished from a missing-field failure -- pinned
+      Pi never catches `response.json()`''s own rejection on ANY of the three success-path parses
+      (device-start, device-poll, token exchange/refresh), so it propagates RAW, unlike the
+      device-poll''s own SEPARATE, deliberately different rule for an unparseable ERROR body on its
+      non-2xx path (caught, folded into a generic failure) -- both rules are now stated, explicitly
+      distinguished as two different Pi behaviors, not one; (3) the refresh/exchange asymmetry''s own
+      stated RATIONALE was inaccurate ("a fixed time budget, not a user-driven cancellation") --
+      already-certified `PROV-008`''s own `refresh_if_expiring` supplies refresh with a
+      `CombinedSignal` that combines BOTH an optional caller signal AND a fixed timeout, so a
+      user-driven cancellation CAN reach refresh; the OBSERVABLE rule (refresh wraps every
+      request-level failure uniformly) was already correct and is unchanged -- only the wrong stated
+      reason for it was removed.
+
+    CORRECTION (`L11-SC-R006`, `CONTRACT_ASSURANCE_DEFECT`, second independent Rust contract
+    review -- documentary/canonical completion only, no lower-layer change): four remaining exact
+    input/error shapes were unpinned, all fixed: (1) the login-method `select` prompt (`spec/auth.md`
+    "Login method selection") carries NO `signal` at pinned Pi''s own real call site, unlike the
+    browser flow''s own `manual_code` prompt -- an implementation attaching the whole-flow signal
+    "for consistency" diverges; (2) an unknown selected method raises EXACTLY
+    `"Unknown OpenAI Codex login method: {method}"`, not a generic "raise/reject"; (3)
+    `getCallbackHost()`''s own default-fallback is a JAVASCRIPT-TRUTHINESS check, NOT the SAME
+    blank-normalization `DefaultAuthContext.env()` (`PROV-006`) applies -- `getProviderEnvValue`
+    itself performs no trimming at any point, confirmed by reading it in full, so a whitespace-only
+    `PI_OAUTH_CALLBACK_HOST` value is truthy and used VERBATIM, unstripped, as the bind host; only a
+    literally empty/absent value falls back to the default -- the row''s own prior "absent or blank"
+    wording incorrectly borrowed `DefaultAuthContext`''s own different convention; (4) the
+    device-start non-`404` error message is EXACTLY
+    `"OpenAI Codex device code request failed with status {status}"` with a CONDITIONAL `": {body}"`
+    suffix appended ONLY when the body is non-empty (no trailing colon at all when it is empty) --
+    genuinely different from token exchange''s own non-`2xx` message template, which falls back to
+    the response''s own status-text reason phrase instead.
+
+    OWNER GOVERNANCE DECISION (`L11-SC-R005`, second independent Rust contract review, SUPERSEDES the
+    `L11-SC-R003` correction''s own "truthy-of-any-type" requirement for the six named fields above):
+    the `L11-SC-R003` fix above correctly stated Pi''s own erased-runtime-type, truthiness-only
+    validation, but the reviewer found this contradicts TWO already-certified strict-`str` shared
+    types this row''s own output flows into (`PROV-006`''s own `OAuthCredential.refresh: str`,
+    `PROV-014`''s own `AuthEventDeviceCode.user_code: str`) -- a genuine cross-layer type-domain
+    conflict a statically-typed Rust implementation cannot resolve by being merely "more permissive."
+    The owner decided (`GOVERNANCE_SOURCE`, verbatim at
+    `https://github.com/EGAILab/minion-agent/issues/29#issuecomment-5676459844`, per
+    `agent-workflow.md` §11.10): `device_auth_id`/`user_code`/`authorization_code`/`code_verifier`/
+    `access_token`/`refresh_token` MUST be actual JSON strings at this row''s own response-validation
+    boundary, NOT merely JS-truthy values of any type -- a present-but-non-string value is rejected
+    exactly like an absent/falsy one, never admitted into the typed Minion domain. This is an
+    INTENTIONAL, NARROW, owner-approved Pi divergence, tracked as its OWN manifest subject,
+    `PROV-016`, per the owner''s own explicit instruction not to mix it into this row''s own eventual
+    disposition, and explicitly scoped to ONLY these six fields'' own type validation -- it does NOT
+    touch `interval`''s own unrelated, already-real `typeof` check, does NOT change `PROV-006`/
+    `PROV-014`''s own certified semantics, and does NOT authorize any other stricter-than-Pi behavior
+    anywhere else in this row.
+
+    §11.8 CONVERGENCE CORRECTION (`L11-SC-R007` through `L11-SC-R009`, third independent Rust
+    contract review -- this is Slice C''s own THIRD rejected complete review, automatically meeting
+    §11.8''s "layer accumulates three rejected contract reviews" trigger; entered `CONTRACT_
+    CONVERGENCE` for the local browser-callback boundary specifically, per the reviewer''s own
+    characterization pass and this owner''s own independent challenge pass, both directly
+    re-confirmed against `openai-codex.ts`''s own callback handler and `loginOpenAICodex`''s own
+    abort-listener setup before any contract text changed):
+
+    - `L11-SC-R007` (`PI_PARITY_DEFECT`): the callback route table''s own "query code absent -> 400"
+      row was read as excluding a PRESENT-BUT-EMPTY `code=` from rejection. Pinned Pi''s own handler
+      extracts `code` via `url.searchParams.get("code")` (which returns `""`, not `null`, for
+      `?code=`) and tests it with a bare `if (!code)` -- JavaScript truthiness, under which an empty
+      string is exactly as falsy as absent. Fixed: the route table''s own third row now reads
+      "absent OR present-but-empty," both taking the 400 path; only a present, NON-EMPTY code
+      succeeds.
+    - `L11-SC-R008` (`CONTRACT_ASSURANCE_DEFECT`): the route table was called EXACT while omitting
+      two genuinely observable, non-presentational properties every branch shares: (1)
+      `Content-Type: text/html; charset=utf-8` is set on EVERY response (404/400/400/200, and the
+      new 500 below) before its own body is written; (2) pinned Pi''s own handler wraps its ENTIRE
+      route body in one `try`/`catch`, so any exception during URL parsing/handling is CONTAINED as
+      a `500` response, never escaping or crashing the server. Fixed: both are now stated explicitly,
+      and the `500` outcome is added as a fifth row of the route table (the HTML body content itself
+      remains the only genuinely out-of-scope part of the response).
+    - `L11-SC-R009` (`CONTRACT_ASSURANCE_DEFECT`): the browser flow''s own race table covered an
+      abort occurring WHILE both the server and manual prompt are pending, but never the
+      already-aborted-AT-ENTRY case. Pinned Pi''s own `if (interaction.signal.aborted) onAbort();`
+      (immediately after registering the same abort listener the mid-flow case already uses) fires
+      the IDENTICAL handler (cancel only the server''s own wait) synchronously at setup time, BEFORE
+      the `auth_url` notification and the manual-prompt creation -- both of which still occur
+      UNCONDITIONALLY regardless of whether the signal was already aborted before the flow even
+      began. Fixed: this exact ordering is now stated where the abort listener is registered
+      (previously referenced but never actually described), making explicit that a pre-aborted
+      signal does NOT short-circuit notification/prompting.
+
+    All three are contract/evidence-only corrections to the ALREADY-`deferred parity` `PROV-012` row
+    -- no lower-layer certified semantic was reopened, and `PROV-016`''s own intentional divergence
+    is unaffected.
+
+    §11.8 CONVERGENCE CORRECTION (`L11-SC-R010`, `CONTRACT_ASSURANCE_DEFECT`, fourth independent
+    Rust contract review -- REMAINS within the SAME `CONTRACT_CONVERGENCE` entered for `L11-SC-R007`
+    through `R009` above, per the reviewer''s own explicit "remains on that convergence track"
+    framing): three public failure messages (device-start invalid-response, device-poll invalid-
+    token-response, token exchange/refresh missing-fields) each embed the successfully-parsed
+    response body via pinned Pi''s own EXACT `` `...: ${JSON.stringify(json)}` `` template
+    (`openai-codex.ts:139,225,257`, confirmed directly), while this row''s own prior text left all
+    three either entirely unstated or abbreviated (`<body>`/`{the parsed body}`) -- insufficient for
+    independent implementation, since Python''s own default `json.dumps` (spaced separators) and
+    Rust''s own `serde_json::Value` debug formatting both differ from Pi''s own real output while each
+    could plausibly satisfy the prior vague wording. Fixed: all three exact templates are now pinned
+    in `spec/auth.md`''s own new "Exact error-message JSON rendering" subsection, which also
+    specifies the shared rendering rule in full -- confirmed live and cross-checked that
+    `JSON.stringify(value)` is reproduced EXACTLY by Python''s `json.dumps(value, separators=(",",
+    ":"))` for `null`/arrays/objects with source key order preserved, EXCEPT for one independently-
+    discovered subtlety the review''s own three-point request did not explicitly name: a whole-valued
+    JSON number (e.g. `5.0`) renders as `5` under `JSON.stringify` (JavaScript has one numeric type)
+    but as `5.0` under Python''s own default `json.dumps` (which parses it as a genuine `float`) --
+    confirmed live -- so a future implementation''s own rendering step must additionally format a
+    whole-valued float without a trailing `.0` to stay byte-identical to Pi, on top of using compact
+    separators. Required future witnesses (stated in the new spec subsection): `null`, an array, and
+    an ordered multi-field object whose key order and any whole-valued numeric field would otherwise
+    distinguish a correct rendering from a plausible-looking wrong one.
+
+    §11.8 CONVERGENCE CORRECTION, ROUND TWO (`L11-SC-R010` remains open, fifth independent Rust
+    contract review -- the paragraph immediately above this one is SUPERSEDED for its own
+    "compact `json.dumps` reproduces `JSON.stringify` exactly except `.0`" claim, which independent
+    review DISPROVED with direct Node/Python probes; that claim is WITHDRAWN, not merely narrowed --
+    the exact three templates and the `JSON.stringify` authority named above remain correct and
+    unchanged): independently re-confirmed all five disproofs live before correcting anything --
+    `JSON.stringify` escapes ONLY `"`/`\`/control characters (`U+0000`-`U+001F`, named escapes where
+    JSON defines one, generic `\u00XX` otherwise); EVERY non-ASCII character, including astral
+    characters requiring a UTF-16 surrogate pair, passes through UNESCAPED (the OPPOSITE of Python''s
+    own `json.dumps` default `ensure_ascii=True`); negative zero collapses to the bare digit `0`
+    (Python''s own float rendering preserves the sign); number formatting follows ECMAScript''s own
+    `Number::toString` fixed-vs-exponential notation threshold (confirmed exactly: fixed for
+    magnitude `>= 1e-6` and `< 1e21`, exponential outside that range), NOT Python''s own `repr`/
+    `json.dumps` threshold (confirmed independently, beyond the review''s own named cases: Python''s
+    own compact `json.dumps` already renders `1e19` in exponential notation where JS still uses
+    fixed notation there); and ECMAScript''s own property-enumeration order places "array index"
+    keys (canonical non-negative integer strings) FIRST in ascending numeric order, regardless of
+    source order, followed by other string keys in insertion order -- DISPROVING the manifest''s own
+    prior "source key order preserved identically" claim, since Python''s own `json.loads`/`dict`
+    pipeline preserves pure insertion order unconditionally with no such reordering. `spec/auth.md`''s
+    own "Exact error-message JSON rendering" subsection now states all four corrected rules in full,
+    each independently confirmed live (not assumed), and requires a future implementation to use a
+    DEDICATED renderer -- not `json.dumps` with adjusted options -- built to these rules, re-verified
+    live against a current Node process before implementation, since this section documents
+    CONFIRMED behavior as of these probes, not a guarantee against further undiscovered edge cases.
+    Required future witnesses EXTENDED (per the reviewer''s own explicit request): `null`, an array,
+    a non-ASCII string value, a negative-zero value, values at the small- and large-exponent notation
+    boundaries, and an object with an integer-string-shaped key alongside a non-numeric key in an
+    order that would distinguish correct ECMAScript reordering from source-order preservation.
+
+    §11.8 CONVERGENCE CORRECTION, ROUND THREE (`L11-SC-R010` remains open, sixth independent Rust
+    contract review -- two statements in the "ROUND TWO" paragraph immediately above are themselves
+    corrected here; the exact three templates, the `JSON.stringify` authority, the negative-zero
+    rule, the number-notation-threshold rule, and the property-enumeration-order rule from ROUND TWO
+    all remain correct and UNCHANGED): independently re-confirmed live before correcting anything --
+    (1) the ROUND TWO paragraph''s own generic-escape description ("`\u00XX` otherwise") was
+    ambiguous about total digit count; corrected to state explicitly that a generic control escape is
+    ALWAYS exactly four lowercase hex digits total (confirmed: `U+0001` renders as the six-character
+    sequence backslash-`u`-`0`-`0`-`0`-`1`, not a two-digit form); (2) the ROUND TWO paragraph''s own
+    "EVERY non-ASCII character ... passes through UNESCAPED" claim is FALSE for one case -- confirmed
+    live that `JSON.stringify` ALSO escapes an UNPAIRED (lone) UTF-16 surrogate code unit
+    (`U+D800`-`U+DFFF` not forming a valid pair) via the same generic 4-hex-digit form, rather than
+    emitting it literally (ECMAScript''s own "well-formed `JSON.stringify`," an ES2019 addition):
+    parsing the valid JSON string literal containing a lone high surrogate and re-stringifying it
+    reproduces the SAME escape, not a literal ill-formed code unit; only a PROPERLY-PAIRED surrogate
+    pair forming a valid astral character passes through literally, a materially narrower claim than
+    "every non-ASCII character." `spec/auth.md`''s own section is additionally reframed per the
+    review''s own explicit request: ECMAScript `JSON.stringify` itself is restated as the COMPLETE
+    normative authority, with the bulleted rules presented as confirmed, discriminating constraints a
+    conforming implementation must satisfy -- not a claimed exhaustive reimplementation of the
+    algorithm, since exactly this framing risk is what let two prose inaccuracies slip through two
+    prior rounds. Required future witnesses further extended: a lone (unpaired) surrogate code unit,
+    specifically distinguished from a properly-paired astral character in the existing non-ASCII
+    witness, since it is the one case an otherwise-correct "pass non-ASCII through unescaped"
+    implementation would get wrong.
+
+    Closure criterion (binding on the implementation pass that closes this row): implement against
+    this exact contract, with permanent regression evidence for every discriminating case in
+    `spec/auth.md`''s own behavior tables above (not merely a happy-path test per function) using
+    only synthetic fixtures and a deterministic fake transport -- no live `auth.openai.com` request,
+    no real secret, in the committed test suite, matching `PROV-011`''s own established security
+    constraint. If implementation discovers this contract cannot be expressed through the
+    already-certified `PROV-008`/`PROV-009`/`PROV-010` seams without changing their own observable
+    semantics, that is an `IMPLEMENTATION_DISCOVERED_CONTRACT_DEFECT` requiring owner governance
+    before proceeding, per the owner''s own Pass-2 scope decision -- those seams'' own certified
+    contracts are not silently widened to accommodate this row.'
   tests:
-  - future Layer 11 conformance evidence (none yet -- this row is deferred parity, not adopted; no
+  - future Layer 11 conformance evidence (none yet -- the CONTRACT is now complete and audited, but
+    this row remains deferred parity until a Python implementation pass against it exists; no
     fabricated evidence is cited for behavior not yet implemented)
-  python: 'NOT YET IMPLEMENTED -- deferred to a future Layer 11 pass, see closure criterion above'
+  python: 'NOT YET IMPLEMENTED -- contract complete (see `rule:` and `spec/auth.md`''s own PROV-012
+    section), implementation is a subsequent pass'
   rust: 'NOT YET IMPLEMENTED -- deferred to a future Layer 11 pass'
   disposition: deferred parity
 - id: PROV-013
@@ -4676,6 +4926,70 @@ rows:
   rust: 'NOT YET IMPLEMENTED -- Pass-2 Slice B Python-only per this pass''s own certification gate;
     Rust implementation is a separate, later handoff; see this row''s own RUST note above for the
     language-neutral contract a future Rust implementation must independently satisfy'
+  disposition: intentional divergence
+- id: PROV-016
+  phase: 5
+  pi: 'packages/ai/src/auth/oauth/openai-codex.ts (device_auth_id/user_code guards, `:219-224`;
+    authorization_code/code_verifier guard, `:254`; access_token/refresh_token guard, `:138`) --
+    field-type validation specifically, characterized here to disclose where this row intentionally
+    does NOT reproduce Pi''s own observed runtime behavior'
+  surface: Layer 11 Pass 2, Slice C -- PROV-012''s own provider-network response-field-type
+    validation boundary (`L11-SC-R005`)
+  rule: 'INTENTIONAL, NARROW, OWNER-APPROVED PI DIVERGENCE (`L11-SC-R005`, second independent Rust
+    contract review; `GOVERNANCE_SOURCE` recorded verbatim at
+    `https://github.com/EGAILab/minion-agent/issues/29#issuecomment-5676459844`, per
+    `agent-workflow.md` §11.10).
+
+    PINNED PI: for six `PROV-012` network-response fields (`device_auth_id`, `user_code`,
+    `authorization_code`, `code_verifier`, `access_token`, `refresh_token`), pinned Pi''s own runtime
+    validation is JAVASCRIPT TRUTHINESS ONLY, accepting any truthy value of any JSON type -- the
+    TypeScript field annotations declaring these `string` are ERASED at runtime and enforce nothing;
+    confirmed directly against `openai-codex.ts:219-224,254,138`, none of which performs a
+    `typeof value === "string"` check on any of these six fields. A truthy JSON number, boolean, or
+    object for any of them is NOT rejected by Pi''s own real code. Pi''s own downstream handling of
+    such a value is well-defined, not merely unobserved: a non-string `code`/`code_verifier` reaching
+    `exchangeAuthorizationCode`''s own `new URLSearchParams({...})` call is coerced via JavaScript''s
+    own implicit `String()` conversion (empirically confirmed live against Node:
+    `new URLSearchParams({code_verifier: 123})` -> `code_verifier=123`).
+
+    MINION DECISION: this project does NOT reproduce that truthy-any-type acceptance for these six
+    fields. At `PROV-012`''s own response-validation boundary, all six MUST be actual JSON strings; a
+    present-but-non-string (truthy) value is rejected via the SAME invalid-response path an
+    absent/falsy value already takes, never admitted into the typed Minion domain.
+
+    RATIONALE: Pi''s own broader acceptance is a byproduct of erased JavaScript runtime typing at an
+    external-data boundary, not a documented, load-bearing part of the real Codex OAuth API contract
+    -- no confirmed real `auth.openai.com` response or Pi call site has ever been observed exercising
+    it. Faithfully reproducing it would require widening TWO already-certified shared types
+    (`PROV-006`''s own `OAuthCredential.refresh: str`; `PROV-014`''s own
+    `AuthEventDeviceCode.user_code: str`) to an open `JsonValue`, and then standardizing JavaScript
+    `String()`/`URLSearchParams` coercion semantics at every downstream consumer -- disproportionate
+    for an edge case with no confirmed real trigger. Strict validation at this row''s own ingress
+    instead preserves every already-certified typed surface unchanged and localizes the entire
+    divergence to `PROV-012`''s own provider-response decoder alone.
+
+    SCOPE, EXACTLY: this approval covers ONLY these six fields'' own type validation at `PROV-012`''s
+    own response-decoding boundary. It does NOT authorize generalized stricter validation elsewhere
+    in `PROV-012` (the `interval` field''s own rule is UNCHANGED Pi-faithful behavior, already a real
+    `typeof` check, not covered by this divergence); does NOT change `PROV-006`''s own credential
+    semantics; does NOT change `PROV-014`''s own interaction semantics; and does NOT authorize
+    silently "cleaning up" any other Pi runtime quirk a future audit might find.
+
+    RUST: this decision is a general instruction, not Python mechanics to replicate. Rust''s own
+    typed request/response surfaces are expected to enforce this same string requirement naturally
+    as part of ordinary strict deserialization; any Rust-specific representation is reviewed
+    independently when Rust implements `PROV-012`.'
+  tests:
+  - 'future PROV-012 implementation pass (none yet -- PROV-012 itself remains deferred parity, no
+    Python code exists for this row). Required per the owner''s own decision: for each of the six
+    named fields, a permanent discriminating witness proving (a) a valid actual-string value is
+    accepted exactly as Pi accepts it; (b) an absent/falsy value is rejected via the existing
+    Pi-compatible invalid-response path, unchanged from Pi; (c) a present, JavaScript-truthy,
+    non-string value is rejected -- this project''s OWN intentional divergence from Pi''s own real
+    acceptance, not a Pi-compatible outcome'
+  python: 'NOT YET IMPLEMENTED -- tracked alongside PROV-012''s own eventual implementation pass'
+  rust: 'NOT YET IMPLEMENTED -- see this row''s own RUST note above for the language-neutral
+    contract a future Rust implementation must independently satisfy'
   disposition: intentional divergence
 - id: MINION-001
   phase: 1

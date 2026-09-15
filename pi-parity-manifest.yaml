@@ -4549,6 +4549,30 @@ rows:
     -- no lower-layer certified semantic was reopened, and `PROV-016`''s own intentional divergence
     is unaffected.
 
+    §11.8 CONVERGENCE CORRECTION (`L11-SC-R010`, `CONTRACT_ASSURANCE_DEFECT`, fourth independent
+    Rust contract review -- REMAINS within the SAME `CONTRACT_CONVERGENCE` entered for `L11-SC-R007`
+    through `R009` above, per the reviewer''s own explicit "remains on that convergence track"
+    framing): three public failure messages (device-start invalid-response, device-poll invalid-
+    token-response, token exchange/refresh missing-fields) each embed the successfully-parsed
+    response body via pinned Pi''s own EXACT `` `...: ${JSON.stringify(json)}` `` template
+    (`openai-codex.ts:139,225,257`, confirmed directly), while this row''s own prior text left all
+    three either entirely unstated or abbreviated (`<body>`/`{the parsed body}`) -- insufficient for
+    independent implementation, since Python''s own default `json.dumps` (spaced separators) and
+    Rust''s own `serde_json::Value` debug formatting both differ from Pi''s own real output while each
+    could plausibly satisfy the prior vague wording. Fixed: all three exact templates are now pinned
+    in `spec/auth.md`''s own new "Exact error-message JSON rendering" subsection, which also
+    specifies the shared rendering rule in full -- confirmed live and cross-checked that
+    `JSON.stringify(value)` is reproduced EXACTLY by Python''s `json.dumps(value, separators=(",",
+    ":"))` for `null`/arrays/objects with source key order preserved, EXCEPT for one independently-
+    discovered subtlety the review''s own three-point request did not explicitly name: a whole-valued
+    JSON number (e.g. `5.0`) renders as `5` under `JSON.stringify` (JavaScript has one numeric type)
+    but as `5.0` under Python''s own default `json.dumps` (which parses it as a genuine `float`) --
+    confirmed live -- so a future implementation''s own rendering step must additionally format a
+    whole-valued float without a trailing `.0` to stay byte-identical to Pi, on top of using compact
+    separators. Required future witnesses (stated in the new spec subsection): `null`, an array, and
+    an ordered multi-field object whose key order and any whole-valued numeric field would otherwise
+    distinguish a correct rendering from a plausible-looking wrong one.
+
     Closure criterion (binding on the implementation pass that closes this row): implement against
     this exact contract, with permanent regression evidence for every discriminating case in
     `spec/auth.md`''s own behavior tables above (not merely a happy-path test per function) using

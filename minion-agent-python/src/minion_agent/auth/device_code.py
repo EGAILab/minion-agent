@@ -16,7 +16,7 @@ import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 
-from ..runtime.signal import RunSignal
+from .signal import Abortable
 
 MINIMUM_INTERVAL_SECONDS = 1.0
 DEFAULT_POLL_INTERVAL_SECONDS = 5.0
@@ -178,7 +178,7 @@ class DeviceFlowError(Exception):
 
 
 class DeviceFlowCancelled(DeviceFlowError):
-    """The caller's own `RunSignal` was observed aborted -- either already aborted when checked,
+    """The caller's own `signal` was observed aborted -- either already aborted when checked,
     or aborted during a sleep between attempts."""
 
 
@@ -194,18 +194,23 @@ class DeviceFlowFailed(DeviceFlowError):
 
 async def abortable_sleep(
     seconds: float,
-    signal: RunSignal | None,
+    signal: Abortable | None,
     *,
     sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
     poll_interval_seconds: float = 0.05,
 ) -> None:
     """Sleep for `seconds`, checking `signal` at `poll_interval_seconds` boundaries.
 
-    `RunSignal` is poll-based BY CERTIFIED DESIGN (Layer 09) -- it has no push/event mechanism the
-    way Pi's own `AbortSignal.addEventListener("abort", ...)` does, and this module does not add
-    one. Slicing a long sleep into short steps and checking `signal.aborted` between them is how a
-    poll-only signal gets checked "promptly enough" without redesigning `RunSignal` itself; it is
-    a deliberate, disclosed difference from Pi's own instant-interrupt behavior, immaterial to any
+    `signal` accepts ANY `Abortable`-conforming value, not only `RunSignal` (widened from
+    `RunSignal | None`, `PROV-012` discovery -- `ProviderAuthInteraction.signal`, `PROV-014`, is
+    deliberately typed as the abstract `Abortable`, and this module never called anything
+    RunSignal-specific to begin with, only ever `signal.aborted`; confirmed behavior-preserving,
+    owner-approved before widening this already-certified row, per `agent-workflow.md` §11.7/
+    §11.10). `RunSignal` (Layer 09) remains poll-based BY CERTIFIED DESIGN -- it has no push/event
+    mechanism the way Pi's own `AbortSignal.addEventListener("abort", ...)` does, and this module
+    does not add one. Slicing a long sleep into short steps and checking `signal.aborted` between
+    them is how a poll-only signal gets checked "promptly enough" without redesigning it; it is a
+    deliberate, disclosed difference from Pi's own instant-interrupt behavior, immaterial to any
     already-certified Layer-09 semantic.
 
     Raises `DeviceFlowCancelled` immediately if `signal` is already aborted, or as soon as a
@@ -261,12 +266,17 @@ async def poll_device_code_flow[T](
     interval_seconds: float | None = None,
     expires_in_seconds: float | None = None,
     wait_before_first_poll: bool = False,
-    signal: RunSignal | None = None,
+    signal: Abortable | None = None,
     sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
     now: Callable[[], float] = time.monotonic,
 ) -> T:
     """Drive one RFC 8628 device-authorization poll loop to completion (Pi
     `pollOAuthDeviceCodeFlow`).
+
+    `signal` accepts ANY `Abortable`-conforming value, not only `RunSignal` (widened from
+    `RunSignal | None` -- see `abortable_sleep`'s own docstring above for the full `PROV-012`
+    discovery/owner-approval record; this function itself only ever reads `signal.aborted`, the
+    same as `abortable_sleep`).
 
     `poll` is the only transport seam -- this function owns every interval/backoff/deadline/
     cancellation decision. `sleep` and `now` are injectable so tests run with no real waiting and

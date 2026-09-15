@@ -4224,7 +4224,34 @@ rows:
     `expires_in_seconds=0.0019999995`/`wait_before_first_poll=True` witness this review required is
     now pinned directly against `poll_device_code_flow`, and the pre-existing
     `auth-device-code-expiry-without-slow-down` conformance scenario continues to pass via the fake
-    clocks'' own rounding fix, confirmed by revert-and-confirm in both directions.'
+    clocks'' own rounding fix, confirmed by revert-and-confirm in both directions.
+
+    Signal-type widening (owner-approved, `GOVERNANCE_SOURCE` recorded verbatim at
+    `https://github.com/EGAILab/minion-agent/issues/29#issuecomment-5687465258`, per
+    `agent-workflow.md` §11.10 -- filed retroactively in response to `L11-SC-R019`, an independent
+    review finding that this decision, unlike every other owner-governance decision this Slice''s
+    work cites, was never posted as its own durable GOVERNANCE_SOURCE comment at the time it was
+    made; discovered during `PROV-012` implementation -- pure type-signature generalization, NO
+    behavior change): `abortable_sleep`/`poll_device_code_flow`
+    both previously typed their own `signal` parameter as the CONCRETE `RunSignal | None`
+    (`runtime/signal.py`), not the abstract `Abortable` protocol (`auth/signal.py`) already-
+    certified `PROV-008` uses. This blocked `PROV-012`''s own device-code integration, whose
+    `ProviderAuthInteraction.signal` (`PROV-014`, `interaction.py:254`) is deliberately typed
+    `Abortable`, not `RunSignal` -- a genuine cross-layer static-typing conflict between two
+    already-certified rows, reported to the owner rather than silently resolved (per
+    `agent-workflow.md` §11.7''s own "do not silently widen a certified contract" discipline).
+    Confirmed before requesting the decision: this module never calls anything RunSignal-specific
+    anywhere -- every use of `signal` in `device_code.py` is either the type annotation itself or a
+    plain `signal.aborted` read (grepped and verified exhaustively) -- so widening to `Abortable |
+    None` is 100% behavior-preserving; `RunSignal` itself already satisfies `Abortable`
+    structurally, so every existing caller is unaffected. Owner approved the widening explicitly
+    (`GOVERNANCE_SOURCE` above).
+    Both parameters'' own type annotations are now `Abortable | None`; the full existing
+    `tests/auth/test_device_code.py` suite (34 tests) was re-run unchanged afterward and passes
+    identically, confirming no observable behavior changed. This is NOT a Pi-parity change -- Pi
+    itself has no equivalent static-typing distinction; it is a Python-binding-only correction
+    that makes this already-certified row consistent with `PROV-008`''s own established pattern of
+    accepting any `Abortable`-conforming signal.'
   tests:
   - tests/auth/test_device_code.py (34 tests -- immediate success, pending/slow_down combinations
     including a non-finite server interval falling back to the fixed increment and fractional
@@ -4638,15 +4665,63 @@ rows:
     already-certified `PROV-008`/`PROV-009`/`PROV-010` seams without changing their own observable
     semantics, that is an `IMPLEMENTATION_DISCOVERED_CONTRACT_DEFECT` requiring owner governance
     before proceeding, per the owner''s own Pass-2 scope decision -- those seams'' own certified
-    contracts are not silently widened to accommodate this row.'
+    contracts are not silently widened to accommodate this row.
+
+    IMPLEMENTATION CLOSURE: this exact `IMPLEMENTATION_DISCOVERED_CONTRACT_DEFECT` scenario was
+    encountered and resolved through owner governance, not silently -- `PROV-014`''s own
+    `ProviderAuthInteraction.signal` is deliberately typed `Abortable` (`interaction.py:254`), but
+    `PROV-010`''s own `poll_device_code_flow`/`abortable_sleep` required the concrete `RunSignal`
+    specifically (`device_code.py`), a genuine cross-layer static-typing conflict between two
+    already-certified rows. Reported to the owner rather than resolved unilaterally; confirmed
+    first that the conflict was purely a type-signature over-restriction (this project''s own
+    `PROV-010` module never called anything RunSignal-specific, only ever `signal.aborted`) before
+    asking. Owner approved widening `PROV-010`''s own `signal` parameter to `Abortable | None` --
+    see `PROV-010`''s own manifest row for the full record of that narrow, behavior-preserving
+    correction (confirmed via its own pre-existing 34-test suite passing unchanged afterward).
+
+    Implemented in `src/minion_agent/auth/openai_codex_oauth.py` (browser/PKCE flow including the
+    local callback server, manual-code racing, and device-code flow, token exchange/refresh),
+    `src/minion_agent/auth/http_transport.py` (the injectable `httpx`-backed transport seam and
+    poll-based cancellation wrapper, `PROV-012`''s own shared infrastructure), and
+    `src/minion_agent/auth/js_json.py` (the dedicated ECMAScript-`JSON.stringify`-faithful renderer
+    `PROV-016`''s own error messages require). `httpx>=0.27` added as a project dependency, matching
+    the owner''s own approval. Every discriminating case named across `L11-SC-R001` through `R010`
+    and this row''s own closure criterion has a permanent regression witness -- see `tests:` below.'
   tests:
-  - future Layer 11 conformance evidence (none yet -- the CONTRACT is now complete and audited, but
-    this row remains deferred parity until a Python implementation pass against it exists; no
-    fabricated evidence is cited for behavior not yet implemented)
-  python: 'NOT YET IMPLEMENTED -- contract complete (see `rule:` and `spec/auth.md`''s own PROV-012
-    section), implementation is a subsequent pass'
-  rust: 'NOT YET IMPLEMENTED -- deferred to a future Layer 11 pass'
-  disposition: deferred parity
+  - 'tests/auth/test_openai_codex_oauth.py (60 tests) -- `parse_authorization_input`''s three input
+    shapes including the JS `split(#,2)` fidelity trap; `_js_number_coerce`''s own empty/hex/octal/
+    binary/Infinity/garbage cases; the authorization URL''s own exact param order and `originator=pi`;
+    the local callback server''s own real ephemeral-port behavior (404 wrong path, 400 state
+    mismatch, 400 absent AND empty code distinguished, the shared `Content-Type` header, `500`
+    containment on an internal exception, silent bind-failure fallback) via REAL local TCP
+    connections, never a live/production port; the full browser-flow race (`L11-SC-R002`''s five
+    outcomes including the empty-manual-cancels-server case and the two second-check fallback
+    branches, `L11-SC-R009`''s pre-aborted-at-entry ordering, `L11-SC-R001`''s notify-failure-skips-
+    cleanup boundary proven by a subsequent same-port bind failure); the device-code flow (start/
+    poll success, 404-not-enabled, `PROV-016`''s own truthy-non-string rejection, the poll-outcome
+    mapping''s every branch including the object-shaped `{code: ...}` error field and the
+    unparseable-vs-swallowed error-body distinction, timeout); token exchange/refresh (success,
+    non-2xx with/without body, missing-fields with EXACT `js_json_stringify` rendering, the
+    `L11-SC-R004` cancellation-translation asymmetry); login-method dispatch including the exact
+    unknown-method message; the `OAuthAuth` composite''s own shape and `to_auth` delegation to the
+    already-adopted `PROV-011`.'
+  - 'tests/auth/test_http_transport.py (13 tests) -- `run_cancellable`''s own success/exception-
+    propagation/cancellation/inner-task-cleanup paths (including the outer-await-cancelled safety
+    net); `fetch_with_login_cancellation`''s own post-hoc signal-aborted check; `refresh_fetch`''s
+    own uniform, non-translating wrapping; `HttpxTransport` exercised via `httpx.MockTransport`
+    (httpx''s own official no-network testing seam) for both an injected and a self-constructed
+    client, never a live socket.'
+  - 'tests/auth/test_js_json.py (16 tests) -- every rule `L11-SC-R010`''s three review rounds
+    established: `null`/array/object rendering, negative-zero collapse, both notation-threshold
+    boundaries, non-ASCII pass-through for a properly-paired astral character, the unpaired-
+    surrogate escape exception, named vs. generic control-character escapes, and array-index-like
+    property reordering including the exact `2**32-2` boundary -- every value independently
+    cross-checked against live Node 22 before being committed as a fixture.'
+  python: src/minion_agent/auth/openai_codex_oauth.py; src/minion_agent/auth/http_transport.py;
+    src/minion_agent/auth/js_json.py
+  rust: 'NOT YET IMPLEMENTED -- Pass-2 Slice C Python-only per this pass''s own certification gate;
+    Rust implementation is a separate, later handoff'
+  disposition: adopted
 - id: PROV-013
   phase: 5
   pi: 'packages/ai/src/auth/resolve.ts::resolveProviderAuth/resolveStoredOAuth/resolveApiKey;
@@ -4980,14 +5055,17 @@ rows:
     as part of ordinary strict deserialization; any Rust-specific representation is reviewed
     independently when Rust implements `PROV-012`.'
   tests:
-  - 'future PROV-012 implementation pass (none yet -- PROV-012 itself remains deferred parity, no
-    Python code exists for this row). Required per the owner''s own decision: for each of the six
-    named fields, a permanent discriminating witness proving (a) a valid actual-string value is
-    accepted exactly as Pi accepts it; (b) an absent/falsy value is rejected via the existing
-    Pi-compatible invalid-response path, unchanged from Pi; (c) a present, JavaScript-truthy,
-    non-string value is rejected -- this project''s OWN intentional divergence from Pi''s own real
-    acceptance, not a Pi-compatible outcome'
-  python: 'NOT YET IMPLEMENTED -- tracked alongside PROV-012''s own eventual implementation pass'
+  - 'tests/auth/test_openai_codex_oauth.py -- per the owner''s own decision, each of the six named
+    fields (`device_auth_id`/`user_code` via `test_start_device_auth_each_field_absent_or_truthy_
+    non_string`; `authorization_code`/`code_verifier` via `test_poll_device_auth_each_field_absent_
+    or_truthy_non_string`; `access_token`/`refresh_token` via `test_read_token_response_each_field_
+    absent_or_truthy_non_string`, all three parametrized over both fields) has a permanent
+    discriminating witness proving (a) a valid actual-string value is accepted (covered by every
+    adjoining success test); (b) an absent/falsy value is rejected via the existing Pi-compatible
+    invalid-response path, unchanged from Pi; (c) a present, JavaScript-truthy, non-string value is
+    rejected -- this project''s OWN intentional divergence from Pi''s own real acceptance, not a
+    Pi-compatible outcome.'
+  python: src/minion_agent/auth/openai_codex_oauth.py
   rust: 'NOT YET IMPLEMENTED -- see this row''s own RUST note above for the language-neutral
     contract a future Rust implementation must independently satisfy'
   disposition: intentional divergence

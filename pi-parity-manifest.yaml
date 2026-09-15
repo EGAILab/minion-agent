@@ -4416,6 +4416,62 @@ rows:
     `login`/`refresh`/`to_auth` are the PER-PROVIDER vocabulary that orchestration would eventually
     consume, not that orchestration itself); a Codex CLI credential-file loader.
 
+    CORRECTION (`L11-SC-R001` through `L11-SC-R004`, first independent Rust contract review of this
+    contract, all four independently re-verified directly against pinned Pi before fixing):
+
+    - `L11-SC-R001` (`PI_PARITY_DEFECT`): the original contract overclaimed unconditional cleanup
+      for the browser flow. Pinned Pi''s own `interaction.notify({type: "auth_url", ...})`
+      (`openai-codex.ts:456-460`) executes BEFORE the surrounding `try`/`finally` (`:462-505`) is
+      entered -- a synchronous `notify()` throw at that point bypasses ALL cleanup (server never
+      closed, flow-level abort listener never detached, manual-prompt abort controller never
+      aborted), since execution never reaches the `try` at all. Fixed: `spec/auth.md`''s own step 5
+      now states this exact boundary and requires a discriminating test asserting cleanup does NOT
+      occur on a `notify()` failure at this point.
+    - `L11-SC-R002` (`CONTRACT_ASSURANCE_DEFECT`): the browser race/state matrix omitted three
+      discriminating outcomes. Fixed, all independently re-traced against `openai-codex.ts:462-505`
+      line by line: (1) a manual prompt resolving FIRST with an empty/whitespace value still cancels
+      the server (its own falsy-value side effect is unconditional, not gated on non-emptiness), and
+      the flow then raises "Missing authorization code" rather than falling back to the
+      already-cancelled server; (2) a flow-level `signal` abort while a manual prompt remains pending
+      cancels ONLY the server''s own wait, NOT the manual prompt''s own separate per-prompt signal
+      (that only happens in the flow''s own final `finally`) -- the operation therefore does NOT
+      promptly resolve on a flow-level abort alone while a manual prompt is still outstanding; (3)
+      manual state validation (`parsed.state && parsed.state !== state`) is a TRUTHINESS check, not
+      a presence check -- an empty parsed `state` (e.g. input `"code#"`) is treated exactly like an
+      absent one and SKIPS validation, which the contract''s prior "state is present" wording could
+      be misread as requiring a mismatch for instead.
+    - `L11-SC-R003` (`PI_PARITY_DEFECT`): the original contract required non-empty STRINGS for
+      `device_auth_id`/`user_code`/`authorization_code`/`code_verifier`/`access_token`/
+      `refresh_token`. Pinned Pi''s own TypeScript field annotations for these are ERASED at
+      runtime; the actual guards (`openai-codex.ts:219-224,254,138`) are JAVASCRIPT TRUTHINESS
+      checks accepting ANY truthy value of ANY type, not only strings (`expires_in` alone gets a
+      REAL `typeof ... !== "number"` check, a genuine mix within the same validation, confirmed at
+      `:138`). Fixed: `spec/auth.md`''s own device-flow and token-response sections now state the
+      truthy-of-any-type rule explicitly, requiring owner approval for any future stricter
+      string-typed divergence. Also fixed: the `interval` string-coercion rule was underspecified --
+      a live-Node-verified `Number(trimmed)` grammar (empty string coerces to `0`, NOT rejected;
+      hex/octal/binary-prefixed strings parse in that base; `Infinity` tokens fail via the separate
+      finiteness check, not the coercion itself) now replaces the vague "coercible to a finite
+      number" phrasing, matching this row''s own established `L11-SA-R001` live-verification
+      discipline.
+    - `L11-SC-R004` (`CONTRACT_ASSURANCE_DEFECT`): three inaccuracies/omissions in the failure
+      surface, all fixed: (1) the "Login cancelled" cancellation translation was stated as scoped
+      only to exchange, but pinned Pi''s own `fetchWithLoginCancellation` helper is ALSO the real
+      transport for device-start (`:192`) and every device-poll attempt (`:241`) -- all three now
+      share the stated rule, restated once and cross-referenced from both device-flow steps; (2) a
+      `2xx`-response JSON-parse failure was not distinguished from a missing-field failure -- pinned
+      Pi never catches `response.json()`''s own rejection on ANY of the three success-path parses
+      (device-start, device-poll, token exchange/refresh), so it propagates RAW, unlike the
+      device-poll''s own SEPARATE, deliberately different rule for an unparseable ERROR body on its
+      non-2xx path (caught, folded into a generic failure) -- both rules are now stated, explicitly
+      distinguished as two different Pi behaviors, not one; (3) the refresh/exchange asymmetry''s own
+      stated RATIONALE was inaccurate ("a fixed time budget, not a user-driven cancellation") --
+      already-certified `PROV-008`''s own `refresh_if_expiring` supplies refresh with a
+      `CombinedSignal` that combines BOTH an optional caller signal AND a fixed timeout, so a
+      user-driven cancellation CAN reach refresh; the OBSERVABLE rule (refresh wraps every
+      request-level failure uniformly) was already correct and is unchanged -- only the wrong stated
+      reason for it was removed.
+
     Closure criterion (binding on the implementation pass that closes this row): implement against
     this exact contract, with permanent regression evidence for every discriminating case in
     `spec/auth.md`''s own behavior tables above (not merely a happy-path test per function) using

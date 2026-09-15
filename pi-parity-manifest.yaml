@@ -4603,6 +4603,32 @@ rows:
     boundaries, and an object with an integer-string-shaped key alongside a non-numeric key in an
     order that would distinguish correct ECMAScript reordering from source-order preservation.
 
+    §11.8 CONVERGENCE CORRECTION, ROUND THREE (`L11-SC-R010` remains open, sixth independent Rust
+    contract review -- two statements in the "ROUND TWO" paragraph immediately above are themselves
+    corrected here; the exact three templates, the `JSON.stringify` authority, the negative-zero
+    rule, the number-notation-threshold rule, and the property-enumeration-order rule from ROUND TWO
+    all remain correct and UNCHANGED): independently re-confirmed live before correcting anything --
+    (1) the ROUND TWO paragraph''s own generic-escape description ("`\u00XX` otherwise") was
+    ambiguous about total digit count; corrected to state explicitly that a generic control escape is
+    ALWAYS exactly four lowercase hex digits total (confirmed: `U+0001` renders as the six-character
+    sequence backslash-`u`-`0`-`0`-`0`-`1`, not a two-digit form); (2) the ROUND TWO paragraph''s own
+    "EVERY non-ASCII character ... passes through UNESCAPED" claim is FALSE for one case -- confirmed
+    live that `JSON.stringify` ALSO escapes an UNPAIRED (lone) UTF-16 surrogate code unit
+    (`U+D800`-`U+DFFF` not forming a valid pair) via the same generic 4-hex-digit form, rather than
+    emitting it literally (ECMAScript''s own "well-formed `JSON.stringify`," an ES2019 addition):
+    parsing the valid JSON string literal containing a lone high surrogate and re-stringifying it
+    reproduces the SAME escape, not a literal ill-formed code unit; only a PROPERLY-PAIRED surrogate
+    pair forming a valid astral character passes through literally, a materially narrower claim than
+    "every non-ASCII character." `spec/auth.md`''s own section is additionally reframed per the
+    review''s own explicit request: ECMAScript `JSON.stringify` itself is restated as the COMPLETE
+    normative authority, with the bulleted rules presented as confirmed, discriminating constraints a
+    conforming implementation must satisfy -- not a claimed exhaustive reimplementation of the
+    algorithm, since exactly this framing risk is what let two prose inaccuracies slip through two
+    prior rounds. Required future witnesses further extended: a lone (unpaired) surrogate code unit,
+    specifically distinguished from a properly-paired astral character in the existing non-ASCII
+    witness, since it is the one case an otherwise-correct "pass non-ASCII through unescaped"
+    implementation would get wrong.
+
     Closure criterion (binding on the implementation pass that closes this row): implement against
     this exact contract, with permanent regression evidence for every discriminating case in
     `spec/auth.md`''s own behavior tables above (not merely a happy-path test per function) using

@@ -4491,6 +4491,26 @@ rows:
     genuinely different from token exchange''s own non-`2xx` message template, which falls back to
     the response''s own status-text reason phrase instead.
 
+    OWNER GOVERNANCE DECISION (`L11-SC-R005`, second independent Rust contract review, SUPERSEDES the
+    `L11-SC-R003` correction''s own "truthy-of-any-type" requirement for the six named fields above):
+    the `L11-SC-R003` fix above correctly stated Pi''s own erased-runtime-type, truthiness-only
+    validation, but the reviewer found this contradicts TWO already-certified strict-`str` shared
+    types this row''s own output flows into (`PROV-006`''s own `OAuthCredential.refresh: str`,
+    `PROV-014`''s own `AuthEventDeviceCode.user_code: str`) -- a genuine cross-layer type-domain
+    conflict a statically-typed Rust implementation cannot resolve by being merely "more permissive."
+    The owner decided (`GOVERNANCE_SOURCE`, verbatim at
+    `https://github.com/EGAILab/minion-agent/issues/29#issuecomment-5676459844`, per
+    `agent-workflow.md` §11.10): `device_auth_id`/`user_code`/`authorization_code`/`code_verifier`/
+    `access_token`/`refresh_token` MUST be actual JSON strings at this row''s own response-validation
+    boundary, NOT merely JS-truthy values of any type -- a present-but-non-string value is rejected
+    exactly like an absent/falsy one, never admitted into the typed Minion domain. This is an
+    INTENTIONAL, NARROW, owner-approved Pi divergence, tracked as its OWN manifest subject,
+    `PROV-016`, per the owner''s own explicit instruction not to mix it into this row''s own eventual
+    disposition, and explicitly scoped to ONLY these six fields'' own type validation -- it does NOT
+    touch `interval`''s own unrelated, already-real `typeof` check, does NOT change `PROV-006`/
+    `PROV-014`''s own certified semantics, and does NOT authorize any other stricter-than-Pi behavior
+    anywhere else in this row.
+
     Closure criterion (binding on the implementation pass that closes this row): implement against
     this exact contract, with permanent regression evidence for every discriminating case in
     `spec/auth.md`''s own behavior tables above (not merely a happy-path test per function) using
@@ -4788,6 +4808,70 @@ rows:
   rust: 'NOT YET IMPLEMENTED -- Pass-2 Slice B Python-only per this pass''s own certification gate;
     Rust implementation is a separate, later handoff; see this row''s own RUST note above for the
     language-neutral contract a future Rust implementation must independently satisfy'
+  disposition: intentional divergence
+- id: PROV-016
+  phase: 5
+  pi: 'packages/ai/src/auth/oauth/openai-codex.ts (device_auth_id/user_code guards, `:219-224`;
+    authorization_code/code_verifier guard, `:254`; access_token/refresh_token guard, `:138`) --
+    field-type validation specifically, characterized here to disclose where this row intentionally
+    does NOT reproduce Pi''s own observed runtime behavior'
+  surface: Layer 11 Pass 2, Slice C -- PROV-012''s own provider-network response-field-type
+    validation boundary (`L11-SC-R005`)
+  rule: 'INTENTIONAL, NARROW, OWNER-APPROVED PI DIVERGENCE (`L11-SC-R005`, second independent Rust
+    contract review; `GOVERNANCE_SOURCE` recorded verbatim at
+    `https://github.com/EGAILab/minion-agent/issues/29#issuecomment-5676459844`, per
+    `agent-workflow.md` §11.10).
+
+    PINNED PI: for six `PROV-012` network-response fields (`device_auth_id`, `user_code`,
+    `authorization_code`, `code_verifier`, `access_token`, `refresh_token`), pinned Pi''s own runtime
+    validation is JAVASCRIPT TRUTHINESS ONLY, accepting any truthy value of any JSON type -- the
+    TypeScript field annotations declaring these `string` are ERASED at runtime and enforce nothing;
+    confirmed directly against `openai-codex.ts:219-224,254,138`, none of which performs a
+    `typeof value === "string"` check on any of these six fields. A truthy JSON number, boolean, or
+    object for any of them is NOT rejected by Pi''s own real code. Pi''s own downstream handling of
+    such a value is well-defined, not merely unobserved: a non-string `code`/`code_verifier` reaching
+    `exchangeAuthorizationCode`''s own `new URLSearchParams({...})` call is coerced via JavaScript''s
+    own implicit `String()` conversion (empirically confirmed live against Node:
+    `new URLSearchParams({code_verifier: 123})` -> `code_verifier=123`).
+
+    MINION DECISION: this project does NOT reproduce that truthy-any-type acceptance for these six
+    fields. At `PROV-012`''s own response-validation boundary, all six MUST be actual JSON strings; a
+    present-but-non-string (truthy) value is rejected via the SAME invalid-response path an
+    absent/falsy value already takes, never admitted into the typed Minion domain.
+
+    RATIONALE: Pi''s own broader acceptance is a byproduct of erased JavaScript runtime typing at an
+    external-data boundary, not a documented, load-bearing part of the real Codex OAuth API contract
+    -- no confirmed real `auth.openai.com` response or Pi call site has ever been observed exercising
+    it. Faithfully reproducing it would require widening TWO already-certified shared types
+    (`PROV-006`''s own `OAuthCredential.refresh: str`; `PROV-014`''s own
+    `AuthEventDeviceCode.user_code: str`) to an open `JsonValue`, and then standardizing JavaScript
+    `String()`/`URLSearchParams` coercion semantics at every downstream consumer -- disproportionate
+    for an edge case with no confirmed real trigger. Strict validation at this row''s own ingress
+    instead preserves every already-certified typed surface unchanged and localizes the entire
+    divergence to `PROV-012`''s own provider-response decoder alone.
+
+    SCOPE, EXACTLY: this approval covers ONLY these six fields'' own type validation at `PROV-012`''s
+    own response-decoding boundary. It does NOT authorize generalized stricter validation elsewhere
+    in `PROV-012` (the `interval` field''s own rule is UNCHANGED Pi-faithful behavior, already a real
+    `typeof` check, not covered by this divergence); does NOT change `PROV-006`''s own credential
+    semantics; does NOT change `PROV-014`''s own interaction semantics; and does NOT authorize
+    silently "cleaning up" any other Pi runtime quirk a future audit might find.
+
+    RUST: this decision is a general instruction, not Python mechanics to replicate. Rust''s own
+    typed request/response surfaces are expected to enforce this same string requirement naturally
+    as part of ordinary strict deserialization; any Rust-specific representation is reviewed
+    independently when Rust implements `PROV-012`.'
+  tests:
+  - 'future PROV-012 implementation pass (none yet -- PROV-012 itself remains deferred parity, no
+    Python code exists for this row). Required per the owner''s own decision: for each of the six
+    named fields, a permanent discriminating witness proving (a) a valid actual-string value is
+    accepted exactly as Pi accepts it; (b) an absent/falsy value is rejected via the existing
+    Pi-compatible invalid-response path, unchanged from Pi; (c) a present, JavaScript-truthy,
+    non-string value is rejected -- this project''s OWN intentional divergence from Pi''s own real
+    acceptance, not a Pi-compatible outcome'
+  python: 'NOT YET IMPLEMENTED -- tracked alongside PROV-012''s own eventual implementation pass'
+  rust: 'NOT YET IMPLEMENTED -- see this row''s own RUST note above for the language-neutral
+    contract a future Rust implementation must independently satisfy'
   disposition: intentional divergence
 - id: MINION-001
   phase: 1

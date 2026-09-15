@@ -4511,6 +4511,44 @@ rows:
     `PROV-014`''s own certified semantics, and does NOT authorize any other stricter-than-Pi behavior
     anywhere else in this row.
 
+    §11.8 CONVERGENCE CORRECTION (`L11-SC-R007` through `L11-SC-R009`, third independent Rust
+    contract review -- this is Slice C''s own THIRD rejected complete review, automatically meeting
+    §11.8''s "layer accumulates three rejected contract reviews" trigger; entered `CONTRACT_
+    CONVERGENCE` for the local browser-callback boundary specifically, per the reviewer''s own
+    characterization pass and this owner''s own independent challenge pass, both directly
+    re-confirmed against `openai-codex.ts`''s own callback handler and `loginOpenAICodex`''s own
+    abort-listener setup before any contract text changed):
+
+    - `L11-SC-R007` (`PI_PARITY_DEFECT`): the callback route table''s own "query code absent -> 400"
+      row was read as excluding a PRESENT-BUT-EMPTY `code=` from rejection. Pinned Pi''s own handler
+      extracts `code` via `url.searchParams.get("code")` (which returns `""`, not `null`, for
+      `?code=`) and tests it with a bare `if (!code)` -- JavaScript truthiness, under which an empty
+      string is exactly as falsy as absent. Fixed: the route table''s own third row now reads
+      "absent OR present-but-empty," both taking the 400 path; only a present, NON-EMPTY code
+      succeeds.
+    - `L11-SC-R008` (`CONTRACT_ASSURANCE_DEFECT`): the route table was called EXACT while omitting
+      two genuinely observable, non-presentational properties every branch shares: (1)
+      `Content-Type: text/html; charset=utf-8` is set on EVERY response (404/400/400/200, and the
+      new 500 below) before its own body is written; (2) pinned Pi''s own handler wraps its ENTIRE
+      route body in one `try`/`catch`, so any exception during URL parsing/handling is CONTAINED as
+      a `500` response, never escaping or crashing the server. Fixed: both are now stated explicitly,
+      and the `500` outcome is added as a fifth row of the route table (the HTML body content itself
+      remains the only genuinely out-of-scope part of the response).
+    - `L11-SC-R009` (`CONTRACT_ASSURANCE_DEFECT`): the browser flow''s own race table covered an
+      abort occurring WHILE both the server and manual prompt are pending, but never the
+      already-aborted-AT-ENTRY case. Pinned Pi''s own `if (interaction.signal.aborted) onAbort();`
+      (immediately after registering the same abort listener the mid-flow case already uses) fires
+      the IDENTICAL handler (cancel only the server''s own wait) synchronously at setup time, BEFORE
+      the `auth_url` notification and the manual-prompt creation -- both of which still occur
+      UNCONDITIONALLY regardless of whether the signal was already aborted before the flow even
+      began. Fixed: this exact ordering is now stated where the abort listener is registered
+      (previously referenced but never actually described), making explicit that a pre-aborted
+      signal does NOT short-circuit notification/prompting.
+
+    All three are contract/evidence-only corrections to the ALREADY-`deferred parity` `PROV-012` row
+    -- no lower-layer certified semantic was reopened, and `PROV-016`''s own intentional divergence
+    is unaffected.
+
     Closure criterion (binding on the implementation pass that closes this row): implement against
     this exact contract, with permanent regression evidence for every discriminating case in
     `spec/auth.md`''s own behavior tables above (not merely a happy-path test per function) using

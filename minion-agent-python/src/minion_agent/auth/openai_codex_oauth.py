@@ -50,7 +50,7 @@ from .interaction import (
     OAuthAuth,
     ProviderAuthInteraction,
 )
-from .js_json import js_json_stringify
+from .js_json import js_json_loads, js_json_stringify
 from .openai_codex import credentials_from_token
 from .openai_codex import to_auth as _codex_to_auth
 from .pkce import generate_pkce
@@ -290,13 +290,26 @@ def parse_authorization_input(raw_input: str) -> ParsedAuthorizationInput:
     absolute URL; a `"#"`-containing shape (Pi's own `split("#", 2)` semantics -- content after a
     SECOND `"#"`, if any, is DISCARDED, never appended to `state`, unlike a host language's own
     unlimited split on the first `"#"`); a bare `"code="`-containing query string; otherwise the
-    whole trimmed input as a bare code."""
+    whole trimmed input as a bare code.
+
+    "Absolute URL" is WHATWG `new URL(value)` fidelity (`L11-SC-R011` -- confirmed live against
+    Node): ANY value with a recognized scheme succeeds, including one with NO authority
+    component at all (e.g. `mailto:`, `file:` with an empty host) -- `scheme` alone is the test,
+    NOT `scheme AND netloc` (`urlsplit`'s own netloc is correctly empty for these, but they are
+    still valid absolute URLs whose `query` must be parsed the same way). `new URL(value)` can
+    also THROW for a malformed value (e.g. `http://[`, an unterminated IPv6 host) -- Pi catches
+    that and falls through to the next parsing strategy below; `urlsplit` has no such protection
+    on its own, raising an uncaught `ValueError` for the same input, so that specific failure is
+    caught here too."""
     value = raw_input.strip()
     if not value:
         return ParsedAuthorizationInput(code=None, state=None)
 
-    parsed_url = urlsplit(value)
-    if parsed_url.scheme and parsed_url.netloc:
+    try:
+        parsed_url = urlsplit(value)
+    except ValueError:
+        parsed_url = None
+    if parsed_url is not None and parsed_url.scheme:
         query = parse_qs(parsed_url.query, keep_blank_values=True)
         return ParsedAuthorizationInput(
             code=_first_query_value(query, "code"),
@@ -432,18 +445,25 @@ class _DeviceAuthInfo:
     interval_seconds: float
 
 
-_HEX_LITERAL = re.compile(r"^[+-]?0[xX][0-9a-fA-F]+$")
-_OCTAL_LITERAL = re.compile(r"^[+-]?0[oO][0-7]+$")
-_BINARY_LITERAL = re.compile(r"^[+-]?0[bB][01]+$")
-_DECIMAL_LITERAL = re.compile(r"^[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?$")
+_HEX_LITERAL = re.compile(r"^0[xX][0-9a-fA-F]+$")
+_OCTAL_LITERAL = re.compile(r"^0[oO][0-7]+$")
+_BINARY_LITERAL = re.compile(r"^0[bB][01]+$")
+_DECIMAL_LITERAL = re.compile(r"^[+-]?([0-9]+\.?[0-9]*|\.[0-9]+)([eE][+-]?[0-9]+)?$")
 
 
 def _js_number_coerce(raw: str) -> float:
     """JavaScript's own `Number(string)` coercion (ECMA-262 `StringToNumber`) -- empirically
-    confirmed live against Node, NOT equivalent to a naive `float(trimmed)` parse: an empty
-    (post-trim) string coerces to `0`; hex/octal/binary-prefixed strings parse in that base;
-    `"Infinity"`/`"+Infinity"`/`"-Infinity"` coerce to the corresponding infinite value; anything
-    else that fails to parse coerces to `NaN`."""
+    confirmed live against Node, NOT equivalent to a naive `float(trimmed)` parse or a Unicode-
+    aware regex: an empty (post-trim) string coerces to `0`; UNSIGNED hex/octal/binary-prefixed
+    strings parse in that base (`L11-SC-R012`, independent review -- confirmed live that a SIGNED
+    non-decimal integer literal, e.g. `"+0x1"`/`"-0x1"`, is `NaN`, not the signed value: ECMA-262's
+    own `NonDecimalIntegerLiteral` grammar productions have no leading-sign alternative at all,
+    unlike the decimal grammar, which does); `"Infinity"`/`"+Infinity"`/`"-Infinity"` coerce to the
+    corresponding infinite value; every digit in this ENTIRE grammar is ASCII `0`-`9` ONLY -- a
+    Unicode decimal digit (e.g. Arabic-Indic digit one, `U+0661`) is `NaN` in JavaScript
+    (confirmed live, including mixed with an ASCII digit, e.g. `"5" + U+0661`), unlike Python's
+    own Unicode-aware `\\d` regex class or `int()`/`float()` builtins, which both accept it;
+    anything else that fails to parse coerces to `NaN`."""
     trimmed = raw.strip()
     if trimmed == "":
         return 0.0
@@ -453,9 +473,7 @@ def _js_number_coerce(raw: str) -> float:
         return float("-inf")
     for pattern, base in ((_HEX_LITERAL, 16), (_OCTAL_LITERAL, 8), (_BINARY_LITERAL, 2)):
         if pattern.match(trimmed):
-            sign = -1 if trimmed[0] == "-" else 1
-            digits = trimmed.lstrip("+-")[2:]
-            return float(sign * int(digits, base))
+            return float(int(trimmed[2:], base))
     if _DECIMAL_LITERAL.match(trimmed):
         return float(trimmed)
     return float("nan")
@@ -490,7 +508,7 @@ async def _start_device_auth(transport: HttpTransport, signal: Abortable) -> _De
             f"OpenAI Codex device code request failed with status {response.status}{suffix}"
         )
 
-    parsed: JsonValue = _json.loads(response.text())
+    parsed: JsonValue = js_json_loads(response.text())
     device_auth_id = parsed.get("device_auth_id") if isinstance(parsed, dict) else None
     user_code = parsed.get("user_code") if isinstance(parsed, dict) else None
     interval_raw = parsed.get("interval") if isinstance(parsed, dict) else None
@@ -553,7 +571,7 @@ async def _poll_device_auth(
             signal=signal,
         )
         if 200 <= response.status < 300:
-            parsed: JsonValue = _json.loads(response.text())
+            parsed: JsonValue = js_json_loads(response.text())
             authorization_code = (
                 parsed.get("authorization_code") if isinstance(parsed, dict) else None
             )
@@ -582,7 +600,7 @@ async def _poll_device_auth(
         body_text = response.text()
         error_code: str | None = None
         try:
-            error_body: JsonValue = _json.loads(body_text)
+            error_body: JsonValue = js_json_loads(body_text)
         except ValueError:
             error_body = None
         if isinstance(error_body, dict):
@@ -654,17 +672,21 @@ class _OAuthToken:
 def _read_token_response(response: HttpResponse, operation: str) -> _OAuthToken:
     """`readTokenResponse` (`openai-codex.ts:126-147`). A JSON-parse failure on a `2xx` response
     propagates raw, UNCHANGED (`L11-SC-R004`) -- this function does not catch it."""
-    import json as _json
     import time as _time
 
     if not (200 <= response.status < 300):
+        # `L11-SC-R018` -- confirmed live: pinned Pi's own `readTokenResponse` falls back to
+        # `response.statusText`, the real HTTP reason phrase, not a hand-maintained lookup
+        # table (`_STATUS_TEXT` above is scoped to the LOCAL callback server's own fixed
+        # response set only, never reused here). An empty body here also covers a body-read
+        # failure after a successful status (`HttpResponse.reason_phrase`'s own docstring).
         body_text = response.text()
-        suffix = f": {body_text}" if body_text else f": {_STATUS_TEXT.get(response.status, '')}"
+        suffix = f": {body_text}" if body_text else f": {response.reason_phrase}"
         raise TokenResponseFailedError(
             f"OpenAI Codex token {operation} failed ({response.status}){suffix}"
         )
 
-    parsed: JsonValue = _json.loads(response.text())
+    parsed: JsonValue = js_json_loads(response.text())
     access_token = parsed.get("access_token") if isinstance(parsed, dict) else None
     refresh_token = parsed.get("refresh_token") if isinstance(parsed, dict) else None
     expires_in = parsed.get("expires_in") if isinstance(parsed, dict) else None

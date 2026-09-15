@@ -9,9 +9,12 @@ results.
 from __future__ import annotations
 
 import json
+import math
+
+import pytest
 
 from minion_agent.auth.credential import JsonValue
-from minion_agent.auth.js_json import js_json_stringify
+from minion_agent.auth.js_json import js_json_loads, js_json_stringify
 
 
 def test_null_true_false() -> None:
@@ -128,6 +131,66 @@ def test_object_leading_zero_key_is_not_an_array_index() -> None:
     assert js_json_stringify(value) == '{"2":"b","01":"a","x":0}'
 
 
+def test_unicode_digit_key_is_not_treated_as_an_array_index() -> None:
+    """`L11-SC-R014` -- confirmed live against Node: ECMA-262's own array-index grammar is
+    ASCII-decimal-only, so a Unicode decimal digit key (Arabic-Indic digit one, `U+0661`) is
+    NOT reordered ahead of other keys, unlike Python's own Unicode-aware `str.isdigit()`, which
+    would incorrectly treat it as one."""
+    arabic_indic_one = chr(0x0661)
+    value: JsonValue = {arabic_indic_one: "arabic", "2": "two", "x": 0}
+    assert js_json_stringify(value) == f'{{"2":"two","{arabic_indic_one}":"arabic","x":0}}'
+
+
+def test_very_long_digit_only_key_does_not_raise() -> None:
+    """`L11-SC-R014` -- a key longer than the maximum array index's own digit count can never
+    satisfy the array-index bound, so it must be recognized as non-index WITHOUT ever calling
+    `int()` on it -- Python 3.11+'s integer-string-conversion length limit raises `ValueError`
+    for a naive `int()` call on a key this long (5000 ASCII digits)."""
+    huge_key = "9" * 5000
+    value: JsonValue = {huge_key: "huge", "x": 0}
+    assert js_json_stringify(value) == f'{{"{huge_key}":"huge","x":0}}'
+
+
 def test_nested_object_and_array() -> None:
     value: JsonValue = {"nested": {"x": [1, 2], "y": None}}
     assert js_json_stringify(value) == '{"nested":{"x":[1,2],"y":null}}'
+
+
+# --- js_json_loads (`L11-SC-R013`) -----------------------------------------------------------
+
+
+def test_js_json_loads_parses_ordinary_values() -> None:
+    assert js_json_loads('{"a":1,"b":[true,false,null,"x"]}') == {
+        "a": 1.0,
+        "b": [True, False, None, "x"],
+    }
+
+
+@pytest.mark.parametrize("token", ["NaN", "Infinity", "-Infinity"])
+def test_js_json_loads_rejects_bare_invalid_constants(token: str) -> None:
+    """Confirmed live against Node: `JSON.parse` raises a `SyntaxError` for each of these bare
+    tokens; Python's own `json.loads` accepts them by default as a non-standard extension."""
+    with pytest.raises(ValueError, match="not valid JSON"):
+        js_json_loads(token)
+
+
+def test_js_json_loads_rejects_embedded_invalid_constant() -> None:
+    with pytest.raises(ValueError, match="not valid JSON"):
+        js_json_loads('{"expires_in":NaN}')
+
+
+def test_js_json_loads_propagates_genuine_syntax_errors_unchanged() -> None:
+    with pytest.raises(ValueError):
+        js_json_loads("not json at all")
+
+
+def test_js_json_loads_coerces_integers_through_ieee754_double() -> None:
+    """`parse_int=float` matches JS's own single numeric type -- every JSON number, including a
+    bare integer literal, comes back as a Python `float`, and `-0` preserves its own sign."""
+    result = js_json_loads('{"n":5,"neg_zero":-0}')
+    assert isinstance(result, dict)
+    assert result["n"] == 5.0
+    assert isinstance(result["n"], float)
+    neg_zero = result["neg_zero"]
+    assert isinstance(neg_zero, float)
+    assert math.copysign(1.0, neg_zero) == -1.0

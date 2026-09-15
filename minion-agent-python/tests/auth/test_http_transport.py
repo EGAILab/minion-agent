@@ -6,6 +6,7 @@ against a real socket."""
 from __future__ import annotations
 
 import asyncio
+from collections.abc import AsyncIterator
 
 import httpx
 import pytest
@@ -101,22 +102,49 @@ async def test_run_cancellable_cancels_inner_task_when_outer_await_is_cancelled(
 
 
 async def test_run_cancellable_cancels_the_underlying_task_on_abort() -> None:
+    """Abort happens AFTER the task has already started (mid-flight) -- distinct from
+    `test_run_cancellable_pre_aborted_signal_never_starts_the_operation` below (`L11-SC-R015`),
+    where the signal is already aborted BEFORE the operation is ever scheduled."""
     controller = RunAbortController()
     task_was_cancelled = False
+    started = asyncio.Event()
 
     async def observe_cancellation() -> int:
         nonlocal task_was_cancelled
         try:
+            started.set()
             await asyncio.Event().wait()
             return 0  # pragma: no cover -- never reached
         except asyncio.CancelledError:
             task_was_cancelled = True
             raise
 
+    outer = asyncio.ensure_future(run_cancellable(observe_cancellation(), controller.signal))
+    await started.wait()
     controller.abort()
     with pytest.raises(TransportCancelled):
-        await run_cancellable(observe_cancellation(), controller.signal)
+        await outer
     assert task_was_cancelled
+
+
+async def test_run_cancellable_pre_aborted_signal_never_starts_the_operation() -> None:
+    """`L11-SC-R015` -- confirmed live: an already-aborted signal must prevent the underlying
+    operation from ever starting, not merely cancel it quickly after starting. A fast-completing
+    operation combined with a pre-aborted signal previously let both the start AND the success
+    happen (the original `signal.aborted` check only ran after the first poll tick), unlike
+    Pi's own `fetch`, which never issues a request for an already-aborted `AbortSignal`."""
+    controller = RunAbortController()
+    controller.abort()
+    started = False
+
+    async def quick() -> int:
+        nonlocal started
+        started = True
+        return 42
+
+    with pytest.raises(TransportCancelled):
+        await run_cancellable(quick(), controller.signal)
+    assert not started
 
 
 async def test_fetch_with_login_cancellation_returns_response_on_success() -> None:
@@ -227,3 +255,106 @@ async def test_httpx_transport_creates_and_closes_its_own_client_when_none_injec
     assert response.body == b'{"ok":true}'
     assert len(created) == 1
     assert created[0].is_closed
+
+
+async def test_httpx_transport_owned_client_disables_its_own_implicit_timeout_cap(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`L11-SC-R016` -- confirmed live: `httpx.AsyncClient()`'s own bare default is
+    `timeout=Timeout(timeout=5.0)`, which would silently truncate refresh's own certified 15s
+    `CombinedSignal` budget. Timeout enforcement must flow ONLY through this project's own
+    signal-based `run_cancellable`, never an independent `httpx`-owned cap."""
+    captured_kwargs: dict[str, object] = {}
+    real_async_client = httpx.AsyncClient
+
+    def fake_async_client(*args: object, **kwargs: object) -> httpx.AsyncClient:
+        captured_kwargs.update(kwargs)
+        return real_async_client(transport=httpx.MockTransport(_mock_handler), **kwargs)
+
+    monkeypatch.setattr(httpx, "AsyncClient", fake_async_client)
+    controller = RunAbortController()
+    transport = HttpxTransport()
+    await transport.post("https://example.test/x", headers={}, body=b"", signal=controller.signal)
+    assert captured_kwargs["timeout"] is None
+
+
+async def test_httpx_transport_owned_client_follows_redirects(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`L11-SC-R017` -- confirmed live: `httpx.AsyncClient()`'s own bare default is
+    `follow_redirects=False`, while `fetch`'s own default redirect mode follows redirects.
+    A scripted 302-then-200 `httpx.MockTransport` response proves actual redirect-following
+    behavior end-to-end, not merely an inspected constructor argument."""
+    real_async_client = httpx.AsyncClient
+
+    def redirecting_handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/start":
+            return httpx.Response(302, headers={"Location": "https://example.test/end"})
+        return httpx.Response(200, content=b'{"ok":true}')
+
+    def fake_async_client(*args: object, **kwargs: object) -> httpx.AsyncClient:
+        return real_async_client(transport=httpx.MockTransport(redirecting_handler), **kwargs)
+
+    monkeypatch.setattr(httpx, "AsyncClient", fake_async_client)
+    controller = RunAbortController()
+    transport = HttpxTransport()
+    response = await transport.post(
+        "https://example.test/start", headers={}, body=b"", signal=controller.signal
+    )
+    assert response.status == 200
+    assert response.body == b'{"ok":true}'
+
+
+async def test_httpx_transport_response_carries_the_real_reason_phrase() -> None:
+    """`L11-SC-R018` -- the real HTTP reason phrase (`response.reason_phrase`) comes through on
+    an EMPTY-body error response, not a hand-maintained lookup table -- confirmed here with
+    status 401, which the local callback server's own `_STATUS_TEXT` table never covers."""
+
+    def handler_401(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(401, content=b"")
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler_401))
+    controller = RunAbortController()
+    transport = HttpxTransport(client=client)
+    try:
+        response = await transport.post(
+            "https://example.test/x", headers={}, body=b"", signal=controller.signal
+        )
+        assert response.status == 401
+        assert response.reason_phrase == "Unauthorized"
+        assert response.body == b""
+    finally:
+        await client.aclose()
+
+
+async def test_httpx_transport_translates_a_body_read_failure_into_an_empty_body() -> None:
+    """`L11-SC-R018` -- confirmed live: a body-read failure AFTER status/headers already
+    arrived successfully (e.g. a connection reset mid-body) comes back as a normal
+    `HttpResponse` with an empty body and the real status/reason phrase intact, matching pinned
+    Pi's own `readTokenResponse`, which already collapses this and a genuinely empty body
+    identically via `text().catch(() => "")` -- NOT an opaque request-level exception, which a
+    single buffered response-construction call cannot avoid raising for both cases alike."""
+
+    class _RaisingStream(httpx.AsyncByteStream):
+        async def __aiter__(self) -> AsyncIterator[bytes]:
+            raise httpx.ReadError("simulated body read failure")
+            yield b""  # pragma: no cover -- unreachable, satisfies the generator protocol
+
+        async def aclose(self) -> None:
+            pass
+
+    def handler_body_read_failure(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, stream=_RaisingStream())
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler_body_read_failure))
+    controller = RunAbortController()
+    transport = HttpxTransport(client=client)
+    try:
+        response = await transport.post(
+            "https://example.test/x", headers={}, body=b"", signal=controller.signal
+        )
+        assert response.status == 200
+        assert response.reason_phrase == "OK"
+        assert response.body == b""
+    finally:
+        await client.aclose()

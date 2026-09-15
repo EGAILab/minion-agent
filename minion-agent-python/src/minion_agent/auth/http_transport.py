@@ -34,10 +34,22 @@ class HttpResponse:
     change: by the time it is called, no further I/O can fail. There is no `.json()` accessor here
     (unlike Pi's own `Response`) -- a caller parses `.text()`/`.body` via `json.loads` itself,
     exactly where `spec/auth.md`'s own contract already treats "parse the body as JSON" as the
-    caller's own explicit step, not something baked into the response object."""
+    caller's own explicit step, not something baked into the response object.
+
+    `reason_phrase` is pinned Pi's own `Response.statusText` (`L11-SC-R018`): the real HTTP
+    reason phrase the server itself sent alongside `status`, NOT a hand-maintained lookup table
+    (a fixed few-entry table, however large, can never cover every status a real server might
+    send). A body that fails to read AFTER status/headers already arrived successfully -- a
+    scenario pinned Pi's own two-phase `fetch()`-then-`.text()` model can represent, and which a
+    single buffered constructor call otherwise cannot -- comes back here as an EMPTY `body`, not
+    a raised exception (`HttpxTransport.post` below performs this translation): pinned Pi's own
+    `readTokenResponse` already treats a body-read failure and a genuinely empty body
+    identically, via `text().catch(() => "")`, so collapsing the two here matches that fallback
+    exactly rather than requiring a caller to distinguish them."""
 
     status: int
     body: bytes
+    reason_phrase: str = ""
 
     def text(self) -> str:
         return self.body.decode("utf-8", errors="replace")
@@ -72,7 +84,17 @@ class TransportCancelled(Exception):
 async def run_cancellable[T](coro: Coroutine[Any, Any, T], signal: Abortable | None) -> T:
     """Race `coro` against `signal`, polling at `POLL_INTERVAL_SECONDS`. If `signal` aborts first,
     the underlying task is cancelled (not merely abandoned) and `TransportCancelled` is raised;
-    otherwise `coro`'s own result (or exception) is returned/propagated unchanged."""
+    otherwise `coro`'s own result (or exception) is returned/propagated unchanged.
+
+    `signal` is checked BEFORE `coro` is ever scheduled (`L11-SC-R015` -- confirmed live: a
+    PRE-aborted signal combined with a fast-completing operation previously let both the start
+    and the success happen, since the first `signal.aborted` check only ran after the first poll
+    tick). Pi's own `fetch`, given an already-aborted `AbortSignal`, never issues the request at
+    all -- it rejects immediately with `AbortError`; a pre-aborted `signal` here must likewise
+    never start `coro`, not merely cancel it quickly after starting."""
+    if signal is not None and signal.aborted:
+        coro.close()
+        raise TransportCancelled("the operation's own signal aborted")
     task: asyncio.Task[T] = asyncio.ensure_future(coro)
     try:
         while True:
@@ -107,11 +129,38 @@ class HttpxTransport:
         client = self._client
         owns_client = client is None
         if client is None:
-            client = httpx.AsyncClient()
+            # `L11-SC-R016`/`L11-SC-R017` -- confirmed live: `httpx.AsyncClient()`'s own bare
+            # defaults are `timeout=Timeout(timeout=5.0)` and `follow_redirects=False`, neither
+            # of which matches pinned Pi's own `fetch`. Timeout enforcement must flow ONLY
+            # through this project's own signal-based `run_cancellable`, never an independent
+            # `httpx`-owned cap (an implicit 5s cap would truncate refresh's own certified 15s
+            # `CombinedSignal` budget); `fetch`'s own default redirect mode follows redirects.
+            client = httpx.AsyncClient(timeout=None, follow_redirects=True)
 
         async def do_request() -> HttpResponse:
-            response = await client.post(url, headers=dict(headers), content=body)
-            return HttpResponse(status=response.status_code, body=response.content)
+            # Two-phase send (`L11-SC-R018`): `stream=True` returns as soon as status/headers
+            # arrive, BEFORE the body is read, so a body-read failure (e.g. a connection reset
+            # mid-body) can be caught SEPARATELY from a request-level failure (which still
+            # propagates unchanged, matching pinned Pi's own initial `fetch()` promise
+            # rejecting) -- a single buffered `client.post()` call cannot distinguish the two,
+            # since it raises for both identically, before a `HttpResponse` ever exists.
+            request = client.build_request("POST", url, headers=dict(headers), content=body)
+            response = await client.send(request, stream=True)
+            try:
+                await response.aread()
+                response_body = response.content
+            except httpx.HTTPError:
+                # Matches pinned Pi's own `readTokenResponse`, which already collapses a
+                # body-read failure and a genuinely empty body identically via
+                # `text().catch(() => "")` -- `reason_phrase` (below) is the real fallback.
+                response_body = b""
+            finally:
+                await response.aclose()
+            return HttpResponse(
+                status=response.status_code,
+                body=response_body,
+                reason_phrase=response.reason_phrase,
+            )
 
         try:
             return await run_cancellable(do_request(), signal)

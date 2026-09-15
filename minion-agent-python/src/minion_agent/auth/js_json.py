@@ -1,16 +1,22 @@
-"""ECMAScript `JSON.stringify`-faithful rendering of a parsed JSON value (`PROV-012`'s own
-`L11-SC-R010` contract, `spec/auth.md`'s own "Exact error-message JSON rendering" section).
+"""ECMAScript `JSON.stringify`/`JSON.parse`-faithful conversion between a parsed JSON value and
+its own text form (`PROV-012`'s own `L11-SC-R010`/`L11-SC-R013` contract, `spec/auth.md`'s own
+"Exact error-message JSON rendering" section).
 
-`JSON.stringify` itself is the complete normative authority; this module is a dedicated renderer
-built to the exact, independently-verified rules that section states -- string escaping (including
-the unpaired-surrogate exception), negative-zero collapse, `Number::toString`'s own fixed-vs-
-exponential notation threshold, and array-index-like property reordering. It is NOT a `json.dumps`
-call with adjusted options; no combination of `json.dumps` parameters reproduces this algorithm.
+`JSON.stringify`/`JSON.parse` themselves are the complete normative authority; this module is a
+dedicated renderer/parser built to the exact, independently-verified rules those sections state --
+string escaping (including the unpaired-surrogate exception), negative-zero collapse,
+`Number::toString`'s own fixed-vs-exponential notation threshold, array-index-like property
+reordering, and (for parsing) rejection of the bare `NaN`/`Infinity`/`-Infinity` extension tokens
+Python's own `json.loads` accepts by default but JS's own `JSON.parse` does not. Neither direction
+is a `json.dumps`/`json.loads` call with adjusted options; no combination of their own parameters
+reproduces either algorithm.
 """
 
 from __future__ import annotations
 
+import json
 from decimal import Decimal
+from typing import cast
 
 from .credential import JsonValue
 
@@ -24,6 +30,7 @@ _NAMED_ESCAPES = {
     0x5C: "\\\\",
 }
 _MAX_ARRAY_INDEX = 2**32 - 2
+_MAX_ARRAY_INDEX_DIGITS = len(str(_MAX_ARRAY_INDEX))
 
 
 def _escape_char(codepoint: int) -> str:
@@ -114,10 +121,21 @@ def _js_number_to_string(value: float) -> str:
 
 def _is_array_index(key: str) -> bool:
     """ECMA-262's own "array index" property-key predicate: the canonical decimal string of an
-    integer in `[0, 2**32 - 2]`, no leading zeros (so `"0"` qualifies, `"01"` does not)."""
-    if not key.isdigit():
+    integer in `[0, 2**32 - 2]`, no leading zeros (so `"0"` qualifies, `"01"` does not).
+
+    Digit membership is checked one ASCII code point at a time (`"0" <= ch <= "9"`), NOT via
+    Python's own Unicode-aware `str.isdigit()` -- confirmed live against Node (`L11-SC-R014`):
+    ECMA-262's own array-index grammar is ASCII-decimal-only, so a Unicode decimal digit (e.g.
+    Arabic-Indic digit one) is never part of an array-index key, unlike `str.isdigit()`, which
+    accepts it. The key's own length is also bounded before calling `int()` -- an
+    all-ASCII-digit key longer than the maximum array index's own digit count can never satisfy
+    the `<= _MAX_ARRAY_INDEX` bound anyway, and this avoids Python 3.11+'s integer-string-
+    conversion length limit (`ValueError`) for a very long digit-only key."""
+    if not key or not all("0" <= ch <= "9" for ch in key):
         return False
     if key != "0" and key[0] == "0":
+        return False
+    if len(key) > _MAX_ARRAY_INDEX_DIGITS:
         return False
     return int(key) <= _MAX_ARRAY_INDEX
 
@@ -157,4 +175,32 @@ def js_json_stringify(value: JsonValue) -> str:
             for key in _js_property_order(value)
         )
         + "}"
+    )
+
+
+def _reject_js_incompatible_constant(token: str) -> float:
+    """Python's own `json.loads` accepts the bare tokens `NaN`/`Infinity`/`-Infinity` as an
+    extension beyond the JSON grammar (`parse_constant`'s own default); JavaScript's `JSON.parse`
+    does NOT -- confirmed live (matching this project's own already-established `PROV-011`
+    precedent, `openai_codex.py::decode_jwt`, which fixed the identical gap for JWT-payload
+    decoding specifically; this is the same fix generalized for ordinary HTTP response-body
+    parsing, `L11-SC-R013`). Wiring this as `json.loads`'s own `parse_constant` hook makes Python
+    raise for exactly the same three tokens Pi's `JSON.parse` rejects."""
+    raise ValueError(f"not valid JSON: unexpected token {token!r}")
+
+
+def js_json_loads(text: str) -> JsonValue:
+    """Parse `text` the way ECMAScript `JSON.parse` would -- rejecting the bare
+    `NaN`/`Infinity`/`-Infinity` extension tokens Python's own `json.loads` accepts by default, and
+    coercing every JSON number literal (including integers) through IEEE-754 double representation
+    via `parse_int=float`, matching JS's own single numeric type exactly (an integer literal beyond
+    `2**53` silently loses precision the same way JS's own `JSON.parse` does, and `-0` preserves its
+    own sign) -- the identical `PROV-011` `decode_jwt` fidelity model
+    (`L11-SA-R001`/`L11-SC-R013`), used here for ordinary HTTP response-body JSON, not only JWT
+    payloads. Raises `ValueError`/`json.JSONDecodeError` for genuinely malformed JSON, propagated
+    UNCHANGED to the caller, matching `JSON.parse`'s own `SyntaxError` -- this function never
+    silently repairs or swallows a parse failure itself."""
+    return cast(
+        JsonValue,
+        json.loads(text, parse_int=float, parse_constant=_reject_js_incompatible_constant),
     )

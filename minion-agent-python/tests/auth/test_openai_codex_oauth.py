@@ -200,6 +200,30 @@ def test_parse_authorization_input_absolute_url_missing_params() -> None:
     assert result.state is None
 
 
+def test_parse_authorization_input_absolute_url_with_no_authority() -> None:
+    """`L11-SC-R011` -- confirmed live against Node: `new URL(value)` succeeds for ANY value
+    with a recognized scheme, including one with NO authority component at all (`mailto:`,
+    `file:` with an empty host) -- `scheme` alone is the test, not `scheme AND netloc`."""
+    result = parse_authorization_input("mailto:user@example.com?code=abc&state=xyz")
+    assert result.code == "abc"
+    assert result.state == "xyz"
+
+    result = parse_authorization_input("file:///tmp/x?code=c1&state=s1")
+    assert result.code == "c1"
+    assert result.state == "s1"
+
+
+def test_parse_authorization_input_malformed_url_falls_through() -> None:
+    """`L11-SC-R011` -- confirmed live against Node: `new URL(value)` can THROW for a malformed
+    value (an unterminated IPv6 host), and Pi catches that and falls through to the next parsing
+    strategy rather than letting the exception escape. `urlsplit` raises an uncaught `ValueError`
+    for the identical input on its own; this must be caught and treated the same way, not
+    propagate past this function."""
+    result = parse_authorization_input("http://[")
+    assert result.code == "http://["
+    assert result.state is None
+
+
 def test_parse_authorization_input_hash_split_discards_content_after_second_hash() -> None:
     """Pi's own `split("#", 2)` semantics: content after a SECOND `"#"` is discarded, never
     appended to `state` -- a host language's own unlimited split on the first `"#"` would
@@ -245,6 +269,27 @@ def test_js_number_coerce_hex_octal_binary_prefixes() -> None:
     assert _js_number_coerce("0x1A") == 26.0
     assert _js_number_coerce("0o17") == 15.0
     assert _js_number_coerce("0b101") == 5.0
+
+
+def test_js_number_coerce_signed_non_decimal_prefix_is_nan() -> None:
+    """`L11-SC-R012` -- confirmed live against Node: unlike the decimal grammar, ECMA-262's own
+    `NonDecimalIntegerLiteral` productions have no leading-sign alternative at all, so a SIGNED
+    hex/octal/binary-prefixed string is `NaN`, not the signed value."""
+    for signed in ("+0x1", "-0x1", "+0o1", "-0o1", "+0b1", "-0b1"):
+        result = _js_number_coerce(signed)
+        assert result != result  # NaN != NaN
+
+
+def test_js_number_coerce_unicode_digit_is_nan() -> None:
+    """`L11-SC-R012` -- confirmed live against Node: JS's own numeric-string grammar is ASCII
+    `0`-`9` only; a Unicode decimal digit (Arabic-Indic digit one, `U+0661`) is `NaN`, including
+    mixed with an ASCII digit -- unlike Python's own Unicode-aware `\\d` regex class or
+    `int()`/`float()` builtins, which both accept it."""
+    arabic_indic_one = chr(0x0661)  # Arabic-Indic digit one; avoids an ambiguous-char lint
+    result = _js_number_coerce(arabic_indic_one)
+    assert result != result  # NaN != NaN
+    mixed = _js_number_coerce("5" + arabic_indic_one)
+    assert mixed != mixed  # NaN != NaN
 
 
 def test_js_number_coerce_infinity_tokens() -> None:
@@ -651,6 +696,19 @@ async def test_start_device_auth_interval_as_string_uses_js_coercion() -> None:
     assert info.interval_seconds == 5.0
 
 
+async def test_start_device_auth_rejects_invalid_json_constant() -> None:
+    """`L11-SC-R013` -- confirmed live against Node: `JSON.parse` raises `SyntaxError` for the
+    bare `NaN` token; Python's own `json.loads` accepts it by default as a non-standard
+    extension. A raw response body carrying a literal `NaN` token (unrepresentable via
+    `queue_json`'s `json.dumps`-based helper) must propagate a `ValueError`, not silently
+    succeed with a `nan` field."""
+    controller = RunAbortController()
+    transport = _FakeTransport()
+    transport.queue_response(200, b'{"device_auth_id":"d1","user_code":"u1","interval":NaN}')
+    with pytest.raises(ValueError, match="not valid JSON"):
+        await _start_device_auth(transport, controller.signal)
+
+
 async def test_start_device_auth_404_is_not_enabled() -> None:
     controller = RunAbortController()
     transport = _FakeTransport()
@@ -879,9 +937,30 @@ async def test_read_token_response_success() -> None:
     assert token.refresh == "r"
 
 
+async def test_read_token_response_rejects_invalid_json_constant() -> None:
+    """`L11-SC-R013` -- a raw response body carrying a literal `NaN` token (unrepresentable via
+    `json.dumps`, matching Node's own `JSON.parse` rejection) must propagate a `ValueError` from
+    this call site too, not silently succeed with a `nan` `expires_in`."""
+    response = HttpResponse(
+        status=200, body=b'{"access_token":"a","refresh_token":"r","expires_in":NaN}'
+    )
+    with pytest.raises(ValueError, match="not valid JSON"):
+        _read_token_response(response, "exchange")
+
+
 async def test_read_token_response_non_2xx_with_body() -> None:
     response = HttpResponse(status=400, body=b"bad request")
     with pytest.raises(TokenResponseFailedError, match=r"failed \(400\): bad request"):
+        _read_token_response(response, "exchange")
+
+
+async def test_read_token_response_non_2xx_without_body_falls_back_to_real_reason_phrase() -> None:
+    """`L11-SC-R018` -- the fallback is the response's own real HTTP reason phrase
+    (`response.reason_phrase`, sourced from `httpx.Response.reason_phrase` for a real request),
+    NOT the local callback server's own 4-entry `_STATUS_TEXT` table, which never covers most
+    real status codes an OAuth server can return (401, exercised here)."""
+    response = HttpResponse(status=401, body=b"", reason_phrase="Unauthorized")
+    with pytest.raises(TokenResponseFailedError, match=r"failed \(401\): Unauthorized"):
         _read_token_response(response, "exchange")
 
 

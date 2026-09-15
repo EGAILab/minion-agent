@@ -4226,8 +4226,13 @@ rows:
     `auth-device-code-expiry-without-slow-down` conformance scenario continues to pass via the fake
     clocks'' own rounding fix, confirmed by revert-and-confirm in both directions.
 
-    Signal-type widening (owner-approved, discovered during `PROV-012` implementation -- pure
-    type-signature generalization, NO behavior change): `abortable_sleep`/`poll_device_code_flow`
+    Signal-type widening (owner-approved, `GOVERNANCE_SOURCE` recorded verbatim at
+    `https://github.com/EGAILab/minion-agent/issues/29#issuecomment-5687465258`, per
+    `agent-workflow.md` §11.10 -- filed retroactively in response to `L11-SC-R019`, an independent
+    review finding that this decision, unlike every other owner-governance decision this Slice''s
+    work cites, was never posted as its own durable GOVERNANCE_SOURCE comment at the time it was
+    made; discovered during `PROV-012` implementation -- pure type-signature generalization, NO
+    behavior change): `abortable_sleep`/`poll_device_code_flow`
     both previously typed their own `signal` parameter as the CONCRETE `RunSignal | None`
     (`runtime/signal.py`), not the abstract `Abortable` protocol (`auth/signal.py`) already-
     certified `PROV-008` uses. This blocked `PROV-012`''s own device-code integration, whose
@@ -4239,7 +4244,8 @@ rows:
     anywhere -- every use of `signal` in `device_code.py` is either the type annotation itself or a
     plain `signal.aborted` read (grepped and verified exhaustively) -- so widening to `Abortable |
     None` is 100% behavior-preserving; `RunSignal` itself already satisfies `Abortable`
-    structurally, so every existing caller is unaffected. Owner approved the widening explicitly.
+    structurally, so every existing caller is unaffected. Owner approved the widening explicitly
+    (`GOVERNANCE_SOURCE` above).
     Both parameters'' own type annotations are now `Abortable | None`; the full existing
     `tests/auth/test_device_code.py` suite (34 tests) was re-run unchanged afterward and passes
     identically, confirming no observable behavior changed. This is NOT a Pi-parity change -- Pi
@@ -4690,7 +4696,7 @@ rows:
     containment on an internal exception, silent bind-failure fallback) via REAL local TCP
     connections, never a live/production port; the full browser-flow race (`L11-SC-R002`''s five
     outcomes including the empty-manual-cancels-server case and the two second-check fallback
-    branches, `L11-SB-R009`''s pre-aborted-at-entry ordering, `L11-SC-R001`''s notify-failure-skips-
+    branches, `L11-SC-R009`''s pre-aborted-at-entry ordering, `L11-SC-R001`''s notify-failure-skips-
     cleanup boundary proven by a subsequent same-port bind failure); the device-code flow (start/
     poll success, 404-not-enabled, `PROV-016`''s own truthy-non-string rejection, the poll-outcome
     mapping''s every branch including the object-shaped `{code: ...}` error field and the

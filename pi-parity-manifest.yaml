@@ -4472,6 +4472,25 @@ rows:
       request-level failure uniformly) was already correct and is unchanged -- only the wrong stated
       reason for it was removed.
 
+    CORRECTION (`L11-SC-R006`, `CONTRACT_ASSURANCE_DEFECT`, second independent Rust contract
+    review -- documentary/canonical completion only, no lower-layer change): four remaining exact
+    input/error shapes were unpinned, all fixed: (1) the login-method `select` prompt (`spec/auth.md`
+    "Login method selection") carries NO `signal` at pinned Pi''s own real call site, unlike the
+    browser flow''s own `manual_code` prompt -- an implementation attaching the whole-flow signal
+    "for consistency" diverges; (2) an unknown selected method raises EXACTLY
+    `"Unknown OpenAI Codex login method: {method}"`, not a generic "raise/reject"; (3)
+    `getCallbackHost()`''s own default-fallback is a JAVASCRIPT-TRUTHINESS check, NOT the SAME
+    blank-normalization `DefaultAuthContext.env()` (`PROV-006`) applies -- `getProviderEnvValue`
+    itself performs no trimming at any point, confirmed by reading it in full, so a whitespace-only
+    `PI_OAUTH_CALLBACK_HOST` value is truthy and used VERBATIM, unstripped, as the bind host; only a
+    literally empty/absent value falls back to the default -- the row''s own prior "absent or blank"
+    wording incorrectly borrowed `DefaultAuthContext`''s own different convention; (4) the
+    device-start non-`404` error message is EXACTLY
+    `"OpenAI Codex device code request failed with status {status}"` with a CONDITIONAL `": {body}"`
+    suffix appended ONLY when the body is non-empty (no trailing colon at all when it is empty) --
+    genuinely different from token exchange''s own non-`2xx` message template, which falls back to
+    the response''s own status-text reason phrase instead.
+
     Closure criterion (binding on the implementation pass that closes this row): implement against
     this exact contract, with permanent regression evidence for every discriminating case in
     `spec/auth.md`''s own behavior tables above (not merely a happy-path test per function) using

@@ -4573,6 +4573,36 @@ rows:
     an ordered multi-field object whose key order and any whole-valued numeric field would otherwise
     distinguish a correct rendering from a plausible-looking wrong one.
 
+    §11.8 CONVERGENCE CORRECTION, ROUND TWO (`L11-SC-R010` remains open, fifth independent Rust
+    contract review -- the paragraph immediately above this one is SUPERSEDED for its own
+    "compact `json.dumps` reproduces `JSON.stringify` exactly except `.0`" claim, which independent
+    review DISPROVED with direct Node/Python probes; that claim is WITHDRAWN, not merely narrowed --
+    the exact three templates and the `JSON.stringify` authority named above remain correct and
+    unchanged): independently re-confirmed all five disproofs live before correcting anything --
+    `JSON.stringify` escapes ONLY `"`/`\`/control characters (`U+0000`-`U+001F`, named escapes where
+    JSON defines one, generic `\u00XX` otherwise); EVERY non-ASCII character, including astral
+    characters requiring a UTF-16 surrogate pair, passes through UNESCAPED (the OPPOSITE of Python''s
+    own `json.dumps` default `ensure_ascii=True`); negative zero collapses to the bare digit `0`
+    (Python''s own float rendering preserves the sign); number formatting follows ECMAScript''s own
+    `Number::toString` fixed-vs-exponential notation threshold (confirmed exactly: fixed for
+    magnitude `>= 1e-6` and `< 1e21`, exponential outside that range), NOT Python''s own `repr`/
+    `json.dumps` threshold (confirmed independently, beyond the review''s own named cases: Python''s
+    own compact `json.dumps` already renders `1e19` in exponential notation where JS still uses
+    fixed notation there); and ECMAScript''s own property-enumeration order places "array index"
+    keys (canonical non-negative integer strings) FIRST in ascending numeric order, regardless of
+    source order, followed by other string keys in insertion order -- DISPROVING the manifest''s own
+    prior "source key order preserved identically" claim, since Python''s own `json.loads`/`dict`
+    pipeline preserves pure insertion order unconditionally with no such reordering. `spec/auth.md`''s
+    own "Exact error-message JSON rendering" subsection now states all four corrected rules in full,
+    each independently confirmed live (not assumed), and requires a future implementation to use a
+    DEDICATED renderer -- not `json.dumps` with adjusted options -- built to these rules, re-verified
+    live against a current Node process before implementation, since this section documents
+    CONFIRMED behavior as of these probes, not a guarantee against further undiscovered edge cases.
+    Required future witnesses EXTENDED (per the reviewer''s own explicit request): `null`, an array,
+    a non-ASCII string value, a negative-zero value, values at the small- and large-exponent notation
+    boundaries, and an object with an integer-string-shaped key alongside a non-numeric key in an
+    order that would distinguish correct ECMAScript reordering from source-order preservation.
+
     Closure criterion (binding on the implementation pass that closes this row): implement against
     this exact contract, with permanent regression evidence for every discriminating case in
     `spec/auth.md`''s own behavior tables above (not merely a happy-path test per function) using

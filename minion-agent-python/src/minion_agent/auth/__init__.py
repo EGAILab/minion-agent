@@ -1,10 +1,15 @@
-"""Layer 11 (Real providers), Pass 1: the auth foundation.
+"""Layer 11 (Real providers): the auth foundation and the Codex OAuth network integration.
 
-Provider-agnostic credential vocabulary, the `CredentialStore` seam, PKCE, and RFC 8628
-device-code polling -- everything a real provider's own login/refresh flow needs that does not
-itself require a live network call (`spec/auth.md`; pinned Pi `packages/ai/src/auth/**`).
+Pass 1 established the provider-agnostic foundation that does not itself require a live network
+call: credential vocabulary, the `CredentialStore` seam, PKCE, and RFC 8628 device-code polling
+(`PROV-008`/`PROV-009`/`PROV-010`). Pass 2 builds real network-facing Codex support on top of
+that foundation: the account-id projection (`PROV-011`), the login-interaction/auth-method
+vocabulary (`PROV-014`), and the full Codex OAuth network integration itself (`PROV-012`) --
+real HTTP calls to the OAuth token/device endpoints, the browser/local-callback-server login
+flow, and the device-code endpoint integration (`openai_codex_oauth.py`) -- per `spec/auth.md`;
+pinned Pi `packages/ai/src/auth/**`.
 
-Deliberately excluded from this pass (Layer-11-owned, not yet implemented): real HTTP calls to
-any OAuth endpoint, the Codex-specific browser/local-callback-server login flow, the Codex
-device-code endpoint integration, and any Codex-CLI-specific credential-file loader.
+Deliberately excluded, Layer-11-owned but not yet implemented: any Codex-CLI-specific
+credential-file loader, and generic Models-level provider/auth orchestration (`PROV-013`,
+deferred).
 """

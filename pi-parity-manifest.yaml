@@ -4224,7 +4224,34 @@ rows:
     `expires_in_seconds=0.0019999995`/`wait_before_first_poll=True` witness this review required is
     now pinned directly against `poll_device_code_flow`, and the pre-existing
     `auth-device-code-expiry-without-slow-down` conformance scenario continues to pass via the fake
-    clocks'' own rounding fix, confirmed by revert-and-confirm in both directions.'
+    clocks'' own rounding fix, confirmed by revert-and-confirm in both directions.
+
+    Signal-type widening (owner-approved, `GOVERNANCE_SOURCE` recorded verbatim at
+    `https://github.com/EGAILab/minion-agent/issues/29#issuecomment-5687465258`, per
+    `agent-workflow.md` §11.10 -- filed retroactively in response to `L11-SC-R019`, an independent
+    review finding that this decision, unlike every other owner-governance decision this Slice''s
+    work cites, was never posted as its own durable GOVERNANCE_SOURCE comment at the time it was
+    made; discovered during `PROV-012` implementation -- pure type-signature generalization, NO
+    behavior change): `abortable_sleep`/`poll_device_code_flow`
+    both previously typed their own `signal` parameter as the CONCRETE `RunSignal | None`
+    (`runtime/signal.py`), not the abstract `Abortable` protocol (`auth/signal.py`) already-
+    certified `PROV-008` uses. This blocked `PROV-012`''s own device-code integration, whose
+    `ProviderAuthInteraction.signal` (`PROV-014`, `interaction.py:254`) is deliberately typed
+    `Abortable`, not `RunSignal` -- a genuine cross-layer static-typing conflict between two
+    already-certified rows, reported to the owner rather than silently resolved (per
+    `agent-workflow.md` §11.7''s own "do not silently widen a certified contract" discipline).
+    Confirmed before requesting the decision: this module never calls anything RunSignal-specific
+    anywhere -- every use of `signal` in `device_code.py` is either the type annotation itself or a
+    plain `signal.aborted` read (grepped and verified exhaustively) -- so widening to `Abortable |
+    None` is 100% behavior-preserving; `RunSignal` itself already satisfies `Abortable`
+    structurally, so every existing caller is unaffected. Owner approved the widening explicitly
+    (`GOVERNANCE_SOURCE` above).
+    Both parameters'' own type annotations are now `Abortable | None`; the full existing
+    `tests/auth/test_device_code.py` suite (34 tests) was re-run unchanged afterward and passes
+    identically, confirming no observable behavior changed. This is NOT a Pi-parity change -- Pi
+    itself has no equivalent static-typing distinction; it is a Python-binding-only correction
+    that makes this already-certified row consistent with `PROV-008`''s own established pattern of
+    accepting any `Abortable`-conforming signal.'
   tests:
   - tests/auth/test_device_code.py (34 tests -- immediate success, pending/slow_down combinations
     including a non-finite server interval falling back to the fixed increment and fractional
@@ -4638,15 +4665,516 @@ rows:
     already-certified `PROV-008`/`PROV-009`/`PROV-010` seams without changing their own observable
     semantics, that is an `IMPLEMENTATION_DISCOVERED_CONTRACT_DEFECT` requiring owner governance
     before proceeding, per the owner''s own Pass-2 scope decision -- those seams'' own certified
-    contracts are not silently widened to accommodate this row.'
+    contracts are not silently widened to accommodate this row.
+
+    IMPLEMENTATION CLOSURE: this exact `IMPLEMENTATION_DISCOVERED_CONTRACT_DEFECT` scenario was
+    encountered and resolved through owner governance, not silently -- `PROV-014`''s own
+    `ProviderAuthInteraction.signal` is deliberately typed `Abortable` (`interaction.py:254`), but
+    `PROV-010`''s own `poll_device_code_flow`/`abortable_sleep` required the concrete `RunSignal`
+    specifically (`device_code.py`), a genuine cross-layer static-typing conflict between two
+    already-certified rows. Reported to the owner rather than resolved unilaterally; confirmed
+    first that the conflict was purely a type-signature over-restriction (this project''s own
+    `PROV-010` module never called anything RunSignal-specific, only ever `signal.aborted`) before
+    asking. Owner approved widening `PROV-010`''s own `signal` parameter to `Abortable | None` --
+    see `PROV-010`''s own manifest row for the full record of that narrow, behavior-preserving
+    correction (confirmed via its own pre-existing 34-test suite passing unchanged afterward).
+
+    Implemented in `src/minion_agent/auth/openai_codex_oauth.py` (browser/PKCE flow including the
+    local callback server, manual-code racing, and device-code flow, token exchange/refresh),
+    `src/minion_agent/auth/http_transport.py` (the injectable `httpx`-backed transport seam and
+    poll-based cancellation wrapper, `PROV-012`''s own shared infrastructure), and
+    `src/minion_agent/auth/js_json.py` (the dedicated ECMAScript-`JSON.stringify`-faithful renderer
+    `PROV-016`''s own error messages require). `httpx>=0.27` added as a project dependency, matching
+    the owner''s own approval. Every discriminating case named across `L11-SC-R001` through `R010`
+    and this row''s own closure criterion has a permanent regression witness -- see `tests:` below.
+
+    IMPLEMENTATION REMEDIATION (`L11-SC-R011` through `R020`, independent Rust review of the above
+    implementation candidate, all ten independently re-verified live against Node/Pi before fixing):
+    seven findings closed directly (`L11-SC-R013` invalid-JSON-constant rejection via a new shared
+    `js_json_loads`; `L11-SC-R014` ASCII-only, non-throwing array-index classification;
+    `L11-SC-R015` pre-abort-before-scheduling in `run_cancellable`; `L11-SC-R016`/`R017` the
+    production-owned `httpx.AsyncClient`''s own `timeout=None`/`follow_redirects=True`;
+    `L11-SC-R019` a durable `GOVERNANCE_SOURCE` comment recorded for the `PROV-010` signal-widening
+    decision, corrected from a prior uncited assertion; `L11-SC-R020` stale package documentation
+    and a `L11-SB-R009`-vs-`L11-SC-R009` finding-reference typo, both fixed). Three findings
+    (`L11-SC-R011`, `L11-SC-R012`, `L11-SC-R018`) were only PARTIALLY closed by this pass and
+    survived to a second independent review with refined witnesses -- see CONVERGENCE below.
+
+    CONVERGENCE (`agent-workflow.md` §11.8, triggered automatically: `L11-SC-R011`, `L11-SC-R012`,
+    and `L11-SC-R018` each survived two independent reviews with refined, not merely repeated,
+    witnesses):
+
+    - `L11-SC-R011` (`PI_PARITY_DEFECT`, converged): the `urlsplit`-scheme-truthy proxy for WHATWG
+      `new URL(value)` remained an approximation -- `urlsplit` has no port-range or host-character
+      validation at all (confirmed live: `urlsplit("http://example.com:bad?code=x&state=s").scheme`
+      is still the truthy `"http"`, while pinned Pi''s own `new URL(...)` throws on the invalid,
+      non-numeric port and falls through to the whole-string `URLSearchParams` fallback, whose own
+      ground truth for this exact input is `code=undefined, state="s"`, confirmed live against
+      Node). No further property-level patch on `urlsplit`''s own result can reproduce the real
+      WHATWG success/failure boundary. Resolved via owner governance (`GOVERNANCE_SOURCE` recorded
+      verbatim at
+      `https://github.com/EGAILab/minion-agent/issues/29#issuecomment-5689770460`, per
+      `agent-workflow.md` §11.10): `url-py` (PyPI, MIT, binding the same Rust `url`
+      crate/servo a Rust implementation would naturally use) is now the implementation mechanism
+      for `parse_authorization_input`''s own WHATWG-URL probe, replacing the `urlsplit`-based proxy
+      entirely -- differentially confirmed live against Node for every case in this row''s own test
+      battery across both review rounds. `url-py`/`rust-url` is an IMPLEMENTATION MECHANISM, never
+      the semantic oracle: pinned Pi behavior, the shared contract, and executable witnesses remain
+      authoritative, per the owner''s own explicit "IMPORTANT AUTHORITY RULE."
+    - `L11-SC-R012` (`PI_PARITY_DEFECT`, converged): the hand-written coercion grammar''s own
+      trimming and overflow handling remained incomplete. Confirmed live against Node:
+      `String.prototype.trim` removes `U+FEFF` (the byte-order mark), which Python''s own
+      `str.strip()` does not, so a BOM-prefixed numeric string incorrectly coerced to `NaN`; a
+      hex/octal/binary literal whose magnitude overflows IEEE-754 double range (e.g. `"0x" + "f" *
+      1000`) coerces to `Infinity` in JS (silent overflow), while Python''s own
+      `float(int(huge_hex_string, 16))` raised an uncaught `OverflowError` the caller''s own
+      pre-existing finite-value guard could never reach. Fixed: a new shared `js_trim` helper
+      (`js_json.py`, the exact ECMA-262 `WhiteSpace`/`LineTerminator` code-point set, confirmed
+      live against every listed code point plus negative controls for non-whitespace Unicode
+      format characters) replaces `str.strip()` at BOTH call sites that trim before an ECMAScript
+      coercion (`_js_number_coerce` AND `parse_authorization_input`, which shares the identical
+      `.trim()` primitive in pinned Pi and was fixed for consistency even though the second review
+      did not separately flag it there); the hex/octal/binary conversion now catches `OverflowError`
+      and returns `math.inf`, matching JS''s own silent-overflow-to-`Infinity` behavior.
+    - `L11-SC-R018` (`PI_PARITY_DEFECT`, converged): the first remediation''s two-phase
+      `stream=True` fix over-corrected by catching EVERY body-read failure uniformly regardless of
+      status, converting a 2xx body-read failure into a fabricated empty-body success. Pinned Pi''s
+      own `readTokenResponse`/`startOpenAICodexDeviceAuth`/`pollOpenAICodexDeviceAuth`-`poll()` all
+      follow the IDENTICAL status-dependent pattern: every non-2xx branch reads the body via
+      `.text().catch(() => "")` (a body-read failure there becomes an empty string); every 2xx
+      branch reads the body via `.json()` with NO catch at all (a body-read failure there is an
+      UNCAUGHT rejection propagating through the existing call-site boundary). Fixed:
+      `HttpxTransport.post`''s own `do_request` now catches a body-read failure ONLY when the
+      response status is non-2xx, re-raising unchanged for a 2xx status -- confirmed live for both
+      branches via a scripted `httpx.MockTransport` response whose body stream always fails.
+
+    Every refined witness from both independent reviews (the invalid-port/invalid-host fallthrough
+    pair, the BOM-trim and overflow cases, and the status-conditioned body-read-failure pair) has a
+    permanent regression test -- see `tests:` below.
+
+    `L11-SC-R021` (`CONTRACT_ASSURANCE_DEFECT`, new finding, same review): `js_json.py`''s own
+    module docstring overclaimed that NEITHER `JSON.stringify` NOR `JSON.parse` fidelity is a
+    stdlib call with adjusted options, contradicting `js_json_loads`''s own actual body (a plain
+    `json.loads(text, parse_int=float, parse_constant=...)` call). Fixed: the docstring now states
+    accurately that `js_json_stringify` genuinely is a dedicated renderer, while `js_json_loads`
+    deliberately reuses Python''s own standard `json.loads` parser with exactly two semantic hooks
+    layered on top -- no production behavior change, documentation only.
+
+    `url-py>=2026.5.1` added as a project dependency (MIT license; ships a `py.typed` marker and
+    `.pyi` stubs; prebuilt wheels confirmed available for this project''s own target platform;
+    `PyPI` classifies it "Development Status :: 3 - Alpha" -- a known, owner-accepted maturity
+    caveat, not a masked risk). Its own types never cross this row''s shared contract boundary,
+    matching the existing `httpx` constraint.
+
+    TARGETED CONVERGENCE CLOSURE (`agent-workflow.md` §11.8.7, independent targeted-closure review
+    of the convergence implementation above): `L11-SC-R012` and `L11-SC-R021` PROVISIONALLY CLOSED
+    unchanged. `L11-SC-R011` and `L11-SC-R018` remained STILL OPEN with two further refined
+    witnesses each, both independently re-verified live against Node/Pi before fixing:
+
+    - `L11-SC-R011` (still open, third round): the `url-py` mechanism itself is a conforming
+      WHATWG URL implementation, but the PYTHON BINDING receives a Python `str` and attempts to
+      encode it as UTF-8 before the Rust parser runs -- a Python string may contain an unpaired
+      UTF-16 surrogate code point, which `new URL(value)`''s own `USVString`-typed Web IDL operand
+      replaces with `U+FFFD` BEFORE construction (confirmed live against Node), while the binding
+      instead raises an uncaught `UnicodeEncodeError`. Fixed (round three): a new shared
+      `to_usv_string` helper (`js_json.py`) converts the value handed to `url.URL.parse`
+      specifically, while every FALLBACK branch continues to use the ORIGINAL, unconverted string
+      -- confirmed live against Node this is exactly Pi''s own behavior: a lone surrogate inside an
+      otherwise-valid URL''s query string becomes `U+FFFD` in the parsed result, while a lone
+      surrogate that makes URL construction fail entirely survives unconverted into the bare-code
+      fallback.
+
+      STILL OPEN, fourth round (`L11-SC-R011`, targeted convergence RE-review): the round-three
+      `to_usv_string` treated EVERY surrogate-range Python code point as necessarily unpaired,
+      reasoning from `_js_json_string`''s own escaping logic, which relies on `json.loads` already
+      combining a valid pair before ITS OWN input is ever seen -- that combining step is specific
+      to `json.loads`''s own decoding path and does NOT hold for `to_usv_string`''s own general
+      string input (e.g. `parse_authorization_input`''s manually-pasted input, which never passes
+      through `json.loads` at all). Confirmed live: a Python string CAN validly contain an
+      explicit adjacent high+low surrogate PAIR as two separate code points (`chr(0xD83D) +
+      chr(0xDE00)`, representing the same astral character the single code point `chr(0x1F600)`
+      would), and Web IDL `USVString` conversion COMBINES such a pair into its single scalar
+      value -- the round-three helper instead replaced each half independently, producing two
+      `U+FFFD` characters where Pi/Node produce one emoji. Fixed (round four): `to_usv_string` now
+      implements the FULL Web IDL `USVString` algorithm -- scans one code point at a time; a high
+      surrogate immediately followed by a low surrogate is COMBINED via the standard UTF-16
+      surrogate-pair formula into its astral scalar value; any OTHER surrogate-range code point
+      (unpaired, or paired in the wrong order) is replaced with `U+FFFD` individually -- confirmed
+      live against both the exact re-review witness (a valid adjacent pair combines to one emoji)
+      and the negative controls (a low-then-high wrong-order pair, and a high surrogate followed
+      by an ordinary non-surrogate character, both remain genuinely unpaired and are replaced
+      independently), cross-checked via Node''s own `TextEncoder`/`TextDecoder` round-trip (which
+      performs the identical Unicode-scalar-value conversion).
+    - `L11-SC-R018` (still open, third round): the non-2xx body-read catch was scoped to
+      `httpx.HTTPError` specifically, but pinned Pi''s own `.text().catch(() => "")` catches ANY
+      promise rejection from the body-read operation, not one library-specific error hierarchy --
+      confirmed live via a scripted `httpx.MockTransport` response whose body stream raises an
+      ordinary `RuntimeError` (a realistic failure an injectable, caller-supplied `AsyncByteStream`
+      can raise, since `httpx`''s own public seam does not require raising `httpx.HTTPError`
+      specifically), which the prior fix left uncaught on the non-2xx path. Fixed: the catch is now
+      `except Exception:` (broad enough to match Pi''s own "any rejection" rule, while deliberately
+      NOT catching `asyncio.CancelledError`, a `BaseException` since Python 3.8, so a genuine task
+      cancellation still propagates as a cancellation rather than being swallowed into an empty
+      body) -- the already-correct status-conditioned boundary (2xx re-raises, non-2xx swallows)
+      is unchanged; only the exception TYPE scope widened. Both branches re-verified live with the
+      identical `RuntimeError` under a 200 status (still propagates) and a 401 status (still
+      swallows to an empty body with the real reason phrase).
+
+    Every refined witness from all three review rounds now has a permanent regression test -- see
+    `tests:` below.
+
+    MANDATORY FINAL-COMPLETE REVIEW (`agent-workflow.md` §11.8.8, independent complete contract
+    review of the fully-converged candidate above): `L11-SC-R011` PROVISIONALLY CLOSED (full
+    scalar-value-string conversion passes the targeted witness and controls); every prior finding
+    `L11-SC-R001` through `L11-SC-R021` CLOSED or PROVISIONALLY CLOSED. Three NEW findings
+    discovered during the whole-surface audit, all independently re-verified live against pinned
+    Pi/Node before fixing, and a convergence checkpoint recorded
+    (`minion-agent-docs` `assurance/layers/
+    11-pass2-slice-c-r022-r023-r024-convergence-agreement.md`) before implementing, per the
+    coordination''s own explicit request given `L11-SC-R022`''s architectural weight:
+
+    - `L11-SC-R022` (`PI_PARITY_DEFECT`): `HttpxTransport.post`''s own eager `await
+      response.aread()` collapsed pinned Pi''s own separate response/status and body-read phases
+      into one -- `fetchWithLoginCancellation`/`fetch()` resolves once status/headers arrive in
+      Pi, BEFORE the body is consumed, and device-start''s own `404` branch and device-poll''s own
+      `403`/`404` branch never call `.text()`/`.json()` at all; `refreshAccessToken`''s own
+      `readTokenResponse(response, "refresh")` call is OUTSIDE its own request-level `try`/`catch`.
+      Confirmed live against the exact rejected candidate: a `404` device-start response whose
+      body stream never completes hung the whole operation instead of raising
+      `DeviceCodeNotEnabledError` immediately; a `2xx` refresh response whose body-read failed
+      surfaced as `OAuthRefreshTransportError("... refresh error: body boom")` instead of the raw
+      underlying error. Fixed: `HttpResponse`/`HttpxTransport.post` redesigned so `status`/
+      `reason_phrase` are available as soon as status/headers arrive, and the body is consumed
+      ONLY via `HttpResponse.text()` (now `async`), invoked lazily by a caller -- `post()` itself
+      never touches the body. The existing `openai_codex_oauth.py` call-site branch structure
+      (which already never called `.text()` on the abandoned-body branches, and already called
+      `_read_token_response` OUTSIDE `refresh_fetch`''s own wrapper) required no logic changes,
+      only mechanical `await` additions and making `_read_token_response` `async`. Cancellation
+      coverage (`run_cancellable`) is preserved across BOTH the initial status/headers phase and
+      the deferred body-read phase; the owned-client-closes-itself guarantee (this row''s own
+      `L11-SC-R016`) is preserved for every path that reads the body (and for the initial-phase-
+      failure path), while a caller that deliberately never reads the body relies on ordinary
+      Python object-lifetime cleanup rather than new explicit-cleanup API surface, per the
+      convergence checkpoint''s own explicit scope decision.
+    - `L11-SC-R023` (`PI_PARITY_DEFECT`): WHATWG Fetch''s own UTF-8 body-text decoding strips
+      exactly one LEADING byte-order mark before exposing text to `Response.text()`/`.json()`,
+      which pinned Pi relies on implicitly; `HttpResponse.text()`''s own `"utf-8"` decode left the
+      BOM in place, which Python''s own `json.loads` then explicitly rejects with its own dedicated
+      error. Fixed: the decode now uses `"utf-8-sig"` (strips exactly one leading BOM, leaves an
+      INTERIOR `U+FEFF` untouched, composes correctly with the pre-existing `errors="replace"`
+      fallback) -- landed in the SAME `text()` method R022''s redesign already touches.
+    - `L11-SC-R024` (`PI_PARITY_DEFECT`): a JSON number literal with a large exponent (e.g.
+      `1e400`) is syntactically valid JSON number syntax and parses to `Infinity`/`-Infinity`
+      (distinct from the bare invalid token `Infinity`, which `L11-SC-R013` correctly rejects);
+      `JSON.stringify` renders a non-finite Number as the literal `null`, at any nesting depth,
+      confirmed live. `js_json_stringify` instead raised an uncaught `AssertionError` from
+      `_shortest_digits_and_exponent`''s own finite-magnitude assumption. Fixed: `js_json_stringify`
+      now checks `math.isfinite` before attempting decimal decomposition, returning `"null"`
+      uniformly. CORRECTION TO THE REVIEW''S OWN TEXT, independently verified and found inaccurate:
+      the review additionally claimed top-level `JSON.stringify(Infinity)` returns JavaScript
+      `undefined` -- confirmed live this is FALSE (it returns the string `"null"`, identical to
+      the nested case; `JSON.stringify(undefined)` is the different, unrelated input that returns
+      `undefined`, and `js_json_stringify`''s own `JsonValue` domain has no representation for
+      `undefined` at all) -- per this row''s own established discipline, the VERIFIED behavior is
+      implemented, not the reviewed claim, and no top-level-vs-nested special case was needed as a
+      result.
+
+    Every refined/new witness has a permanent regression test -- see `tests:` below.
+
+    TARGETED RE-REVIEW (`agent-workflow.md` §11.8.7): `L11-SC-R023`/`L11-SC-R024` PROVISIONALLY
+    CLOSED unchanged. `L11-SC-R022` STILL OPEN with a refined resource-lifecycle witness: the
+    convergence agreement''s own recorded scope decision ("a caller that deliberately never reads
+    the body relies on ordinary Python object-lifetime cleanup") was independently re-verified and
+    found FALSE -- a real streamed `httpx` response and any client `HttpxTransport` itself
+    constructed both require an ASYNC close operation (`response.aclose()`/`client.aclose()`) to
+    release their own connection, and ordinary Python object-lifetime/garbage-collection cleanup
+    cannot perform this at all (there is no running event loop to await anything inside a
+    synchronous `__del__`/finalizer) -- confirmed live via a tracked `httpx.AsyncByteStream`: the
+    exact device-start-`404`/device-poll-`403`-or-`404` branches this seam''s own laziness exists
+    for left BOTH the streamed response AND (for `HttpxTransport`''s own owned/default client) the
+    client itself genuinely open, not merely un-warned-about -- repeated device-code polling could
+    abandon one open response/client per pending status. Fixed: `HttpResponse` gained an idempotent
+    `discard()` (async, calling a `discard_body` closure `HttpxTransport.post` supplies, sharing
+    the SAME underlying close operation `read_body`''s own cleanup uses via a `closed` guard so
+    whichever path -- `text()` or `discard()` -- runs first performs the real close and the other
+    becomes a safe no-op); every status-only branch that deliberately never calls `text()`
+    (device-start''s own `404`, device-poll''s own `403`/`404`) now calls `await response.discard()`
+    before returning/raising. Re-verified live against the exact refined witness (an injected
+    client''s response is closed without ever starting a body read; an owned/default client and its
+    response are BOTH closed; repeated polling closes EVERY abandoned response across several real
+    poll attempts, not only the first) and confirmed `-W error::ResourceWarning` remains clean
+    across the full test suite.
+
+    TARGETED RE-REVIEW 2 (`agent-workflow.md` §11.8.7): `L11-SC-R022` STILL OPEN with a second
+    refined witness: pinned Pi exposes NO explicit "close" operation at all for device-start''s own
+    `404`/device-poll''s own `403`/`404` branches -- their fixed status-only outcome
+    (`DeviceCodeNotEnabledError`/`PENDING`) is produced with no body-stream cleanup step ever
+    observable, let alone one that can fail. Confirmed live against the exact rejected candidate: a
+    response whose `aclose()` itself raises let that raw exception escape `discard()` entirely,
+    REPLACING the caller''s own fixed Pi outcome with an unrelated `RuntimeError`; a second,
+    related defect confirmed live in the SAME shared close helper -- `response.aclose()` was
+    awaited with no `finally` of its own, so a raising response close also skipped the owned
+    client''s own close entirely (confirmed: `client.is_closed` stayed `False`). Fixed: both close
+    attempts inside the shared `close_resources` closure are now individually wrapped in
+    `contextlib.suppress(Exception)` -- a failure in EITHER attempt no longer raises past
+    `discard()`/`read_body()`, and a failure in the response close no longer skips the owned
+    client''s own close attempt (`asyncio.CancelledError`, a `BaseException` since Python 3.8, is
+    deliberately NOT suppressed, matching every other cancellation-safety guard in this row''s own
+    transport seam). Re-verified live against both refined witnesses (an injected client''s
+    `DeviceCodeNotEnabledError` is preserved even though its response''s own `aclose()` raises; an
+    owned/default client is STILL closed even though its response''s own `aclose()` raises) and
+    every prior R022 witness (ordering, failure-classification, cancellation, no-read, repeated-poll
+    closure) re-confirmed unaffected.
+
+    TARGETED RE-REVIEW 3 (`agent-workflow.md` §11.8.7): `L11-SC-R022` STILL OPEN with a third
+    refined witness: the round-two fix used two SEQUENTIAL `contextlib.suppress(Exception)` blocks
+    -- correctly letting `asyncio.CancelledError` (a `BaseException`, not an `Exception`) propagate
+    uncaught, but doing so exited the shared close helper BEFORE the owned client''s own close was
+    ever attempted, since the second `suppress` block (the client close) is only REACHED after the
+    first one returns normally. Confirmed live against the exact rejected candidate: a response
+    whose `aclose()` raises `asyncio.CancelledError` correctly propagates the cancellation, but
+    `client.is_closed` stayed `False` -- the owned client was left open precisely BECAUSE
+    cancellation correctly did not get swallowed. Fixed: the owned-client close now runs inside a
+    genuine `finally` wrapping the (still exception-suppressed) response close, not a second
+    sequential block -- `finally` runs UNCONDITIONALLY, whether the response close succeeded,
+    raised an ordinary exception (already suppressed inside), or is propagating an uncaught
+    `BaseException` -- so the owned client''s own close is attempted in EVERY case, and the
+    cancellation still continues propagating afterward exactly as before. Re-verified live against
+    the exact refined witness (cancellation during response close still propagates AND the owned
+    client is still closed) and every prior R022 witness (ordering, failure-classification,
+    ordinary-exception cleanup safety, no-read, repeated-poll closure) re-confirmed unaffected.
+
+    SECOND MANDATORY FINAL-COMPLETE REVIEW (`agent-workflow.md` §11.8.8, independent complete
+    contract review of the fully-provisionally-closed candidate above): `L11-SC-R011` through
+    `L11-SC-R024` all CLOSED or PROVISIONALLY CLOSED. Four NEW findings discovered during the
+    whole-surface audit, none of which has yet survived a repeat review (per §11.8, no new
+    convergence checkpoint required), all independently re-verified live against pinned Pi/Node
+    before fixing:
+
+    - `L11-SC-R025` (`PI_PARITY_DEFECT`): pinned Pi''s own `fetchWithLoginCancellation` re-throws
+      the ORIGINAL request rejection whenever the signal did not abort -- Pi has no observable
+      client-close operation whose OWN failure could replace that result at all.
+      `HttpxTransport.post`''s own PRE-response failure handler (`except BaseException: if
+      owns_client: await client.aclose(); raise`) awaited the owned client''s close UNGUARDED --
+      confirmed live: an owned client whose `send()` raised `ConnectionError("send boom")` AND
+      whose `aclose()` raised `RuntimeError("close boom")` surfaced the CLEANUP error, discarding
+      the original request failure entirely (the bare `raise` never ran, since `aclose()` itself
+      raised first). Fixed: the owned-client close here is now wrapped in the SAME
+      `contextlib.suppress(Exception)` pattern already established for the post-response cleanup
+      path (`L11-SC-R022`) -- an ordinary cleanup failure no longer replaces the real outcome,
+      while `asyncio.CancelledError` during cleanup is deliberately NOT suppressed, consistent
+      with every other cancellation-safety guard in this transport seam.
+    - `L11-SC-R026` (`CONTRACT_ASSURANCE_DEFECT`): the current normative `spec/auth.md` prose
+      contradicted the current adopted manifest and implementation -- two sentences still stated
+      "Python implementation ... a separate, following pass" and "no Python code for this row
+      exists yet," current-state claims an independent Rust implementer could not reconcile with
+      the manifest''s own `adopted` disposition and the implementation''s own existence. Fixed:
+      both sentences corrected to the current implemented-candidate state, explicitly citing this
+      finding and preserving the historical record of what the prose used to (incorrectly) claim,
+      per this row''s own "correct current-state claims, historicize past decisions" discipline --
+      no implementation change required.
+    - `L11-SC-R027` (`PI_PARITY_DEFECT`): pinned Pi''s own bare-query fallback constructs `new
+      URLSearchParams(value)`, whose constructor strips exactly ONE LEADING `"?"` before parsing
+      (confirmed live against Node) -- Python''s own `urllib.parse.parse_qs(value)` does NOT,
+      confirmed live: `parse_authorization_input("?code=abc&state=xyz")` parsed the first key as
+      the literal string `"?code"` instead of `"code"`, losing the authorization code entirely for
+      this realistic pasted-URL-fragment input shape. Fixed: `parse_authorization_input`''s own
+      bare-query-string branch now strips exactly one leading `"?"` (only the very first
+      character, confirmed live a second `"?"` anywhere else, including immediately after the
+      first, is ordinary data) before calling `parse_qs`.
+    - `L11-SC-R028` (`CONTRACT_ASSURANCE_DEFECT`): the Python test double (`_FakeTransport`)
+      recorded only the outbound URL (`self.calls: list[str]`), discarding `headers`/`body`/
+      `signal` entirely -- confirmed live this evidence is NOT discriminating for this row''s own
+      normative endpoint/content-type/request-field rules: production could send the right
+      endpoint with an empty or wrong payload/content-type and every existing URL-only test would
+      still pass unchanged. Fixed: `_FakeTransport` now also records the FULL request
+      (`self.requests: list[_RecordedRequest]`, headers copied by value at record time, not by
+      reference); four new permanent tests (device-start, device-poll, exchange, refresh) assert
+      the exact endpoint, `Content-Type`, and semantically-decoded JSON/form-urlencoded body
+      fields for each of this row''s own four outbound requests -- asserting field equivalence,
+      not raw percent-encoding byte equality, matching this row''s own stated normative rule.
+
+    Every refined/new witness has a permanent regression test -- see `tests:` below.
+
+    THIRD MANDATORY FINAL-COMPLETE REVIEW (`agent-workflow.md` §11.8.8, independent complete
+    contract review of the exact-unchanged R025/R026/R027/R028 remediation candidate above):
+    `L11-SC-R026` and `L11-SC-R028` RESOLVED. `L11-SC-R025` and `L11-SC-R027` PARTIALLY_RESOLVED_
+    BLOCKING -- both fixes'' PRODUCTION behavior was already correct, but the permanent witnesses
+    claimed for each did not actually discriminate the fix from its absence, confirmed via live
+    mutation testing against the exact reviewed candidate (`f5555f23421f014fcc79580bc746053d994dd00f`)
+    in a detached worktree:
+
+    - `L11-SC-R025` gap: deleting the ENTIRE pre-response owned-client cleanup block (`if
+      owns_client: with contextlib.suppress(Exception): await client.aclose()`) left BOTH relevant
+      tests passing unchanged -- `test_httpx_transport_closes_owned_client_when_getting_the_
+      response_itself_fails` never asserted `is_closed` (root cause: an earlier round''s own
+      editing-mistake cleanup mistakenly deleted this test''s own pre-existing `assert
+      created[0].is_closed` line, believing it an orphaned leftover from an unrelated insertion, when
+      it was this test''s own load-bearing assertion) and `test_httpx_transport_owned_client_close_
+      failure_does_not_replace_request_failure` only asserted the original exception propagated
+      unreplaced, which stays trivially true if `aclose()` is never called at all. Fixed: restored
+      `assert created[0].is_closed` to the first test; added a `close_attempted` flag (set inside the
+      fake `aclose()` regardless of its own raised exception) to the second test, asserting cleanup
+      was actually attempted, not merely non-destructive.
+    - `L11-SC-R027` gap: reverting the leading-`"?"`-stripping fix (`query_string = value[1:] if
+      value.startswith("?") else value`) left all pre-existing `parse_authorization_input` tests
+      passing unchanged -- no permanent witness for the leading-`"?"` case existed at all; the
+      manifest''s own prior round claimed one that was never actually added. Fixed: added
+      `test_parse_authorization_input_bare_query_string_with_leading_question_mark` (the exact
+      `"?code=abc&state=xyz"` regression case) and `test_parse_authorization_input_bare_query_
+      string_only_strips_one_leading_question_mark` (`"??code=1"`, confirming a second `"?"` is NOT
+      stripped).
+
+    Both strengthened witnesses re-verified live via mutation testing: with the strengthened tests
+    in place, re-applying the SAME two mutations (pre-response cleanup removed; leading-`"?"` fix
+    reverted) now correctly fails 3 tests (the two R025 witnesses plus the new leading-`"?"`
+    witness); with the mutations reverted, the full suite (1,503 passed, 19 xfailed, 0 failed) and
+    100% coverage (3,880 statements) both pass clean.
+
+    TARGETED SECTION 11.8.7 REVIEW (`agent-workflow.md` §11.8.7, of the third-mandatory-final-
+    complete-review remediation candidate above): `L11-SC-R025` PROVISIONALLY CLOSED (the
+    strengthened witnesses now correctly fail when cleanup is removed). `L11-SC-R027` STILL OPEN --
+    two witnesses were added in the prior round, but a THIRD binding witness from the agreed
+    acceptance matrix remained absent: `parse_authorization_input("?code=&state=xyz")` must produce
+    `code == ""`, `state == "xyz"` -- a present-but-EMPTY `code` is observably distinct from an
+    ABSENT `code` (confirmed live against Node: `new
+    URLSearchParams("?code=&state=xyz").get("code")` is `""`, while `new
+    URLSearchParams("?state=xyz").get("code")` is `null`). Production behavior was already correct
+    (`_first_query_value`''s own `values[0] if values else None`, combined with `keep_blank_values=
+    True` on the `parse_qs` call, already preserves this distinction) -- this was purely a missing-
+    witness gap, identical in kind to `L11-SC-R025`''s and `L11-SC-R027`''s own prior-round gaps.
+    Fixed: added `test_parse_authorization_input_leading_question_mark_with_present_empty_code`.
+    Re-verified live via combined mutation testing (both the `L11-SC-R025` cleanup-removal mutation
+    AND the `L11-SC-R027` leading-`"?"`-fix-reversion mutation applied together against the actual
+    imported source, then reverted): now correctly produces exactly 4 failures (the two `L11-SC-
+    R025` witnesses plus BOTH `L11-SC-R027` leading-`"?"` witnesses, including this new one); with
+    both mutations reverted, the full suite (1,504 passed, 19 xfailed, 0 failed) and 100% coverage
+    (3,880 statements) both pass clean.'
   tests:
-  - future Layer 11 conformance evidence (none yet -- the CONTRACT is now complete and audited, but
-    this row remains deferred parity until a Python implementation pass against it exists; no
-    fabricated evidence is cited for behavior not yet implemented)
-  python: 'NOT YET IMPLEMENTED -- contract complete (see `rule:` and `spec/auth.md`''s own PROV-012
-    section), implementation is a subsequent pass'
-  rust: 'NOT YET IMPLEMENTED -- deferred to a future Layer 11 pass'
-  disposition: deferred parity
+  - 'tests/auth/test_openai_codex_oauth.py (96 tests) -- `parse_authorization_input`''s three input
+    shapes including the JS `split(#,2)` fidelity trap, the WHATWG-URL invalid-port/
+    invalid-host-character fallthrough pair (`L11-SC-R011`, converged), the unpaired-surrogate
+    `USVString`-conversion pair (`L11-SC-R011`, third round -- a successfully-constructed URL''s
+    own query string carries `U+FFFD`, while a construction FAILURE falls through using the
+    original, unconverted surrogate), AND the explicit-adjacent-surrogate-pair combination witness
+    (`L11-SC-R011`, fourth round -- a valid high+low pair combines to its own single astral
+    character, not two `U+FFFD` characters); `_js_number_coerce`''s own
+    empty/hex/octal/binary/Infinity/garbage/signed-non-decimal/Unicode-digit/BOM-trim/overflow
+    cases (`L11-SC-R012`, converged); the authorization URL''s own exact param order and
+    `originator=pi`; the local callback server''s own real ephemeral-port behavior (404 wrong path,
+    400 state mismatch, 400 absent AND empty code distinguished, the shared `Content-Type` header,
+    `500` containment on an internal exception, silent bind-failure fallback) via REAL local TCP
+    connections, never a live/production port; the full browser-flow race (`L11-SC-R002`''s five
+    outcomes including the empty-manual-cancels-server case and the two second-check fallback
+    branches, `L11-SC-R009`''s pre-aborted-at-entry ordering, `L11-SC-R001`''s notify-failure-skips-
+    cleanup boundary proven by a subsequent same-port bind failure); the device-code flow (start/
+    poll success, 404-not-enabled, `PROV-016`''s own truthy-non-string rejection, the poll-outcome
+    mapping''s every branch including the object-shaped `{code: ...}` error field and the
+    unparseable-vs-swallowed error-body distinction, timeout, `L11-SC-R013`''s invalid-JSON-constant
+    rejection); token exchange/refresh (success, non-2xx with/without body, missing-fields with
+    EXACT `js_json_stringify` rendering, the `L11-SC-R004` cancellation-translation asymmetry,
+    `L11-SC-R013`''s invalid-JSON-constant rejection, `L11-SC-R018`''s real-reason-phrase fallback);
+    login-method dispatch including the exact unknown-method message; the `OAuthAuth` composite''s
+    own shape and `to_auth` delegation to the already-adopted `PROV-011`; the mandatory
+    final-complete review''s own three new call-site witnesses through the REAL `HttpxTransport`
+    (not the always-eager `_FakeTransport`, which cannot represent them): device-start `404` and
+    device-poll `403` never reading a never-completing body (`L11-SC-R022`), refresh''s own `2xx`
+    body-read failure propagating raw rather than mis-wrapped as `OAuthRefreshTransportError`
+    (`L11-SC-R022`), and an overflowing `interval` (`1e400`) rendering `null` in the required
+    exact invalid-response message instead of crashing (`L11-SC-R024`); the targeted re-review''s
+    own refined `L11-SC-R022` resource-lifecycle witnesses through the REAL `HttpxTransport` --
+    device-start `404` closing BOTH the abandoned streamed response and the owned/default client
+    without ever starting a body read, and repeated device-poll `403` attempts closing EVERY
+    abandoned response across several real poll attempts, not only the first; the second targeted
+    re-review''s own exception-safety companion witnesses -- device-start''s own fixed
+    `DeviceCodeNotEnabledError` is preserved (for BOTH an injected and an owned/default client)
+    even when the abandoned response''s own `aclose()` itself raises, and the owned client is
+    STILL closed in that exact case; device-poll''s own `PENDING`/timeout cycle is likewise
+    unaffected by a raising `aclose()` (`L11-SC-R022`); the third targeted re-review''s own
+    cancellation-safety witness -- device-start''s own owned/default client is STILL closed even
+    when the abandoned response''s own `aclose()` raises `asyncio.CancelledError`, while the
+    cancellation itself still propagates out of `_start_device_auth` correctly, never swallowed
+    (`L11-SC-R022`); the second mandatory final-complete review''s own new witnesses --
+    `parse_authorization_input("?code=abc&state=xyz")` correctly extracts `code="abc"`, not the
+    literal key `"?code"` (`L11-SC-R027`); FOUR new `_FakeTransport.requests`-based witnesses
+    (device-start, device-poll, exchange, refresh) each asserting the exact endpoint,
+    `Content-Type`, and semantically-decoded JSON/form-urlencoded request-body fields
+    (`L11-SC-R028`); the third mandatory final-complete review''s own TWO new permanent witnesses
+    closing the `L11-SC-R027` PARTIALLY_RESOLVED_BLOCKING gap (the prior round''s witness above was
+    prose only, mutation-tested to NOT discriminate the fix from its absence) --
+    `test_parse_authorization_input_bare_query_string_with_leading_question_mark` (the exact
+    `"?code=abc&state=xyz"` regression, mutation-confirmed to fail when the fix is reverted) and
+    `test_parse_authorization_input_bare_query_string_only_strips_one_leading_question_mark`
+    (`"??code=1"`, confirming a second `"?"` is ordinary data, not stripped); the targeted §11.8.7
+    review''s own THIRD, still-missing witness from the agreed acceptance matrix --
+    `test_parse_authorization_input_leading_question_mark_with_present_empty_code` (`"?code=&state=
+    xyz"` produces the present-but-EMPTY `code == ""`, observably distinct from an ABSENT `code`,
+    confirmed live against Node -- `L11-SC-R027`, now closed).'
+  - 'tests/auth/test_http_transport.py (34 tests) -- `run_cancellable`''s own success/exception-
+    propagation/cancellation/inner-task-cleanup paths (including the outer-await-cancelled safety
+    net AND `L11-SC-R015`''s pre-aborted-signal-never-starts-the-operation witness, distinguished
+    from the mid-flight-abort case); `fetch_with_login_cancellation`''s own post-hoc signal-aborted
+    check; `refresh_fetch`''s own uniform, non-translating wrapping; `HttpxTransport` exercised via
+    `httpx.MockTransport` (httpx''s own official no-network testing seam) for both an injected and a
+    self-constructed client, never a live socket, including `L11-SC-R016`''s no-implicit-timeout-cap
+    witness, `L11-SC-R017`''s redirect-following witness, `L11-SC-R018`''s real-reason-phrase witness,
+    its converged status-conditioned body-read-failure pair (2xx propagates, non-2xx swallows to
+    empty body), AND its third-round non-`httpx.HTTPError` companion pair (an ordinary `RuntimeError`
+    from a custom body stream propagates under 2xx and swallows under non-2xx, matching Pi''s own
+    "any body-read rejection" rule rather than one library-specific error hierarchy); the mandatory
+    final-complete review''s own witnesses: `post()` itself returning before a never-completing
+    body is ever read, an owned client staying open across a pre-abort-before-request failure AND
+    closing correctly once it is (`L11-SC-R022`); a signal that aborts DURING a deferred body-read
+    still raising `TransportCancelled`, never swallowed as an ordinary body-read failure; leading-
+    vs-interior UTF-8 BOM stripping AND `text()`''s own read-once caching (`L11-SC-R023`); the
+    targeted re-review''s own `discard()` witnesses -- an injected client''s abandoned response
+    closes without ever starting a body read, an owned/default client and its response are BOTH
+    closed, `discard()` is a safe no-op after `text()` already ran, and a synthetic
+    already-buffered `HttpResponse` (no live transport backing) makes `discard()` a harmless
+    no-op (`L11-SC-R022`); the second targeted re-review''s own exception-safety witnesses --
+    `discard()` swallows a raising response `aclose()` without propagating it, AND still closes
+    an owned/default client in that exact case, rather than skipping the client close entirely
+    (`L11-SC-R022`); the third targeted re-review''s own cancellation-safety witness --
+    `discard()` still closes an owned/default client EVEN WHEN the response''s own `aclose()`
+    raises `asyncio.CancelledError`, while the cancellation itself still propagates out of
+    `discard()` correctly, never swallowed like an ordinary close failure (`L11-SC-R022`); the
+    second mandatory final-complete review''s own new witness -- an owned client whose `send()`
+    raises `ConnectionError` AND whose `aclose()` ALSO raises `RuntimeError` still surfaces the
+    ORIGINAL `ConnectionError`, not the cleanup error (`L11-SC-R025`); the third mandatory
+    final-complete review''s own strengthening of BOTH pre-response owned-client-close witnesses,
+    closing the `L11-SC-R025` PARTIALLY_RESOLVED_BLOCKING gap (both prior witnesses were
+    mutation-tested to still pass with the ENTIRE cleanup block deleted, since neither asserted
+    `aclose()` was actually attempted) -- `test_httpx_transport_closes_owned_client_when_getting_
+    the_response_itself_fails` now asserts `created[0].is_closed` (restoring a load-bearing
+    assertion an earlier round''s own editing mistake had deleted), and
+    `test_httpx_transport_owned_client_close_failure_does_not_replace_request_failure` now asserts
+    a `close_attempted` flag set inside the fake `aclose()` regardless of its own raised exception,
+    independently confirming cleanup was attempted, not merely non-destructive when it happens to
+    run.'
+  - 'tests/auth/test_js_json.py (37 tests) -- every rule `L11-SC-R010`''s three review rounds
+    established: `null`/array/object rendering, negative-zero collapse, both notation-threshold
+    boundaries, non-ASCII pass-through for a properly-paired astral character, the unpaired-
+    surrogate escape exception, named vs. generic control-character escapes, and array-index-like
+    property reordering including the exact `2**32-2` boundary AND `L11-SC-R014`''s Unicode-digit-
+    key non-reordering plus very-long-digit-key non-throwing witnesses; `js_json_loads`''s own
+    `L11-SC-R013` invalid-constant rejection (bare and embedded) and IEEE-754-double coercion; the
+    shared `js_trim` helper''s own `L11-SC-R012` exact ECMA-262 whitespace/line-terminator code-point
+    set, confirmed against every listed code point plus negative controls; the shared
+    `to_usv_string` helper''s own `L11-SC-R011` unpaired-surrogate-to-`U+FFFD` replacement,
+    confirmed against both a lone high and a lone low surrogate plus a paired-astral-character
+    non-interference control, AND (fourth round) the explicit-adjacent-pair COMBINATION witness
+    (a valid high+low pair combines to its own single astral scalar value) plus its own negative
+    controls (a wrong-order pair, and a high surrogate with no low-surrogate partner, both remain
+    genuinely unpaired); non-finite-number rendering (`L11-SC-R024`, mandatory final-complete
+    review) -- `Infinity`/`-Infinity`/`NaN` render as the JSON literal `null` both nested and at
+    the top level, and a real call-site invalid-response message embedding an overflowing
+    `interval` renders correctly rather than crashing -- every value independently cross-checked
+    against live Node 22 before being committed as a fixture.'
+  python: src/minion_agent/auth/openai_codex_oauth.py; src/minion_agent/auth/http_transport.py;
+    src/minion_agent/auth/js_json.py
+  rust: 'NOT YET IMPLEMENTED -- Pass-2 Slice C Python-only per this pass''s own certification gate;
+    Rust implementation is a separate, later handoff'
+  disposition: adopted
 - id: PROV-013
   phase: 5
   pi: 'packages/ai/src/auth/resolve.ts::resolveProviderAuth/resolveStoredOAuth/resolveApiKey;
@@ -4980,14 +5508,17 @@ rows:
     as part of ordinary strict deserialization; any Rust-specific representation is reviewed
     independently when Rust implements `PROV-012`.'
   tests:
-  - 'future PROV-012 implementation pass (none yet -- PROV-012 itself remains deferred parity, no
-    Python code exists for this row). Required per the owner''s own decision: for each of the six
-    named fields, a permanent discriminating witness proving (a) a valid actual-string value is
-    accepted exactly as Pi accepts it; (b) an absent/falsy value is rejected via the existing
-    Pi-compatible invalid-response path, unchanged from Pi; (c) a present, JavaScript-truthy,
-    non-string value is rejected -- this project''s OWN intentional divergence from Pi''s own real
-    acceptance, not a Pi-compatible outcome'
-  python: 'NOT YET IMPLEMENTED -- tracked alongside PROV-012''s own eventual implementation pass'
+  - 'tests/auth/test_openai_codex_oauth.py -- per the owner''s own decision, each of the six named
+    fields (`device_auth_id`/`user_code` via `test_start_device_auth_each_field_absent_or_truthy_
+    non_string`; `authorization_code`/`code_verifier` via `test_poll_device_auth_each_field_absent_
+    or_truthy_non_string`; `access_token`/`refresh_token` via `test_read_token_response_each_field_
+    absent_or_truthy_non_string`, all three parametrized over both fields) has a permanent
+    discriminating witness proving (a) a valid actual-string value is accepted (covered by every
+    adjoining success test); (b) an absent/falsy value is rejected via the existing Pi-compatible
+    invalid-response path, unchanged from Pi; (c) a present, JavaScript-truthy, non-string value is
+    rejected -- this project''s OWN intentional divergence from Pi''s own real acceptance, not a
+    Pi-compatible outcome.'
+  python: src/minion_agent/auth/openai_codex_oauth.py
   rust: 'NOT YET IMPLEMENTED -- see this row''s own RUST note above for the language-neutral
     contract a future Rust implementation must independently satisfy'
   disposition: intentional divergence

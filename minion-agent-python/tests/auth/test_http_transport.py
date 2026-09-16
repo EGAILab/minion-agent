@@ -387,3 +387,62 @@ async def test_httpx_transport_translates_a_non_2xx_body_read_failure_into_an_em
         assert response.body == b""
     finally:
         await client.aclose()
+
+
+class _NonHttpErrorRaisingStream(httpx.AsyncByteStream):
+    """A body stream that fails with an ORDINARY exception outside `httpx`'s own error
+    hierarchy -- a realistic failure an injectable, caller-supplied `AsyncByteStream`
+    implementation can raise, since `httpx`'s own public seam does not require a custom stream
+    to raise specifically `httpx.HTTPError`."""
+
+    async def __aiter__(self) -> AsyncIterator[bytes]:
+        raise RuntimeError("body boom")
+        yield b""  # pragma: no cover -- unreachable, satisfies the generator protocol
+
+    async def aclose(self) -> None:
+        pass
+
+
+async def test_httpx_transport_swallows_a_non_httpx_non_2xx_body_read_failure() -> None:
+    """`L11-SC-R018`, targeted convergence review, third round -- confirmed live: pinned Pi's own
+    `.text().catch(() => "")` catches ANY promise rejection from the body-read operation, not one
+    library-specific error hierarchy. Catching only `httpx.HTTPError` left an ordinary
+    `RuntimeError` from a custom stream uncaught on the non-2xx path, contradicting Pi's own
+    broader rule."""
+
+    def handler_401_runtime_error(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(401, stream=_NonHttpErrorRaisingStream())
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler_401_runtime_error))
+    controller = RunAbortController()
+    transport = HttpxTransport(client=client)
+    try:
+        response = await transport.post(
+            "https://example.test/x", headers={}, body=b"", signal=controller.signal
+        )
+        assert response.status == 401
+        assert response.reason_phrase == "Unauthorized"
+        assert response.body == b""
+    finally:
+        await client.aclose()
+
+
+async def test_httpx_transport_propagates_a_non_httpx_2xx_body_read_failure() -> None:
+    """`L11-SC-R018`, targeted convergence review, third round, discriminating companion case --
+    the SAME non-`httpx.HTTPError` failure under a 2xx status must still propagate, preserving the
+    already-correct status-conditioned boundary and ruling out a return to the first
+    remediation's own uniform catch-everything behavior."""
+
+    def handler_200_runtime_error(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, stream=_NonHttpErrorRaisingStream())
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler_200_runtime_error))
+    controller = RunAbortController()
+    transport = HttpxTransport(client=client)
+    try:
+        with pytest.raises(RuntimeError, match="body boom"):
+            await transport.post(
+                "https://example.test/x", headers={}, body=b"", signal=controller.signal
+            )
+    finally:
+        await client.aclose()

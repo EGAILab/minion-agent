@@ -88,6 +88,26 @@ def js_trim(value: str) -> str:
     return value[start:end]
 
 
+def to_usv_string(value: str) -> str:
+    """Web IDL `USVString` conversion: replace each UNPAIRED UTF-16 surrogate code unit
+    (`U+D800`-`U+DFFF`) with `U+FFFD` (the replacement character) -- confirmed live this is
+    exactly what `new URL(value)` (a `USVString`-typed Web IDL operand) does to its own input
+    before further processing (`L11-SC-R011`, targeted convergence review): a lone surrogate in
+    the input becomes `U+FFFD` inside a successfully-constructed URL's own query string, while a
+    FAILED construction falls through using the ORIGINAL, unconverted string -- this function
+    performs only the conversion itself; the caller decides which string to use for which branch.
+
+    The SAME reasoning `_js_json_string`'s own escaping logic already relies on applies here:
+    Python's own `json.loads` (and Python's own string model generally) already combines a valid
+    consecutive UTF-16 surrogate PAIR into a single astral codepoint, so any Python string
+    character whose own codepoint still falls in the surrogate range is necessarily an UNPAIRED
+    one -- there is no valid pair to preserve here, unlike raw UTF-16 text, where a matched
+    high+low surrogate pair together represents one valid astral character and must NOT be
+    individually replaced."""
+    replacement_character = chr(0xFFFD)
+    return "".join(replacement_character if 0xD800 <= ord(ch) <= 0xDFFF else ch for ch in value)
+
+
 def _escape_char(codepoint: int) -> str:
     if codepoint in _NAMED_ESCAPES:
         return _NAMED_ESCAPES[codepoint]

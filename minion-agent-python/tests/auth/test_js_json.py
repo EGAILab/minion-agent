@@ -14,7 +14,7 @@ import math
 import pytest
 
 from minion_agent.auth.credential import JsonValue
-from minion_agent.auth.js_json import js_json_loads, js_json_stringify, js_trim
+from minion_agent.auth.js_json import js_json_loads, js_json_stringify, js_trim, to_usv_string
 
 
 def test_null_true_false() -> None:
@@ -247,3 +247,25 @@ def test_js_trim_does_not_strip_non_whitespace_unicode_format_characters() -> No
 def test_js_trim_empty_and_all_whitespace() -> None:
     assert js_trim("") == ""
     assert js_trim("   ") == ""
+
+
+# --- to_usv_string (`L11-SC-R011`, targeted convergence review) -------------------------------
+
+
+def test_to_usv_string_replaces_unpaired_surrogates() -> None:
+    """Web IDL `USVString` conversion: an unpaired high or low UTF-16 surrogate becomes `U+FFFD`
+    -- confirmed live this is exactly what `new URL(value)`'s own `USVString` operand does."""
+    lone_high = chr(0xD800)
+    lone_low = chr(0xDC00)
+    replacement = chr(0xFFFD)
+    assert to_usv_string(lone_high) == replacement
+    assert to_usv_string(lone_low) == replacement
+    assert to_usv_string("a" + lone_high + "b") == "a" + replacement + "b"
+
+
+def test_to_usv_string_passes_ordinary_and_astral_characters_through_unchanged() -> None:
+    """A properly-paired astral character (an emoji, a single Python codepoint above `U+FFFF`,
+    never itself in the surrogate range) and ordinary ASCII/non-ASCII text both pass through
+    completely unchanged -- only an actual unpaired surrogate code point is replaced."""
+    assert to_usv_string("café😀") == "café😀"
+    assert to_usv_string("") == ""

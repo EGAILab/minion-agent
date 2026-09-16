@@ -4764,11 +4764,50 @@ rows:
     `.pyi` stubs; prebuilt wheels confirmed available for this project''s own target platform;
     `PyPI` classifies it "Development Status :: 3 - Alpha" -- a known, owner-accepted maturity
     caveat, not a masked risk). Its own types never cross this row''s shared contract boundary,
-    matching the existing `httpx` constraint.'
+    matching the existing `httpx` constraint.
+
+    TARGETED CONVERGENCE CLOSURE (`agent-workflow.md` §11.8.7, independent targeted-closure review
+    of the convergence implementation above): `L11-SC-R012` and `L11-SC-R021` PROVISIONALLY CLOSED
+    unchanged. `L11-SC-R011` and `L11-SC-R018` remained STILL OPEN with two further refined
+    witnesses each, both independently re-verified live against Node/Pi before fixing:
+
+    - `L11-SC-R011` (still open, third round): the `url-py` mechanism itself is a conforming
+      WHATWG URL implementation, but the PYTHON BINDING receives a Python `str` and attempts to
+      encode it as UTF-8 before the Rust parser runs -- a Python string may contain an unpaired
+      UTF-16 surrogate code point, which `new URL(value)`''s own `USVString`-typed Web IDL operand
+      replaces with `U+FFFD` BEFORE construction (confirmed live against Node), while the binding
+      instead raises an uncaught `UnicodeEncodeError`. Fixed: a new shared `to_usv_string` helper
+      (`js_json.py`, reusing the SAME "any Python string character whose own codepoint falls in
+      the surrogate range is necessarily unpaired" reasoning `_js_json_string`''s own escaping
+      logic already established) converts the value handed to `url.URL.parse` specifically, while
+      every FALLBACK branch continues to use the ORIGINAL, unconverted string -- confirmed live
+      against Node this is exactly Pi''s own behavior: a lone surrogate inside an otherwise-valid
+      URL''s query string becomes `U+FFFD` in the parsed result, while a lone surrogate that makes
+      URL construction fail entirely survives unconverted into the bare-code fallback.
+    - `L11-SC-R018` (still open, third round): the non-2xx body-read catch was scoped to
+      `httpx.HTTPError` specifically, but pinned Pi''s own `.text().catch(() => "")` catches ANY
+      promise rejection from the body-read operation, not one library-specific error hierarchy --
+      confirmed live via a scripted `httpx.MockTransport` response whose body stream raises an
+      ordinary `RuntimeError` (a realistic failure an injectable, caller-supplied `AsyncByteStream`
+      can raise, since `httpx`''s own public seam does not require raising `httpx.HTTPError`
+      specifically), which the prior fix left uncaught on the non-2xx path. Fixed: the catch is now
+      `except Exception:` (broad enough to match Pi''s own "any rejection" rule, while deliberately
+      NOT catching `asyncio.CancelledError`, a `BaseException` since Python 3.8, so a genuine task
+      cancellation still propagates as a cancellation rather than being swallowed into an empty
+      body) -- the already-correct status-conditioned boundary (2xx re-raises, non-2xx swallows)
+      is unchanged; only the exception TYPE scope widened. Both branches re-verified live with the
+      identical `RuntimeError` under a 200 status (still propagates) and a 401 status (still
+      swallows to an empty body with the real reason phrase).
+
+    Every refined witness from all three review rounds now has a permanent regression test -- see
+    `tests:` below.'
   tests:
-  - 'tests/auth/test_openai_codex_oauth.py (77 tests) -- `parse_authorization_input`''s three input
-    shapes including the JS `split(#,2)` fidelity trap AND the WHATWG-URL invalid-port/
-    invalid-host-character fallthrough pair (`L11-SC-R011`, converged); `_js_number_coerce`''s own
+  - 'tests/auth/test_openai_codex_oauth.py (79 tests) -- `parse_authorization_input`''s three input
+    shapes including the JS `split(#,2)` fidelity trap, the WHATWG-URL invalid-port/
+    invalid-host-character fallthrough pair (`L11-SC-R011`, converged), AND the unpaired-surrogate
+    `USVString`-conversion pair (`L11-SC-R011`, third round -- a successfully-constructed URL''s
+    own query string carries `U+FFFD`, while a construction FAILURE falls through using the
+    original, unconverted surrogate); `_js_number_coerce`''s own
     empty/hex/octal/binary/Infinity/garbage/signed-non-decimal/Unicode-digit/BOM-trim/overflow
     cases (`L11-SC-R012`, converged); the authorization URL''s own exact param order and
     `originator=pi`; the local callback server''s own real ephemeral-port behavior (404 wrong path,
@@ -4786,17 +4825,19 @@ rows:
     `L11-SC-R013`''s invalid-JSON-constant rejection, `L11-SC-R018`''s real-reason-phrase fallback);
     login-method dispatch including the exact unknown-method message; the `OAuthAuth` composite''s
     own shape and `to_auth` delegation to the already-adopted `PROV-011`.'
-  - 'tests/auth/test_http_transport.py (19 tests) -- `run_cancellable`''s own success/exception-
+  - 'tests/auth/test_http_transport.py (21 tests) -- `run_cancellable`''s own success/exception-
     propagation/cancellation/inner-task-cleanup paths (including the outer-await-cancelled safety
     net AND `L11-SC-R015`''s pre-aborted-signal-never-starts-the-operation witness, distinguished
     from the mid-flight-abort case); `fetch_with_login_cancellation`''s own post-hoc signal-aborted
     check; `refresh_fetch`''s own uniform, non-translating wrapping; `HttpxTransport` exercised via
     `httpx.MockTransport` (httpx''s own official no-network testing seam) for both an injected and a
     self-constructed client, never a live socket, including `L11-SC-R016`''s no-implicit-timeout-cap
-    witness, `L11-SC-R017`''s redirect-following witness, `L11-SC-R018`''s real-reason-phrase witness
-    AND its converged status-conditioned body-read-failure pair (2xx propagates, non-2xx swallows to
-    empty body).'
-  - 'tests/auth/test_js_json.py (30 tests) -- every rule `L11-SC-R010`''s three review rounds
+    witness, `L11-SC-R017`''s redirect-following witness, `L11-SC-R018`''s real-reason-phrase witness,
+    its converged status-conditioned body-read-failure pair (2xx propagates, non-2xx swallows to
+    empty body), AND its third-round non-`httpx.HTTPError` companion pair (an ordinary `RuntimeError`
+    from a custom body stream propagates under 2xx and swallows under non-2xx, matching Pi''s own
+    "any body-read rejection" rule rather than one library-specific error hierarchy).'
+  - 'tests/auth/test_js_json.py (32 tests) -- every rule `L11-SC-R010`''s three review rounds
     established: `null`/array/object rendering, negative-zero collapse, both notation-threshold
     boundaries, non-ASCII pass-through for a properly-paired astral character, the unpaired-
     surrogate escape exception, named vs. generic control-character escapes, and array-index-like
@@ -4804,8 +4845,11 @@ rows:
     key non-reordering plus very-long-digit-key non-throwing witnesses; `js_json_loads`''s own
     `L11-SC-R013` invalid-constant rejection (bare and embedded) and IEEE-754-double coercion; the
     shared `js_trim` helper''s own `L11-SC-R012` exact ECMA-262 whitespace/line-terminator code-point
-    set, confirmed against every listed code point plus negative controls -- every value
-    independently cross-checked against live Node 22 before being committed as a fixture.'
+    set, confirmed against every listed code point plus negative controls; the shared
+    `to_usv_string` helper''s own `L11-SC-R011` unpaired-surrogate-to-`U+FFFD` replacement,
+    confirmed against both a lone high and a lone low surrogate plus a paired-astral-character
+    non-interference control -- every value independently cross-checked against live Node 22
+    before being committed as a fixture.'
   python: src/minion_agent/auth/openai_codex_oauth.py; src/minion_agent/auth/http_transport.py;
     src/minion_agent/auth/js_json.py
   rust: 'NOT YET IMPLEMENTED -- Pass-2 Slice C Python-only per this pass''s own certification gate;

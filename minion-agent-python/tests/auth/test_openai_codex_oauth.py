@@ -248,6 +248,30 @@ def test_parse_authorization_input_invalid_host_character_falls_through() -> Non
     assert result.state == "s"
 
 
+def test_parse_authorization_input_unpaired_surrogate_in_query_becomes_replacement_char() -> None:
+    """`L11-SC-R011`, targeted convergence review -- confirmed live against Node: `new URL(value)`
+    is a `USVString`-typed Web IDL operand, which replaces an unpaired UTF-16 surrogate with
+    `U+FFFD` BEFORE construction. A successfully-constructed URL's own query string therefore
+    carries `U+FFFD`, not an encoding crash and not the original lone surrogate verbatim."""
+    lone_high_surrogate = chr(0xD800)
+    result = parse_authorization_input(f"https://example.test/?code={lone_high_surrogate}&state=s")
+    assert result.code == chr(0xFFFD)
+    assert result.state == "s"
+
+
+def test_parse_authorization_input_bare_unpaired_surrogate_falls_through_unconverted() -> None:
+    """`L11-SC-R011`, targeted convergence review, discriminating companion case -- confirmed live
+    against Node: when `new URL(value)` itself FAILS (here, a bare lone surrogate has no
+    recognized scheme at all), Pi's own fallback strategies operate on the ORIGINAL, unconverted
+    string -- the lone surrogate survives verbatim into the bare-code fallback, proving the
+    `USVString` conversion applies only to the URL-constructor probe, not to the value carried
+    forward into the fallback branches."""
+    lone_high_surrogate = chr(0xD800)
+    result = parse_authorization_input(lone_high_surrogate)
+    assert result.code == lone_high_surrogate
+    assert result.state is None
+
+
 def test_parse_authorization_input_hash_split_discards_content_after_second_hash() -> None:
     """Pi's own `split("#", 2)` semantics: content after a SECOND `"#"` is discarded, never
     appended to `state` -- a host language's own unlimited split on the first `"#"` would

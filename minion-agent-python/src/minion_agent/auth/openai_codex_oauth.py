@@ -60,7 +60,7 @@ from .interaction import (
     OAuthAuth,
     ProviderAuthInteraction,
 )
-from .js_json import js_json_loads, js_json_stringify, js_trim
+from .js_json import js_json_loads, js_json_stringify, js_trim, to_usv_string
 from .openai_codex import credentials_from_token
 from .openai_codex import to_auth as _codex_to_auth
 from .pkce import generate_pkce
@@ -327,13 +327,26 @@ def parse_authorization_input(raw_input: str) -> ParsedAuthorizationInput:
     discriminator across both review rounds. `url-py`/`rust-url` is an IMPLEMENTATION MECHANISM
     here, never the semantic oracle -- pinned Pi behavior, the shared contract, and executable
     witnesses remain authoritative; a future `url-py` release that diverges observably from
-    pinned Pi would be a bug to fix, not a parity redefinition."""
+    pinned Pi would be a bug to fix, not a parity redefinition.
+
+    The value handed to the URL constructor is first converted via `to_usv_string` (Web IDL
+    `USVString` conversion, `L11-SC-R011`, targeted convergence review): a Python string may
+    contain an unpaired UTF-16 surrogate code point, and `new URL(value)`'s own `USVString`
+    operand type replaces each one with `U+FFFD` BEFORE construction -- confirmed live -- so a
+    lone surrogate in a query parameter of an otherwise-valid URL becomes `U+FFFD` in the parsed
+    `code`/`state`, not an encoding crash (`url-py`'s own binding raises `UnicodeEncodeError` for
+    the unconverted string, since it must encode to UTF-8 before the Rust parser runs). Every
+    FALLBACK branch below, by contrast, uses the ORIGINAL, unconverted `value` -- confirmed live
+    against Node: when `new URL(value)` itself fails (for any reason, including a value that is
+    not USVString-convertible to a valid URL at all, e.g. a bare lone surrogate as the WHOLE
+    input), Pi's own fallback strategies operate on the original JavaScript string, which still
+    carries the lone surrogate verbatim, not a converted version of it."""
     value = js_trim(raw_input)
     if not value:
         return ParsedAuthorizationInput(code=None, state=None)
 
     try:
-        parsed_url: _WhatwgURL | None = _WhatwgURL.parse(value)
+        parsed_url: _WhatwgURL | None = _WhatwgURL.parse(to_usv_string(value))
     except _WhatwgURLError:
         parsed_url = None
     if parsed_url is not None:

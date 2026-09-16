@@ -156,13 +156,26 @@ class HttpxTransport:
             # boundary). The second review's own refined witness confirmed the FIRST remediation
             # over-corrected by swallowing every status alike -- catching only for a non-2xx
             # status here reproduces the real, status-sensitive boundary instead.
+            #
+            # The non-2xx catch is `Exception`, not `httpx.HTTPError` (targeted convergence
+            # review, third round): JS's own `.catch(() => "")` catches ANY promise rejection
+            # from the body-read operation, not one library-specific error hierarchy -- pinned
+            # Pi's own rule is NOT scoped to a particular exception TYPE, only to WHICH call-site
+            # branch (2xx vs non-2xx) the read happens in. The injectable transport seam's own
+            # `AsyncByteStream` contract does not require a custom stream to raise specifically
+            # `httpx.HTTPError` (confirmed live: an ordinary `RuntimeError` from a custom stream
+            # is a realistic body-read failure a caller-supplied transport can raise), so an
+            # `httpx.HTTPError`-only catch left exactly this class of failure uncaught on the
+            # non-2xx path. `asyncio.CancelledError` (`BaseException`, not `Exception`, since
+            # Python 3.8) is deliberately NOT caught here -- a genuine task cancellation must
+            # still propagate as a cancellation, never be swallowed into an empty body.
             request = client.build_request("POST", url, headers=dict(headers), content=body)
             response = await client.send(request, stream=True)
             is_success_status = 200 <= response.status_code < 300
             try:
                 await response.aread()
                 response_body = response.content
-            except httpx.HTTPError:
+            except Exception:
                 if is_success_status:
                     raise
                 # Matches pinned Pi's own non-2xx branches, which already collapse a body-read

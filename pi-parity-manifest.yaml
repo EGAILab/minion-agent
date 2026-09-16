@@ -4944,9 +4944,59 @@ rows:
     client is still closed) and every prior R022 witness (ordering, failure-classification,
     ordinary-exception cleanup safety, no-read, repeated-poll closure) re-confirmed unaffected.
 
+    SECOND MANDATORY FINAL-COMPLETE REVIEW (`agent-workflow.md` §11.8.8, independent complete
+    contract review of the fully-provisionally-closed candidate above): `L11-SC-R011` through
+    `L11-SC-R024` all CLOSED or PROVISIONALLY CLOSED. Four NEW findings discovered during the
+    whole-surface audit, none of which has yet survived a repeat review (per §11.8, no new
+    convergence checkpoint required), all independently re-verified live against pinned Pi/Node
+    before fixing:
+
+    - `L11-SC-R025` (`PI_PARITY_DEFECT`): pinned Pi''s own `fetchWithLoginCancellation` re-throws
+      the ORIGINAL request rejection whenever the signal did not abort -- Pi has no observable
+      client-close operation whose OWN failure could replace that result at all.
+      `HttpxTransport.post`''s own PRE-response failure handler (`except BaseException: if
+      owns_client: await client.aclose(); raise`) awaited the owned client''s close UNGUARDED --
+      confirmed live: an owned client whose `send()` raised `ConnectionError("send boom")` AND
+      whose `aclose()` raised `RuntimeError("close boom")` surfaced the CLEANUP error, discarding
+      the original request failure entirely (the bare `raise` never ran, since `aclose()` itself
+      raised first). Fixed: the owned-client close here is now wrapped in the SAME
+      `contextlib.suppress(Exception)` pattern already established for the post-response cleanup
+      path (`L11-SC-R022`) -- an ordinary cleanup failure no longer replaces the real outcome,
+      while `asyncio.CancelledError` during cleanup is deliberately NOT suppressed, consistent
+      with every other cancellation-safety guard in this transport seam.
+    - `L11-SC-R026` (`CONTRACT_ASSURANCE_DEFECT`): the current normative `spec/auth.md` prose
+      contradicted the current adopted manifest and implementation -- two sentences still stated
+      "Python implementation ... a separate, following pass" and "no Python code for this row
+      exists yet," current-state claims an independent Rust implementer could not reconcile with
+      the manifest''s own `adopted` disposition and the implementation''s own existence. Fixed:
+      both sentences corrected to the current implemented-candidate state, explicitly citing this
+      finding and preserving the historical record of what the prose used to (incorrectly) claim,
+      per this row''s own "correct current-state claims, historicize past decisions" discipline --
+      no implementation change required.
+    - `L11-SC-R027` (`PI_PARITY_DEFECT`): pinned Pi''s own bare-query fallback constructs `new
+      URLSearchParams(value)`, whose constructor strips exactly ONE LEADING `"?"` before parsing
+      (confirmed live against Node) -- Python''s own `urllib.parse.parse_qs(value)` does NOT,
+      confirmed live: `parse_authorization_input("?code=abc&state=xyz")` parsed the first key as
+      the literal string `"?code"` instead of `"code"`, losing the authorization code entirely for
+      this realistic pasted-URL-fragment input shape. Fixed: `parse_authorization_input`''s own
+      bare-query-string branch now strips exactly one leading `"?"` (only the very first
+      character, confirmed live a second `"?"` anywhere else, including immediately after the
+      first, is ordinary data) before calling `parse_qs`.
+    - `L11-SC-R028` (`CONTRACT_ASSURANCE_DEFECT`): the Python test double (`_FakeTransport`)
+      recorded only the outbound URL (`self.calls: list[str]`), discarding `headers`/`body`/
+      `signal` entirely -- confirmed live this evidence is NOT discriminating for this row''s own
+      normative endpoint/content-type/request-field rules: production could send the right
+      endpoint with an empty or wrong payload/content-type and every existing URL-only test would
+      still pass unchanged. Fixed: `_FakeTransport` now also records the FULL request
+      (`self.requests: list[_RecordedRequest]`, headers copied by value at record time, not by
+      reference); four new permanent tests (device-start, device-poll, exchange, refresh) assert
+      the exact endpoint, `Content-Type`, and semantically-decoded JSON/form-urlencoded body
+      fields for each of this row''s own four outbound requests -- asserting field equivalence,
+      not raw percent-encoding byte equality, matching this row''s own stated normative rule.
+
     Every refined/new witness has a permanent regression test -- see `tests:` below.'
   tests:
-  - 'tests/auth/test_openai_codex_oauth.py (89 tests) -- `parse_authorization_input`''s three input
+  - 'tests/auth/test_openai_codex_oauth.py (93 tests) -- `parse_authorization_input`''s three input
     shapes including the JS `split(#,2)` fidelity trap, the WHATWG-URL invalid-port/
     invalid-host-character fallthrough pair (`L11-SC-R011`, converged), the unpaired-surrogate
     `USVString`-conversion pair (`L11-SC-R011`, third round -- a successfully-constructed URL''s
@@ -4989,8 +5039,13 @@ rows:
     cancellation-safety witness -- device-start''s own owned/default client is STILL closed even
     when the abandoned response''s own `aclose()` raises `asyncio.CancelledError`, while the
     cancellation itself still propagates out of `_start_device_auth` correctly, never swallowed
-    (`L11-SC-R022`).'
-  - 'tests/auth/test_http_transport.py (33 tests) -- `run_cancellable`''s own success/exception-
+    (`L11-SC-R022`); the second mandatory final-complete review''s own new witnesses --
+    `parse_authorization_input("?code=abc&state=xyz")` correctly extracts `code="abc"`, not the
+    literal key `"?code"` (`L11-SC-R027`); FOUR new `_FakeTransport.requests`-based witnesses
+    (device-start, device-poll, exchange, refresh) each asserting the exact endpoint,
+    `Content-Type`, and semantically-decoded JSON/form-urlencoded request-body fields
+    (`L11-SC-R028`).'
+  - 'tests/auth/test_http_transport.py (34 tests) -- `run_cancellable`''s own success/exception-
     propagation/cancellation/inner-task-cleanup paths (including the outer-await-cancelled safety
     net AND `L11-SC-R015`''s pre-aborted-signal-never-starts-the-operation witness, distinguished
     from the mid-flight-abort case); `fetch_with_login_cancellation`''s own post-hoc signal-aborted
@@ -5017,7 +5072,10 @@ rows:
     (`L11-SC-R022`); the third targeted re-review''s own cancellation-safety witness --
     `discard()` still closes an owned/default client EVEN WHEN the response''s own `aclose()`
     raises `asyncio.CancelledError`, while the cancellation itself still propagates out of
-    `discard()` correctly, never swallowed like an ordinary close failure (`L11-SC-R022`).'
+    `discard()` correctly, never swallowed like an ordinary close failure (`L11-SC-R022`); the
+    second mandatory final-complete review''s own new witness -- an owned client whose `send()`
+    raises `ConnectionError` AND whose `aclose()` ALSO raises `RuntimeError` still surfaces the
+    ORIGINAL `ConnectionError`, not the cleanup error (`L11-SC-R025`).'
   - 'tests/auth/test_js_json.py (37 tests) -- every rule `L11-SC-R010`''s three review rounds
     established: `null`/array/object rendering, negative-zero collapse, both notation-threshold
     boundaries, non-ASCII pass-through for a properly-paired astral character, the unpaired-

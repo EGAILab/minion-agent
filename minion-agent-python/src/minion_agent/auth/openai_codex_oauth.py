@@ -361,7 +361,16 @@ def parse_authorization_input(raw_input: str) -> ParsedAuthorizationInput:
         return ParsedAuthorizationInput(code=code, state=state)
 
     if "code=" in value:
-        query = parse_qs(value, keep_blank_values=True)
+        # `new URLSearchParams(value)` strips exactly ONE LEADING `"?"` before parsing (confirmed
+        # live against Node, `L11-SC-R027`, second mandatory final-complete review) -- Python's
+        # own `parse_qs` does NOT, so a leading-`"?"` input (e.g. `"?code=abc&state=xyz"`, a
+        # realistic pasted-URL-fragment shape) parsed its first key as the literal string
+        # `"?code"` instead of `"code"`, losing the code entirely. Only the VERY FIRST character
+        # is special -- a second `"?"` anywhere else (including immediately after the first) is
+        # ordinary data, confirmed live: `"??code=1"` strips only the first `"?"`, leaving
+        # `"?code"` as the key.
+        query_string = value[1:] if value.startswith("?") else value
+        query = parse_qs(query_string, keep_blank_values=True)
         return ParsedAuthorizationInput(
             code=_first_query_value(query, "code"),
             state=_first_query_value(query, "state"),

@@ -13,7 +13,9 @@ from __future__ import annotations
 import asyncio
 import json
 import socket
-from collections.abc import AsyncIterator, Callable, Coroutine
+from collections.abc import AsyncIterator, Callable, Coroutine, Mapping
+from dataclasses import dataclass
+from urllib.parse import parse_qs
 
 import httpx
 import pytest
@@ -37,6 +39,7 @@ from minion_agent.auth.openai_codex_oauth import (
     DEVICE_TOKEN_URL,
     DEVICE_USER_CODE_URL,
     REDIRECT_URI,
+    TOKEN_URL,
     DeviceCodeNotEnabledError,
     InvalidDeviceCodeResponseError,
     MissingAuthorizationCodeError,
@@ -78,6 +81,22 @@ VALID_TOKEN = (
 # --- test infrastructure --------------------------------------------------------------------------
 
 
+@dataclass(frozen=True, slots=True)
+class _RecordedRequest:
+    """The FULL outbound request `_FakeTransport.post` received -- `L11-SC-R028`, mandatory
+    final-complete review: recording only the URL (as `_FakeTransport.calls` alone always has)
+    is not discriminating evidence for this row's own normative header/body rules -- production
+    could send the right endpoint with an empty or wrong payload/content-type and every existing
+    URL-only test would still pass. `headers` is copied into a plain `dict` at record time (not
+    stored by reference) so a caller mutating its own headers object afterward cannot retroactively
+    change what was actually observed."""
+
+    url: str
+    headers: dict[str, str]
+    body: bytes
+    signal: object
+
+
 class _FakeTransport:
     """A deterministic, scripted `HttpTransport`. `responses` is consumed in order per call;
     `error` (if set) is raised instead on the NEXT call. Never touches a real socket."""
@@ -86,6 +105,7 @@ class _FakeTransport:
         self._responses: list[HttpResponse] = []
         self._error: Exception | None = None
         self.calls: list[str] = []
+        self.requests: list[_RecordedRequest] = []
 
     def queue_response(self, status: int, body: bytes) -> None:
         self._responses.append(HttpResponse(status=status, body=body))
@@ -96,8 +116,13 @@ class _FakeTransport:
     def queue_error(self, error: Exception) -> None:
         self._error = error
 
-    async def post(self, url: str, *, headers: object, body: bytes, signal: object) -> HttpResponse:
+    async def post(
+        self, url: str, *, headers: Mapping[str, str], body: bytes, signal: object
+    ) -> HttpResponse:
         self.calls.append(url)
+        self.requests.append(
+            _RecordedRequest(url=url, headers=dict(headers), body=body, signal=signal)
+        )
         if self._error is not None:
             error, self._error = self._error, None
             raise error
@@ -782,6 +807,24 @@ async def test_start_device_auth_success() -> None:
     assert transport.calls == [DEVICE_USER_CODE_URL]
 
 
+async def test_start_device_auth_sends_the_exact_endpoint_content_type_and_body() -> None:
+    """`L11-SC-R028`, mandatory final-complete review -- confirmed live against the exact
+    rejected candidate before this fix: recording only the URL (as the test above still does)
+    is not discriminating evidence for this row's own normative request-construction rule --
+    production could send the right endpoint with an empty or wrong payload/content-type and
+    the existing test would still pass unchanged."""
+    controller = RunAbortController()
+    transport = _FakeTransport()
+    transport.queue_json(200, {"device_auth_id": "d1", "user_code": "u1", "interval": 5})
+    await _start_device_auth(transport, controller.signal)
+
+    assert len(transport.requests) == 1
+    request = transport.requests[0]
+    assert request.url == DEVICE_USER_CODE_URL
+    assert request.headers["Content-Type"] == "application/json"
+    assert json.loads(request.body) == {"client_id": CLIENT_ID}
+
+
 async def test_start_device_auth_interval_as_string_uses_js_coercion() -> None:
     controller = RunAbortController()
     transport = _FakeTransport()
@@ -1076,6 +1119,25 @@ async def test_poll_device_auth_immediate_success() -> None:
     assert result.authorization_code == "ac1"
     assert result.code_verifier == "cv1"
     assert transport.calls == [DEVICE_TOKEN_URL]
+
+
+async def test_poll_device_auth_sends_the_exact_endpoint_content_type_and_body() -> None:
+    """`L11-SC-R028`, mandatory final-complete review -- see `test_start_device_auth_sends_the_
+    exact_endpoint_content_type_and_body`'s own rationale, restated here for the poll request."""
+    controller = RunAbortController()
+    transport = _FakeTransport()
+    transport.queue_json(200, {"authorization_code": "ac1", "code_verifier": "cv1"})
+    device = await _fake_device_info(interval=0.001)
+    await _poll_device_auth(transport, device, controller.signal)
+
+    assert len(transport.requests) == 1
+    request = transport.requests[0]
+    assert request.url == DEVICE_TOKEN_URL
+    assert request.headers["Content-Type"] == "application/json"
+    assert json.loads(request.body) == {
+        "device_auth_id": device.device_auth_id,
+        "user_code": device.user_code,
+    }
 
 
 async def test_poll_device_auth_pending_then_complete() -> None:
@@ -1374,6 +1436,54 @@ async def test_read_token_response_each_field_absent_or_truthy_non_string(bad_fi
     truthy_response = HttpResponse(status=200, body=json.dumps(truthy_non_string).encode())
     with pytest.raises(TokenResponseMissingFieldsError):
         await _read_token_response(truthy_response, "exchange")
+
+
+async def test_exchange_authorization_code_sends_the_exact_endpoint_content_type_and_body() -> None:
+    """`L11-SC-R028`, mandatory final-complete review -- see `test_start_device_auth_sends_the_
+    exact_endpoint_content_type_and_body`'s own rationale, restated here for the token-exchange
+    request: the FORM-urlencoded body's own semantically-decoded fields are asserted, not raw
+    percent-encoding spelling, since field equivalence (not byte equality) is this row's own
+    stated normative rule."""
+    controller = RunAbortController()
+    transport = _FakeTransport()
+    transport.queue_json(200, {"access_token": "a", "refresh_token": "r", "expires_in": 10})
+    await _exchange_authorization_code(
+        "the-code", "the-verifier", REDIRECT_URI, controller.signal, transport=transport
+    )
+
+    assert len(transport.requests) == 1
+    request = transport.requests[0]
+    assert request.url == TOKEN_URL
+    assert request.headers["Content-Type"] == "application/x-www-form-urlencoded"
+    decoded = {k: v[0] for k, v in parse_qs(request.body.decode()).items()}
+    assert decoded == {
+        "grant_type": "authorization_code",
+        "client_id": CLIENT_ID,
+        "code": "the-code",
+        "code_verifier": "the-verifier",
+        "redirect_uri": REDIRECT_URI,
+    }
+
+
+async def test_refresh_access_token_sends_the_exact_endpoint_content_type_and_body() -> None:
+    """`L11-SC-R028`, mandatory final-complete review -- see `test_start_device_auth_sends_the_
+    exact_endpoint_content_type_and_body`'s own rationale, restated here for the refresh
+    request."""
+    controller = RunAbortController()
+    transport = _FakeTransport()
+    transport.queue_json(200, {"access_token": "a", "refresh_token": "r", "expires_in": 10})
+    await _refresh_access_token("the-refresh-token", controller.signal, transport=transport)
+
+    assert len(transport.requests) == 1
+    request = transport.requests[0]
+    assert request.url == TOKEN_URL
+    assert request.headers["Content-Type"] == "application/x-www-form-urlencoded"
+    decoded = {k: v[0] for k, v in parse_qs(request.body.decode()).items()}
+    assert decoded == {
+        "grant_type": "refresh_token",
+        "refresh_token": "the-refresh-token",
+        "client_id": CLIENT_ID,
+    }
 
 
 async def test_exchange_authorization_code_cancellation_translates_to_login_cancelled() -> None:

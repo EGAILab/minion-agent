@@ -318,7 +318,39 @@ async def test_httpx_transport_closes_owned_client_when_getting_the_response_its
             "https://example.test/x", headers={}, body=b"", signal=controller.signal
         )
     assert len(created) == 1
-    assert created[0].is_closed
+
+
+async def test_httpx_transport_owned_client_close_failure_does_not_replace_request_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`L11-SC-R025`, second mandatory final-complete review -- confirmed live against the exact
+    rejected candidate before this fix: pinned Pi's own `fetchWithLoginCancellation` re-throws the
+    ORIGINAL request rejection whenever the signal did not abort; Pi has no observable
+    client-close operation whose own failure could replace that result at all. An owned client
+    whose `send()` raises `ConnectionError` AND whose `aclose()` ALSO raises `RuntimeError` must
+    still surface the ORIGINAL `ConnectionError` -- the cleanup failure must not replace it."""
+    real_async_client = httpx.AsyncClient
+
+    def fake_async_client(*args: object, **kwargs: object) -> httpx.AsyncClient:
+        client = real_async_client(*args, **kwargs)
+
+        async def raising_send(*a: object, **kw: object) -> httpx.Response:
+            raise ConnectionError("send boom")
+
+        async def raising_aclose() -> None:
+            raise RuntimeError("close boom")
+
+        client.send = raising_send  # type: ignore[method-assign]
+        client.aclose = raising_aclose  # type: ignore[method-assign]
+        return client
+
+    monkeypatch.setattr(httpx, "AsyncClient", fake_async_client)
+    controller = RunAbortController()
+    transport = HttpxTransport()
+    with pytest.raises(ConnectionError, match="send boom"):
+        await transport.post(
+            "https://example.test/x", headers={}, body=b"", signal=controller.signal
+        )
 
 
 async def test_httpx_transport_owned_client_disables_its_own_implicit_timeout_cap(

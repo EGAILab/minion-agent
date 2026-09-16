@@ -210,8 +210,23 @@ class HttpxTransport:
             # Getting status/headers itself failed (or was cancelled) -- there is no deferred
             # path left that could ever close an owned client, so close it here, matching the
             # pre-existing unconditional-cleanup guarantee for this failure mode.
+            #
+            # The cleanup close is exception-safe (`L11-SC-R025`, second mandatory final-complete
+            # review): pinned Pi's own `fetchWithLoginCancellation` re-throws the ORIGINAL request
+            # rejection whenever the signal did not abort -- Pi has no observable client-close
+            # operation whose own failure could replace that result at all. Confirmed live against
+            # the exact rejected candidate before this fix: an owned client whose `send()` raised
+            # `ConnectionError("send boom")` AND whose `aclose()` raised `RuntimeError("close
+            # boom")` surfaced the CLEANUP error, not the original request failure -- the bare
+            # `raise` below never even ran, since `await client.aclose()` itself raised first,
+            # discarding the original exception being propagated. `contextlib.suppress(Exception)`
+            # here matches the SAME pattern already established for the post-response cleanup path
+            # (`L11-SC-R022`): an ordinary cleanup failure must not replace the real outcome, while
+            # a genuine `asyncio.CancelledError` during cleanup is deliberately NOT suppressed,
+            # since a fresh cancellation reaching cleanup itself should not be silently discarded.
             if owns_client:
-                await client.aclose()
+                with contextlib.suppress(Exception):
+                    await client.aclose()
             raise
 
         is_success_status = 200 <= response.status_code < 300

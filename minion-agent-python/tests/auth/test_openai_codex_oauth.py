@@ -368,6 +368,20 @@ def test_parse_authorization_input_bare_query_string_only_strips_one_leading_que
     assert result.state is None
 
 
+def test_parse_authorization_input_leading_question_mark_with_present_empty_code() -> None:
+    """`L11-SC-R027`, targeted §11.8.7 review -- the third binding witness from the agreed
+    acceptance matrix, absent until now. Confirmed live against Node: `new
+    URLSearchParams("?code=&state=xyz").get("code")` is the PRESENT-but-EMPTY string `""`,
+    observably distinct from `new URLSearchParams("?state=xyz").get("code")`, which is `null`
+    (ABSENT) -- `keep_blank_values=True` on the `parse_qs` call below is what preserves this
+    distinction in Python (`values[0] if values else None` in `_first_query_value` returns `""`
+    for a present-but-blank key, since `[""]` is a truthy non-empty list, but `None` when the key
+    is missing entirely)."""
+    result = parse_authorization_input("?code=&state=xyz")
+    assert result.code == ""
+    assert result.state == "xyz"
+
+
 def test_parse_authorization_input_bare_code() -> None:
     result = parse_authorization_input("just-a-code")
     assert result.code == "just-a-code"

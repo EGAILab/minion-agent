@@ -5029,9 +5029,29 @@ rows:
     in place, re-applying the SAME two mutations (pre-response cleanup removed; leading-`"?"` fix
     reverted) now correctly fails 3 tests (the two R025 witnesses plus the new leading-`"?"`
     witness); with the mutations reverted, the full suite (1,503 passed, 19 xfailed, 0 failed) and
-    100% coverage (3,880 statements) both pass clean.'
+    100% coverage (3,880 statements) both pass clean.
+
+    TARGETED SECTION 11.8.7 REVIEW (`agent-workflow.md` §11.8.7, of the third-mandatory-final-
+    complete-review remediation candidate above): `L11-SC-R025` PROVISIONALLY CLOSED (the
+    strengthened witnesses now correctly fail when cleanup is removed). `L11-SC-R027` STILL OPEN --
+    two witnesses were added in the prior round, but a THIRD binding witness from the agreed
+    acceptance matrix remained absent: `parse_authorization_input("?code=&state=xyz")` must produce
+    `code == ""`, `state == "xyz"` -- a present-but-EMPTY `code` is observably distinct from an
+    ABSENT `code` (confirmed live against Node: `new
+    URLSearchParams("?code=&state=xyz").get("code")` is `""`, while `new
+    URLSearchParams("?state=xyz").get("code")` is `null`). Production behavior was already correct
+    (`_first_query_value`''s own `values[0] if values else None`, combined with `keep_blank_values=
+    True` on the `parse_qs` call, already preserves this distinction) -- this was purely a missing-
+    witness gap, identical in kind to `L11-SC-R025`''s and `L11-SC-R027`''s own prior-round gaps.
+    Fixed: added `test_parse_authorization_input_leading_question_mark_with_present_empty_code`.
+    Re-verified live via combined mutation testing (both the `L11-SC-R025` cleanup-removal mutation
+    AND the `L11-SC-R027` leading-`"?"`-fix-reversion mutation applied together against the actual
+    imported source, then reverted): now correctly produces exactly 4 failures (the two `L11-SC-
+    R025` witnesses plus BOTH `L11-SC-R027` leading-`"?"` witnesses, including this new one); with
+    both mutations reverted, the full suite (1,504 passed, 19 xfailed, 0 failed) and 100% coverage
+    (3,880 statements) both pass clean.'
   tests:
-  - 'tests/auth/test_openai_codex_oauth.py (95 tests) -- `parse_authorization_input`''s three input
+  - 'tests/auth/test_openai_codex_oauth.py (96 tests) -- `parse_authorization_input`''s three input
     shapes including the JS `split(#,2)` fidelity trap, the WHATWG-URL invalid-port/
     invalid-host-character fallthrough pair (`L11-SC-R011`, converged), the unpaired-surrogate
     `USVString`-conversion pair (`L11-SC-R011`, third round -- a successfully-constructed URL''s
@@ -5085,7 +5105,11 @@ rows:
     `test_parse_authorization_input_bare_query_string_with_leading_question_mark` (the exact
     `"?code=abc&state=xyz"` regression, mutation-confirmed to fail when the fix is reverted) and
     `test_parse_authorization_input_bare_query_string_only_strips_one_leading_question_mark`
-    (`"??code=1"`, confirming a second `"?"` is ordinary data, not stripped).'
+    (`"??code=1"`, confirming a second `"?"` is ordinary data, not stripped); the targeted §11.8.7
+    review''s own THIRD, still-missing witness from the agreed acceptance matrix --
+    `test_parse_authorization_input_leading_question_mark_with_present_empty_code` (`"?code=&state=
+    xyz"` produces the present-but-EMPTY `code == ""`, observably distinct from an ABSENT `code`,
+    confirmed live against Node -- `L11-SC-R027`, now closed).'
   - 'tests/auth/test_http_transport.py (34 tests) -- `run_cancellable`''s own success/exception-
     propagation/cancellation/inner-task-cleanup paths (including the outer-await-cancelled safety
     net AND `L11-SC-R015`''s pre-aborted-signal-never-starts-the-operation witness, distinguished

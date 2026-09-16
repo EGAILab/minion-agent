@@ -22,6 +22,7 @@ IEEE-754 double representation via `parse_int=float`.
 from __future__ import annotations
 
 import json
+import math
 from decimal import Decimal
 from typing import cast
 
@@ -255,7 +256,22 @@ def js_json_stringify(value: JsonValue) -> str:
     (`_js_number_to_string`), arrays (each element rendered recursively, comma-joined), and objects
     (each property rendered as `"key":value`, comma-joined, in `_js_property_order`'s own order).
     Matches ECMAScript `JSON.stringify`'s own compact form exactly -- no whitespace after `:` or
-    `,`, matching pinned Pi's own real call sites, none of which pass an indentation argument."""
+    `,`, matching pinned Pi's own real call sites, none of which pass an indentation argument.
+
+    A NON-FINITE number (`inf`/`-inf`/`nan`) renders as the JSON literal `null`, at ANY position
+    -- top-level or nested (`L11-SC-R024`, mandatory final-complete review): ECMA-262's own
+    `SerializeJSONProperty` step checks `Number::isFinite` BEFORE calling `Number::toString` at
+    all, returning the literal `"null"` immediately for a non-finite value -- confirmed live
+    against Node this applies UNIFORMLY regardless of nesting depth (`JSON.stringify(Infinity)`
+    at the very top level ALSO returns the string `"null"`, not `undefined` -- that is a
+    DIFFERENT, unrelated case: `JSON.stringify(undefined)` is what returns `undefined`, and this
+    function's own `JsonValue` input domain has no representation for `undefined` in the first
+    place, so no separate top-level special case is needed here). This is reachable through a
+    real call site: `js_json_loads` already correctly parses a JSON numeric literal like `1e400`
+    into `inf` (JSON number syntax permits an exponent this large; ECMAScript's own numeric
+    overflow behavior applies, distinct from the bare invalid token `Infinity`, which
+    `L11-SC-R013` correctly rejects), and the resulting `inf` can reach this renderer when
+    building an "invalid response" error message embedding the parsed body verbatim."""
     if value is None:
         return "null"
     if value is True:
@@ -265,7 +281,10 @@ def js_json_stringify(value: JsonValue) -> str:
     if isinstance(value, str):
         return _js_json_string(value)
     if isinstance(value, int | float):
-        return _js_number_to_string(float(value))
+        magnitude = float(value)
+        if not math.isfinite(magnitude):
+            return "null"
+        return _js_number_to_string(magnitude)
     if isinstance(value, list):
         return "[" + ",".join(js_json_stringify(item) for item in value) + "]"
     return (

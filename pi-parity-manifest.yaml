@@ -4821,9 +4821,67 @@ rows:
       swallows to an empty body with the real reason phrase).
 
     Every refined witness from all three review rounds now has a permanent regression test -- see
-    `tests:` below.'
+    `tests:` below.
+
+    MANDATORY FINAL-COMPLETE REVIEW (`agent-workflow.md` §11.8.8, independent complete contract
+    review of the fully-converged candidate above): `L11-SC-R011` PROVISIONALLY CLOSED (full
+    scalar-value-string conversion passes the targeted witness and controls); every prior finding
+    `L11-SC-R001` through `L11-SC-R021` CLOSED or PROVISIONALLY CLOSED. Three NEW findings
+    discovered during the whole-surface audit, all independently re-verified live against pinned
+    Pi/Node before fixing, and a convergence checkpoint recorded
+    (`minion-agent-docs` `assurance/layers/
+    11-pass2-slice-c-r022-r023-r024-convergence-agreement.md`) before implementing, per the
+    coordination''s own explicit request given `L11-SC-R022`''s architectural weight:
+
+    - `L11-SC-R022` (`PI_PARITY_DEFECT`): `HttpxTransport.post`''s own eager `await
+      response.aread()` collapsed pinned Pi''s own separate response/status and body-read phases
+      into one -- `fetchWithLoginCancellation`/`fetch()` resolves once status/headers arrive in
+      Pi, BEFORE the body is consumed, and device-start''s own `404` branch and device-poll''s own
+      `403`/`404` branch never call `.text()`/`.json()` at all; `refreshAccessToken`''s own
+      `readTokenResponse(response, "refresh")` call is OUTSIDE its own request-level `try`/`catch`.
+      Confirmed live against the exact rejected candidate: a `404` device-start response whose
+      body stream never completes hung the whole operation instead of raising
+      `DeviceCodeNotEnabledError` immediately; a `2xx` refresh response whose body-read failed
+      surfaced as `OAuthRefreshTransportError("... refresh error: body boom")` instead of the raw
+      underlying error. Fixed: `HttpResponse`/`HttpxTransport.post` redesigned so `status`/
+      `reason_phrase` are available as soon as status/headers arrive, and the body is consumed
+      ONLY via `HttpResponse.text()` (now `async`), invoked lazily by a caller -- `post()` itself
+      never touches the body. The existing `openai_codex_oauth.py` call-site branch structure
+      (which already never called `.text()` on the abandoned-body branches, and already called
+      `_read_token_response` OUTSIDE `refresh_fetch`''s own wrapper) required no logic changes,
+      only mechanical `await` additions and making `_read_token_response` `async`. Cancellation
+      coverage (`run_cancellable`) is preserved across BOTH the initial status/headers phase and
+      the deferred body-read phase; the owned-client-closes-itself guarantee (this row''s own
+      `L11-SC-R016`) is preserved for every path that reads the body (and for the initial-phase-
+      failure path), while a caller that deliberately never reads the body relies on ordinary
+      Python object-lifetime cleanup rather than new explicit-cleanup API surface, per the
+      convergence checkpoint''s own explicit scope decision.
+    - `L11-SC-R023` (`PI_PARITY_DEFECT`): WHATWG Fetch''s own UTF-8 body-text decoding strips
+      exactly one LEADING byte-order mark before exposing text to `Response.text()`/`.json()`,
+      which pinned Pi relies on implicitly; `HttpResponse.text()`''s own `"utf-8"` decode left the
+      BOM in place, which Python''s own `json.loads` then explicitly rejects with its own dedicated
+      error. Fixed: the decode now uses `"utf-8-sig"` (strips exactly one leading BOM, leaves an
+      INTERIOR `U+FEFF` untouched, composes correctly with the pre-existing `errors="replace"`
+      fallback) -- landed in the SAME `text()` method R022''s redesign already touches.
+    - `L11-SC-R024` (`PI_PARITY_DEFECT`): a JSON number literal with a large exponent (e.g.
+      `1e400`) is syntactically valid JSON number syntax and parses to `Infinity`/`-Infinity`
+      (distinct from the bare invalid token `Infinity`, which `L11-SC-R013` correctly rejects);
+      `JSON.stringify` renders a non-finite Number as the literal `null`, at any nesting depth,
+      confirmed live. `js_json_stringify` instead raised an uncaught `AssertionError` from
+      `_shortest_digits_and_exponent`''s own finite-magnitude assumption. Fixed: `js_json_stringify`
+      now checks `math.isfinite` before attempting decimal decomposition, returning `"null"`
+      uniformly. CORRECTION TO THE REVIEW''S OWN TEXT, independently verified and found inaccurate:
+      the review additionally claimed top-level `JSON.stringify(Infinity)` returns JavaScript
+      `undefined` -- confirmed live this is FALSE (it returns the string `"null"`, identical to
+      the nested case; `JSON.stringify(undefined)` is the different, unrelated input that returns
+      `undefined`, and `js_json_stringify`''s own `JsonValue` domain has no representation for
+      `undefined` at all) -- per this row''s own established discipline, the VERIFIED behavior is
+      implemented, not the reviewed claim, and no top-level-vs-nested special case was needed as a
+      result.
+
+    Every refined/new witness has a permanent regression test -- see `tests:` below.'
   tests:
-  - 'tests/auth/test_openai_codex_oauth.py (80 tests) -- `parse_authorization_input`''s three input
+  - 'tests/auth/test_openai_codex_oauth.py (84 tests) -- `parse_authorization_input`''s three input
     shapes including the JS `split(#,2)` fidelity trap, the WHATWG-URL invalid-port/
     invalid-host-character fallthrough pair (`L11-SC-R011`, converged), the unpaired-surrogate
     `USVString`-conversion pair (`L11-SC-R011`, third round -- a successfully-constructed URL''s
@@ -4847,8 +4905,14 @@ rows:
     EXACT `js_json_stringify` rendering, the `L11-SC-R004` cancellation-translation asymmetry,
     `L11-SC-R013`''s invalid-JSON-constant rejection, `L11-SC-R018`''s real-reason-phrase fallback);
     login-method dispatch including the exact unknown-method message; the `OAuthAuth` composite''s
-    own shape and `to_auth` delegation to the already-adopted `PROV-011`.'
-  - 'tests/auth/test_http_transport.py (21 tests) -- `run_cancellable`''s own success/exception-
+    own shape and `to_auth` delegation to the already-adopted `PROV-011`; the mandatory
+    final-complete review''s own three new call-site witnesses through the REAL `HttpxTransport`
+    (not the always-eager `_FakeTransport`, which cannot represent them): device-start `404` and
+    device-poll `403` never reading a never-completing body (`L11-SC-R022`), refresh''s own `2xx`
+    body-read failure propagating raw rather than mis-wrapped as `OAuthRefreshTransportError`
+    (`L11-SC-R022`), and an overflowing `interval` (`1e400`) rendering `null` in the required
+    exact invalid-response message instead of crashing (`L11-SC-R024`).'
+  - 'tests/auth/test_http_transport.py (26 tests) -- `run_cancellable`''s own success/exception-
     propagation/cancellation/inner-task-cleanup paths (including the outer-await-cancelled safety
     net AND `L11-SC-R015`''s pre-aborted-signal-never-starts-the-operation witness, distinguished
     from the mid-flight-abort case); `fetch_with_login_cancellation`''s own post-hoc signal-aborted
@@ -4859,8 +4923,13 @@ rows:
     its converged status-conditioned body-read-failure pair (2xx propagates, non-2xx swallows to
     empty body), AND its third-round non-`httpx.HTTPError` companion pair (an ordinary `RuntimeError`
     from a custom body stream propagates under 2xx and swallows under non-2xx, matching Pi''s own
-    "any body-read rejection" rule rather than one library-specific error hierarchy).'
-  - 'tests/auth/test_js_json.py (34 tests) -- every rule `L11-SC-R010`''s three review rounds
+    "any body-read rejection" rule rather than one library-specific error hierarchy); the mandatory
+    final-complete review''s own witnesses: `post()` itself returning before a never-completing
+    body is ever read, an owned client staying open across a pre-abort-before-request failure AND
+    closing correctly once it is (`L11-SC-R022`); a signal that aborts DURING a deferred body-read
+    still raising `TransportCancelled`, never swallowed as an ordinary body-read failure; leading-
+    vs-interior UTF-8 BOM stripping AND `text()`''s own read-once caching (`L11-SC-R023`).'
+  - 'tests/auth/test_js_json.py (37 tests) -- every rule `L11-SC-R010`''s three review rounds
     established: `null`/array/object rendering, negative-zero collapse, both notation-threshold
     boundaries, non-ASCII pass-through for a properly-paired astral character, the unpaired-
     surrogate escape exception, named vs. generic control-character escapes, and array-index-like
@@ -4874,8 +4943,11 @@ rows:
     non-interference control, AND (fourth round) the explicit-adjacent-pair COMBINATION witness
     (a valid high+low pair combines to its own single astral scalar value) plus its own negative
     controls (a wrong-order pair, and a high surrogate with no low-surrogate partner, both remain
-    genuinely unpaired) -- every value independently cross-checked against live Node 22 before
-    being committed as a fixture.'
+    genuinely unpaired); non-finite-number rendering (`L11-SC-R024`, mandatory final-complete
+    review) -- `Infinity`/`-Infinity`/`NaN` render as the JSON literal `null` both nested and at
+    the top level, and a real call-site invalid-response message embedding an overflowing
+    `interval` renders correctly rather than crashing -- every value independently cross-checked
+    against live Node 22 before being committed as a fixture.'
   python: src/minion_agent/auth/openai_codex_oauth.py; src/minion_agent/auth/http_transport.py;
     src/minion_agent/auth/js_json.py
   rust: 'NOT YET IMPLEMENTED -- Pass-2 Slice C Python-only per this pass''s own certification gate;

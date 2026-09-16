@@ -204,9 +204,42 @@ async def test_refresh_fetch_wraps_any_failure_uniformly_no_cancellation_transla
         )
 
 
-def test_http_response_text_decodes_utf8_body() -> None:
+async def test_http_response_text_decodes_utf8_body() -> None:
     response = HttpResponse(status=200, body="café".encode())
-    assert response.text() == "café"
+    assert await response.text() == "café"
+
+
+async def test_http_response_text_strips_leading_utf8_bom_only() -> None:
+    """`L11-SC-R023` -- confirmed live: WHATWG Fetch's own UTF-8 body-text decoding strips
+    exactly one LEADING byte-order mark; an INTERIOR `U+FEFF` is left untouched -- only the very
+    first three bytes are special."""
+    bom = chr(0xFEFF)
+    leading_bom = bom + '{"a":1}'
+    response = HttpResponse(status=200, body=leading_bom.encode())
+    assert await response.text() == '{"a":1}'
+
+    interior_bom = "a" + bom + "b"
+    response2 = HttpResponse(status=200, body=interior_bom.encode())
+    assert await response2.text() == interior_bom
+
+
+async def test_http_response_text_caches_body_after_first_read() -> None:
+    """A `read_body` closure that would raise on a SECOND call proves `text()` only invokes it
+    once and reuses the cached result thereafter -- guarding against a real network stream being
+    consumed twice."""
+    calls = 0
+
+    async def read_body() -> bytes:
+        nonlocal calls
+        calls += 1
+        if calls > 1:
+            raise AssertionError("read_body called more than once")
+        return b"hello"
+
+    response = HttpResponse(status=200, read_body=read_body)
+    assert await response.text() == "hello"
+    assert await response.text() == "hello"
+    assert calls == 1
 
 
 def _mock_handler(request: httpx.Request) -> httpx.Response:
@@ -225,7 +258,7 @@ async def test_httpx_transport_uses_an_injected_client_without_closing_it() -> N
             "https://example.test/x", headers={}, body=b"", signal=controller.signal
         )
         assert response.status == 200
-        assert response.body == b'{"ok":true}'
+        assert await response.text() == '{"ok":true}'
         assert not client.is_closed
     finally:
         await client.aclose()
@@ -235,8 +268,10 @@ async def test_httpx_transport_creates_and_closes_its_own_client_when_none_injec
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """No client injected -- `HttpxTransport` constructs its own `httpx.AsyncClient` internally
-    and closes it afterward. `httpx.AsyncClient` is monkeypatched to a `MockTransport`-backed
-    factory so this still never touches a real socket."""
+    and closes it once the body is read (`L11-SC-R022`: closing now happens lazily, tied to body
+    consumption, not eagerly the moment `post()` itself returns -- confirmed here by checking
+    `is_closed` only AFTER `text()`, not immediately after `post()`). `httpx.AsyncClient` is
+    monkeypatched to a `MockTransport`-backed factory so this still never touches a real socket."""
     created: list[httpx.AsyncClient] = []
     real_async_client = httpx.AsyncClient
 
@@ -252,7 +287,36 @@ async def test_httpx_transport_creates_and_closes_its_own_client_when_none_injec
         "https://example.test/x", headers={}, body=b"", signal=controller.signal
     )
     assert response.status == 200
-    assert response.body == b'{"ok":true}'
+    assert not created[0].is_closed
+    assert await response.text() == '{"ok":true}'
+    assert len(created) == 1
+    assert created[0].is_closed
+
+
+async def test_httpx_transport_closes_owned_client_when_getting_the_response_itself_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A pre-aborted signal makes `run_cancellable` raise `TransportCancelled` BEFORE
+    `send_request()` is ever scheduled (`L11-SC-R015`) -- there is no later deferred `read_body`
+    closure that could ever close an owned client in this failure mode, so `post()` itself must
+    still close it, matching the pre-existing unconditional-cleanup guarantee this redesign must
+    not lose."""
+    created: list[httpx.AsyncClient] = []
+    real_async_client = httpx.AsyncClient
+
+    def fake_async_client(*args: object, **kwargs: object) -> httpx.AsyncClient:
+        client = real_async_client(transport=httpx.MockTransport(_mock_handler))
+        created.append(client)
+        return client
+
+    monkeypatch.setattr(httpx, "AsyncClient", fake_async_client)
+    controller = RunAbortController()
+    controller.abort()
+    transport = HttpxTransport()
+    with pytest.raises(TransportCancelled):
+        await transport.post(
+            "https://example.test/x", headers={}, body=b"", signal=controller.signal
+        )
     assert len(created) == 1
     assert created[0].is_closed
 
@@ -302,7 +366,7 @@ async def test_httpx_transport_owned_client_follows_redirects(
         "https://example.test/start", headers={}, body=b"", signal=controller.signal
     )
     assert response.status == 200
-    assert response.body == b'{"ok":true}'
+    assert await response.text() == '{"ok":true}'
 
 
 async def test_httpx_transport_response_carries_the_real_reason_phrase() -> None:
@@ -322,7 +386,72 @@ async def test_httpx_transport_response_carries_the_real_reason_phrase() -> None
         )
         assert response.status == 401
         assert response.reason_phrase == "Unauthorized"
-        assert response.body == b""
+        assert await response.text() == ""
+    finally:
+        await client.aclose()
+
+
+class _NeverCompletingStream(httpx.AsyncByteStream):
+    """A `httpx` response body stream that never finishes -- simulates a slow/stalled body on a
+    real network connection, used to prove `post()` itself never blocks on it."""
+
+    async def __aiter__(self) -> AsyncIterator[bytes]:
+        await asyncio.Event().wait()
+        yield b""  # pragma: no cover -- unreachable, satisfies the generator protocol
+
+    async def aclose(self) -> None:
+        pass
+
+
+async def test_httpx_transport_post_returns_before_the_body_is_ever_read() -> None:
+    """`L11-SC-R022`, mandatory final-complete review -- confirmed live against the exact
+    rejected candidate before this fix: `post()` itself must return as soon as status/headers
+    arrive, even when the body stream never completes, matching pinned Pi's own `fetch()` promise
+    (which resolves on headers, not on the body). A caller that never calls `text()` (the
+    device-start-404/device-poll-403/404 abandoned-body shape this witness stands in for) must
+    never be blocked by a slow or stalled body at all."""
+
+    def handler_never_completing_body(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(404, stream=_NeverCompletingStream())
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler_never_completing_body))
+    controller = RunAbortController()
+    transport = HttpxTransport(client=client)
+    try:
+        response = await asyncio.wait_for(
+            transport.post(
+                "https://example.test/x", headers={}, body=b"", signal=controller.signal
+            ),
+            timeout=2.0,
+        )
+        assert response.status == 404
+    finally:
+        await client.aclose()
+
+
+async def test_httpx_transport_signal_abort_during_body_read_is_not_swallowed() -> None:
+    """A signal that aborts WHILE `text()` is awaiting a slow body (not during the initial
+    request) still raises `TransportCancelled`, even on a non-2xx status whose ordinary body-read
+    failures are otherwise swallowed to an empty string -- confirmed live: a genuine cancellation
+    must always propagate as a cancellation, never be treated as just another body-read failure
+    that happens to be swallowed by the non-2xx status rule."""
+
+    def handler_slow_body(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(401, stream=_NeverCompletingStream())
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler_slow_body))
+    controller = RunAbortController()
+    transport = HttpxTransport(client=client)
+    try:
+        response = await transport.post(
+            "https://example.test/x", headers={}, body=b"", signal=controller.signal
+        )
+        assert response.status == 401
+        text_task = asyncio.ensure_future(response.text())
+        await asyncio.sleep(0.1)
+        controller.abort()
+        with pytest.raises(TransportCancelled):
+            await asyncio.wait_for(text_task, timeout=2.0)
     finally:
         await client.aclose()
 
@@ -343,11 +472,9 @@ async def test_httpx_transport_propagates_a_2xx_body_read_failure() -> None:
     """`L11-SC-R018` -- confirmed live against pinned Pi (`readTokenResponse`,
     `startOpenAICodexDeviceAuth`, `pollOpenAICodexDeviceAuth`'s own `poll()`): every 2xx branch
     reads the body via `.json()` with NO catch at all, so a body-read failure there is an
-    UNCAUGHT rejection that propagates through the existing call-site boundary. The first
-    remediation over-corrected by swallowing this into an empty body regardless of status,
-    which the second independent review caught as its own refined finding: a status-200
-    response whose body then fails to read must still raise, not fabricate an empty-body
-    success."""
+    UNCAUGHT rejection that propagates through the existing call-site boundary. `post()` itself
+    now succeeds (status/headers only, `L11-SC-R022`) -- the failure surfaces from `text()`
+    instead, the exact caller-equivalent point pinned Pi's own code would reach it at."""
 
     def handler_200_body_read_failure(request: httpx.Request) -> httpx.Response:
         return httpx.Response(200, stream=_RaisingStream())
@@ -356,21 +483,22 @@ async def test_httpx_transport_propagates_a_2xx_body_read_failure() -> None:
     controller = RunAbortController()
     transport = HttpxTransport(client=client)
     try:
+        response = await transport.post(
+            "https://example.test/x", headers={}, body=b"", signal=controller.signal
+        )
+        assert response.status == 200
         with pytest.raises(httpx.ReadError, match="simulated body read failure"):
-            await transport.post(
-                "https://example.test/x", headers={}, body=b"", signal=controller.signal
-            )
+            await response.text()
     finally:
         await client.aclose()
 
 
 async def test_httpx_transport_translates_a_non_2xx_body_read_failure_into_an_empty_body() -> None:
     """`L11-SC-R018` -- confirmed live: a body-read failure AFTER a non-2xx status already
-    arrived successfully (e.g. a connection reset mid-body) comes back as a normal
-    `HttpResponse` with an empty body and the real status/reason phrase intact, matching pinned
-    Pi's own non-2xx branches, which already collapse this and a genuinely empty body
-    identically via `text().catch(() => "")` -- NOT an opaque request-level exception, which a
-    single buffered response-construction call cannot avoid raising for both cases alike."""
+    arrived successfully (e.g. a connection reset mid-body) comes back as an empty string from
+    `text()`, with the real status/reason phrase intact, matching pinned Pi's own non-2xx
+    branches, which already collapse this and a genuinely empty body identically via
+    `text().catch(() => "")`."""
 
     def handler_401_body_read_failure(request: httpx.Request) -> httpx.Response:
         return httpx.Response(401, stream=_RaisingStream())
@@ -384,7 +512,7 @@ async def test_httpx_transport_translates_a_non_2xx_body_read_failure_into_an_em
         )
         assert response.status == 401
         assert response.reason_phrase == "Unauthorized"
-        assert response.body == b""
+        assert await response.text() == ""
     finally:
         await client.aclose()
 
@@ -422,16 +550,16 @@ async def test_httpx_transport_swallows_a_non_httpx_non_2xx_body_read_failure() 
         )
         assert response.status == 401
         assert response.reason_phrase == "Unauthorized"
-        assert response.body == b""
+        assert await response.text() == ""
     finally:
         await client.aclose()
 
 
 async def test_httpx_transport_propagates_a_non_httpx_2xx_body_read_failure() -> None:
     """`L11-SC-R018`, targeted convergence review, third round, discriminating companion case --
-    the SAME non-`httpx.HTTPError` failure under a 2xx status must still propagate, preserving the
-    already-correct status-conditioned boundary and ruling out a return to the first
-    remediation's own uniform catch-everything behavior."""
+    the SAME non-`httpx.HTTPError` failure under a 2xx status must still propagate from `text()`,
+    preserving the already-correct status-conditioned boundary and ruling out a return to the
+    first remediation's own uniform catch-everything behavior."""
 
     def handler_200_runtime_error(request: httpx.Request) -> httpx.Response:
         return httpx.Response(200, stream=_NonHttpErrorRaisingStream())
@@ -440,9 +568,11 @@ async def test_httpx_transport_propagates_a_non_httpx_2xx_body_read_failure() ->
     controller = RunAbortController()
     transport = HttpxTransport(client=client)
     try:
+        response = await transport.post(
+            "https://example.test/x", headers={}, body=b"", signal=controller.signal
+        )
+        assert response.status == 200
         with pytest.raises(RuntimeError, match="body boom"):
-            await transport.post(
-                "https://example.test/x", headers={}, body=b"", signal=controller.signal
-            )
+            await response.text()
     finally:
         await client.aclose()

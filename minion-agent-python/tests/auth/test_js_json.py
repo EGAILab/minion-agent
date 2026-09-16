@@ -299,3 +299,34 @@ def test_to_usv_string_does_not_combine_surrogates_in_the_wrong_order_or_without
     replacement = chr(0xFFFD)
     assert to_usv_string(low_surrogate + high_surrogate) == replacement + replacement
     assert to_usv_string(high_surrogate + "a") == replacement + "a"
+
+
+# --- non-finite number rendering (`L11-SC-R024`, mandatory final-complete review) --------------
+
+
+def test_stringify_renders_non_finite_numbers_as_null_when_nested() -> None:
+    """Confirmed live against Node: `JSON.stringify({x: Infinity, y: -Infinity, z: NaN})`
+    renders every non-finite value as the JSON literal `null`, not a raised error and not the
+    `Number::toString` spelling (`"Infinity"`/`"NaN"`) `_js_number_to_string` alone would
+    produce."""
+    value: JsonValue = {"x": float("inf"), "y": float("-inf"), "z": float("nan")}
+    assert js_json_stringify(value) == '{"x":null,"y":null,"z":null}'
+
+
+def test_stringify_renders_non_finite_numbers_as_null_at_top_level() -> None:
+    """Confirmed live against Node: `JSON.stringify(Infinity)` at the very top level ALSO returns
+    the string `"null"` -- the SAME rule as the nested case, not `undefined` (that is
+    `JSON.stringify(undefined)`, an unrelated, different input this function's own `JsonValue`
+    domain cannot even represent)."""
+    assert js_json_stringify(float("inf")) == "null"
+    assert js_json_stringify(float("-inf")) == "null"
+    assert js_json_stringify(float("nan")) == "null"
+
+
+def test_stringify_non_finite_number_inside_a_real_invalid_response_message() -> None:
+    """The real call-site path this finding is reachable through: `js_json_loads` already
+    correctly parses a JSON numeric literal like `1e400` into `inf` (distinct from the bare
+    invalid token `Infinity`, which `L11-SC-R013` rejects), and the resulting `inf` must render
+    as `null` when embedded in an "invalid response" error message, not crash."""
+    parsed = js_json_loads('{"device_auth_id":"d","user_code":"u","interval":1e400}')
+    assert js_json_stringify(parsed) == ('{"device_auth_id":"d","user_code":"u","interval":null}')

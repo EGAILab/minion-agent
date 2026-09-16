@@ -1,8 +1,11 @@
 """Codex OAuth NETWORK integration (`PROV-012`, Pass 2 Slice C). No test performs a live network
-call or uses a real secret -- outbound HTTP is always a deterministic `_FakeTransport`; the local
-callback server binds a real, ephemeral LOOPBACK port (never production port 1455) and is exercised
-via real local TCP connections, matching this project's own established discipline for local-only
-I/O.
+call or uses a real secret -- outbound HTTP is always either a deterministic `_FakeTransport` or
+the real `HttpxTransport` wrapping `httpx.MockTransport` (httpx's own official no-network testing
+seam, used only where a genuinely lazy/streaming body -- something `_FakeTransport`'s own
+always-eager `body: bytes` cannot represent -- is the exact thing under test, `L11-SC-R022`); the
+local callback server binds a real, ephemeral LOOPBACK port (never production port 1455) and is
+exercised via real local TCP connections, matching this project's own established discipline for
+local-only I/O.
 """
 
 from __future__ import annotations
@@ -10,13 +13,15 @@ from __future__ import annotations
 import asyncio
 import json
 import socket
-from collections.abc import Callable, Coroutine
+from collections.abc import AsyncIterator, Callable, Coroutine
 
+import httpx
 import pytest
 
 from minion_agent.auth.credential import JsonValue, OAuthCredential
 from minion_agent.auth.http_transport import (
     HttpResponse,
+    HttpxTransport,
     LoginCancelledError,
     OAuthRefreshTransportError,
 )
@@ -806,6 +811,39 @@ async def test_start_device_auth_404_is_not_enabled() -> None:
         await _start_device_auth(transport, controller.signal)
 
 
+class _NeverCompletingBodyStream(httpx.AsyncByteStream):
+    """A body stream that never finishes -- `_FakeTransport`'s own always-eager `body: bytes`
+    cannot represent this; only the real `HttpxTransport` (wrapping `httpx.MockTransport`, never
+    a live socket) can."""
+
+    async def __aiter__(self) -> AsyncIterator[bytes]:
+        await asyncio.Event().wait()
+        yield b""  # pragma: no cover -- unreachable, satisfies the generator protocol
+
+    async def aclose(self) -> None:
+        pass
+
+
+async def test_start_device_auth_404_never_reads_a_never_completing_body() -> None:
+    """`L11-SC-R022`, mandatory final-complete review -- confirmed live against the exact
+    rejected candidate before this fix: pinned Pi's own `404` device-start branch never calls
+    `.text()`/`.json()` at all, so a never-completing body on that exact response must not block
+    `_start_device_auth` from raising `DeviceCodeNotEnabledError` immediately, through the REAL
+    `HttpxTransport`, not only the always-eager `_FakeTransport`."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(404, stream=_NeverCompletingBodyStream())
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    controller = RunAbortController()
+    transport = HttpxTransport(client=client)
+    try:
+        with pytest.raises(DeviceCodeNotEnabledError):
+            await asyncio.wait_for(_start_device_auth(transport, controller.signal), timeout=2.0)
+    finally:
+        await client.aclose()
+
+
 async def test_start_device_auth_other_failure_status() -> None:
     controller = RunAbortController()
     transport = _FakeTransport()
@@ -869,6 +907,23 @@ async def test_start_device_auth_interval_wrong_json_type_is_rejected() -> None:
         await _start_device_auth(transport, controller.signal)
 
 
+async def test_start_device_auth_overflowing_interval_renders_null_not_a_crash() -> None:
+    """`L11-SC-R024`, mandatory final-complete review -- confirmed live against the exact
+    rejected candidate before this fix: a numeric JSON literal like `1e400` is syntactically
+    valid JSON number syntax and parses to `inf` (distinct from the bare invalid token
+    `Infinity`, which `L11-SC-R013` rejects); `inf` correctly fails the existing finite-value
+    guard, but rendering the required exact `"Invalid ... response: {rendered json}"` message
+    used to crash with an uncaught `AssertionError` instead of rendering `interval` as `null`."""
+    controller = RunAbortController()
+    transport = _FakeTransport()
+    transport.queue_response(200, b'{"device_auth_id":"d1","user_code":"u1","interval":1e400}')
+    with pytest.raises(
+        InvalidDeviceCodeResponseError,
+        match=r'"device_auth_id":"d1","user_code":"u1","interval":null',
+    ):
+        await _start_device_auth(transport, controller.signal)
+
+
 async def test_poll_device_auth_immediate_success() -> None:
     controller = RunAbortController()
     transport = _FakeTransport()
@@ -888,6 +943,31 @@ async def test_poll_device_auth_pending_then_complete() -> None:
     device = await _fake_device_info(interval=0.001)
     result = await _poll_device_auth(transport, device, controller.signal)
     assert result.authorization_code == "ac2"
+
+
+async def test_poll_device_auth_403_never_reads_a_never_completing_body() -> None:
+    """`L11-SC-R022`, mandatory final-complete review -- confirmed live against the exact
+    rejected candidate before this fix: pinned Pi's own `403`/`404` device-poll branch never
+    calls `.text()`/`.json()` at all, so a never-completing body on every poll attempt must not
+    block the poll loop -- it must keep cycling PENDING outcomes (eventually timing out via the
+    already-certified `PROV-010` deadline, not hanging on the body) through the REAL
+    `HttpxTransport`, not only the always-eager `_FakeTransport`."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(403, stream=_NeverCompletingBodyStream())
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    controller = RunAbortController()
+    transport = HttpxTransport(client=client)
+    device = await _fake_device_info(interval=0.001)
+    try:
+        with pytest.raises(TokenResponseFailedError, match="timed out"):
+            await asyncio.wait_for(
+                _poll_device_auth(transport, device, controller.signal, expires_in_seconds=0.05),
+                timeout=5.0,
+            )
+    finally:
+        await client.aclose()
 
 
 async def test_poll_device_auth_slow_down_then_complete() -> None:
@@ -1021,7 +1101,7 @@ async def test_read_token_response_success() -> None:
         status=200,
         body=json.dumps({"access_token": "a", "refresh_token": "r", "expires_in": 100}).encode(),
     )
-    token = _read_token_response(response, "exchange")
+    token = await _read_token_response(response, "exchange")
     assert token.access == "a"
     assert token.refresh == "r"
 
@@ -1034,13 +1114,13 @@ async def test_read_token_response_rejects_invalid_json_constant() -> None:
         status=200, body=b'{"access_token":"a","refresh_token":"r","expires_in":NaN}'
     )
     with pytest.raises(ValueError, match="not valid JSON"):
-        _read_token_response(response, "exchange")
+        await _read_token_response(response, "exchange")
 
 
 async def test_read_token_response_non_2xx_with_body() -> None:
     response = HttpResponse(status=400, body=b"bad request")
     with pytest.raises(TokenResponseFailedError, match=r"failed \(400\): bad request"):
-        _read_token_response(response, "exchange")
+        await _read_token_response(response, "exchange")
 
 
 async def test_read_token_response_non_2xx_without_body_falls_back_to_real_reason_phrase() -> None:
@@ -1050,13 +1130,13 @@ async def test_read_token_response_non_2xx_without_body_falls_back_to_real_reaso
     real status codes an OAuth server can return (401, exercised here)."""
     response = HttpResponse(status=401, body=b"", reason_phrase="Unauthorized")
     with pytest.raises(TokenResponseFailedError, match=r"failed \(401\): Unauthorized"):
-        _read_token_response(response, "exchange")
+        await _read_token_response(response, "exchange")
 
 
 async def test_read_token_response_non_2xx_without_body() -> None:
     response = HttpResponse(status=400, body=b"")
     with pytest.raises(TokenResponseFailedError):
-        _read_token_response(response, "refresh")
+        await _read_token_response(response, "refresh")
 
 
 async def test_read_token_response_missing_fields_renders_exact_json() -> None:
@@ -1064,7 +1144,7 @@ async def test_read_token_response_missing_fields_renders_exact_json() -> None:
     with pytest.raises(
         TokenResponseMissingFieldsError, match=r'missing fields: \{"access_token":"a"\}'
     ):
-        _read_token_response(response, "exchange")
+        await _read_token_response(response, "exchange")
 
 
 async def test_read_token_response_truthy_non_string_token_is_rejected() -> None:
@@ -1074,17 +1154,17 @@ async def test_read_token_response_truthy_non_string_token_is_rejected() -> None
         body=json.dumps({"access_token": 123, "refresh_token": "r", "expires_in": 10}).encode(),
     )
     with pytest.raises(TokenResponseMissingFieldsError):
-        _read_token_response(response, "exchange")
+        await _read_token_response(response, "exchange")
 
 
 @pytest.mark.parametrize("bad_field", ["access_token", "refresh_token"])
-def test_read_token_response_each_field_absent_or_truthy_non_string(bad_field: str) -> None:
+async def test_read_token_response_each_field_absent_or_truthy_non_string(bad_field: str) -> None:
     """`PROV-016`'s own required per-field witnesses for `access_token`/`refresh_token`."""
     valid: dict[str, JsonValue] = {"access_token": "a", "refresh_token": "r", "expires_in": 10}
     del valid[bad_field]
     absent_response = HttpResponse(status=200, body=json.dumps(valid).encode())
     with pytest.raises(TokenResponseMissingFieldsError):
-        _read_token_response(absent_response, "exchange")
+        await _read_token_response(absent_response, "exchange")
 
     truthy_non_string: dict[str, JsonValue] = {
         "access_token": "a",
@@ -1094,7 +1174,7 @@ def test_read_token_response_each_field_absent_or_truthy_non_string(bad_field: s
     truthy_non_string[bad_field] = 999
     truthy_response = HttpResponse(status=200, body=json.dumps(truthy_non_string).encode())
     with pytest.raises(TokenResponseMissingFieldsError):
-        _read_token_response(truthy_response, "exchange")
+        await _read_token_response(truthy_response, "exchange")
 
 
 async def test_exchange_authorization_code_cancellation_translates_to_login_cancelled() -> None:
@@ -1119,6 +1199,42 @@ async def test_refresh_access_token_no_cancellation_translation() -> None:
 
     with pytest.raises(OAuthRefreshTransportError, match="OpenAI Codex token refresh error"):
         await _refresh_access_token("refresh-token", controller.signal, transport=transport)
+
+
+class _BodyReadFailureStream(httpx.AsyncByteStream):
+    """A body stream that fails AFTER a successful `200` status already arrived -- `L11-SC-R022`'s
+    own witness B: pinned Pi's own `readTokenResponse(response, "refresh")` is called OUTSIDE
+    `refreshAccessToken`'s own request-level `try`/`catch`, so this failure must propagate raw,
+    never mis-wrapped as `"OpenAI Codex token refresh error: ..."`."""
+
+    async def __aiter__(self) -> AsyncIterator[bytes]:
+        raise RuntimeError("body boom")
+        yield b""  # pragma: no cover -- unreachable, satisfies the generator protocol
+
+    async def aclose(self) -> None:
+        pass
+
+
+async def test_refresh_access_token_2xx_body_read_failure_propagates_raw() -> None:
+    """`L11-SC-R022`, mandatory final-complete review -- confirmed live against the exact
+    rejected candidate before this fix: a `200` refresh response whose body-read subsequently
+    fails must propagate the RAW underlying error, not `OAuthRefreshTransportError` (the first
+    remediation's eager single-call body buffering mis-wrapped this, since the body-read used to
+    happen INSIDE `refresh_fetch`'s own request-level failure translation instead of OUTSIDE it,
+    at `_read_token_response`'s own caller-equivalent point, through the REAL `HttpxTransport`,
+    not only the always-eager `_FakeTransport`)."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, stream=_BodyReadFailureStream())
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    controller = RunAbortController()
+    transport = HttpxTransport(client=client)
+    try:
+        with pytest.raises(RuntimeError, match="body boom"):
+            await _refresh_access_token("refresh-token", controller.signal, transport=transport)
+    finally:
+        await client.aclose()
 
 
 async def test_refresh_openai_codex_token_success(monkeypatch: pytest.MonkeyPatch) -> None:

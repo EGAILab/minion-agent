@@ -14,8 +14,8 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-from collections.abc import Coroutine, Mapping
-from dataclasses import dataclass
+from collections.abc import Awaitable, Callable, Coroutine, Mapping
+from dataclasses import dataclass, field
 from typing import Any, Protocol
 
 from .signal import Abortable
@@ -27,32 +27,59 @@ checking a poll-based `Abortable` signal "promptly enough" without redesigning i
 
 @dataclass(frozen=True, slots=True)
 class HttpResponse:
-    """This project's own minimal response type -- NOT `httpx.Response` re-exported. The body is
-    already fully read by the time a transport returns this (matching `httpx`'s own default
-    non-streaming behavior), so `text` below is synchronous, unlike pinned Pi's own async
-    `Response.text()` -- a disclosed implementation-mechanics mapping, not an observable behavior
-    change: by the time it is called, no further I/O can fail. There is no `.json()` accessor here
-    (unlike Pi's own `Response`) -- a caller parses `.text()`/`.body` via `json.loads` itself,
-    exactly where `spec/auth.md`'s own contract already treats "parse the body as JSON" as the
-    caller's own explicit step, not something baked into the response object.
+    """This project's own minimal response type -- NOT `httpx.Response` re-exported.
+
+    `status`/`reason_phrase` are available as soon as a transport returns this object, matching
+    pinned Pi's own `fetch()` promise, which resolves once status/headers arrive, BEFORE the body
+    is consumed. The body itself is consumed ONLY via `text()` (async, unlike a plain attribute)
+    -- a caller that never calls `text()` never triggers a body read at all (`L11-SC-R022`,
+    mandatory final-complete review): pinned Pi's own device-start `404` and device-poll
+    `403`/`404` branches never call `.text()`/`.json()` at all, and a buffered-body design that
+    reads the ENTIRE body before a caller can even inspect `status` cannot reproduce that -- a
+    slow or never-completing body on one of those branches would hang the whole operation instead
+    of returning/rejecting immediately, the way Pi's own code does. There is no `.json()` accessor
+    here (unlike Pi's own `Response`) -- a caller parses `text()`'s own result via `json.loads`
+    itself, exactly where `spec/auth.md`'s own contract already treats "parse the body as JSON" as
+    the caller's own explicit step, not something baked into the response object.
+
+    `HttpResponse` may be constructed two ways: with an ALREADY-KNOWN `body: bytes` (the common,
+    synchronous-feeling case every test fixture and fake transport uses, since synthetic test
+    data has no real I/O to defer), or with a `read_body` callable a REAL transport supplies to
+    defer the actual network read until `text()` is first called (`HttpxTransport.post` below is
+    the only production caller of the latter form). Either way, the result is cached after the
+    first `text()` call (`object.__setattr__` on this otherwise-frozen dataclass -- the one
+    deliberately mutable field, guarding against the underlying stream being consumed twice, which
+    a real network response cannot support). `text()` decodes via `"utf-8-sig"`, not `"utf-8"`
+    (`L11-SC-R023`, mandatory final-complete review): WHATWG Fetch's own body-text decoding strips
+    exactly one LEADING UTF-8 byte-order mark before exposing the text to `Response.text()`/
+    `.json()`, which pinned Pi relies on implicitly -- `"utf-8-sig"` reproduces this exactly
+    (strips a leading BOM, leaves an interior `U+FEFF` untouched), composing correctly with the
+    pre-existing `errors="replace"` fallback for malformed bytes.
 
     `reason_phrase` is pinned Pi's own `Response.statusText` (`L11-SC-R018`): the real HTTP
     reason phrase the server itself sent alongside `status`, NOT a hand-maintained lookup table
     (a fixed few-entry table, however large, can never cover every status a real server might
     send). A body that fails to read AFTER status/headers already arrived successfully -- a
-    scenario pinned Pi's own two-phase `fetch()`-then-`.text()` model can represent, and which a
-    single buffered constructor call otherwise cannot -- comes back here as an EMPTY `body`, not
-    a raised exception (`HttpxTransport.post` below performs this translation): pinned Pi's own
-    `readTokenResponse` already treats a body-read failure and a genuinely empty body
-    identically, via `text().catch(() => "")`, so collapsing the two here matches that fallback
-    exactly rather than requiring a caller to distinguish them."""
+    scenario pinned Pi's own two-phase `fetch()`-then-`.text()` model can represent -- comes back
+    here as an EMPTY body on a non-2xx status (`HttpxTransport.post` below performs this
+    translation, matching pinned Pi's own `text().catch(() => "")` non-2xx fallback), while the
+    SAME failure on a 2xx status propagates as a raised exception from `text()` itself, matching
+    pinned Pi's own uncaught `.json()` rejection on the success path."""
 
     status: int
-    body: bytes
     reason_phrase: str = ""
+    body: bytes | None = None
+    read_body: Callable[[], Awaitable[bytes]] | None = field(
+        default=None, repr=False, compare=False
+    )
 
-    def text(self) -> str:
-        return self.body.decode("utf-8", errors="replace")
+    async def text(self) -> str:
+        body = self.body
+        if body is None:
+            assert self.read_body is not None, "HttpResponse has neither body= nor read_body="
+            body = await self.read_body()
+            object.__setattr__(self, "body", body)
+        return body.decode("utf-8-sig", errors="replace")
 
 
 class HttpTransport(Protocol):
@@ -137,64 +164,84 @@ class HttpxTransport:
             # `CombinedSignal` budget); `fetch`'s own default redirect mode follows redirects.
             client = httpx.AsyncClient(timeout=None, follow_redirects=True)
 
-        async def do_request() -> HttpResponse:
-            # Two-phase send (`L11-SC-R018`, converged after two independent reviews):
-            # `stream=True` returns as soon as status/headers arrive, BEFORE the body is read,
-            # so a body-read failure (e.g. a connection reset mid-body) can be caught SEPARATELY
-            # from a request-level failure (which still propagates unchanged, matching pinned
-            # Pi's own initial `fetch()` promise rejecting) -- a single buffered `client.post()`
-            # call cannot distinguish the two, since it raises for both identically, before a
-            # `HttpResponse` ever exists.
-            #
-            # Whether a body-read failure is then swallowed is STATUS-DEPENDENT, matching pinned
-            # Pi exactly (`openai-codex.ts` -- `readTokenResponse`, `startOpenAICodexDeviceAuth`,
+        # Two-phase send (`L11-SC-R018`; body-laziness `L11-SC-R022`, mandatory final-complete
+        # review): `stream=True` returns as soon as status/headers arrive, BEFORE the body is
+        # read, so a caller can inspect `status`/`reason_phrase` and decide whether to read the
+        # body AT ALL -- pinned Pi's own device-start `404` and device-poll `403`/`404` branches
+        # never call `.text()`/`.json()`, so this method must not either, and a REAL streamed
+        # HTTP body that never completes must not block THIS call from returning (confirmed live
+        # against the exact rejected candidate before this fix: a never-completing body on a 404
+        # device-start response hung the whole operation). The actual body read is deferred
+        # entirely to `HttpResponse.text()` (below), invoked only if/when a caller calls it --
+        # matching pinned Pi's own two-phase `fetch()`-then-`.text()`/`.json()` model exactly,
+        # where `refreshAccessToken`'s own `readTokenResponse(response, "refresh")` call (OUTSIDE
+        # its own request-level `try`/`catch`) is what previously let a 2xx body-read failure get
+        # mis-wrapped as `"OpenAI Codex token refresh error: ..."` instead of propagating raw --
+        # the eager, single-call buffering below this comment used to collapse both phases into
+        # one, before a caller ever had the chance to make that distinction.
+        async def send_request() -> httpx.Response:
+            request = client.build_request("POST", url, headers=dict(headers), content=body)
+            return await client.send(request, stream=True)
+
+        try:
+            response = await run_cancellable(send_request(), signal)
+        except BaseException:
+            # Getting status/headers itself failed (or was cancelled) -- there is no deferred
+            # path left that could ever close an owned client, so close it here, matching the
+            # pre-existing unconditional-cleanup guarantee for this failure mode.
+            if owns_client:
+                await client.aclose()
+            raise
+
+        is_success_status = 200 <= response.status_code < 300
+
+        async def read_body() -> bytes:
+            # Whether a body-read failure is swallowed is STATUS-DEPENDENT, matching pinned Pi
+            # exactly (`openai-codex.ts` -- `readTokenResponse`, `startOpenAICodexDeviceAuth`,
             # and `pollOpenAICodexDeviceAuth`'s own `poll()` all follow the identical pattern):
             # every non-2xx (`!response.ok`) branch reads the body via `.text().catch(() => "")`
             # (a body-read failure there becomes an empty string, never an exception); every 2xx
             # branch reads the body via `.json()` with NO catch at all (a body-read failure there
             # is an uncaught promise rejection that propagates through the existing call-site
-            # boundary). The second review's own refined witness confirmed the FIRST remediation
-            # over-corrected by swallowing every status alike -- catching only for a non-2xx
-            # status here reproduces the real, status-sensitive boundary instead.
+            # boundary).
             #
             # The non-2xx catch is `Exception`, not `httpx.HTTPError` (targeted convergence
             # review, third round): JS's own `.catch(() => "")` catches ANY promise rejection
-            # from the body-read operation, not one library-specific error hierarchy -- pinned
-            # Pi's own rule is NOT scoped to a particular exception TYPE, only to WHICH call-site
-            # branch (2xx vs non-2xx) the read happens in. The injectable transport seam's own
-            # `AsyncByteStream` contract does not require a custom stream to raise specifically
-            # `httpx.HTTPError` (confirmed live: an ordinary `RuntimeError` from a custom stream
-            # is a realistic body-read failure a caller-supplied transport can raise), so an
-            # `httpx.HTTPError`-only catch left exactly this class of failure uncaught on the
-            # non-2xx path. `asyncio.CancelledError` (`BaseException`, not `Exception`, since
-            # Python 3.8) is deliberately NOT caught here -- a genuine task cancellation must
-            # still propagate as a cancellation, never be swallowed into an empty body.
-            request = client.build_request("POST", url, headers=dict(headers), content=body)
-            response = await client.send(request, stream=True)
-            is_success_status = 200 <= response.status_code < 300
+            # from the body-read operation, not one library-specific error hierarchy. A genuine
+            # `TransportCancelled` (this method's own signal-abort translation, raised by
+            # `run_cancellable` below) is explicitly excluded from that catch -- a real
+            # cancellation must still propagate as a cancellation, never be swallowed into an
+            # empty body, regardless of status. `asyncio.CancelledError` (`BaseException`, not
+            # `Exception`, since Python 3.8) is likewise never caught here for the same reason.
+            #
+            # This same closure is where the owned client is finally closed (`L11-SC-R016`) --
+            # ONLY reached if a caller actually requests the body. A caller that never calls
+            # `HttpResponse.text()` at all (the device-start-404/device-poll-403/404 abandoned-
+            # body case this whole redesign exists for) leaves the response/client to ordinary
+            # Python object-lifetime cleanup instead -- neither pinned Pi's own runtime nor any
+            # review requires deterministic cleanup for a body a caller intentionally never
+            # consumes, and adding new explicit-cleanup API surface for this is exactly the kind
+            # of unrelated scope expansion `agent-workflow.md` §11.8.6 warns against.
             try:
-                await response.aread()
-                response_body = response.content
-            except Exception:
-                if is_success_status:
+                try:
+                    await run_cancellable(response.aread(), signal)
+                except TransportCancelled:
                     raise
-                # Matches pinned Pi's own non-2xx branches, which already collapse a body-read
-                # failure and a genuinely empty body identically via `text().catch(() => "")` --
-                # `reason_phrase` (below) is the real fallback for that case.
-                response_body = b""
+                except Exception:
+                    if is_success_status:
+                        raise
+                    return b""
+                return response.content
             finally:
                 await response.aclose()
-            return HttpResponse(
-                status=response.status_code,
-                body=response_body,
-                reason_phrase=response.reason_phrase,
-            )
+                if owns_client:
+                    await client.aclose()
 
-        try:
-            return await run_cancellable(do_request(), signal)
-        finally:
-            if owns_client:
-                await client.aclose()
+        return HttpResponse(
+            status=response.status_code,
+            reason_phrase=response.reason_phrase,
+            read_body=read_body,
+        )
 
 
 async def fetch_with_login_cancellation(

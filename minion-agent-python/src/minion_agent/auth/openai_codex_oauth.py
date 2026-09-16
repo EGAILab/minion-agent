@@ -555,13 +555,13 @@ async def _start_device_auth(transport: HttpTransport, signal: Abortable) -> _De
                 "OpenAI Codex device code login is not enabled for this server. "
                 "Use browser login or verify the server URL."
             )
-        body_text = response.text()
+        body_text = await response.text()
         suffix = f": {body_text}" if body_text else ""
         raise TokenResponseFailedError(
             f"OpenAI Codex device code request failed with status {response.status}{suffix}"
         )
 
-    parsed: JsonValue = js_json_loads(response.text())
+    parsed: JsonValue = js_json_loads(await response.text())
     device_auth_id = parsed.get("device_auth_id") if isinstance(parsed, dict) else None
     user_code = parsed.get("user_code") if isinstance(parsed, dict) else None
     interval_raw = parsed.get("interval") if isinstance(parsed, dict) else None
@@ -624,7 +624,7 @@ async def _poll_device_auth(
             signal=signal,
         )
         if 200 <= response.status < 300:
-            parsed: JsonValue = js_json_loads(response.text())
+            parsed: JsonValue = js_json_loads(await response.text())
             authorization_code = (
                 parsed.get("authorization_code") if isinstance(parsed, dict) else None
             )
@@ -650,7 +650,7 @@ async def _poll_device_auth(
         if response.status in (403, 404):
             return DevicePollPending()
 
-        body_text = response.text()
+        body_text = await response.text()
         error_code: str | None = None
         try:
             error_body: JsonValue = js_json_loads(body_text)
@@ -722,9 +722,12 @@ class _OAuthToken:
     expires: float
 
 
-def _read_token_response(response: HttpResponse, operation: str) -> _OAuthToken:
+async def _read_token_response(response: HttpResponse, operation: str) -> _OAuthToken:
     """`readTokenResponse` (`openai-codex.ts:126-147`). A JSON-parse failure on a `2xx` response
-    propagates raw, UNCHANGED (`L11-SC-R004`) -- this function does not catch it."""
+    propagates raw, UNCHANGED (`L11-SC-R004`) -- this function does not catch it. `async` because
+    `HttpResponse.text()` is (`L11-SC-R022`): the body may still need to be lazily read here, the
+    exact caller-equivalent point pinned Pi's own `readTokenResponse` reads it at, called OUTSIDE
+    `refresh_fetch`'s own request-level failure wrapper."""
     import time as _time
 
     if not (200 <= response.status < 300):
@@ -733,13 +736,13 @@ def _read_token_response(response: HttpResponse, operation: str) -> _OAuthToken:
         # table (`_STATUS_TEXT` above is scoped to the LOCAL callback server's own fixed
         # response set only, never reused here). An empty body here also covers a body-read
         # failure after a successful status (`HttpResponse.reason_phrase`'s own docstring).
-        body_text = response.text()
+        body_text = await response.text()
         suffix = f": {body_text}" if body_text else f": {response.reason_phrase}"
         raise TokenResponseFailedError(
             f"OpenAI Codex token {operation} failed ({response.status}){suffix}"
         )
 
-    parsed: JsonValue = js_json_loads(response.text())
+    parsed: JsonValue = js_json_loads(await response.text())
     access_token = parsed.get("access_token") if isinstance(parsed, dict) else None
     refresh_token = parsed.get("refresh_token") if isinstance(parsed, dict) else None
     expires_in = parsed.get("expires_in") if isinstance(parsed, dict) else None
@@ -793,7 +796,7 @@ async def _exchange_authorization_code(
         ).encode(),
         signal=signal,
     )
-    return _read_token_response(response, "exchange")
+    return await _read_token_response(response, "exchange")
 
 
 async def _exchange_authorization_code_for_credentials(
@@ -827,7 +830,7 @@ async def _refresh_access_token(
         ).encode(),
         signal=signal,
     )
-    return _read_token_response(response, "refresh")
+    return await _read_token_response(response, "refresh")
 
 
 async def _refresh_openai_codex_token(

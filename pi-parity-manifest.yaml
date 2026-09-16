@@ -4879,9 +4879,35 @@ rows:
       implemented, not the reviewed claim, and no top-level-vs-nested special case was needed as a
       result.
 
+    Every refined/new witness has a permanent regression test -- see `tests:` below.
+
+    TARGETED RE-REVIEW (`agent-workflow.md` §11.8.7): `L11-SC-R023`/`L11-SC-R024` PROVISIONALLY
+    CLOSED unchanged. `L11-SC-R022` STILL OPEN with a refined resource-lifecycle witness: the
+    convergence agreement''s own recorded scope decision ("a caller that deliberately never reads
+    the body relies on ordinary Python object-lifetime cleanup") was independently re-verified and
+    found FALSE -- a real streamed `httpx` response and any client `HttpxTransport` itself
+    constructed both require an ASYNC close operation (`response.aclose()`/`client.aclose()`) to
+    release their own connection, and ordinary Python object-lifetime/garbage-collection cleanup
+    cannot perform this at all (there is no running event loop to await anything inside a
+    synchronous `__del__`/finalizer) -- confirmed live via a tracked `httpx.AsyncByteStream`: the
+    exact device-start-`404`/device-poll-`403`-or-`404` branches this seam''s own laziness exists
+    for left BOTH the streamed response AND (for `HttpxTransport`''s own owned/default client) the
+    client itself genuinely open, not merely un-warned-about -- repeated device-code polling could
+    abandon one open response/client per pending status. Fixed: `HttpResponse` gained an idempotent
+    `discard()` (async, calling a `discard_body` closure `HttpxTransport.post` supplies, sharing
+    the SAME underlying close operation `read_body`''s own cleanup uses via a `closed` guard so
+    whichever path -- `text()` or `discard()` -- runs first performs the real close and the other
+    becomes a safe no-op); every status-only branch that deliberately never calls `text()`
+    (device-start''s own `404`, device-poll''s own `403`/`404`) now calls `await response.discard()`
+    before returning/raising. Re-verified live against the exact refined witness (an injected
+    client''s response is closed without ever starting a body read; an owned/default client and its
+    response are BOTH closed; repeated polling closes EVERY abandoned response across several real
+    poll attempts, not only the first) and confirmed `-W error::ResourceWarning` remains clean
+    across the full test suite.
+
     Every refined/new witness has a permanent regression test -- see `tests:` below.'
   tests:
-  - 'tests/auth/test_openai_codex_oauth.py (84 tests) -- `parse_authorization_input`''s three input
+  - 'tests/auth/test_openai_codex_oauth.py (86 tests) -- `parse_authorization_input`''s three input
     shapes including the JS `split(#,2)` fidelity trap, the WHATWG-URL invalid-port/
     invalid-host-character fallthrough pair (`L11-SC-R011`, converged), the unpaired-surrogate
     `USVString`-conversion pair (`L11-SC-R011`, third round -- a successfully-constructed URL''s
@@ -4911,8 +4937,12 @@ rows:
     device-poll `403` never reading a never-completing body (`L11-SC-R022`), refresh''s own `2xx`
     body-read failure propagating raw rather than mis-wrapped as `OAuthRefreshTransportError`
     (`L11-SC-R022`), and an overflowing `interval` (`1e400`) rendering `null` in the required
-    exact invalid-response message instead of crashing (`L11-SC-R024`).'
-  - 'tests/auth/test_http_transport.py (26 tests) -- `run_cancellable`''s own success/exception-
+    exact invalid-response message instead of crashing (`L11-SC-R024`); the targeted re-review''s
+    own refined `L11-SC-R022` resource-lifecycle witnesses through the REAL `HttpxTransport` --
+    device-start `404` closing BOTH the abandoned streamed response and the owned/default client
+    without ever starting a body read, and repeated device-poll `403` attempts closing EVERY
+    abandoned response across several real poll attempts, not only the first.'
+  - 'tests/auth/test_http_transport.py (30 tests) -- `run_cancellable`''s own success/exception-
     propagation/cancellation/inner-task-cleanup paths (including the outer-await-cancelled safety
     net AND `L11-SC-R015`''s pre-aborted-signal-never-starts-the-operation witness, distinguished
     from the mid-flight-abort case); `fetch_with_login_cancellation`''s own post-hoc signal-aborted
@@ -4928,7 +4958,12 @@ rows:
     body is ever read, an owned client staying open across a pre-abort-before-request failure AND
     closing correctly once it is (`L11-SC-R022`); a signal that aborts DURING a deferred body-read
     still raising `TransportCancelled`, never swallowed as an ordinary body-read failure; leading-
-    vs-interior UTF-8 BOM stripping AND `text()`''s own read-once caching (`L11-SC-R023`).'
+    vs-interior UTF-8 BOM stripping AND `text()`''s own read-once caching (`L11-SC-R023`); the
+    targeted re-review''s own `discard()` witnesses -- an injected client''s abandoned response
+    closes without ever starting a body read, an owned/default client and its response are BOTH
+    closed, `discard()` is a safe no-op after `text()` already ran, and a synthetic
+    already-buffered `HttpResponse` (no live transport backing) makes `discard()` a harmless
+    no-op (`L11-SC-R022`).'
   - 'tests/auth/test_js_json.py (37 tests) -- every rule `L11-SC-R010`''s three review rounds
     established: `null`/array/object rendering, negative-zero collapse, both notation-threshold
     boundaries, non-ASCII pass-through for a properly-paired astral character, the unpaired-

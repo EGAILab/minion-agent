@@ -551,6 +551,11 @@ async def _start_device_auth(transport: HttpTransport, signal: Abortable) -> _De
     )
     if response.status < 200 or response.status >= 300:
         if response.status == 404:
+            # `L11-SC-R022`, targeted re-review: this branch deliberately never reads the body
+            # (matching pinned Pi, which never calls `.text()`/`.json()` here) -- `discard()`
+            # releases the underlying response/owned-client resources a real streamed transport
+            # holds open, which ordinary Python object-lifetime cleanup cannot do on its own.
+            await response.discard()
             raise DeviceCodeNotEnabledError(
                 "OpenAI Codex device code login is not enabled for this server. "
                 "Use browser login or verify the server URL."
@@ -648,6 +653,11 @@ async def _poll_device_auth(
             )
 
         if response.status in (403, 404):
+            # `L11-SC-R022`, targeted re-review: this branch deliberately never reads the body
+            # (matching pinned Pi, which never calls `.text()`/`.json()` here) -- `discard()`
+            # releases the underlying response/owned-client resources; repeated polling could
+            # otherwise abandon one open response/client per pending status.
+            await response.discard()
             return DevicePollPending()
 
         body_text = await response.text()

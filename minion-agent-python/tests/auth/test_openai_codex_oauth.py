@@ -844,6 +844,56 @@ async def test_start_device_auth_404_never_reads_a_never_completing_body() -> No
         await client.aclose()
 
 
+class _TrackedBodyStream(httpx.AsyncByteStream):
+    """A body stream that records whether it was ever iterated (`started`) and whether `aclose`
+    ran (`closed`) -- used to prove the abandoned-body branches actually release the underlying
+    response/client resources, not merely avoid blocking on them."""
+
+    def __init__(self) -> None:
+        self.started = False
+        self.closed = False
+
+    async def __aiter__(self) -> AsyncIterator[bytes]:
+        self.started = True
+        await asyncio.Event().wait()
+        yield b""  # pragma: no cover -- unreachable, satisfies the generator protocol
+
+    async def aclose(self) -> None:
+        self.closed = True
+
+
+async def test_start_device_auth_404_closes_the_abandoned_response_and_owned_client(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`L11-SC-R022`, targeted re-review -- confirmed live against the exact rejected candidate
+    before this fix: ordinary Python object-lifetime/garbage collection cannot perform the ASYNC
+    close a real streamed `httpx` response (and any client `HttpxTransport` itself constructed)
+    requires, so this exact `404` branch left the response AND the owned client genuinely open,
+    not merely un-warned-about, even though `post()` itself no longer blocked on the body."""
+    stream = _TrackedBodyStream()
+    created: list[httpx.AsyncClient] = []
+    real_async_client = httpx.AsyncClient
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(404, stream=stream)
+
+    def fake_async_client(*args: object, **kwargs: object) -> httpx.AsyncClient:
+        client = real_async_client(transport=httpx.MockTransport(handler))
+        created.append(client)
+        return client
+
+    monkeypatch.setattr(httpx, "AsyncClient", fake_async_client)
+    controller = RunAbortController()
+    transport = HttpxTransport()
+    with pytest.raises(DeviceCodeNotEnabledError):
+        await _start_device_auth(transport, controller.signal)
+
+    assert not stream.started
+    assert stream.closed
+    assert len(created) == 1
+    assert created[0].is_closed
+
+
 async def test_start_device_auth_other_failure_status() -> None:
     controller = RunAbortController()
     transport = _FakeTransport()
@@ -968,6 +1018,39 @@ async def test_poll_device_auth_403_never_reads_a_never_completing_body() -> Non
             )
     finally:
         await client.aclose()
+
+
+async def test_poll_device_auth_403_closes_every_abandoned_response_across_repeated_polls() -> None:
+    """`L11-SC-R022`, targeted re-review's own explicitly-required companion witness: repeated
+    device-code polling could abandon ONE open response per pending status before this fix --
+    confirmed here across several real poll attempts, each producing its own real `httpx`
+    response, tracking that EVERY one of them was actually closed, not only the first."""
+    streams: list[_TrackedBodyStream] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        stream = _TrackedBodyStream()
+        streams.append(stream)
+        return httpx.Response(403, stream=stream)
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    controller = RunAbortController()
+    transport = HttpxTransport(client=client)
+    # `interval_seconds` below the already-certified `PROV-010` one-second RFC-8628 floor
+    # clamps to that floor, so a small `expires_in_seconds` would fit only one real poll --
+    # both values are chosen to reliably fit several real poll attempts within this one test.
+    device = await _fake_device_info(interval=1.0)
+    try:
+        with pytest.raises(TokenResponseFailedError, match="timed out"):
+            await asyncio.wait_for(
+                _poll_device_auth(transport, device, controller.signal, expires_in_seconds=2.5),
+                timeout=10.0,
+            )
+    finally:
+        await client.aclose()
+
+    assert len(streams) >= 2
+    assert all(not stream.started for stream in streams)
+    assert all(stream.closed for stream in streams)
 
 
 async def test_poll_device_auth_slow_down_then_complete() -> None:

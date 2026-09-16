@@ -456,6 +456,116 @@ async def test_httpx_transport_signal_abort_during_body_read_is_not_swallowed() 
         await client.aclose()
 
 
+class _TrackedStream(httpx.AsyncByteStream):
+    """A body stream that records whether it was ever iterated (`started`) and whether `aclose`
+    ran (`closed`) -- used to prove `discard()` releases the underlying resources WITHOUT
+    triggering a body read."""
+
+    def __init__(self) -> None:
+        self.started = False
+        self.closed = False
+
+    async def __aiter__(self) -> AsyncIterator[bytes]:
+        self.started = True
+        await asyncio.Event().wait()
+        yield b""  # pragma: no cover -- unreachable, satisfies the generator protocol
+
+    async def aclose(self) -> None:
+        self.closed = True
+
+
+async def test_http_response_discard_closes_an_injected_clients_response_without_reading() -> None:
+    """`L11-SC-R022`, targeted re-review -- confirmed live against the exact rejected candidate
+    before this fix: ordinary Python object-lifetime/garbage collection CANNOT perform the ASYNC
+    close a real streamed `httpx` response requires, so an abandoned response was genuinely left
+    open, not merely un-warned-about. `discard()` must close it explicitly, without ever
+    triggering a body read, and without requiring the CALLER to also close the client (an
+    INJECTED client is never auto-closed, matching the existing ownership rule)."""
+    stream = _TrackedStream()
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(404, stream=stream)
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    controller = RunAbortController()
+    transport = HttpxTransport(client=client)
+    try:
+        response = await transport.post(
+            "https://example.test/x", headers={}, body=b"", signal=controller.signal
+        )
+        assert response.status == 404
+        await response.discard()
+        assert not stream.started
+        assert stream.closed
+        assert not client.is_closed
+    finally:
+        await client.aclose()
+
+
+async def test_http_response_discard_closes_an_owned_client_when_none_injected(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`L11-SC-R022`, targeted re-review, owned-client companion case -- confirmed live: closing
+    the client explicitly afterward does NOT retroactively close an already-abandoned response
+    (they are genuinely separate close operations), so `discard()` must close BOTH the response
+    AND, when `HttpxTransport` owns the client, the client itself -- the exact device-start-404/
+    device-poll-403-or-404 path this fix exists for, where repeated polling could otherwise
+    abandon one open response/client per pending status."""
+    stream = _TrackedStream()
+    created: list[httpx.AsyncClient] = []
+    real_async_client = httpx.AsyncClient
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(404, stream=stream)
+
+    def fake_async_client(*args: object, **kwargs: object) -> httpx.AsyncClient:
+        client = real_async_client(transport=httpx.MockTransport(handler))
+        created.append(client)
+        return client
+
+    monkeypatch.setattr(httpx, "AsyncClient", fake_async_client)
+    controller = RunAbortController()
+    transport = HttpxTransport()
+    response = await transport.post(
+        "https://example.test/x", headers={}, body=b"", signal=controller.signal
+    )
+    assert response.status == 404
+    await response.discard()
+    assert not stream.started
+    assert stream.closed
+    assert len(created) == 1
+    assert created[0].is_closed
+
+
+async def test_http_response_discard_is_idempotent_after_text_already_read() -> None:
+    """`discard()` is a safe no-op if `text()` was already called -- the underlying resources are
+    already closed by `text()`'s own cleanup, and `discard()` must not attempt to close them
+    again (which would raise on an already-closed `httpx` stream/client if not guarded)."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, content=b"hello")
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    controller = RunAbortController()
+    transport = HttpxTransport(client=client)
+    try:
+        response = await transport.post(
+            "https://example.test/x", headers={}, body=b"", signal=controller.signal
+        )
+        assert await response.text() == "hello"
+        await response.discard()  # must not raise
+    finally:
+        await client.aclose()
+
+
+async def test_http_response_discard_with_no_transport_backing_is_a_noop() -> None:
+    """A synthetic, already-buffered `HttpResponse` (the common test-fixture shape, with no
+    `discard_body` closure at all) makes `discard()` a harmless no-op -- there is no live network
+    resource to release."""
+    response = HttpResponse(status=200, body=b"hello")
+    await response.discard()  # must not raise
+
+
 class _RaisingStream(httpx.AsyncByteStream):
     """A `httpx` response body stream that always fails partway through reading -- simulates a
     connection reset AFTER status/headers already arrived successfully."""

@@ -64,12 +64,29 @@ class HttpResponse:
     here as an EMPTY body on a non-2xx status (`HttpxTransport.post` below performs this
     translation, matching pinned Pi's own `text().catch(() => "")` non-2xx fallback), while the
     SAME failure on a 2xx status propagates as a raised exception from `text()` itself, matching
-    pinned Pi's own uncaught `.json()` rejection on the success path."""
+    pinned Pi's own uncaught `.json()` rejection on the success path.
+
+    A branch that deliberately never calls `text()` at all -- pinned Pi's own device-start `404`
+    and device-poll `403`/`404` branches, the exact scenario `read_body`/laziness above exists
+    for -- MUST instead call `discard()` (`L11-SC-R022`, targeted re-review): the convergence
+    redesign's own original scope decision assumed ordinary Python object-lifetime/GC cleanup
+    would eventually release an abandoned response's underlying resources, but a REAL streamed
+    `httpx` response and any client `HttpxTransport` itself constructed require an ASYNC close
+    operation (`response.aclose()`/`client.aclose()`) to release their own connection -- confirmed
+    live this is NOT something ordinary synchronous garbage collection/`__del__` can perform at
+    all (there is no running event loop to await anything inside a GC finalizer), so an abandoned
+    response was genuinely, silently left open, not merely un-warned-about; repeated device polling
+    could abandon one per pending response. `discard()` is IDEMPOTENT and safe to call whether or
+    not `text()` was already called (a no-op then, since `text()`'s own cleanup already ran) --
+    exactly one of `text()`/`discard()` should be called per response, never neither."""
 
     status: int
     reason_phrase: str = ""
     body: bytes | None = None
     read_body: Callable[[], Awaitable[bytes]] | None = field(
+        default=None, repr=False, compare=False
+    )
+    discard_body: Callable[[], Awaitable[None]] | None = field(
         default=None, repr=False, compare=False
     )
 
@@ -80,6 +97,10 @@ class HttpResponse:
             body = await self.read_body()
             object.__setattr__(self, "body", body)
         return body.decode("utf-8-sig", errors="replace")
+
+    async def discard(self) -> None:
+        if self.discard_body is not None:
+            await self.discard_body()
 
 
 class HttpTransport(Protocol):
@@ -195,6 +216,26 @@ class HttpxTransport:
 
         is_success_status = 200 <= response.status_code < 300
 
+        # Closing the underlying resources is IDEMPOTENT and shared between `read_body` and
+        # `discard_body` below (`L11-SC-R022`, targeted re-review): a real streamed `httpx`
+        # response and any client this method itself constructed both require an ASYNC close
+        # operation to release their connection -- confirmed live ordinary Python object-lifetime/
+        # GC cleanup cannot perform this at all (there is no running event loop to await anything
+        # inside a synchronous finalizer), so the response's own resources were genuinely, silently
+        # left open whenever a caller deliberately never read the body (device-start's own `404`
+        # branch, device-poll's own `403`/`404` branch) -- not merely un-warned-about. `closed`
+        # guards against double-closing if both paths somehow ran.
+        closed = False
+
+        async def close_resources() -> None:
+            nonlocal closed
+            if closed:
+                return
+            closed = True
+            await response.aclose()
+            if owns_client:
+                await client.aclose()
+
         async def read_body() -> bytes:
             # Whether a body-read failure is swallowed is STATUS-DEPENDENT, matching pinned Pi
             # exactly (`openai-codex.ts` -- `readTokenResponse`, `startOpenAICodexDeviceAuth`,
@@ -213,15 +254,6 @@ class HttpxTransport:
             # cancellation must still propagate as a cancellation, never be swallowed into an
             # empty body, regardless of status. `asyncio.CancelledError` (`BaseException`, not
             # `Exception`, since Python 3.8) is likewise never caught here for the same reason.
-            #
-            # This same closure is where the owned client is finally closed (`L11-SC-R016`) --
-            # ONLY reached if a caller actually requests the body. A caller that never calls
-            # `HttpResponse.text()` at all (the device-start-404/device-poll-403/404 abandoned-
-            # body case this whole redesign exists for) leaves the response/client to ordinary
-            # Python object-lifetime cleanup instead -- neither pinned Pi's own runtime nor any
-            # review requires deterministic cleanup for a body a caller intentionally never
-            # consumes, and adding new explicit-cleanup API surface for this is exactly the kind
-            # of unrelated scope expansion `agent-workflow.md` §11.8.6 warns against.
             try:
                 try:
                     await run_cancellable(response.aread(), signal)
@@ -233,14 +265,13 @@ class HttpxTransport:
                     return b""
                 return response.content
             finally:
-                await response.aclose()
-                if owns_client:
-                    await client.aclose()
+                await close_resources()
 
         return HttpResponse(
             status=response.status_code,
             reason_phrase=response.reason_phrase,
             read_body=read_body,
+            discard_body=close_resources,
         )
 
 

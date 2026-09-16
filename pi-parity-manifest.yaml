@@ -4994,9 +4994,44 @@ rows:
       fields for each of this row''s own four outbound requests -- asserting field equivalence,
       not raw percent-encoding byte equality, matching this row''s own stated normative rule.
 
-    Every refined/new witness has a permanent regression test -- see `tests:` below.'
+    Every refined/new witness has a permanent regression test -- see `tests:` below.
+
+    THIRD MANDATORY FINAL-COMPLETE REVIEW (`agent-workflow.md` §11.8.8, independent complete
+    contract review of the exact-unchanged R025/R026/R027/R028 remediation candidate above):
+    `L11-SC-R026` and `L11-SC-R028` RESOLVED. `L11-SC-R025` and `L11-SC-R027` PARTIALLY_RESOLVED_
+    BLOCKING -- both fixes'' PRODUCTION behavior was already correct, but the permanent witnesses
+    claimed for each did not actually discriminate the fix from its absence, confirmed via live
+    mutation testing against the exact reviewed candidate (`f5555f23421f014fcc79580bc746053d994dd00f`)
+    in a detached worktree:
+
+    - `L11-SC-R025` gap: deleting the ENTIRE pre-response owned-client cleanup block (`if
+      owns_client: with contextlib.suppress(Exception): await client.aclose()`) left BOTH relevant
+      tests passing unchanged -- `test_httpx_transport_closes_owned_client_when_getting_the_
+      response_itself_fails` never asserted `is_closed` (root cause: an earlier round''s own
+      editing-mistake cleanup mistakenly deleted this test''s own pre-existing `assert
+      created[0].is_closed` line, believing it an orphaned leftover from an unrelated insertion, when
+      it was this test''s own load-bearing assertion) and `test_httpx_transport_owned_client_close_
+      failure_does_not_replace_request_failure` only asserted the original exception propagated
+      unreplaced, which stays trivially true if `aclose()` is never called at all. Fixed: restored
+      `assert created[0].is_closed` to the first test; added a `close_attempted` flag (set inside the
+      fake `aclose()` regardless of its own raised exception) to the second test, asserting cleanup
+      was actually attempted, not merely non-destructive.
+    - `L11-SC-R027` gap: reverting the leading-`"?"`-stripping fix (`query_string = value[1:] if
+      value.startswith("?") else value`) left all pre-existing `parse_authorization_input` tests
+      passing unchanged -- no permanent witness for the leading-`"?"` case existed at all; the
+      manifest''s own prior round claimed one that was never actually added. Fixed: added
+      `test_parse_authorization_input_bare_query_string_with_leading_question_mark` (the exact
+      `"?code=abc&state=xyz"` regression case) and `test_parse_authorization_input_bare_query_
+      string_only_strips_one_leading_question_mark` (`"??code=1"`, confirming a second `"?"` is NOT
+      stripped).
+
+    Both strengthened witnesses re-verified live via mutation testing: with the strengthened tests
+    in place, re-applying the SAME two mutations (pre-response cleanup removed; leading-`"?"` fix
+    reverted) now correctly fails 3 tests (the two R025 witnesses plus the new leading-`"?"`
+    witness); with the mutations reverted, the full suite (1,503 passed, 19 xfailed, 0 failed) and
+    100% coverage (3,880 statements) both pass clean.'
   tests:
-  - 'tests/auth/test_openai_codex_oauth.py (93 tests) -- `parse_authorization_input`''s three input
+  - 'tests/auth/test_openai_codex_oauth.py (95 tests) -- `parse_authorization_input`''s three input
     shapes including the JS `split(#,2)` fidelity trap, the WHATWG-URL invalid-port/
     invalid-host-character fallthrough pair (`L11-SC-R011`, converged), the unpaired-surrogate
     `USVString`-conversion pair (`L11-SC-R011`, third round -- a successfully-constructed URL''s
@@ -5044,7 +5079,13 @@ rows:
     literal key `"?code"` (`L11-SC-R027`); FOUR new `_FakeTransport.requests`-based witnesses
     (device-start, device-poll, exchange, refresh) each asserting the exact endpoint,
     `Content-Type`, and semantically-decoded JSON/form-urlencoded request-body fields
-    (`L11-SC-R028`).'
+    (`L11-SC-R028`); the third mandatory final-complete review''s own TWO new permanent witnesses
+    closing the `L11-SC-R027` PARTIALLY_RESOLVED_BLOCKING gap (the prior round''s witness above was
+    prose only, mutation-tested to NOT discriminate the fix from its absence) --
+    `test_parse_authorization_input_bare_query_string_with_leading_question_mark` (the exact
+    `"?code=abc&state=xyz"` regression, mutation-confirmed to fail when the fix is reverted) and
+    `test_parse_authorization_input_bare_query_string_only_strips_one_leading_question_mark`
+    (`"??code=1"`, confirming a second `"?"` is ordinary data, not stripped).'
   - 'tests/auth/test_http_transport.py (34 tests) -- `run_cancellable`''s own success/exception-
     propagation/cancellation/inner-task-cleanup paths (including the outer-await-cancelled safety
     net AND `L11-SC-R015`''s pre-aborted-signal-never-starts-the-operation witness, distinguished
@@ -5075,7 +5116,17 @@ rows:
     `discard()` correctly, never swallowed like an ordinary close failure (`L11-SC-R022`); the
     second mandatory final-complete review''s own new witness -- an owned client whose `send()`
     raises `ConnectionError` AND whose `aclose()` ALSO raises `RuntimeError` still surfaces the
-    ORIGINAL `ConnectionError`, not the cleanup error (`L11-SC-R025`).'
+    ORIGINAL `ConnectionError`, not the cleanup error (`L11-SC-R025`); the third mandatory
+    final-complete review''s own strengthening of BOTH pre-response owned-client-close witnesses,
+    closing the `L11-SC-R025` PARTIALLY_RESOLVED_BLOCKING gap (both prior witnesses were
+    mutation-tested to still pass with the ENTIRE cleanup block deleted, since neither asserted
+    `aclose()` was actually attempted) -- `test_httpx_transport_closes_owned_client_when_getting_
+    the_response_itself_fails` now asserts `created[0].is_closed` (restoring a load-bearing
+    assertion an earlier round''s own editing mistake had deleted), and
+    `test_httpx_transport_owned_client_close_failure_does_not_replace_request_failure` now asserts
+    a `close_attempted` flag set inside the fake `aclose()` regardless of its own raised exception,
+    independently confirming cleanup was attempted, not merely non-destructive when it happens to
+    run.'
   - 'tests/auth/test_js_json.py (37 tests) -- every rule `L11-SC-R010`''s three review rounds
     established: `null`/array/object rendering, negative-zero collapse, both notation-threshold
     boundaries, non-ASCII pass-through for a properly-paired astral character, the unpaired-

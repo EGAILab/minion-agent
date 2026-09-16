@@ -318,18 +318,29 @@ async def test_httpx_transport_closes_owned_client_when_getting_the_response_its
             "https://example.test/x", headers={}, body=b"", signal=controller.signal
         )
     assert len(created) == 1
+    assert created[0].is_closed
 
 
 async def test_httpx_transport_owned_client_close_failure_does_not_replace_request_failure(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """`L11-SC-R025`, second mandatory final-complete review -- confirmed live against the exact
-    rejected candidate before this fix: pinned Pi's own `fetchWithLoginCancellation` re-throws the
-    ORIGINAL request rejection whenever the signal did not abort; Pi has no observable
-    client-close operation whose own failure could replace that result at all. An owned client
-    whose `send()` raises `ConnectionError` AND whose `aclose()` ALSO raises `RuntimeError` must
-    still surface the ORIGINAL `ConnectionError` -- the cleanup failure must not replace it."""
+    """`L11-SC-R025`, third mandatory final-complete review -- confirmed live via mutation testing
+    against the exact PARTIALLY_RESOLVED_BLOCKING candidate before this fix: deleting the ENTIRE
+    pre-response `if owns_client: with contextlib.suppress(Exception): await client.aclose()`
+    cleanup block left this test (and
+    `test_httpx_transport_closes_owned_client_when_getting_the_response_itself_fails`, above) both
+    still passing, because neither asserted that `aclose()` was actually ATTEMPTED -- this test only
+    checked that the original exception propagated unreplaced, which is trivially still true if
+    `aclose()` is never called at all. `close_attempted` below closes that gap by directly recording
+    the attempt, independent of `aclose()`'s own outcome. Pinned Pi's own
+    `fetchWithLoginCancellation` re-throws the ORIGINAL request rejection whenever the signal did
+    not abort; Pi has no observable
+    client-close operation whose own failure could replace that result at all. An owned client whose
+    `send()` raises `ConnectionError` AND whose `aclose()` ALSO raises `RuntimeError` must still
+    surface the ORIGINAL `ConnectionError` -- the cleanup failure must not replace it -- AND cleanup
+    must still have been attempted."""
     real_async_client = httpx.AsyncClient
+    close_attempted = False
 
     def fake_async_client(*args: object, **kwargs: object) -> httpx.AsyncClient:
         client = real_async_client(*args, **kwargs)
@@ -338,6 +349,8 @@ async def test_httpx_transport_owned_client_close_failure_does_not_replace_reque
             raise ConnectionError("send boom")
 
         async def raising_aclose() -> None:
+            nonlocal close_attempted
+            close_attempted = True
             raise RuntimeError("close boom")
 
         client.send = raising_send  # type: ignore[method-assign]
@@ -351,6 +364,7 @@ async def test_httpx_transport_owned_client_close_failure_does_not_replace_reque
         await transport.post(
             "https://example.test/x", headers={}, body=b"", signal=controller.signal
         )
+    assert close_attempted
 
 
 async def test_httpx_transport_owned_client_disables_its_own_implicit_timeout_cap(

@@ -342,6 +342,32 @@ def test_parse_authorization_input_bare_query_string() -> None:
     assert result.state == "xyz"
 
 
+def test_parse_authorization_input_bare_query_string_with_leading_question_mark() -> None:
+    """`L11-SC-R027`, third mandatory final-complete review -- this exact case (a leading `"?"`
+    on an otherwise-bare query string, a realistic pasted-URL-fragment shape) was the one this
+    row's own fix corrected, but no permanent witness for it existed until now: reverting the fix
+    left all 14 pre-existing `parse_authorization_input` tests passing (confirmed live via mutation
+    testing against the exact PARTIALLY_RESOLVED_BLOCKING candidate before this fix). `new
+    URLSearchParams("?code=abc&state=xyz")` strips exactly the one leading `"?"` before parsing
+    (confirmed live against Node); Python's own `parse_qs`, unguarded, would parse the first key as
+    the literal string `"?code"` instead of `"code"`, losing the code entirely."""
+    result = parse_authorization_input("?code=abc&state=xyz")
+    assert result.code == "abc"
+    assert result.state == "xyz"
+
+
+def test_parse_authorization_input_bare_query_string_only_strips_one_leading_question_mark() -> (
+    None
+):
+    """`L11-SC-R027`, third mandatory final-complete review -- confirmed live against Node: a
+    SECOND `"?"` anywhere else (including immediately after the first) is ordinary data, not
+    stripped -- `new URLSearchParams("??code=1")` leaves `"?code"` as the literal key, not
+    `"code"`."""
+    result = parse_authorization_input("??code=1")
+    assert result.code is None
+    assert result.state is None
+
+
 def test_parse_authorization_input_bare_code() -> None:
     result = parse_authorization_input("just-a-code")
     assert result.code == "just-a-code"

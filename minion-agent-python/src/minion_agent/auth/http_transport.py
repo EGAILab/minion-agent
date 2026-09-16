@@ -225,6 +225,18 @@ class HttpxTransport:
         # left open whenever a caller deliberately never read the body (device-start's own `404`
         # branch, device-poll's own `403`/`404` branch) -- not merely un-warned-about. `closed`
         # guards against double-closing if both paths somehow ran.
+        #
+        # BOTH close attempts are individually exception-safe (`L11-SC-R022`, second targeted
+        # re-review): pinned Pi exposes no explicit "close" operation at all for device-start's
+        # own `404`/device-poll's own `403`/`404` branches -- their fixed status-only outcome
+        # (`DeviceCodeNotEnabledError`/`PENDING`) is produced WITHOUT any body-stream cleanup step
+        # being observable, let alone one that can fail. Confirmed live against the exact
+        # candidate before this fix: a response whose `aclose()` itself raises let that raw
+        # exception escape `discard()`, REPLACING the caller's own fixed Pi outcome with an
+        # unrelated cleanup error -- and, since `response.aclose()` was awaited with no `finally`
+        # of its own, a raising response close also skipped the owned client's own close
+        # entirely. Neither close attempt may raise past this function, and a failure in ONE must
+        # not skip the OTHER.
         closed = False
 
         async def close_resources() -> None:
@@ -232,9 +244,11 @@ class HttpxTransport:
             if closed:
                 return
             closed = True
-            await response.aclose()
+            with contextlib.suppress(Exception):
+                await response.aclose()
             if owns_client:
-                await client.aclose()
+                with contextlib.suppress(Exception):
+                    await client.aclose()
 
         async def read_body() -> bytes:
             # Whether a body-read failure is swallowed is STATUS-DEPENDENT, matching pinned Pi

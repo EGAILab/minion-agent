@@ -566,6 +566,73 @@ async def test_http_response_discard_with_no_transport_backing_is_a_noop() -> No
     await response.discard()  # must not raise
 
 
+class _RaisingCloseStream(httpx.AsyncByteStream):
+    """A body stream whose `aclose()` itself raises -- pinned Pi exposes no explicit "close"
+    operation at all for a status-only outcome (device-start's own `404`, device-poll's own
+    `403`/`404`), so a cleanup failure here must never become a new public failure, and must not
+    prevent an owned client's own close from being attempted."""
+
+    async def __aiter__(self) -> AsyncIterator[bytes]:
+        return
+        yield b""  # pragma: no cover -- unreachable, satisfies the generator protocol
+
+    async def aclose(self) -> None:
+        raise RuntimeError("close boom")
+
+
+async def test_http_response_discard_swallows_a_raising_response_close() -> None:
+    """`L11-SC-R022`, second targeted re-review -- confirmed live against the exact rejected
+    candidate before this fix: a response whose `aclose()` raises let that raw exception escape
+    `discard()` entirely, which -- at the real device-start/device-poll call sites -- REPLACED
+    the caller's own fixed Pi outcome with an unrelated cleanup error. `discard()` itself must
+    never raise for this reason."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(404, stream=_RaisingCloseStream())
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    controller = RunAbortController()
+    transport = HttpxTransport(client=client)
+    try:
+        response = await transport.post(
+            "https://example.test/x", headers={}, body=b"", signal=controller.signal
+        )
+        assert response.status == 404
+        await response.discard()  # must not raise, despite the stream's own aclose() raising
+    finally:
+        await client.aclose()
+
+
+async def test_http_response_discard_still_closes_owned_client_when_response_close_raises(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`L11-SC-R022`, second targeted re-review, owned-client companion case -- confirmed live:
+    the shared close helper previously awaited `response.aclose()` with no `finally` of its own,
+    so a raising response close also skipped the owned client's own close entirely. Both close
+    attempts must be independently exception-safe -- a failure in one must not skip the other."""
+    real_async_client = httpx.AsyncClient
+    created: list[httpx.AsyncClient] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(404, stream=_RaisingCloseStream())
+
+    def fake_async_client(*args: object, **kwargs: object) -> httpx.AsyncClient:
+        client = real_async_client(transport=httpx.MockTransport(handler))
+        created.append(client)
+        return client
+
+    monkeypatch.setattr(httpx, "AsyncClient", fake_async_client)
+    controller = RunAbortController()
+    transport = HttpxTransport()
+    response = await transport.post(
+        "https://example.test/x", headers={}, body=b"", signal=controller.signal
+    )
+    assert response.status == 404
+    await response.discard()  # must not raise
+    assert len(created) == 1
+    assert created[0].is_closed
+
+
 class _RaisingStream(httpx.AsyncByteStream):
     """A `httpx` response body stream that always fails partway through reading -- simulates a
     connection reset AFTER status/headers already arrived successfully."""

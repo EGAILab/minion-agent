@@ -4905,9 +4905,30 @@ rows:
     poll attempts, not only the first) and confirmed `-W error::ResourceWarning` remains clean
     across the full test suite.
 
+    TARGETED RE-REVIEW 2 (`agent-workflow.md` §11.8.7): `L11-SC-R022` STILL OPEN with a second
+    refined witness: pinned Pi exposes NO explicit "close" operation at all for device-start''s own
+    `404`/device-poll''s own `403`/`404` branches -- their fixed status-only outcome
+    (`DeviceCodeNotEnabledError`/`PENDING`) is produced with no body-stream cleanup step ever
+    observable, let alone one that can fail. Confirmed live against the exact rejected candidate: a
+    response whose `aclose()` itself raises let that raw exception escape `discard()` entirely,
+    REPLACING the caller''s own fixed Pi outcome with an unrelated `RuntimeError`; a second,
+    related defect confirmed live in the SAME shared close helper -- `response.aclose()` was
+    awaited with no `finally` of its own, so a raising response close also skipped the owned
+    client''s own close entirely (confirmed: `client.is_closed` stayed `False`). Fixed: both close
+    attempts inside the shared `close_resources` closure are now individually wrapped in
+    `contextlib.suppress(Exception)` -- a failure in EITHER attempt no longer raises past
+    `discard()`/`read_body()`, and a failure in the response close no longer skips the owned
+    client''s own close attempt (`asyncio.CancelledError`, a `BaseException` since Python 3.8, is
+    deliberately NOT suppressed, matching every other cancellation-safety guard in this row''s own
+    transport seam). Re-verified live against both refined witnesses (an injected client''s
+    `DeviceCodeNotEnabledError` is preserved even though its response''s own `aclose()` raises; an
+    owned/default client is STILL closed even though its response''s own `aclose()` raises) and
+    every prior R022 witness (ordering, failure-classification, cancellation, no-read, repeated-poll
+    closure) re-confirmed unaffected.
+
     Every refined/new witness has a permanent regression test -- see `tests:` below.'
   tests:
-  - 'tests/auth/test_openai_codex_oauth.py (86 tests) -- `parse_authorization_input`''s three input
+  - 'tests/auth/test_openai_codex_oauth.py (88 tests) -- `parse_authorization_input`''s three input
     shapes including the JS `split(#,2)` fidelity trap, the WHATWG-URL invalid-port/
     invalid-host-character fallthrough pair (`L11-SC-R011`, converged), the unpaired-surrogate
     `USVString`-conversion pair (`L11-SC-R011`, third round -- a successfully-constructed URL''s
@@ -4941,8 +4962,13 @@ rows:
     own refined `L11-SC-R022` resource-lifecycle witnesses through the REAL `HttpxTransport` --
     device-start `404` closing BOTH the abandoned streamed response and the owned/default client
     without ever starting a body read, and repeated device-poll `403` attempts closing EVERY
-    abandoned response across several real poll attempts, not only the first.'
-  - 'tests/auth/test_http_transport.py (30 tests) -- `run_cancellable`''s own success/exception-
+    abandoned response across several real poll attempts, not only the first; the second targeted
+    re-review''s own exception-safety companion witnesses -- device-start''s own fixed
+    `DeviceCodeNotEnabledError` is preserved (for BOTH an injected and an owned/default client)
+    even when the abandoned response''s own `aclose()` itself raises, and the owned client is
+    STILL closed in that exact case; device-poll''s own `PENDING`/timeout cycle is likewise
+    unaffected by a raising `aclose()` (`L11-SC-R022`).'
+  - 'tests/auth/test_http_transport.py (32 tests) -- `run_cancellable`''s own success/exception-
     propagation/cancellation/inner-task-cleanup paths (including the outer-await-cancelled safety
     net AND `L11-SC-R015`''s pre-aborted-signal-never-starts-the-operation witness, distinguished
     from the mid-flight-abort case); `fetch_with_login_cancellation`''s own post-hoc signal-aborted
@@ -4963,7 +4989,10 @@ rows:
     closes without ever starting a body read, an owned/default client and its response are BOTH
     closed, `discard()` is a safe no-op after `text()` already ran, and a synthetic
     already-buffered `HttpResponse` (no live transport backing) makes `discard()` a harmless
-    no-op (`L11-SC-R022`).'
+    no-op (`L11-SC-R022`); the second targeted re-review''s own exception-safety witnesses --
+    `discard()` swallows a raising response `aclose()` without propagating it, AND still closes
+    an owned/default client in that exact case, rather than skipping the client close entirely
+    (`L11-SC-R022`).'
   - 'tests/auth/test_js_json.py (37 tests) -- every rule `L11-SC-R010`''s three review rounds
     established: `null`/array/object rendering, negative-zero collapse, both notation-threshold
     boundaries, non-ASCII pass-through for a properly-paired astral character, the unpaired-

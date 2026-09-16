@@ -894,6 +894,57 @@ async def test_start_device_auth_404_closes_the_abandoned_response_and_owned_cli
     assert created[0].is_closed
 
 
+class _RaisingCloseBodyStream(httpx.AsyncByteStream):
+    """A body stream whose `aclose()` itself raises -- pinned Pi exposes no explicit "close"
+    operation at all for a status-only outcome (device-start's own `404`, device-poll's own
+    `403`/`404`), so a cleanup failure here must never replace the fixed Pi outcome with an
+    unrelated error."""
+
+    async def __aiter__(self) -> AsyncIterator[bytes]:
+        return
+        yield b""  # pragma: no cover -- unreachable, satisfies the generator protocol
+
+    async def aclose(self) -> None:
+        raise RuntimeError("close boom")
+
+
+async def test_start_device_auth_404_preserved_even_when_cleanup_raises(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`L11-SC-R022`, second targeted re-review -- confirmed live against the exact rejected
+    candidate before this fix: a response whose `aclose()` raises let that raw `RuntimeError`
+    escape `_start_device_auth` entirely, REPLACING the fixed `DeviceCodeNotEnabledError` pinned
+    Pi always produces for this exact branch. Verified for BOTH an injected and an owned/default
+    client -- a raising response close must not skip the owned client's own close either."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(404, stream=_RaisingCloseBodyStream())
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    controller = RunAbortController()
+    transport = HttpxTransport(client=client)
+    try:
+        with pytest.raises(DeviceCodeNotEnabledError):
+            await _start_device_auth(transport, controller.signal)
+    finally:
+        await client.aclose()
+
+    real_async_client = httpx.AsyncClient
+    created: list[httpx.AsyncClient] = []
+
+    def fake_async_client(*args: object, **kwargs: object) -> httpx.AsyncClient:
+        owned_client = real_async_client(transport=httpx.MockTransport(handler))
+        created.append(owned_client)
+        return owned_client
+
+    monkeypatch.setattr(httpx, "AsyncClient", fake_async_client)
+    owned_transport = HttpxTransport()
+    with pytest.raises(DeviceCodeNotEnabledError):
+        await _start_device_auth(owned_transport, controller.signal)
+    assert len(created) == 1
+    assert created[0].is_closed
+
+
 async def test_start_device_auth_other_failure_status() -> None:
     controller = RunAbortController()
     transport = _FakeTransport()
@@ -1051,6 +1102,29 @@ async def test_poll_device_auth_403_closes_every_abandoned_response_across_repea
     assert len(streams) >= 2
     assert all(not stream.started for stream in streams)
     assert all(stream.closed for stream in streams)
+
+
+async def test_poll_device_auth_403_pending_preserved_even_when_cleanup_raises() -> None:
+    """`L11-SC-R022`, second targeted re-review, device-poll companion case -- confirmed live: a
+    response whose `aclose()` raises must not prevent the poll loop from continuing to cycle
+    `PENDING` outcomes; a cleanup failure must never surface as a new, unrelated public failure
+    at this call site either."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(403, stream=_RaisingCloseBodyStream())
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    controller = RunAbortController()
+    transport = HttpxTransport(client=client)
+    device = await _fake_device_info(interval=1.0)
+    try:
+        with pytest.raises(TokenResponseFailedError, match="timed out"):
+            await asyncio.wait_for(
+                _poll_device_auth(transport, device, controller.signal, expires_in_seconds=2.5),
+                timeout=10.0,
+            )
+    finally:
+        await client.aclose()
 
 
 async def test_poll_device_auth_slow_down_then_complete() -> None:

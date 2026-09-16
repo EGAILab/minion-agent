@@ -89,23 +89,48 @@ def js_trim(value: str) -> str:
 
 
 def to_usv_string(value: str) -> str:
-    """Web IDL `USVString` conversion: replace each UNPAIRED UTF-16 surrogate code unit
-    (`U+D800`-`U+DFFF`) with `U+FFFD` (the replacement character) -- confirmed live this is
-    exactly what `new URL(value)` (a `USVString`-typed Web IDL operand) does to its own input
-    before further processing (`L11-SC-R011`, targeted convergence review): a lone surrogate in
-    the input becomes `U+FFFD` inside a successfully-constructed URL's own query string, while a
-    FAILED construction falls through using the ORIGINAL, unconverted string -- this function
-    performs only the conversion itself; the caller decides which string to use for which branch.
+    """Web IDL `USVString` conversion, the FULL algorithm: scan `value` one code point at a
+    time; a HIGH surrogate (`U+D800`-`U+DBFF`) immediately followed by a LOW surrogate
+    (`U+DC00`-`U+DFFF`) is a valid PAIR and is COMBINED into the single astral scalar value it
+    represents (the standard UTF-16 surrogate-pair formula); any OTHER surrogate-range code
+    point -- a high surrogate not immediately followed by a low one, a low surrogate not
+    immediately preceded by a high one, or either at a string boundary with no partner -- is
+    UNPAIRED and is replaced with `U+FFFD` (the replacement character) individually. Confirmed
+    live this exactly matches `new URL(value)` (a `USVString`-typed Web IDL operand): a valid
+    adjacent high/low pair renders as the combined astral character (e.g. an emoji), never as two
+    separate replacement characters.
 
-    The SAME reasoning `_js_json_string`'s own escaping logic already relies on applies here:
-    Python's own `json.loads` (and Python's own string model generally) already combines a valid
-    consecutive UTF-16 surrogate PAIR into a single astral codepoint, so any Python string
-    character whose own codepoint still falls in the surrogate range is necessarily an UNPAIRED
-    one -- there is no valid pair to preserve here, unlike raw UTF-16 text, where a matched
-    high+low surrogate pair together represents one valid astral character and must NOT be
-    individually replaced."""
-    replacement_character = chr(0xFFFD)
-    return "".join(replacement_character if 0xD800 <= ord(ch) <= 0xDFFF else ch for ch in value)
+    `L11-SC-R011`, targeted convergence re-review, second round: an EARLIER version of this
+    function treated EVERY surrogate-range Python code point as necessarily unpaired, reasoning
+    (correctly, but INCOMPLETELY) from `_js_json_string`'s own escaping logic, which relies on
+    `json.loads` already combining a valid pair before its own input is ever seen -- that
+    combining step is specific to `json.loads`'s own decoding path and does NOT hold for this
+    function's own general string input (e.g. `parse_authorization_input`'s own manually-pasted
+    input, which never passes through `json.loads` at all): a Python string CAN validly contain
+    an explicit adjacent high+low surrogate PAIR as two separate code points (confirmed live,
+    `chr(0xD83D) + chr(0xDE00)` is exactly such a pair, representing the SAME astral character
+    the single Python code point `chr(0x1F600)` would -- and that pair MUST be combined here,
+    not independently replaced.
+
+    This function performs only the conversion itself; the caller decides which string (this
+    function's own result, or the ORIGINAL unconverted value) to use for which branch -- see
+    `parse_authorization_input`'s own docstring for the full URL-construction-vs-fallback rule
+    this conversion feeds into."""
+    result: list[str] = []
+    index = 0
+    length = len(value)
+    while index < length:
+        codepoint = ord(value[index])
+        if 0xD800 <= codepoint <= 0xDBFF and index + 1 < length:
+            next_codepoint = ord(value[index + 1])
+            if 0xDC00 <= next_codepoint <= 0xDFFF:
+                combined = 0x10000 + (codepoint - 0xD800) * 0x400 + (next_codepoint - 0xDC00)
+                result.append(chr(combined))
+                index += 2
+                continue
+        result.append(chr(0xFFFD) if 0xD800 <= codepoint <= 0xDFFF else value[index])
+        index += 1
+    return "".join(result)
 
 
 def _escape_char(codepoint: int) -> str:

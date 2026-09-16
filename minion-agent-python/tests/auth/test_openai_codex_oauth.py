@@ -272,6 +272,25 @@ def test_parse_authorization_input_bare_unpaired_surrogate_falls_through_unconve
     assert result.state is None
 
 
+def test_parse_authorization_input_valid_surrogate_pair_in_query_combines_to_one_character() -> (
+    None
+):
+    """`L11-SC-R011`, targeted convergence re-review, second round -- confirmed live against Node:
+    an EXPLICIT adjacent high+low surrogate PAIR (not an already-combined Python astral
+    character) is a VALID pair per Web IDL `USVString` conversion and must combine into the
+    single astral scalar value it represents (here, the same emoji `chr(0x1F600)` would produce
+    directly) -- NOT two independent `U+FFFD` replacement characters, which an implementation
+    that treats every surrogate-range code point as unconditionally unpaired would incorrectly
+    produce."""
+    high_surrogate = chr(0xD83D)
+    low_surrogate = chr(0xDE00)
+    result = parse_authorization_input(
+        f"https://example.test/?code={high_surrogate}{low_surrogate}&state=s"
+    )
+    assert result.code == chr(0x1F600)
+    assert result.state == "s"
+
+
 def test_parse_authorization_input_hash_split_discards_content_after_second_hash() -> None:
     """Pi's own `split("#", 2)` semantics: content after a SECOND `"#"` is discarded, never
     appended to `state` -- a host language's own unlimited split on the first `"#"` would

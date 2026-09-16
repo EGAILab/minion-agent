@@ -269,3 +269,33 @@ def test_to_usv_string_passes_ordinary_and_astral_characters_through_unchanged()
     completely unchanged -- only an actual unpaired surrogate code point is replaced."""
     assert to_usv_string("café😀") == "café😀"
     assert to_usv_string("") == ""
+
+
+def test_to_usv_string_combines_an_explicit_adjacent_surrogate_pair() -> None:
+    """`L11-SC-R011`, targeted convergence re-review, second round -- confirmed live: a Python
+    string CAN validly contain an explicit adjacent high+low surrogate PAIR as two separate code
+    points (unlike a character reaching this function via `json.loads`, which already combines a
+    valid pair before this function ever sees it -- this function's own general input has no such
+    guarantee). Web IDL `USVString` conversion COMBINES a valid pair into its single astral
+    scalar value; treating each half as independently unpaired (the prior, INCORRECT
+    implementation) produces two `U+FFFD` characters instead of the one correct astral
+    character."""
+    high_surrogate = chr(0xD83D)
+    low_surrogate = chr(0xDE00)
+    combined_emoji = chr(0x1F600)
+    assert to_usv_string(high_surrogate + low_surrogate) == combined_emoji
+
+
+def test_to_usv_string_does_not_combine_surrogates_in_the_wrong_order_or_without_a_partner() -> (
+    None
+):
+    """A low surrogate followed by a high surrogate (the WRONG order for a valid pair) and a high
+    surrogate followed by an ordinary character (no low-surrogate partner at all) are each
+    genuinely UNPAIRED -- confirmed live against Node (via the `TextEncoder`/`TextDecoder`
+    round-trip, which performs the identical Unicode-scalar-value conversion `USVString` does):
+    both halves are replaced independently, never combined."""
+    high_surrogate = chr(0xD800)
+    low_surrogate = chr(0xDC00)
+    replacement = chr(0xFFFD)
+    assert to_usv_string(low_surrogate + high_surrogate) == replacement + replacement
+    assert to_usv_string(high_surrogate + "a") == replacement + "a"

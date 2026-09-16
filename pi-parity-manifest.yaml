@@ -4776,14 +4776,35 @@ rows:
       encode it as UTF-8 before the Rust parser runs -- a Python string may contain an unpaired
       UTF-16 surrogate code point, which `new URL(value)`''s own `USVString`-typed Web IDL operand
       replaces with `U+FFFD` BEFORE construction (confirmed live against Node), while the binding
-      instead raises an uncaught `UnicodeEncodeError`. Fixed: a new shared `to_usv_string` helper
-      (`js_json.py`, reusing the SAME "any Python string character whose own codepoint falls in
-      the surrogate range is necessarily unpaired" reasoning `_js_json_string`''s own escaping
-      logic already established) converts the value handed to `url.URL.parse` specifically, while
-      every FALLBACK branch continues to use the ORIGINAL, unconverted string -- confirmed live
-      against Node this is exactly Pi''s own behavior: a lone surrogate inside an otherwise-valid
-      URL''s query string becomes `U+FFFD` in the parsed result, while a lone surrogate that makes
-      URL construction fail entirely survives unconverted into the bare-code fallback.
+      instead raises an uncaught `UnicodeEncodeError`. Fixed (round three): a new shared
+      `to_usv_string` helper (`js_json.py`) converts the value handed to `url.URL.parse`
+      specifically, while every FALLBACK branch continues to use the ORIGINAL, unconverted string
+      -- confirmed live against Node this is exactly Pi''s own behavior: a lone surrogate inside an
+      otherwise-valid URL''s query string becomes `U+FFFD` in the parsed result, while a lone
+      surrogate that makes URL construction fail entirely survives unconverted into the bare-code
+      fallback.
+
+      STILL OPEN, fourth round (`L11-SC-R011`, targeted convergence RE-review): the round-three
+      `to_usv_string` treated EVERY surrogate-range Python code point as necessarily unpaired,
+      reasoning from `_js_json_string`''s own escaping logic, which relies on `json.loads` already
+      combining a valid pair before ITS OWN input is ever seen -- that combining step is specific
+      to `json.loads`''s own decoding path and does NOT hold for `to_usv_string`''s own general
+      string input (e.g. `parse_authorization_input`''s manually-pasted input, which never passes
+      through `json.loads` at all). Confirmed live: a Python string CAN validly contain an
+      explicit adjacent high+low surrogate PAIR as two separate code points (`chr(0xD83D) +
+      chr(0xDE00)`, representing the same astral character the single code point `chr(0x1F600)`
+      would), and Web IDL `USVString` conversion COMBINES such a pair into its single scalar
+      value -- the round-three helper instead replaced each half independently, producing two
+      `U+FFFD` characters where Pi/Node produce one emoji. Fixed (round four): `to_usv_string` now
+      implements the FULL Web IDL `USVString` algorithm -- scans one code point at a time; a high
+      surrogate immediately followed by a low surrogate is COMBINED via the standard UTF-16
+      surrogate-pair formula into its astral scalar value; any OTHER surrogate-range code point
+      (unpaired, or paired in the wrong order) is replaced with `U+FFFD` individually -- confirmed
+      live against both the exact re-review witness (a valid adjacent pair combines to one emoji)
+      and the negative controls (a low-then-high wrong-order pair, and a high surrogate followed
+      by an ordinary non-surrogate character, both remain genuinely unpaired and are replaced
+      independently), cross-checked via Node''s own `TextEncoder`/`TextDecoder` round-trip (which
+      performs the identical Unicode-scalar-value conversion).
     - `L11-SC-R018` (still open, third round): the non-2xx body-read catch was scoped to
       `httpx.HTTPError` specifically, but pinned Pi''s own `.text().catch(() => "")` catches ANY
       promise rejection from the body-read operation, not one library-specific error hierarchy --
@@ -4802,12 +4823,14 @@ rows:
     Every refined witness from all three review rounds now has a permanent regression test -- see
     `tests:` below.'
   tests:
-  - 'tests/auth/test_openai_codex_oauth.py (79 tests) -- `parse_authorization_input`''s three input
+  - 'tests/auth/test_openai_codex_oauth.py (80 tests) -- `parse_authorization_input`''s three input
     shapes including the JS `split(#,2)` fidelity trap, the WHATWG-URL invalid-port/
-    invalid-host-character fallthrough pair (`L11-SC-R011`, converged), AND the unpaired-surrogate
+    invalid-host-character fallthrough pair (`L11-SC-R011`, converged), the unpaired-surrogate
     `USVString`-conversion pair (`L11-SC-R011`, third round -- a successfully-constructed URL''s
     own query string carries `U+FFFD`, while a construction FAILURE falls through using the
-    original, unconverted surrogate); `_js_number_coerce`''s own
+    original, unconverted surrogate), AND the explicit-adjacent-surrogate-pair combination witness
+    (`L11-SC-R011`, fourth round -- a valid high+low pair combines to its own single astral
+    character, not two `U+FFFD` characters); `_js_number_coerce`''s own
     empty/hex/octal/binary/Infinity/garbage/signed-non-decimal/Unicode-digit/BOM-trim/overflow
     cases (`L11-SC-R012`, converged); the authorization URL''s own exact param order and
     `originator=pi`; the local callback server''s own real ephemeral-port behavior (404 wrong path,
@@ -4837,7 +4860,7 @@ rows:
     empty body), AND its third-round non-`httpx.HTTPError` companion pair (an ordinary `RuntimeError`
     from a custom body stream propagates under 2xx and swallows under non-2xx, matching Pi''s own
     "any body-read rejection" rule rather than one library-specific error hierarchy).'
-  - 'tests/auth/test_js_json.py (32 tests) -- every rule `L11-SC-R010`''s three review rounds
+  - 'tests/auth/test_js_json.py (34 tests) -- every rule `L11-SC-R010`''s three review rounds
     established: `null`/array/object rendering, negative-zero collapse, both notation-threshold
     boundaries, non-ASCII pass-through for a properly-paired astral character, the unpaired-
     surrogate escape exception, named vs. generic control-character escapes, and array-index-like
@@ -4848,8 +4871,11 @@ rows:
     set, confirmed against every listed code point plus negative controls; the shared
     `to_usv_string` helper''s own `L11-SC-R011` unpaired-surrogate-to-`U+FFFD` replacement,
     confirmed against both a lone high and a lone low surrogate plus a paired-astral-character
-    non-interference control -- every value independently cross-checked against live Node 22
-    before being committed as a fixture.'
+    non-interference control, AND (fourth round) the explicit-adjacent-pair COMBINATION witness
+    (a valid high+low pair combines to its own single astral scalar value) plus its own negative
+    controls (a wrong-order pair, and a high surrogate with no low-surrogate partner, both remain
+    genuinely unpaired) -- every value independently cross-checked against live Node 22 before
+    being committed as a fixture.'
   python: src/minion_agent/auth/openai_codex_oauth.py; src/minion_agent/auth/http_transport.py;
     src/minion_agent/auth/js_json.py
   rust: 'NOT YET IMPLEMENTED -- Pass-2 Slice C Python-only per this pass''s own certification gate;

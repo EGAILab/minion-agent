@@ -633,6 +633,54 @@ async def test_http_response_discard_still_closes_owned_client_when_response_clo
     assert created[0].is_closed
 
 
+class _CancellingCloseStream(httpx.AsyncByteStream):
+    """A body stream whose `aclose()` raises `asyncio.CancelledError` (a `BaseException`, not an
+    `Exception`) -- distinct from `_RaisingCloseStream` above, which raises an ORDINARY
+    exception. Cancellation must still propagate out of `discard()`, unlike an ordinary close
+    failure, but the owned client's own close must still be attempted first."""
+
+    async def __aiter__(self) -> AsyncIterator[bytes]:
+        return
+        yield b""  # pragma: no cover -- unreachable, satisfies the generator protocol
+
+    async def aclose(self) -> None:
+        raise asyncio.CancelledError("cancel during response close")
+
+
+async def test_http_response_discard_still_closes_owned_client_when_response_close_is_cancelled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`L11-SC-R022`, third targeted re-review -- confirmed live against the exact rejected
+    candidate before this fix: two SEQUENTIAL `contextlib.suppress(Exception)` blocks correctly
+    let `asyncio.CancelledError` propagate (it is a `BaseException`, not caught by
+    `suppress(Exception)`), but doing so exited the shared close helper BEFORE the owned client's
+    own close was ever attempted, leaving it open even though the cancellation itself correctly
+    propagated. The owned-client close must run in a genuine `finally`, not a second sequential
+    block, so it is attempted EVEN WHEN the response close is itself cancelled."""
+    real_async_client = httpx.AsyncClient
+    created: list[httpx.AsyncClient] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(404, stream=_CancellingCloseStream())
+
+    def fake_async_client(*args: object, **kwargs: object) -> httpx.AsyncClient:
+        client = real_async_client(transport=httpx.MockTransport(handler))
+        created.append(client)
+        return client
+
+    monkeypatch.setattr(httpx, "AsyncClient", fake_async_client)
+    controller = RunAbortController()
+    transport = HttpxTransport()
+    response = await transport.post(
+        "https://example.test/x", headers={}, body=b"", signal=controller.signal
+    )
+    assert response.status == 404
+    with pytest.raises(asyncio.CancelledError):
+        await response.discard()
+    assert len(created) == 1
+    assert created[0].is_closed
+
+
 class _RaisingStream(httpx.AsyncByteStream):
     """A `httpx` response body stream that always fails partway through reading -- simulates a
     connection reset AFTER status/headers already arrived successfully."""

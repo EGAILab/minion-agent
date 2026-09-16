@@ -235,8 +235,17 @@ class HttpxTransport:
         # exception escape `discard()`, REPLACING the caller's own fixed Pi outcome with an
         # unrelated cleanup error -- and, since `response.aclose()` was awaited with no `finally`
         # of its own, a raising response close also skipped the owned client's own close
-        # entirely. Neither close attempt may raise past this function, and a failure in ONE must
-        # not skip the OTHER.
+        # entirely. Neither ordinary close-attempt failure may raise past this function, and a
+        # failure in ONE must not skip the OTHER.
+        #
+        # The owned-client close is attempted in a genuine `finally` (`L11-SC-R022`, third
+        # targeted re-review), not merely a second sequential `suppress` block, so it ALSO runs
+        # when `response.aclose()` itself raises `asyncio.CancelledError` -- a `BaseException`,
+        # deliberately NOT caught by `contextlib.suppress(Exception)`, so cancellation still
+        # propagates out of this function exactly as before -- confirmed live against the exact
+        # candidate before this fix: a cancelled response close exited the function before the
+        # owned client's own close was ever attempted at all, leaving it open even though the
+        # cancellation itself correctly propagated.
         closed = False
 
         async def close_resources() -> None:
@@ -244,11 +253,13 @@ class HttpxTransport:
             if closed:
                 return
             closed = True
-            with contextlib.suppress(Exception):
-                await response.aclose()
-            if owns_client:
+            try:
                 with contextlib.suppress(Exception):
-                    await client.aclose()
+                    await response.aclose()
+            finally:
+                if owns_client:
+                    with contextlib.suppress(Exception):
+                        await client.aclose()
 
         async def read_body() -> bytes:
             # Whether a body-read failure is swallowed is STATUS-DEPENDENT, matching pinned Pi

@@ -945,6 +945,48 @@ async def test_start_device_auth_404_preserved_even_when_cleanup_raises(
     assert created[0].is_closed
 
 
+class _CancellingCloseBodyStream(httpx.AsyncByteStream):
+    """A body stream whose `aclose()` raises `asyncio.CancelledError` (a `BaseException`) --
+    cancellation must still propagate, unlike an ordinary close failure, but the owned client's
+    own close must still be attempted first."""
+
+    async def __aiter__(self) -> AsyncIterator[bytes]:
+        return
+        yield b""  # pragma: no cover -- unreachable, satisfies the generator protocol
+
+    async def aclose(self) -> None:
+        raise asyncio.CancelledError("cancel during response close")
+
+
+async def test_start_device_auth_404_owned_client_closed_when_cleanup_is_cancelled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`L11-SC-R022`, third targeted re-review -- confirmed live against the exact rejected
+    candidate before this fix: two sequential exception-suppressing close attempts correctly let
+    `asyncio.CancelledError` propagate, but exited before the owned client's own close was ever
+    attempted, leaving it open even though the cancellation itself correctly propagated. The
+    owned-client close must be attempted EVEN WHEN the response close is itself cancelled."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(404, stream=_CancellingCloseBodyStream())
+
+    real_async_client = httpx.AsyncClient
+    created: list[httpx.AsyncClient] = []
+
+    def fake_async_client(*args: object, **kwargs: object) -> httpx.AsyncClient:
+        owned_client = real_async_client(transport=httpx.MockTransport(handler))
+        created.append(owned_client)
+        return owned_client
+
+    monkeypatch.setattr(httpx, "AsyncClient", fake_async_client)
+    controller = RunAbortController()
+    transport = HttpxTransport()
+    with pytest.raises(asyncio.CancelledError):
+        await _start_device_auth(transport, controller.signal)
+    assert len(created) == 1
+    assert created[0].is_closed
+
+
 async def test_start_device_auth_other_failure_status() -> None:
     controller = RunAbortController()
     transport = _FakeTransport()

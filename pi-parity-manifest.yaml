@@ -4394,8 +4394,8 @@ rows:
     non-string/empty account id; credentials_from_token: builds the credential with account_id
     under extra, raises ValueError on failure; to_auth: bearer api_key projection)'
   python: src/minion_agent/auth/openai_codex.py
-  rust: 'NOT YET IMPLEMENTED -- Pass-2 Slice A Python-only per this pass''s own certification gate;
-    Rust implementation is a separate, later handoff'
+  rust: 'minion-agent-rust/crates/minion-agent/src/auth/openai_codex.rs; unit evidence in that
+    module; integration evidence in minion-agent-rust/crates/minion-agent/tests/auth_pass2.rs'
   disposition: adopted
 - id: PROV-012
   phase: 5
@@ -5172,8 +5172,9 @@ rows:
     against live Node 22 before being committed as a fixture.'
   python: src/minion_agent/auth/openai_codex_oauth.py; src/minion_agent/auth/http_transport.py;
     src/minion_agent/auth/js_json.py
-  rust: 'NOT YET IMPLEMENTED -- Pass-2 Slice C Python-only per this pass''s own certification gate;
-    Rust implementation is a separate, later handoff'
+  rust: 'minion-agent-rust/crates/minion-agent/src/auth/openai_codex_oauth.rs,
+    http_transport.rs, and js_json.rs; unit evidence in those modules; integration evidence in
+    minion-agent-rust/crates/minion-agent/tests/auth_pass2.rs'
   disposition: adopted
 - id: PROV-013
   phase: 5
@@ -5392,8 +5393,8 @@ rows:
     assignability witness L11-SB-R002 required. Run via:
     mypy src/minion_agent tests/typing/valid_interaction_vocabulary.py)'
   python: src/minion_agent/auth/interaction.py
-  rust: 'NOT YET IMPLEMENTED -- Pass-2 Slice B Python-only per this pass''s own certification gate;
-    Rust implementation is a separate, later handoff'
+  rust: 'minion-agent-rust/crates/minion-agent/src/auth/interaction.rs; integration evidence in
+    minion-agent-rust/crates/minion-agent/tests/auth_pass2.rs'
   disposition: adopted
 - id: PROV-015
   phase: 5
@@ -5451,9 +5452,10 @@ rows:
     classes -- the `_as_base_interaction`/`_also_base_interaction` assignability witnesses prove
     property (1), the subtyping relationship this divergence was chosen to preserve, is intact)'
   python: src/minion_agent/auth/interaction.py
-  rust: 'NOT YET IMPLEMENTED -- Pass-2 Slice B Python-only per this pass''s own certification gate;
-    Rust implementation is a separate, later handoff; see this row''s own RUST note above for the
-    language-neutral contract a future Rust implementation must independently satisfy'
+  rust: 'minion-agent-rust/crates/minion-agent/src/auth/interaction.rs
+    (`ProviderAuthInteraction: AuthInteraction` with one read-only optional signal authority and a
+    guaranteed-present provider projection); integration evidence in
+    minion-agent-rust/crates/minion-agent/tests/auth_pass2.rs'
   disposition: intentional divergence
 - id: PROV-016
   phase: 5
@@ -5519,8 +5521,8 @@ rows:
     rejected -- this project''s OWN intentional divergence from Pi''s own real acceptance, not a
     Pi-compatible outcome.'
   python: src/minion_agent/auth/openai_codex_oauth.py
-  rust: 'NOT YET IMPLEMENTED -- see this row''s own RUST note above for the language-neutral
-    contract a future Rust implementation must independently satisfy'
+  rust: 'minion-agent-rust/crates/minion-agent/src/auth/openai_codex_oauth.rs
+    (`nonempty_string` at all six response-field boundaries); unit evidence in that module'
   disposition: intentional divergence
 - id: MINION-001
   phase: 1

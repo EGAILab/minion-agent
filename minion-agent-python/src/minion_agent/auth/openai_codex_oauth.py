@@ -7,6 +7,13 @@ already-certified `PROV-009`/`PROV-010` PKCE/device-poll primitives. Implements 
 flow (local callback server, manual-code racing), the device-code flow, and token exchange/refresh,
 per `spec/auth.md`'s own `PROV-012`/`PROV-016` sections -- the durable, reviewed, owner-approved
 language-neutral contract this module is answerable to.
+
+`url-py` (PyPI, MIT license, binding the same Rust `url` crate/servo a Rust implementation would
+naturally use) is the owner-approved implementation mechanism for `parse_authorization_input`'s
+own WHATWG URL parsing (`L11-SC-R011`, `GOVERNANCE_SOURCE` at
+`https://github.com/EGAILab/minion-agent/issues/29#issuecomment-5689770460`, per
+`agent-workflow.md` §11.10) -- an IMPLEMENTATION MECHANISM, never the semantic oracle; pinned Pi
+behavior, the shared contract, and executable witnesses remain authoritative.
 """
 
 from __future__ import annotations
@@ -20,6 +27,9 @@ import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from urllib.parse import parse_qs, urlencode, urlsplit
+
+from url import URL as _WhatwgURL
+from url import URLError as _WhatwgURLError
 
 from ..runtime.signal import RunAbortController
 from .credential import JsonValue, ModelAuth, OAuthCredential
@@ -50,7 +60,7 @@ from .interaction import (
     OAuthAuth,
     ProviderAuthInteraction,
 )
-from .js_json import js_json_loads, js_json_stringify
+from .js_json import js_json_loads, js_json_stringify, js_trim
 from .openai_codex import credentials_from_token
 from .openai_codex import to_auth as _codex_to_auth
 from .pkce import generate_pkce
@@ -285,6 +295,16 @@ class ParsedAuthorizationInput:
     state: str | None
 
 
+def _whatwg_query_param(pairs: list[tuple[str, str]], name: str) -> str | None:
+    """`URLSearchParams.get(name)` semantics on an already-decoded pair list: the FIRST matching
+    key wins (confirmed live against Node -- a repeated key does NOT return the last value), and
+    an absent key is `None`/`undefined`, not `""`."""
+    for key, value in pairs:
+        if key == name:
+            return value
+    return None
+
+
 def parse_authorization_input(raw_input: str) -> ParsedAuthorizationInput:
     """`parseAuthorizationInput` (`openai-codex.ts:73-101`). Tries, in order: empty/whitespace;
     absolute URL; a `"#"`-containing shape (Pi's own `split("#", 2)` semantics -- content after a
@@ -292,28 +312,34 @@ def parse_authorization_input(raw_input: str) -> ParsedAuthorizationInput:
     unlimited split on the first `"#"`); a bare `"code="`-containing query string; otherwise the
     whole trimmed input as a bare code.
 
-    "Absolute URL" is WHATWG `new URL(value)` fidelity (`L11-SC-R011` -- confirmed live against
-    Node): ANY value with a recognized scheme succeeds, including one with NO authority
-    component at all (e.g. `mailto:`, `file:` with an empty host) -- `scheme` alone is the test,
-    NOT `scheme AND netloc` (`urlsplit`'s own netloc is correctly empty for these, but they are
-    still valid absolute URLs whose `query` must be parsed the same way). `new URL(value)` can
-    also THROW for a malformed value (e.g. `http://[`, an unterminated IPv6 host) -- Pi catches
-    that and falls through to the next parsing strategy below; `urlsplit` has no such protection
-    on its own, raising an uncaught `ValueError` for the same input, so that specific failure is
-    caught here too."""
-    value = raw_input.strip()
+    "Absolute URL" is WHATWG `new URL(value)` fidelity (`L11-SC-R011`, converged after two
+    independent reviews, `GOVERNANCE_SOURCE` recorded verbatim at
+    `https://github.com/EGAILab/minion-agent/issues/29#issuecomment-5689770460`, per
+    `agent-workflow.md` §11.10): `urllib.parse.urlsplit` is not a validating WHATWG parser --
+    it has no concept of per-scheme host requirements, forbidden host code points, or numeric
+    port-range validation (confirmed live: `urlsplit("http://example.com:bad?code=x").scheme`
+    is still the truthy `"http"`, while pinned Pi's own `new URL("http://example.com:bad?...")`
+    throws on the invalid port), so no property-level patch on `urlsplit`'s own result can
+    reproduce the real WHATWG success/failure boundary. `url.URL.parse` (the `url-py` package,
+    binding the same Rust `url` crate/servo a Rust implementation would naturally use) IS a
+    conforming WHATWG URL Standard implementation, differentially confirmed live against Node
+    for every case in this module's own test battery, including every prior `L11-SC-R011`
+    discriminator across both review rounds. `url-py`/`rust-url` is an IMPLEMENTATION MECHANISM
+    here, never the semantic oracle -- pinned Pi behavior, the shared contract, and executable
+    witnesses remain authoritative; a future `url-py` release that diverges observably from
+    pinned Pi would be a bug to fix, not a parity redefinition."""
+    value = js_trim(raw_input)
     if not value:
         return ParsedAuthorizationInput(code=None, state=None)
 
     try:
-        parsed_url = urlsplit(value)
-    except ValueError:
+        parsed_url: _WhatwgURL | None = _WhatwgURL.parse(value)
+    except _WhatwgURLError:
         parsed_url = None
-    if parsed_url is not None and parsed_url.scheme:
-        query = parse_qs(parsed_url.query, keep_blank_values=True)
+    if parsed_url is not None:
         return ParsedAuthorizationInput(
-            code=_first_query_value(query, "code"),
-            state=_first_query_value(query, "state"),
+            code=_whatwg_query_param(parsed_url.query_pairs, "code"),
+            state=_whatwg_query_param(parsed_url.query_pairs, "state"),
         )
 
     if "#" in value:
@@ -463,8 +489,19 @@ def _js_number_coerce(raw: str) -> float:
     Unicode decimal digit (e.g. Arabic-Indic digit one, `U+0661`) is `NaN` in JavaScript
     (confirmed live, including mixed with an ASCII digit, e.g. `"5" + U+0661`), unlike Python's
     own Unicode-aware `\\d` regex class or `int()`/`float()` builtins, which both accept it;
-    anything else that fails to parse coerces to `NaN`."""
-    trimmed = raw.strip()
+    anything else that fails to parse coerces to `NaN`.
+
+    Trimming uses `js_trim` (ECMA-262 `String.prototype.trim`), not Python's own `str.strip()`,
+    which does not remove `U+FEFF` (`L11-SC-R012`, second independent review). A hex/octal/binary
+    literal whose magnitude overflows IEEE-754 double range (e.g. `"0x" + "f" * 1000`) coerces to
+    `Infinity` in JS (`Number`'s own silent-overflow-to-infinity behavior), NOT a raised error --
+    confirmed live this magnitude coerces to `Infinity` in Node, while Python's own
+    `float(int(huge_hex_string, 16))` raises an uncaught `OverflowError` (arbitrary-precision
+    `int` conversion has no silent-overflow behavior of its own), which is caught here and mapped
+    to the same `Infinity` result (the caller's own pre-existing finite-value guard already
+    rejects `Infinity` as it would any other non-finite value; this fix only prevents the crash
+    that guard could otherwise never reach)."""
+    trimmed = js_trim(raw)
     if trimmed == "":
         return 0.0
     if trimmed in ("Infinity", "+Infinity"):
@@ -473,7 +510,10 @@ def _js_number_coerce(raw: str) -> float:
         return float("-inf")
     for pattern, base in ((_HEX_LITERAL, 16), (_OCTAL_LITERAL, 8), (_BINARY_LITERAL, 2)):
         if pattern.match(trimmed):
-            return float(int(trimmed[2:], base))
+            try:
+                return float(int(trimmed[2:], base))
+            except OverflowError:
+                return float("inf")
     if _DECIMAL_LITERAL.match(trimmed):
         return float(trimmed)
     return float("nan")

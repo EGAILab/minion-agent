@@ -1,15 +1,22 @@
 """ECMAScript `JSON.stringify`/`JSON.parse`-faithful conversion between a parsed JSON value and
 its own text form (`PROV-012`'s own `L11-SC-R010`/`L11-SC-R013` contract, `spec/auth.md`'s own
-"Exact error-message JSON rendering" section).
+"Exact error-message JSON rendering" section), plus `js_trim` (ECMA-262 `String.prototype.trim`
+fidelity, shared by every call site that trims a string before an ECMAScript numeric/URL
+coercion).
 
-`JSON.stringify`/`JSON.parse` themselves are the complete normative authority; this module is a
-dedicated renderer/parser built to the exact, independently-verified rules those sections state --
-string escaping (including the unpaired-surrogate exception), negative-zero collapse,
-`Number::toString`'s own fixed-vs-exponential notation threshold, array-index-like property
-reordering, and (for parsing) rejection of the bare `NaN`/`Infinity`/`-Infinity` extension tokens
-Python's own `json.loads` accepts by default but JS's own `JSON.parse` does not. Neither direction
-is a `json.dumps`/`json.loads` call with adjusted options; no combination of their own parameters
-reproduces either algorithm.
+`JSON.stringify`/`JSON.parse` themselves are the complete normative authority for both
+directions below, but the two are NOT symmetric in implementation mechanics (`L11-SC-R021` --
+this distinction was previously stated too broadly, contradicting the parser's own actual
+code): `js_json_stringify` genuinely is a dedicated renderer built to the exact,
+independently-verified rendering rules those sections state -- string escaping (including the
+unpaired-surrogate exception), negative-zero collapse, `Number::toString`'s own
+fixed-vs-exponential notation threshold, and array-index-like property reordering. No
+combination of `json.dumps`'s own parameters reproduces that algorithm. `js_json_loads`, by
+contrast, deliberately REUSES Python's own standard `json.loads` parser -- ordinary JSON syntax
+parsing is not something this project reimplements -- with exactly two semantic hooks applied on
+top: rejecting the bare `NaN`/`Infinity`/`-Infinity` extension tokens Python's own `json.loads`
+accepts by default but JS's own `JSON.parse` does not, and coercing every number through
+IEEE-754 double representation via `parse_int=float`.
 """
 
 from __future__ import annotations
@@ -31,6 +38,54 @@ _NAMED_ESCAPES = {
 }
 _MAX_ARRAY_INDEX = 2**32 - 2
 _MAX_ARRAY_INDEX_DIGITS = len(str(_MAX_ARRAY_INDEX))
+
+_JS_WHITESPACE = frozenset(
+    {
+        0x0009,  # <TAB>
+        0x000B,  # <VT>
+        0x000C,  # <FF>
+        0x0020,  # <SP>
+        0x00A0,  # <NBSP>
+        0xFEFF,  # <ZWNBSP> (byte-order mark)
+        0x000A,  # <LF>
+        0x000D,  # <CR>
+        0x2028,  # <LS>
+        0x2029,  # <PS>
+        # <USP>: every other Unicode code point with General_Category Space_Separator (Zs).
+        0x1680,
+        0x2000,
+        0x2001,
+        0x2002,
+        0x2003,
+        0x2004,
+        0x2005,
+        0x2006,
+        0x2007,
+        0x2008,
+        0x2009,
+        0x200A,
+        0x202F,
+        0x205F,
+        0x3000,
+    }
+)
+
+
+def js_trim(value: str) -> str:
+    """ECMA-262 `String.prototype.trim`: strip leading/trailing `WhiteSpace`/`LineTerminator`
+    characters (the exact fixed code-point set above), NOT Python's own `str.strip()` -- confirmed
+    live against Node (`L11-SC-R012`, second independent review): `str.strip()` does not remove
+    `U+FEFF` (the byte-order mark), which JS's own `trim()` does, so a BOM-prefixed numeric string
+    that should coerce to a finite number instead coerces to `NaN` under a naive `str.strip()`.
+    Shared by every call site that trims a string before an ECMAScript numeric/URL coercion
+    (`_js_number_coerce`, `parse_authorization_input`) rather than duplicated per call site."""
+    start = 0
+    end = len(value)
+    while start < end and ord(value[start]) in _JS_WHITESPACE:
+        start += 1
+    while end > start and ord(value[end - 1]) in _JS_WHITESPACE:
+        end -= 1
+    return value[start:end]
 
 
 def _escape_char(codepoint: int) -> str:

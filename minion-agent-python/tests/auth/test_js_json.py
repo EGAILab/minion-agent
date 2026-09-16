@@ -14,7 +14,7 @@ import math
 import pytest
 
 from minion_agent.auth.credential import JsonValue
-from minion_agent.auth.js_json import js_json_loads, js_json_stringify
+from minion_agent.auth.js_json import js_json_loads, js_json_stringify, js_trim
 
 
 def test_null_true_false() -> None:
@@ -194,3 +194,56 @@ def test_js_json_loads_coerces_integers_through_ieee754_double() -> None:
     neg_zero = result["neg_zero"]
     assert isinstance(neg_zero, float)
     assert math.copysign(1.0, neg_zero) == -1.0
+
+
+# --- js_trim (`L11-SC-R012`, second independent review) ---------------------------------------
+
+
+def test_js_trim_strips_every_ecma_whitespace_and_line_terminator_codepoint() -> None:
+    """Every code point in ECMA-262's own `WhiteSpace`/`LineTerminator` productions, confirmed
+    live against Node's `String.prototype.trim` -- including `U+FEFF` (the byte-order mark),
+    which Python's own `str.strip()` does not remove."""
+    codepoints = [
+        0x09,
+        0x0B,
+        0x0C,
+        0x20,
+        0xA0,
+        0xFEFF,
+        0x0A,
+        0x0D,
+        0x2028,
+        0x2029,
+        0x1680,
+        0x2000,
+        0x2001,
+        0x2002,
+        0x2003,
+        0x2004,
+        0x2005,
+        0x2006,
+        0x2007,
+        0x2008,
+        0x2009,
+        0x200A,
+        0x202F,
+        0x205F,
+        0x3000,
+    ]
+    for cp in codepoints:
+        ch = chr(cp)
+        assert js_trim(ch + "1" + ch) == "1"
+
+
+def test_js_trim_does_not_strip_non_whitespace_unicode_format_characters() -> None:
+    """Negative control, confirmed live against Node: zero-width space (`U+200B`), soft hyphen
+    (`U+00AD`), and word joiner (`U+2060`) are NOT ECMA-262 whitespace and must be preserved."""
+    for cp in (0x200B, 0x00AD, 0x2060):
+        ch = chr(cp)
+        value = ch + "1"
+        assert js_trim(value) == value
+
+
+def test_js_trim_empty_and_all_whitespace() -> None:
+    assert js_trim("") == ""
+    assert js_trim("   ") == ""

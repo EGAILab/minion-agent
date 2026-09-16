@@ -327,34 +327,63 @@ async def test_httpx_transport_response_carries_the_real_reason_phrase() -> None
         await client.aclose()
 
 
-async def test_httpx_transport_translates_a_body_read_failure_into_an_empty_body() -> None:
-    """`L11-SC-R018` -- confirmed live: a body-read failure AFTER status/headers already
+class _RaisingStream(httpx.AsyncByteStream):
+    """A `httpx` response body stream that always fails partway through reading -- simulates a
+    connection reset AFTER status/headers already arrived successfully."""
+
+    async def __aiter__(self) -> AsyncIterator[bytes]:
+        raise httpx.ReadError("simulated body read failure")
+        yield b""  # pragma: no cover -- unreachable, satisfies the generator protocol
+
+    async def aclose(self) -> None:
+        pass
+
+
+async def test_httpx_transport_propagates_a_2xx_body_read_failure() -> None:
+    """`L11-SC-R018` -- confirmed live against pinned Pi (`readTokenResponse`,
+    `startOpenAICodexDeviceAuth`, `pollOpenAICodexDeviceAuth`'s own `poll()`): every 2xx branch
+    reads the body via `.json()` with NO catch at all, so a body-read failure there is an
+    UNCAUGHT rejection that propagates through the existing call-site boundary. The first
+    remediation over-corrected by swallowing this into an empty body regardless of status,
+    which the second independent review caught as its own refined finding: a status-200
+    response whose body then fails to read must still raise, not fabricate an empty-body
+    success."""
+
+    def handler_200_body_read_failure(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, stream=_RaisingStream())
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler_200_body_read_failure))
+    controller = RunAbortController()
+    transport = HttpxTransport(client=client)
+    try:
+        with pytest.raises(httpx.ReadError, match="simulated body read failure"):
+            await transport.post(
+                "https://example.test/x", headers={}, body=b"", signal=controller.signal
+            )
+    finally:
+        await client.aclose()
+
+
+async def test_httpx_transport_translates_a_non_2xx_body_read_failure_into_an_empty_body() -> None:
+    """`L11-SC-R018` -- confirmed live: a body-read failure AFTER a non-2xx status already
     arrived successfully (e.g. a connection reset mid-body) comes back as a normal
     `HttpResponse` with an empty body and the real status/reason phrase intact, matching pinned
-    Pi's own `readTokenResponse`, which already collapses this and a genuinely empty body
+    Pi's own non-2xx branches, which already collapse this and a genuinely empty body
     identically via `text().catch(() => "")` -- NOT an opaque request-level exception, which a
     single buffered response-construction call cannot avoid raising for both cases alike."""
 
-    class _RaisingStream(httpx.AsyncByteStream):
-        async def __aiter__(self) -> AsyncIterator[bytes]:
-            raise httpx.ReadError("simulated body read failure")
-            yield b""  # pragma: no cover -- unreachable, satisfies the generator protocol
+    def handler_401_body_read_failure(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(401, stream=_RaisingStream())
 
-        async def aclose(self) -> None:
-            pass
-
-    def handler_body_read_failure(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(200, stream=_RaisingStream())
-
-    client = httpx.AsyncClient(transport=httpx.MockTransport(handler_body_read_failure))
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler_401_body_read_failure))
     controller = RunAbortController()
     transport = HttpxTransport(client=client)
     try:
         response = await transport.post(
             "https://example.test/x", headers={}, body=b"", signal=controller.signal
         )
-        assert response.status == 200
-        assert response.reason_phrase == "OK"
+        assert response.status == 401
+        assert response.reason_phrase == "Unauthorized"
         assert response.body == b""
     finally:
         await client.aclose()

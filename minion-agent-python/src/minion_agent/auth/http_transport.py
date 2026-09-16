@@ -138,21 +138,36 @@ class HttpxTransport:
             client = httpx.AsyncClient(timeout=None, follow_redirects=True)
 
         async def do_request() -> HttpResponse:
-            # Two-phase send (`L11-SC-R018`): `stream=True` returns as soon as status/headers
-            # arrive, BEFORE the body is read, so a body-read failure (e.g. a connection reset
-            # mid-body) can be caught SEPARATELY from a request-level failure (which still
-            # propagates unchanged, matching pinned Pi's own initial `fetch()` promise
-            # rejecting) -- a single buffered `client.post()` call cannot distinguish the two,
-            # since it raises for both identically, before a `HttpResponse` ever exists.
+            # Two-phase send (`L11-SC-R018`, converged after two independent reviews):
+            # `stream=True` returns as soon as status/headers arrive, BEFORE the body is read,
+            # so a body-read failure (e.g. a connection reset mid-body) can be caught SEPARATELY
+            # from a request-level failure (which still propagates unchanged, matching pinned
+            # Pi's own initial `fetch()` promise rejecting) -- a single buffered `client.post()`
+            # call cannot distinguish the two, since it raises for both identically, before a
+            # `HttpResponse` ever exists.
+            #
+            # Whether a body-read failure is then swallowed is STATUS-DEPENDENT, matching pinned
+            # Pi exactly (`openai-codex.ts` -- `readTokenResponse`, `startOpenAICodexDeviceAuth`,
+            # and `pollOpenAICodexDeviceAuth`'s own `poll()` all follow the identical pattern):
+            # every non-2xx (`!response.ok`) branch reads the body via `.text().catch(() => "")`
+            # (a body-read failure there becomes an empty string, never an exception); every 2xx
+            # branch reads the body via `.json()` with NO catch at all (a body-read failure there
+            # is an uncaught promise rejection that propagates through the existing call-site
+            # boundary). The second review's own refined witness confirmed the FIRST remediation
+            # over-corrected by swallowing every status alike -- catching only for a non-2xx
+            # status here reproduces the real, status-sensitive boundary instead.
             request = client.build_request("POST", url, headers=dict(headers), content=body)
             response = await client.send(request, stream=True)
+            is_success_status = 200 <= response.status_code < 300
             try:
                 await response.aread()
                 response_body = response.content
             except httpx.HTTPError:
-                # Matches pinned Pi's own `readTokenResponse`, which already collapses a
-                # body-read failure and a genuinely empty body identically via
-                # `text().catch(() => "")` -- `reason_phrase` (below) is the real fallback.
+                if is_success_status:
+                    raise
+                # Matches pinned Pi's own non-2xx branches, which already collapse a body-read
+                # failure and a genuinely empty body identically via `text().catch(() => "")` --
+                # `reason_phrase` (below) is the real fallback for that case.
                 response_body = b""
             finally:
                 await response.aclose()

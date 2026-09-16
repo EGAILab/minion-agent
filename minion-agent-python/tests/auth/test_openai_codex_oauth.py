@@ -216,12 +216,36 @@ def test_parse_authorization_input_absolute_url_with_no_authority() -> None:
 def test_parse_authorization_input_malformed_url_falls_through() -> None:
     """`L11-SC-R011` -- confirmed live against Node: `new URL(value)` can THROW for a malformed
     value (an unterminated IPv6 host), and Pi catches that and falls through to the next parsing
-    strategy rather than letting the exception escape. `urlsplit` raises an uncaught `ValueError`
-    for the identical input on its own; this must be caught and treated the same way, not
-    propagate past this function."""
+    strategy rather than letting the exception escape."""
     result = parse_authorization_input("http://[")
     assert result.code == "http://["
     assert result.state is None
+
+
+def test_parse_authorization_input_invalid_port_falls_through() -> None:
+    """`L11-SC-R011`, second independent review, refined witness -- confirmed live against Node:
+    `urllib.parse.urlsplit` is not a validating WHATWG parser, so a property-level check on its
+    own result (e.g. a truthy `.scheme`) cannot distinguish this case: `urlsplit`'s own `.scheme`
+    for this input is still the truthy `"http"`, while pinned Pi's own `new URL(...)` THROWS on
+    the invalid, non-numeric port, falling through to the bare-query-string strategy -- which
+    parses the WHOLE original string as one `URLSearchParams`, producing a single giant first key
+    (everything up through `?code`) rather than a real `code` parameter, confirmed live: Node's
+    own ground truth for this exact input is `code=undefined, state="s"`, matching this
+    assertion (`url-py`'s conforming WHATWG implementation reproduces the same throw/fallthrough
+    boundary `urlsplit` could not)."""
+    result = parse_authorization_input("http://example.com:bad?code=x&state=s")
+    assert result.code is None
+    assert result.state == "s"
+
+
+def test_parse_authorization_input_invalid_host_character_falls_through() -> None:
+    """`L11-SC-R011`, second independent review, refined witness companion case -- confirmed live
+    against Node: a literal `%` that does not form a valid percent-encoding is an invalid IDNA
+    domain character for a special scheme's host, so `new URL(...)` throws and Pi falls through
+    to the same whole-string `URLSearchParams` strategy as the invalid-port case above."""
+    result = parse_authorization_input("http://%?code=x&state=s")
+    assert result.code is None
+    assert result.state == "s"
 
 
 def test_parse_authorization_input_hash_split_discards_content_after_second_hash() -> None:
@@ -269,6 +293,28 @@ def test_js_number_coerce_hex_octal_binary_prefixes() -> None:
     assert _js_number_coerce("0x1A") == 26.0
     assert _js_number_coerce("0o17") == 15.0
     assert _js_number_coerce("0b101") == 5.0
+
+
+def test_js_number_coerce_trims_byte_order_mark() -> None:
+    """`L11-SC-R012`, second independent review, refined witness -- confirmed live against Node:
+    `String.prototype.trim` removes `U+FEFF` (the byte-order mark), which Python's own
+    `str.strip()` does not, so a BOM-prefixed numeric string must still coerce to the finite
+    number, not `NaN`."""
+    bom = chr(0xFEFF)
+    assert _js_number_coerce(bom + "1") == 1.0
+    assert _js_number_coerce("1" + bom) == 1.0
+    assert _js_number_coerce(bom + "1" + bom) == 1.0
+
+
+def test_js_number_coerce_overflowing_non_decimal_literal_is_infinity() -> None:
+    """`L11-SC-R012`, second independent review, refined witness -- confirmed live against Node:
+    a hex/octal/binary literal whose magnitude overflows IEEE-754 double range coerces to
+    `Infinity` (JS's own silent-overflow behavior), not a raised error. Python's own
+    `float(int(huge_hex_string, 16))` raises an uncaught `OverflowError` for this magnitude,
+    which must be caught and mapped to the same `Infinity` result the caller's own pre-existing
+    finite-value guard already knows how to reject."""
+    result = _js_number_coerce("0x" + "f" * 1000)
+    assert result == float("inf")
 
 
 def test_js_number_coerce_signed_non_decimal_prefix_is_nan() -> None:

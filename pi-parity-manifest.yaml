@@ -4686,37 +4686,126 @@ rows:
     `src/minion_agent/auth/js_json.py` (the dedicated ECMAScript-`JSON.stringify`-faithful renderer
     `PROV-016`''s own error messages require). `httpx>=0.27` added as a project dependency, matching
     the owner''s own approval. Every discriminating case named across `L11-SC-R001` through `R010`
-    and this row''s own closure criterion has a permanent regression witness -- see `tests:` below.'
+    and this row''s own closure criterion has a permanent regression witness -- see `tests:` below.
+
+    IMPLEMENTATION REMEDIATION (`L11-SC-R011` through `R020`, independent Rust review of the above
+    implementation candidate, all ten independently re-verified live against Node/Pi before fixing):
+    seven findings closed directly (`L11-SC-R013` invalid-JSON-constant rejection via a new shared
+    `js_json_loads`; `L11-SC-R014` ASCII-only, non-throwing array-index classification;
+    `L11-SC-R015` pre-abort-before-scheduling in `run_cancellable`; `L11-SC-R016`/`R017` the
+    production-owned `httpx.AsyncClient`''s own `timeout=None`/`follow_redirects=True`;
+    `L11-SC-R019` a durable `GOVERNANCE_SOURCE` comment recorded for the `PROV-010` signal-widening
+    decision, corrected from a prior uncited assertion; `L11-SC-R020` stale package documentation
+    and a `L11-SB-R009`-vs-`L11-SC-R009` finding-reference typo, both fixed). Three findings
+    (`L11-SC-R011`, `L11-SC-R012`, `L11-SC-R018`) were only PARTIALLY closed by this pass and
+    survived to a second independent review with refined witnesses -- see CONVERGENCE below.
+
+    CONVERGENCE (`agent-workflow.md` §11.8, triggered automatically: `L11-SC-R011`, `L11-SC-R012`,
+    and `L11-SC-R018` each survived two independent reviews with refined, not merely repeated,
+    witnesses):
+
+    - `L11-SC-R011` (`PI_PARITY_DEFECT`, converged): the `urlsplit`-scheme-truthy proxy for WHATWG
+      `new URL(value)` remained an approximation -- `urlsplit` has no port-range or host-character
+      validation at all (confirmed live: `urlsplit("http://example.com:bad?code=x&state=s").scheme`
+      is still the truthy `"http"`, while pinned Pi''s own `new URL(...)` throws on the invalid,
+      non-numeric port and falls through to the whole-string `URLSearchParams` fallback, whose own
+      ground truth for this exact input is `code=undefined, state="s"`, confirmed live against
+      Node). No further property-level patch on `urlsplit`''s own result can reproduce the real
+      WHATWG success/failure boundary. Resolved via owner governance (`GOVERNANCE_SOURCE` recorded
+      verbatim at
+      `https://github.com/EGAILab/minion-agent/issues/29#issuecomment-5689770460`, per
+      `agent-workflow.md` §11.10): `url-py` (PyPI, MIT, binding the same Rust `url`
+      crate/servo a Rust implementation would naturally use) is now the implementation mechanism
+      for `parse_authorization_input`''s own WHATWG-URL probe, replacing the `urlsplit`-based proxy
+      entirely -- differentially confirmed live against Node for every case in this row''s own test
+      battery across both review rounds. `url-py`/`rust-url` is an IMPLEMENTATION MECHANISM, never
+      the semantic oracle: pinned Pi behavior, the shared contract, and executable witnesses remain
+      authoritative, per the owner''s own explicit "IMPORTANT AUTHORITY RULE."
+    - `L11-SC-R012` (`PI_PARITY_DEFECT`, converged): the hand-written coercion grammar''s own
+      trimming and overflow handling remained incomplete. Confirmed live against Node:
+      `String.prototype.trim` removes `U+FEFF` (the byte-order mark), which Python''s own
+      `str.strip()` does not, so a BOM-prefixed numeric string incorrectly coerced to `NaN`; a
+      hex/octal/binary literal whose magnitude overflows IEEE-754 double range (e.g. `"0x" + "f" *
+      1000`) coerces to `Infinity` in JS (silent overflow), while Python''s own
+      `float(int(huge_hex_string, 16))` raised an uncaught `OverflowError` the caller''s own
+      pre-existing finite-value guard could never reach. Fixed: a new shared `js_trim` helper
+      (`js_json.py`, the exact ECMA-262 `WhiteSpace`/`LineTerminator` code-point set, confirmed
+      live against every listed code point plus negative controls for non-whitespace Unicode
+      format characters) replaces `str.strip()` at BOTH call sites that trim before an ECMAScript
+      coercion (`_js_number_coerce` AND `parse_authorization_input`, which shares the identical
+      `.trim()` primitive in pinned Pi and was fixed for consistency even though the second review
+      did not separately flag it there); the hex/octal/binary conversion now catches `OverflowError`
+      and returns `math.inf`, matching JS''s own silent-overflow-to-`Infinity` behavior.
+    - `L11-SC-R018` (`PI_PARITY_DEFECT`, converged): the first remediation''s two-phase
+      `stream=True` fix over-corrected by catching EVERY body-read failure uniformly regardless of
+      status, converting a 2xx body-read failure into a fabricated empty-body success. Pinned Pi''s
+      own `readTokenResponse`/`startOpenAICodexDeviceAuth`/`pollOpenAICodexDeviceAuth`-`poll()` all
+      follow the IDENTICAL status-dependent pattern: every non-2xx branch reads the body via
+      `.text().catch(() => "")` (a body-read failure there becomes an empty string); every 2xx
+      branch reads the body via `.json()` with NO catch at all (a body-read failure there is an
+      UNCAUGHT rejection propagating through the existing call-site boundary). Fixed:
+      `HttpxTransport.post`''s own `do_request` now catches a body-read failure ONLY when the
+      response status is non-2xx, re-raising unchanged for a 2xx status -- confirmed live for both
+      branches via a scripted `httpx.MockTransport` response whose body stream always fails.
+
+    Every refined witness from both independent reviews (the invalid-port/invalid-host fallthrough
+    pair, the BOM-trim and overflow cases, and the status-conditioned body-read-failure pair) has a
+    permanent regression test -- see `tests:` below.
+
+    `L11-SC-R021` (`CONTRACT_ASSURANCE_DEFECT`, new finding, same review): `js_json.py`''s own
+    module docstring overclaimed that NEITHER `JSON.stringify` NOR `JSON.parse` fidelity is a
+    stdlib call with adjusted options, contradicting `js_json_loads`''s own actual body (a plain
+    `json.loads(text, parse_int=float, parse_constant=...)` call). Fixed: the docstring now states
+    accurately that `js_json_stringify` genuinely is a dedicated renderer, while `js_json_loads`
+    deliberately reuses Python''s own standard `json.loads` parser with exactly two semantic hooks
+    layered on top -- no production behavior change, documentation only.
+
+    `url-py>=2026.5.1` added as a project dependency (MIT license; ships a `py.typed` marker and
+    `.pyi` stubs; prebuilt wheels confirmed available for this project''s own target platform;
+    `PyPI` classifies it "Development Status :: 3 - Alpha" -- a known, owner-accepted maturity
+    caveat, not a masked risk). Its own types never cross this row''s shared contract boundary,
+    matching the existing `httpx` constraint.'
   tests:
-  - 'tests/auth/test_openai_codex_oauth.py (60 tests) -- `parse_authorization_input`''s three input
-    shapes including the JS `split(#,2)` fidelity trap; `_js_number_coerce`''s own empty/hex/octal/
-    binary/Infinity/garbage cases; the authorization URL''s own exact param order and `originator=pi`;
-    the local callback server''s own real ephemeral-port behavior (404 wrong path, 400 state
-    mismatch, 400 absent AND empty code distinguished, the shared `Content-Type` header, `500`
-    containment on an internal exception, silent bind-failure fallback) via REAL local TCP
+  - 'tests/auth/test_openai_codex_oauth.py (77 tests) -- `parse_authorization_input`''s three input
+    shapes including the JS `split(#,2)` fidelity trap AND the WHATWG-URL invalid-port/
+    invalid-host-character fallthrough pair (`L11-SC-R011`, converged); `_js_number_coerce`''s own
+    empty/hex/octal/binary/Infinity/garbage/signed-non-decimal/Unicode-digit/BOM-trim/overflow
+    cases (`L11-SC-R012`, converged); the authorization URL''s own exact param order and
+    `originator=pi`; the local callback server''s own real ephemeral-port behavior (404 wrong path,
+    400 state mismatch, 400 absent AND empty code distinguished, the shared `Content-Type` header,
+    `500` containment on an internal exception, silent bind-failure fallback) via REAL local TCP
     connections, never a live/production port; the full browser-flow race (`L11-SC-R002`''s five
     outcomes including the empty-manual-cancels-server case and the two second-check fallback
     branches, `L11-SC-R009`''s pre-aborted-at-entry ordering, `L11-SC-R001`''s notify-failure-skips-
     cleanup boundary proven by a subsequent same-port bind failure); the device-code flow (start/
     poll success, 404-not-enabled, `PROV-016`''s own truthy-non-string rejection, the poll-outcome
     mapping''s every branch including the object-shaped `{code: ...}` error field and the
-    unparseable-vs-swallowed error-body distinction, timeout); token exchange/refresh (success,
-    non-2xx with/without body, missing-fields with EXACT `js_json_stringify` rendering, the
-    `L11-SC-R004` cancellation-translation asymmetry); login-method dispatch including the exact
-    unknown-method message; the `OAuthAuth` composite''s own shape and `to_auth` delegation to the
-    already-adopted `PROV-011`.'
-  - 'tests/auth/test_http_transport.py (13 tests) -- `run_cancellable`''s own success/exception-
+    unparseable-vs-swallowed error-body distinction, timeout, `L11-SC-R013`''s invalid-JSON-constant
+    rejection); token exchange/refresh (success, non-2xx with/without body, missing-fields with
+    EXACT `js_json_stringify` rendering, the `L11-SC-R004` cancellation-translation asymmetry,
+    `L11-SC-R013`''s invalid-JSON-constant rejection, `L11-SC-R018`''s real-reason-phrase fallback);
+    login-method dispatch including the exact unknown-method message; the `OAuthAuth` composite''s
+    own shape and `to_auth` delegation to the already-adopted `PROV-011`.'
+  - 'tests/auth/test_http_transport.py (19 tests) -- `run_cancellable`''s own success/exception-
     propagation/cancellation/inner-task-cleanup paths (including the outer-await-cancelled safety
-    net); `fetch_with_login_cancellation`''s own post-hoc signal-aborted check; `refresh_fetch`''s
-    own uniform, non-translating wrapping; `HttpxTransport` exercised via `httpx.MockTransport`
-    (httpx''s own official no-network testing seam) for both an injected and a self-constructed
-    client, never a live socket.'
-  - 'tests/auth/test_js_json.py (16 tests) -- every rule `L11-SC-R010`''s three review rounds
+    net AND `L11-SC-R015`''s pre-aborted-signal-never-starts-the-operation witness, distinguished
+    from the mid-flight-abort case); `fetch_with_login_cancellation`''s own post-hoc signal-aborted
+    check; `refresh_fetch`''s own uniform, non-translating wrapping; `HttpxTransport` exercised via
+    `httpx.MockTransport` (httpx''s own official no-network testing seam) for both an injected and a
+    self-constructed client, never a live socket, including `L11-SC-R016`''s no-implicit-timeout-cap
+    witness, `L11-SC-R017`''s redirect-following witness, `L11-SC-R018`''s real-reason-phrase witness
+    AND its converged status-conditioned body-read-failure pair (2xx propagates, non-2xx swallows to
+    empty body).'
+  - 'tests/auth/test_js_json.py (30 tests) -- every rule `L11-SC-R010`''s three review rounds
     established: `null`/array/object rendering, negative-zero collapse, both notation-threshold
     boundaries, non-ASCII pass-through for a properly-paired astral character, the unpaired-
     surrogate escape exception, named vs. generic control-character escapes, and array-index-like
-    property reordering including the exact `2**32-2` boundary -- every value independently
-    cross-checked against live Node 22 before being committed as a fixture.'
+    property reordering including the exact `2**32-2` boundary AND `L11-SC-R014`''s Unicode-digit-
+    key non-reordering plus very-long-digit-key non-throwing witnesses; `js_json_loads`''s own
+    `L11-SC-R013` invalid-constant rejection (bare and embedded) and IEEE-754-double coercion; the
+    shared `js_trim` helper''s own `L11-SC-R012` exact ECMA-262 whitespace/line-terminator code-point
+    set, confirmed against every listed code point plus negative controls -- every value
+    independently cross-checked against live Node 22 before being committed as a fixture.'
   python: src/minion_agent/auth/openai_codex_oauth.py; src/minion_agent/auth/http_transport.py;
     src/minion_agent/auth/js_json.py
   rust: 'NOT YET IMPLEMENTED -- Pass-2 Slice C Python-only per this pass''s own certification gate;

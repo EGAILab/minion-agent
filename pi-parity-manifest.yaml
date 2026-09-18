@@ -436,17 +436,26 @@ rows:
     that provider''s own adapter-construction concern, not a Layer-10 `Adapter` protocol method.
 
     Closure criterion (convergence `C10-C001`, binding on whichever future pass closes this row):
-    the obligation Layer 11 owes is an EXTERNALLY INVOCABLE operation matching Pi''s own
+    the obligation owed is an EXTERNALLY INVOCABLE operation matching Pi''s own
     `streamSimple(model, context, options) -> AssistantMessageEventStream` shape (the exact
     language-specific shape may differ) -- NOT merely internal per-provider option-translation
     plumbing with no caller-facing entry point. A future revision marked "complete" by building some
     internal translation helper without ever exposing a callable would NOT satisfy this row; it must
-    be re-opened, not silently accepted.'
+    be re-opened, not silently accepted.
+
+    Deferred ownership (process cleanup, `agent-workflow.md` §11.13): this row is owned by the
+    deferred work package `WP-11.D2` (Provider Streaming Extensions), `STATUS: WAITING_FOR_TRIGGER`,
+    tracked at coordination issue #35''s own umbrella (Layer 11 deferred work). This is a
+    coordination/traceability correction only -- Layer 11''s own Pass 1/Pass 2 work packages
+    (`WP-11.1`-`WP-11.4`) are independently CLOSED; this row was never one of them, and remains
+    exactly as deferred as before. See `WP-11.D2`''s own trigger below.'
   tests:
-  - future Layer 11 conformance evidence (none yet -- this row is deferred parity, not adopted; no
-    fabricated evidence is cited for an operation with no Layer-10 surface to test)
-  python: 'NOT YET IMPLEMENTED -- deferred to Layer 11 (PROV-###), see closure criterion above'
-  rust: 'NOT YET IMPLEMENTED -- deferred to Layer 11 (PROV-###)'
+  - 'no conformance evidence yet -- this row is deferred parity, not adopted, `WAITING_FOR_TRIGGER`
+    under `WP-11.D2`; no fabricated evidence is cited for an operation with no Layer-10 surface to
+    test'
+  python: 'NOT YET IMPLEMENTED -- deferred, `WP-11.D2` (`WAITING_FOR_TRIGGER`), see closure
+    criterion above'
+  rust: 'NOT YET IMPLEMENTED -- deferred, `WP-11.D2` (`WAITING_FOR_TRIGGER`)'
   disposition: deferred parity
 - id: AI-032
   phase: 2
@@ -466,8 +475,8 @@ rows:
     `fetchDeferred`/`cancelDeferred` are Pi-required-when-present, capability-gated, per-wire-
     protocol-module operations -- the SAME status class as `streamSimple` (`AI-031`): nothing
     generic to specify at Layer 10''s own provider-agnostic abstraction level until a real provider
-    (Layer 11) exists to implement one. Pinned Pi keeps FOUR distinct observable layers separate,
-    and a future Layer-11 implementation must preserve all four, not collapse them:
+    exists to implement one. Pinned Pi keeps FOUR distinct observable layers separate, and whichever
+    pass eventually closes this row must preserve all four, not collapse them:
 
     1. Low-level, per-API-module (`types.ts::ProviderStreams.fetchDeferred?`/`cancelDeferred?`):
     `fetchDeferred`, when present, returns a NEW `AssistantMessageEventStream` (the SAME
@@ -508,21 +517,32 @@ rows:
     `cancel_deferred` method anywhere (`Adapter`/`LlmService`), and this row does not propose adding
     speculative plumbing for an operation with no Layer-11 provider to exercise it.
 
-    Closure criterion (binding on whichever future pass closes this row): a future Layer-11
-    implementation must expose an externally invocable operation preserving ALL FOUR distinctions
-    above -- it must NOT make `cancel_deferred` globally never-raising (collapsing (2) into (1)''s
-    shape), and it must NOT make `fetch_deferred` throw eagerly on a missing/unsupported capability
-    (collapsing (2) into (3)''s cancel-side behavior). Executable provider witnesses remain deferred
-    to Layer 11 (Layer 10 has no concrete wire-protocol implementation to test against); this row
-    commits only to the observable closure criteria stated here. A future revision marked "complete"
-    by building some internal translation helper without ever exposing a callable, or by satisfying
-    only some of the four layers, would NOT satisfy this row; it must be re-opened, not silently
-    accepted.'
+    Closure criterion (binding on whichever future pass closes this row): the closing pass must
+    expose an externally invocable operation preserving ALL FOUR distinctions above -- it must NOT
+    make `cancel_deferred` globally never-raising (collapsing (2) into (1)''s shape), and it must
+    NOT make `fetch_deferred` throw eagerly on a missing/unsupported capability (collapsing (2) into
+    (3)''s cancel-side behavior). Executable provider witnesses remain deferred until that pass
+    (Layer 10 has no concrete wire-protocol implementation to test against); this row commits only
+    to the observable closure criteria stated here. A future revision marked "complete" by building
+    some internal translation helper without ever exposing a callable, or by satisfying only some of
+    the four layers, would NOT satisfy this row; it must be re-opened, not silently accepted.
+
+    Deferred ownership (process cleanup, `agent-workflow.md` §11.13): this row is owned by the
+    deferred work package `WP-11.D2` (Provider Streaming Extensions), `STATUS: WAITING_FOR_TRIGGER`,
+    tracked at coordination issue #35''s own umbrella (Layer 11 deferred work), the same work
+    package as `AI-031` -- both rows share the identical trigger (a real provider adapter capable
+    of exposing one or both capabilities), differing only in which specific capability a given
+    future provider adapter exposes. This is a coordination/traceability correction only -- Layer
+    11''s own Pass 1/Pass 2 work packages (`WP-11.1`-`WP-11.4`) are independently CLOSED; this row
+    was never one of them, and remains exactly as deferred as before. See `WP-11.D2`''s own trigger
+    below.'
   tests:
-  - future Layer 11 conformance evidence (none yet -- this row is deferred parity, not adopted; no
-    fabricated evidence is cited for an operation with no Layer-10 surface to test)
-  python: 'NOT YET IMPLEMENTED -- deferred to Layer 11 (PROV-###), see closure criterion above'
-  rust: 'NOT YET IMPLEMENTED -- deferred to Layer 11 (PROV-###)'
+  - 'no conformance evidence yet -- this row is deferred parity, not adopted, `WAITING_FOR_TRIGGER`
+    under `WP-11.D2`; no fabricated evidence is cited for an operation with no Layer-10 surface to
+    test'
+  python: 'NOT YET IMPLEMENTED -- deferred, `WP-11.D2` (`WAITING_FOR_TRIGGER`), see closure
+    criterion above'
+  rust: 'NOT YET IMPLEMENTED -- deferred, `WP-11.D2` (`WAITING_FOR_TRIGGER`)'
   disposition: deferred parity
 - id: AI-029
   phase: 2
@@ -5210,12 +5230,21 @@ rows:
     introduces the provider/auth composition surface actually needing `Models`-equivalent
     `login`/`logout`/`checkAuth`/`getAuth` orchestration must design the integration contract-first
     against pinned Pi, consuming `PROV-014`''s own already-adopted vocabulary directly rather than
-    inventing an ad hoc replacement shape.'
+    inventing an ad hoc replacement shape.
+
+    Deferred ownership (process cleanup, `agent-workflow.md` §11.13): this row is owned by the
+    deferred work package `WP-11.D1` (Generic Auth Orchestration), `STATUS: WAITING_FOR_TRIGGER`,
+    tracked at coordination issue #35, confirmed against a fresh contract-first re-audit (the
+    issue #35 scope audit) rather than inferred from the invalidated issue #27 incident. This is a
+    coordination/traceability correction only -- Layer 11''s own Pass 1/Pass 2 work packages
+    (`WP-11.1`-`WP-11.4`) are independently CLOSED; this row was never one of them, and remains
+    exactly as deferred as before.'
   tests:
-  - future Layer 11 conformance evidence (none yet -- this row is deferred parity, not adopted; no
-    fabricated evidence is cited for behavior not yet implemented)
-  python: 'NOT YET IMPLEMENTED -- deferred to a future Layer 11 pass, see closure criterion above'
-  rust: 'NOT YET IMPLEMENTED -- deferred to a future Layer 11 pass'
+  - 'no conformance evidence yet -- this row is deferred parity, not adopted, `WAITING_FOR_TRIGGER`
+    under `WP-11.D1`; no fabricated evidence is cited for behavior not yet implemented'
+  python: 'NOT YET IMPLEMENTED -- deferred, `WP-11.D1` (`WAITING_FOR_TRIGGER`), see closure
+    criterion above'
+  rust: 'NOT YET IMPLEMENTED -- deferred, `WP-11.D1` (`WAITING_FOR_TRIGGER`)'
   disposition: deferred parity
 - id: PROV-014
   phase: 5

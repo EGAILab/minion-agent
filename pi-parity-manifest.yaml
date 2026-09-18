@@ -443,19 +443,22 @@ rows:
     internal translation helper without ever exposing a callable would NOT satisfy this row; it must
     be re-opened, not silently accepted.
 
-    Deferred ownership (process cleanup, `agent-workflow.md` §11.13): this row is owned by the
-    deferred work package `WP-11.D2` (Provider Streaming Extensions), `STATUS: WAITING_FOR_TRIGGER`,
-    tracked at coordination issue #35''s own umbrella (Layer 11 deferred work). This is a
-    coordination/traceability correction only -- Layer 11''s own Pass 1/Pass 2 work packages
-    (`WP-11.1`-`WP-11.4`) are independently CLOSED; this row was never one of them, and remains
-    exactly as deferred as before. See `WP-11.D2`''s own trigger below.'
+    Deferred ownership:
+    WP-11.D2 -- Provider Streaming Extensions
+    STATUS: WAITING_FOR_TRIGGER
+    coordination: issue #37
+
+    (process cleanup, `agent-workflow.md` §11.13): this is a coordination/traceability correction
+    only -- Layer 11''s own Pass 1/Pass 2 work packages (`WP-11.1`-`WP-11.4`) are independently
+    CLOSED; this row was never one of them, and remains exactly as deferred as before. See
+    `WP-11.D2`''s own trigger recorded at issue #37.'
   tests:
   - 'no conformance evidence yet -- this row is deferred parity, not adopted, `WAITING_FOR_TRIGGER`
-    under `WP-11.D2`; no fabricated evidence is cited for an operation with no Layer-10 surface to
-    test'
-  python: 'NOT YET IMPLEMENTED -- deferred, `WP-11.D2` (`WAITING_FOR_TRIGGER`), see closure
-    criterion above'
-  rust: 'NOT YET IMPLEMENTED -- deferred, `WP-11.D2` (`WAITING_FOR_TRIGGER`)'
+    under `WP-11.D2` (issue #37); no fabricated evidence is cited for an operation with no Layer-10
+    surface to test'
+  python: 'NOT YET IMPLEMENTED -- deferred, `WP-11.D2` (`WAITING_FOR_TRIGGER`, issue #37), see
+    closure criterion above'
+  rust: 'NOT YET IMPLEMENTED -- deferred, `WP-11.D2` (`WAITING_FOR_TRIGGER`, issue #37)'
   disposition: deferred parity
 - id: AI-032
   phase: 2
@@ -527,22 +530,26 @@ rows:
     some internal translation helper without ever exposing a callable, or by satisfying only some of
     the four layers, would NOT satisfy this row; it must be re-opened, not silently accepted.
 
-    Deferred ownership (process cleanup, `agent-workflow.md` §11.13): this row is owned by the
-    deferred work package `WP-11.D2` (Provider Streaming Extensions), `STATUS: WAITING_FOR_TRIGGER`,
-    tracked at coordination issue #35''s own umbrella (Layer 11 deferred work), the same work
-    package as `AI-031` -- both rows share the identical trigger (a real provider adapter capable
-    of exposing one or both capabilities), differing only in which specific capability a given
-    future provider adapter exposes. This is a coordination/traceability correction only -- Layer
-    11''s own Pass 1/Pass 2 work packages (`WP-11.1`-`WP-11.4`) are independently CLOSED; this row
-    was never one of them, and remains exactly as deferred as before. See `WP-11.D2`''s own trigger
-    below.'
+    Deferred ownership:
+    WP-11.D2 -- Provider Streaming Extensions
+    STATUS: WAITING_FOR_TRIGGER
+    coordination: issue #37
+
+    (process cleanup, `agent-workflow.md` §11.13): the same work package as `AI-031` -- both rows
+    share the identical trigger (a concrete WIRE-PROTOCOL/model-streaming provider adapter capable
+    of exposing one or both capabilities, NOT merely "a real provider exists" -- Layer 11 already
+    contains real provider-AUTHENTICATION functionality, a different capability surface), differing
+    only in which specific capability a given future adapter exposes. This is a coordination/
+    traceability correction only -- Layer 11''s own Pass 1/Pass 2 work packages (`WP-11.1`-
+    `WP-11.4`) are independently CLOSED; this row was never one of them, and remains exactly as
+    deferred as before. See `WP-11.D2`''s own trigger recorded at issue #37.'
   tests:
   - 'no conformance evidence yet -- this row is deferred parity, not adopted, `WAITING_FOR_TRIGGER`
-    under `WP-11.D2`; no fabricated evidence is cited for an operation with no Layer-10 surface to
-    test'
-  python: 'NOT YET IMPLEMENTED -- deferred, `WP-11.D2` (`WAITING_FOR_TRIGGER`), see closure
-    criterion above'
-  rust: 'NOT YET IMPLEMENTED -- deferred, `WP-11.D2` (`WAITING_FOR_TRIGGER`)'
+    under `WP-11.D2` (issue #37); no fabricated evidence is cited for an operation with no Layer-10
+    surface to test'
+  python: 'NOT YET IMPLEMENTED -- deferred, `WP-11.D2` (`WAITING_FOR_TRIGGER`, issue #37), see
+    closure criterion above'
+  rust: 'NOT YET IMPLEMENTED -- deferred, `WP-11.D2` (`WAITING_FOR_TRIGGER`, issue #37)'
   disposition: deferred parity
 - id: AI-029
   phase: 2

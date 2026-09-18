@@ -5653,3 +5653,248 @@ rows:
   python: deferred Phase 9
   rust: deferred Phase 9
   disposition: deferred parity
+- id: EXEC-001
+  phase: 6
+  pi: 'packages/agent/src/harness/types.ts:128-176 (FileErrorCode/FileError, ExecutionErrorCode/
+    ExecutionError); env/nodejs.ts:93-121 (toFileError, the concrete errno-to-code mapping)'
+  surface: Layer 12, WP-12.1 -- the shared Result/error boundary across all three execution
+    capability seams
+  rule: 'Every ctx.fs/ctx.shell/ctx.subprocess operation returns Result[T, E], never raises/
+    rejects, including for unexpected backend failures (DIRECT_PI_PARITY for ctx.fs/ctx.shell;
+    generalized to ctx.subprocess, which has no Pi seam of its own, per owner decision below).
+    Values (expected, caller-handleable): not found, permission denied, invalid path, timeout,
+    abort/cancelled, non-zero process exit, I/O failure, remote/backend unavailable. Exceptions
+    (framework/provider bugs, never caller-handleable): invalid internal state, impossible state
+    transition, an unnormalized backend exception escaping a seam (itself a provider bug),
+    programming errors. Normalization from each language''s own native error primitives onto this
+    SAME language-neutral taxonomy is the provider''s obligation, not the caller''s, and is
+    implementation mechanics -- the resulting FsErrorCode/ShellErrorCode/SubprocessErrorCode
+    taxonomy and which conditions map to which code are normative.
+
+    FsErrorCode (DIRECT_PI_PARITY, `types.ts:132-140`): aborted | not_found | permission_denied |
+    not_directory | is_directory | invalid | not_supported | unknown. Confirmed concrete mapping
+    in the harness-tier reference implementation (`ABORT_ERR->aborted`, `ENOENT->not_found`,
+    `EACCES`/`EPERM->permission_denied`, `ENOTDIR->not_directory`, `EISDIR->is_directory`,
+    `EINVAL->invalid`, else `unknown`) -- the exact errno list is Node-specific mechanics; the
+    CONDITIONS are the language-neutral contract.
+
+    ShellErrorCode/ExecutionErrorCode (DIRECT_PI_PARITY, `types.ts:158-164`): aborted | timeout |
+    shell_unavailable | spawn_error | callback_error | unknown. `callback_error` is a genuinely
+    distinctive Pi behavior: a throwing `on_stdout`/`on_stderr` callback is caught, classifies the
+    FAILURE as `callback_error`, and aborts the in-flight command as a side effect -- not merely
+    skipped or logged (`nodejs.ts:462-468,474-478`).
+
+    SubprocessErrorCode (MINION_EXTENSION -- `ctx.subprocess` has no Pi seam to inherit a
+    taxonomy from; derived from the observable process-lifecycle failure modes `ctx.shell`''s own
+    local provider already demonstrates it needs): aborted | timeout | spawn_error | pipe_error |
+    unknown. Flagged in `spec/execution.md` §2.3 as a draft requiring independent-review
+    confirmation, since it has no Pi source to audit against at all.
+
+    Full detail: `spec/execution.md` §2.'
+  tests:
+  - 'no conformance evidence yet -- CONTRACT_DRAFT (spec/execution.md), not yet implemented;
+    independent contract review required before implementation begins (WP-12.1, issue #39)'
+  python: 'NOT YET IMPLEMENTED -- CONTRACT_DRAFT, WP-12.1 (issue #39)'
+  rust: 'NOT YET IMPLEMENTED -- CONTRACT_DRAFT, WP-12.1 (issue #39)'
+  disposition: adopted
+- id: EXEC-002
+  phase: 6
+  pi: 'packages/agent/src/harness/types.ts:222-283 (FileSystem); env/nodejs.ts:51-65
+    (resolvePath), 359-694 (NodeExecutionEnv, the concrete filesystem operation behaviors)'
+  surface: Layer 12, WP-12.1 -- ctx.fs (filesystem capability seam)
+  rule: 'DIRECT_PI_PARITY for the operation set and each operation''s own observable behavior.
+    Operations: cwd; absolute_path; join_path; read_text_file; read_text_lines(max_lines?);
+    read_binary_file; write_file; append_file; rename_file; file_info; list_dir; canonical_path;
+    exists; create_dir(recursive=true); remove(recursive=false,force=false); create_temp_dir;
+    create_temp_file; cleanup (best-effort, must not raise).
+
+    Path resolution (confirmed against `nodejs.ts:51-65`): paths may be absolute or cwd-relative;
+    bare `~` and `~/`-prefixed (or, on Windows, `~\`-prefixed) paths expand against the home
+    directory; a `file://` URL is parsed to a filesystem path, with a malformed URL kept as an
+    ordinary (almost certainly invalid) path string rather than raising, preserving the
+    never-throw contract. Symlinks are never followed by path resolution or by any operation
+    except `canonical_path` (the one explicit, opt-in symlink-resolution operation,
+    `realpath`-equivalent) -- `file_info`/`list_dir`/`exists` all use the non-following stat form
+    (`lstat`-equivalent), reporting a symlink itself as kind `symlink`, never silently resolving
+    to its target.
+
+    `read_text_lines`''s `max_lines` stops reading once that many lines have been produced, never
+    reading a large file in full merely to return its first few lines; `max_lines<=0` returns an
+    empty list without touching the file. `write_file`/`append_file` both create missing parent
+    directories recursively before writing. `rename_file` is atomic and REPLACES an existing
+    destination (a real OS rename, not copy-then-delete); it does not copy cross-filesystem.
+    `create_temp_file` creates a fresh, private temp DIRECTORY first and places the temp file
+    inside it with a random-UUID-based name -- flagged for independent-review confirmation that
+    this is intentional (cleanup of a temp file must also remove its own private directory), not
+    an artifact of how the reference implementation happens to be composed.
+
+    `PI_BEHAVIOR_UNCERTAIN` flagged for independent review: the reference implementation''s own
+    `append_file` does not thread its abort signal through to the underlying write at all, unlike
+    every sibling read/write operation -- may be intentional (append is typically fast/small) or
+    an overlooked omission; must be resolved before this checkpoint closes, not silently ported or
+    silently corrected.
+
+    Full detail: `spec/execution.md` §3.'
+  tests:
+  - 'no conformance evidence yet -- CONTRACT_DRAFT (spec/execution.md), not yet implemented;
+    independent contract review required before implementation begins (WP-12.1, issue #39)'
+  python: 'NOT YET IMPLEMENTED -- CONTRACT_DRAFT, WP-12.1 (issue #39)'
+  rust: 'NOT YET IMPLEMENTED -- CONTRACT_DRAFT, WP-12.1 (issue #39)'
+  disposition: adopted
+- id: EXEC-003
+  phase: 6
+  pi: 'no direct Pi source -- see spec/execution.md §4; the design intent is cross-checked against
+    the fact that Pi''s own combined ExecutionEnv (types.ts:315) never needs this indirection,
+    since it is never independently swappable'
+  surface: Layer 12, WP-12.1 -- the FsTarget bridge (target_key, process_path)
+  rule: 'MINION_ARCHITECTURAL_MAPPING, owner-approved explicitly (GOVERNANCE_SOURCE
+    `https://github.com/EGAILab/minion-agent/issues/39#issuecomment-5736233272`): `resolve(path)
+    -> Result[FsTarget, FsError]`; `FsTarget.target_key` is an opaque, backend-defined identity
+    value with no promised syntax -- callers must not parse it, compare its syntax to a path, or
+    infer backend identity/location from its shape; `process_path(target) -> Result[str, FsError]`
+    returns the path a process in the target''s own execution world (`EXEC-006`) can open to reach
+    the same resource.
+
+    Binding requirement: the SAME underlying filesystem resource, reached through two
+    syntactically different but semantically equivalent paths, MUST resolve to the SAME
+    `target_key`. This is the identity guarantee a future Layer 13 mutation-serialization queue
+    will key on -- this row owns proving the guarantee holds, not building that queue (explicitly
+    out of scope for Layer 12, owner decision above: "Do not implement the mutation queue in
+    WP-12.1 merely because target_key is designed to support it").
+
+    This row states the REQUIRED guarantee, not a specific backend mechanism (content hash,
+    device+inode pair, canonical path string, or otherwise) -- the mechanism is a legitimate
+    per-provider implementation choice.
+
+    Full detail: `spec/execution.md` §4.'
+  tests:
+  - 'no conformance evidence yet -- CONTRACT_DRAFT (spec/execution.md), not yet implemented;
+    independent contract review required before implementation begins (WP-12.1, issue #39)'
+  python: 'NOT YET IMPLEMENTED -- CONTRACT_DRAFT, WP-12.1 (issue #39)'
+  rust: 'NOT YET IMPLEMENTED -- CONTRACT_DRAFT, WP-12.1 (issue #39)'
+  disposition: adopted
+- id: EXEC-004
+  phase: 6
+  pi: 'packages/agent/src/harness/types.ts:285-315 (ShellExecOptions, Shell); env/nodejs.ts:136-
+    238 (shell resolution), 367-500 (exec, the concrete process-management/timeout/abort/callback
+    behaviors)'
+  surface: Layer 12, WP-12.1 -- ctx.shell (shell command execution capability seam)
+  rule: 'DIRECT_PI_PARITY. `exec(command, cwd?, env?, inherit_env=true, timeout?, signal?,
+    on_stdout?, on_stderr?) -> Result[{stdout,stderr,exit_code}, ShellError]`; `cleanup()`
+    best-effort, must not raise.
+
+    Shell resolution (observable guarantee is DIRECT_PI_PARITY; the discovery mechanism itself is
+    per-platform implementation mechanics): prefer `bash` if locatable (configured path, else a
+    well-known local install path, else a PATH search); on POSIX, silently fall back to `sh` if no
+    `bash` is found at all -- `exec()` never fails purely for lacking `bash` on POSIX; on Windows,
+    fail with `shell_unavailable` and a specific, actionable diagnostic if no `bash` can be located
+    by any method -- Windows has no silently-acceptable fallback shell the way POSIX has `sh`.
+
+    Working-directory precondition: the resolved cwd is checked to exist BEFORE attempting to
+    spawn anything, failing early with `spawn_error` and a specific diagnostic naming the missing
+    directory if it does not -- not merely an incidental OS spawn failure surfacing generically.
+
+    Environment: `inherit_env` defaults true. When true, the effective environment is the seam
+    provider''s own base/inherited environment overlaid by any per-call `env`. When false, the
+    effective environment is EXACTLY the per-call `env` and nothing else -- no inherited variables
+    leak through.
+
+    Timeout/abort precedence: `timeout` is in seconds, no default; an invalid timeout
+    (non-finite, non-positive, or exceeding roughly 2^31/1000 seconds) is a `Result` failure at
+    call time, before any process is spawned, never a validation exception. When both a timeout
+    and the caller''s abort signal are in play and the command is killed, TIMEOUT takes precedence
+    in the returned failure''s classification even if the signal also happened to be aborted; only
+    when the timeout did NOT fire does an aborted signal classify the result as `aborted`. Killing
+    a command on either abort or timeout terminates its ENTIRE process tree/group, not merely the
+    directly-spawned process.
+
+    Streaming/callback-error: `on_stdout`/`on_stderr`, when provided, are invoked with each chunk
+    as it arrives IN ADDITION TO (not instead of) the full stdout/stderr the final Result carries.
+    A throwing callback is classified `callback_error` (`EXEC-001`) and kills the in-flight
+    command as a side effect of that classification.
+
+    Result shape: a successful `exec()` returns `{stdout,stderr,exit_code}` regardless of whether
+    `exit_code` is zero -- a non-zero exit is NOT itself a `Result` failure at this seam;
+    classifying it as a tool-level failure is Layer 13''s own concern.
+
+    Full detail: `spec/execution.md` §5.'
+  tests:
+  - 'no conformance evidence yet -- CONTRACT_DRAFT (spec/execution.md), not yet implemented;
+    independent contract review required before implementation begins (WP-12.1, issue #39)'
+  python: 'NOT YET IMPLEMENTED -- CONTRACT_DRAFT, WP-12.1 (issue #39)'
+  rust: 'NOT YET IMPLEMENTED -- CONTRACT_DRAFT, WP-12.1 (issue #39)'
+  disposition: adopted
+- id: EXEC-005
+  phase: 6
+  pi: 'no direct Pi seam -- see spec/execution.md §6; the required primitive set is derived from
+    the process-management primitives env/nodejs.ts:392-499 (Shell.exec''s own concrete
+    implementation) demonstrates ctx.shell''s own local provider needs, per the design''s own
+    statement that ctx.shell''s local provider spawns through ctx.subprocess'
+  surface: Layer 12, WP-12.1 -- ctx.subprocess (raw argv-direct process spawning capability seam)
+  rule: 'MINION_EXTENSION, owner-directed: "Its contract must be designed from the frozen master
+    architecture rather than represented as Pi parity." `spawn(argv, cwd?, env?, inherit_env=true,
+    signal?) -> Result[Process, SubprocessError]`; `Process{pid, stdin?, stdout, stderr, wait()
+    -> Result[int|None, SubprocessError], terminate()}`.
+
+    Binding requirements: `argv`-direct only -- `spawn` takes an argument VECTOR, never a command
+    string, and MUST NOT shell-interpret its arguments under any circumstance (no quoting/
+    globbing/variable-expansion/pipeline syntax applied to any `argv` element); a caller wanting
+    shell semantics explicitly invokes `ctx.shell` (`EXEC-004`) instead -- this seam never does so
+    implicitly on a caller''s behalf, regardless of what the command looks like. `wait()` observes
+    the process''s own exit AND its stdio streams fully draining, matching `ctx.shell`''s own
+    "wait for exit and stdio drain" discipline, not resolving the instant the OS reports exit
+    while buffered output is still in flight. `terminate()` and signal-triggered cancellation both
+    kill the whole process tree/group where the platform supports it, matching `ctx.shell`''s own
+    `EXEC-004` guarantee -- the SAME underlying mechanism `ctx.shell`''s local provider is built
+    from, so the guarantee must genuinely be shared, not merely similarly worded. A failure to
+    start the process at all is `spawn_error`; a failure reading/writing its stdio streams after
+    starting is `pipe_error` (`EXEC-001`).
+
+    Flagged for independent review: this seam''s own error taxonomy and exact primitive shape have
+    no Pi source to audit against at all and should be checked against the process-lifecycle
+    primitives this contract actually requires, not merely accepted as complete.
+
+    Full detail: `spec/execution.md` §6.'
+  tests:
+  - 'no conformance evidence yet -- CONTRACT_DRAFT (spec/execution.md), not yet implemented;
+    independent contract review required before implementation begins (WP-12.1, issue #39)'
+  python: 'NOT YET IMPLEMENTED -- CONTRACT_DRAFT, WP-12.1 (issue #39)'
+  rust: 'NOT YET IMPLEMENTED -- CONTRACT_DRAFT, WP-12.1 (issue #39)'
+  disposition: adopted
+- id: EXEC-006
+  phase: 6
+  pi: 'no direct Pi source -- see spec/execution.md §7; Pi''s own combined ExecutionEnv
+    (types.ts:315) never needs this because it is never independently swappable'
+  surface: Layer 12, WP-12.1 -- execution-world identity and cross-seam compatibility validation
+  rule: 'MINION_EXTENSION. Every execution-capability provider (a ctx.fs, ctx.shell, or
+    ctx.subprocess implementation) declares an opaque execution-world identity at construction/
+    activation. Governing rule (owner-restated verbatim in the approving decision, binding as
+    written): mounting capabilities from different execution worlds is legal; a consumer that
+    needs multiple capabilities to address the SAME resource must validate that those capabilities
+    belong to compatible execution worlds; cross-world resource transfer requires an explicit
+    bridge capability (`EXEC-003`).
+
+    Deliberately NOT a global runtime rule requiring every mounted fs/shell/subprocess provider to
+    share one world -- a local `ctx.fs` for configuration alongside a remote `ctx.shell` is a
+    legitimate deployment with nothing wrong about it, right up until something tries to carry a
+    resource between them. Validation is the CONSUMER''s responsibility, not the runtime''s: a
+    future consumer needing `fs`+`shell` (or `fs`+`subprocess`) in the same world performs its own
+    compatibility check at its own activation, failing with a diagnostic naming the incompatible
+    providers if the worlds don''t match; an unrelated consumer that doesn''t need cross-seam
+    resource identity mounts happily beside an incompatible pairing without complaint.
+
+    This row''s own certification scope: the compatibility VOCABULARY (the identity type, the
+    comparison/validation primitive a consumer calls) and proof the mechanism itself works
+    correctly, using synthetic/test consumers -- it does NOT implement any real Layer 13 consumer
+    (`bash`, etc.) to prove this, and does not need to. Local providers (`EXEC-002`/`EXEC-004`/
+    `EXEC-005`) share one execution-world identity by construction (same local machine) -- the
+    simplest possible case for this mechanism, not an exemption from declaring/validating identity
+    at all.
+
+    Full detail: `spec/execution.md` §7.'
+  tests:
+  - 'no conformance evidence yet -- CONTRACT_DRAFT (spec/execution.md), not yet implemented;
+    independent contract review required before implementation begins (WP-12.1, issue #39)'
+  python: 'NOT YET IMPLEMENTED -- CONTRACT_DRAFT, WP-12.1 (issue #39)'
+  rust: 'NOT YET IMPLEMENTED -- CONTRACT_DRAFT, WP-12.1 (issue #39)'
+  disposition: adopted

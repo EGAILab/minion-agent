@@ -5657,19 +5657,21 @@ rows:
   phase: 6
   pi: 'packages/agent/src/harness/types.ts:128-176 (FileErrorCode/FileError, ExecutionErrorCode/
     ExecutionError); env/nodejs.ts:93-121 (toFileError, the concrete errno-to-code mapping)'
-  surface: Layer 12, WP-12.1 -- the shared Result/error boundary across all three execution
-    capability seams
-  rule: 'Every ctx.fs/ctx.shell/ctx.subprocess operation returns Result[T, E], never raises/
-    rejects, including for unexpected backend failures (DIRECT_PI_PARITY for ctx.fs/ctx.shell;
-    generalized to ctx.subprocess, which has no Pi seam of its own, per owner decision below).
-    Values (expected, caller-handleable): not found, permission denied, invalid path, timeout,
-    abort/cancelled, non-zero process exit, I/O failure, remote/backend unavailable. Exceptions
-    (framework/provider bugs, never caller-handleable): invalid internal state, impossible state
-    transition, an unnormalized backend exception escaping a seam (itself a provider bug),
-    programming errors. Normalization from each language''s own native error primitives onto this
-    SAME language-neutral taxonomy is the provider''s obligation, not the caller''s, and is
-    implementation mechanics -- the resulting FsErrorCode/ShellErrorCode/SubprocessErrorCode
-    taxonomy and which conditions map to which code are normative.
+  surface: Layer 12, WP-12.1 -- the shared Result/error boundary across ctx.fs/ctx.shell, and the
+    DIRECT_PI_PARITY FsErrorCode/ShellErrorCode taxonomies
+  rule: 'REMEDIATED (independent Rust contract review, `L12-R004`/`L12-R008`, `minion-agent-docs
+    #111`, review commit `092f63a5e3136f598fe1e508d4c60f6d8fe4dc17`): every ctx.fs/ctx.shell
+    operation returns Result[T, E], never raises/rejects, including for unexpected backend
+    failures (DIRECT_PI_PARITY, `types.ts:228-229`). This rule applies PER-OPERATION, not
+    uniformly -- some operations have a documented SUCCESS value that itself reports an otherwise-
+    unsuccessful outcome (a shell command''s own non-zero exit code is not a Result error at
+    ctx.shell, `EXEC-004`); lifecycle/cleanup methods are explicitly exempt from returning Result
+    at all. Exceptions (framework/provider bugs, never caller-handleable): invalid internal state,
+    impossible state transition, an unnormalized backend exception escaping a seam (itself a
+    provider bug), programming errors. Normalization from each language''s own native error
+    primitives onto this SAME language-neutral taxonomy is the provider''s obligation, not the
+    caller''s, and is implementation mechanics -- the resulting code taxonomy and which conditions
+    map to which code are normative.
 
     FsErrorCode (DIRECT_PI_PARITY, `types.ts:132-140`): aborted | not_found | permission_denied |
     not_directory | is_directory | invalid | not_supported | unknown. Confirmed concrete mapping
@@ -5684,13 +5686,20 @@ rows:
     FAILURE as `callback_error`, and aborts the in-flight command as a side effect -- not merely
     skipped or logged (`nodejs.ts:462-468,474-478`).
 
-    SubprocessErrorCode (MINION_EXTENSION -- `ctx.subprocess` has no Pi seam to inherit a
-    taxonomy from; derived from the observable process-lifecycle failure modes `ctx.shell`''s own
-    local provider already demonstrates it needs): aborted | timeout | spawn_error | pipe_error |
-    unknown. Flagged in `spec/execution.md` §2.3 as a draft requiring independent-review
-    confirmation, since it has no Pi source to audit against at all.
+    Correction (`L12-R004`): an earlier revision of this row listed "non-zero process exit" as a
+    Result-error Value while `EXEC-004` correctly stated the opposite -- confirmed directly
+    self-contradictory, and confirmed factually wrong against pinned Pi (`env.exec("exit 7")`
+    returns `Ok({stdout:"",stderr:"",exitCode:7})`, `nodejs-env.test.ts:448-449`). It also listed
+    "stale version" and "remote/backend unavailable" as Values with no corresponding declared code
+    anywhere. All three removed; this row is now the sole source of truth for FsErrorCode/
+    ShellErrorCode.
 
-    Full detail: `spec/execution.md` §2.'
+    Correction (`L12-R008`): the SubprocessErrorCode taxonomy previously lived on this row
+    alongside two DIRECT_PI_PARITY taxonomies under one disposition, combining a direct-parity
+    subject with a Minion-extension subject. Moved to `EXEC-005`, which owns `ctx.subprocess` in
+    full, so this row now has one coherent subject and one defensible disposition.
+
+    Full detail: `spec/execution.md` §2, §2.1, §2.2.'
   tests:
   - 'no conformance evidence yet -- CONTRACT_DRAFT (spec/execution.md), not yet implemented;
     independent contract review required before implementation begins (WP-12.1, issue #39)'
@@ -5700,23 +5709,46 @@ rows:
 - id: EXEC-002
   phase: 6
   pi: 'packages/agent/src/harness/types.ts:222-283 (FileSystem); env/nodejs.ts:51-65
-    (resolvePath), 359-694 (NodeExecutionEnv, the concrete filesystem operation behaviors)'
+    (resolvePath), 359-694 (NodeExecutionEnv, the concrete filesystem operation behaviors);
+    packages/agent/src/harness/session/jsonl/types.ts:4-18 (JsonlSessionRepoFileSystem, a real
+    FileSystem-only Pi consumer)'
   surface: Layer 12, WP-12.1 -- ctx.fs (filesystem capability seam)
-  rule: 'DIRECT_PI_PARITY for the operation set and each operation''s own observable behavior.
-    Operations: cwd; absolute_path; join_path; read_text_file; read_text_lines(max_lines?);
-    read_binary_file; write_file; append_file; rename_file; file_info; list_dir; canonical_path;
-    exists; create_dir(recursive=true); remove(recursive=false,force=false); create_temp_dir;
-    create_temp_file; cleanup (best-effort, must not raise).
+  rule: 'REMEDIATED (independent Rust contract review, `L12-R001`/`L12-R002`/`L12-R003`,
+    `minion-agent-docs#111`). DIRECT_PI_PARITY for the operation set and each operation''s own
+    observable behavior. Operations: cwd; absolute_path; join_path; read_text_file;
+    read_text_lines(max_lines?); read_binary_file; write_file; append_file; rename_file;
+    file_info; list_dir; canonical_path; exists; create_dir(recursive=true);
+    remove(recursive=false,force=false); create_temp_dir; create_temp_file; cleanup (best-effort,
+    must not raise, narrowly scoped -- see below).
+
+    Cancellation (`L12-R001` resolved -- MINION_ARCHITECTURAL_MAPPING sourcing decision, not
+    unqualified direct parity): pinned Pi''s own FileSystem INTERFACE declares `signal?` on every
+    operation, but pinned Pi''s own reference implementation does not accept/check it on nine of
+    sixteen methods (`absolute_path`, `join_path`, `append_file`, `file_info`, `canonical_path`,
+    `exists`, `create_dir`, `remove`, `create_temp_dir`, `create_temp_file`) -- confirmed directly,
+    a genuine interface/reference-implementation conflict in pinned Pi itself, not merely
+    `append_file` alone as an earlier revision of this row claimed. Minion adopts the INTERFACE''s
+    fuller contract as the normative target: every operation MUST check a pre-aborted signal before
+    starting; operations with genuinely unbounded work (`read_text_file`/`read_binary_file`/
+    `write_file`/`read_text_lines`/`list_dir`) SHOULD also honor mid-operation cancellation. This
+    resolves the row''s own prior PI_BEHAVIOR_UNCERTAIN status -- it is no longer open.
 
     Path resolution (confirmed against `nodejs.ts:51-65`): paths may be absolute or cwd-relative;
     bare `~` and `~/`-prefixed (or, on Windows, `~\`-prefixed) paths expand against the home
     directory; a `file://` URL is parsed to a filesystem path, with a malformed URL kept as an
     ordinary (almost certainly invalid) path string rather than raising, preserving the
-    never-throw contract. Symlinks are never followed by path resolution or by any operation
-    except `canonical_path` (the one explicit, opt-in symlink-resolution operation,
-    `realpath`-equivalent) -- `file_info`/`list_dir`/`exists` all use the non-following stat form
-    (`lstat`-equivalent), reporting a symlink itself as kind `symlink`, never silently resolving
-    to its target.
+    never-throw contract.
+
+    Symlinks (`L12-R002` resolved -- an earlier revision of this row wrongly claimed symlinks are
+    "never followed... except canonical_path"; confirmed false against pinned Pi directly):
+    lexical path resolution never traverses symlinks (it never touches the filesystem at all).
+    `file_info`/`list_dir`/`exists` use the non-following `lstat`-equivalent form, reporting a
+    symlink itself as kind `symlink`. `canonical_path` is the one explicit, opt-in full-resolution
+    operation. Ordinary CONTENT I/O (`read_text_file`/`read_binary_file`/`write_file`/
+    `append_file`/`rename_file`) DOES follow a symlink at its final path component, matching the
+    underlying OS `open()`/`rename()` semantics with no no-follow flag (`nodejs.ts:502-600`) --
+    reading through a symlink returns the target''s own content; writing/appending mutates the
+    target, not the link.
 
     `read_text_lines`''s `max_lines` stops reading once that many lines have been produced, never
     reading a large file in full merely to return its first few lines; `max_lines<=0` returns an
@@ -5724,17 +5756,24 @@ rows:
     directories recursively before writing. `rename_file` is atomic and REPLACES an existing
     destination (a real OS rename, not copy-then-delete); it does not copy cross-filesystem.
     `create_temp_file` creates a fresh, private temp DIRECTORY first and places the temp file
-    inside it with a random-UUID-based name -- flagged for independent-review confirmation that
-    this is intentional (cleanup of a temp file must also remove its own private directory), not
-    an artifact of how the reference implementation happens to be composed.
+    inside it with a random-UUID-based name -- this CREATION shape is adopted directly.
 
-    `PI_BEHAVIOR_UNCERTAIN` flagged for independent review: the reference implementation''s own
-    `append_file` does not thread its abort signal through to the underlying write at all, unlike
-    every sibling read/write operation -- may be intentional (append is typically fast/small) or
-    an overlooked omission; must be resolved before this checkpoint closes, not silently ported or
-    silently corrected.
+    Cleanup/temp-resource scope (`L12-R003` resolved -- an earlier revision of this row implied
+    cleanup must remove a temp file''s own private directory; confirmed false against pinned Pi
+    directly): `NodeExecutionEnv.cleanup()` does nothing with temporary files/directories at all
+    -- it only kills active tracked child-process PIDs (itself really a ctx.subprocess-owned
+    concern this method happens to also expose, `EXEC-005`). This row makes NO cleanup-obligation
+    claim for temp resources, adopted or otherwise; a future implementation tracking/removing them
+    would be a separately-dispositioned MINION_EXTENSION, not something adopted here.
 
-    Full detail: `spec/execution.md` §3.'
+    Architecture-rationale scope (`L12-R003` resolved -- `EXEC-001`''s companion §1 correction):
+    Pi''s own EXECUTION TOOLS (bash/read/write/edit) require the combined ExecutionEnv; Pi''s own
+    session-persistence layer does not (`JsonlSessionRepoFileSystem = Pick<FileSystem, ...>`,
+    consumed by `JsonlSessionRepoOptions.fs` with no Shell dependency at all) -- a real,
+    FileSystem-only Pi consumer. An earlier revision of the architecture rationale overgeneralized
+    to "no Pi consumer takes FileSystem or Shell alone," which this counter-example refutes.
+
+    Full detail: `spec/execution.md` §3, §3.1-§3.8.'
   tests:
   - 'no conformance evidence yet -- CONTRACT_DRAFT (spec/execution.md), not yet implemented;
     independent contract review required before implementation begins (WP-12.1, issue #39)'
@@ -5747,24 +5786,39 @@ rows:
     the fact that Pi''s own combined ExecutionEnv (types.ts:315) never needs this indirection,
     since it is never independently swappable'
   surface: Layer 12, WP-12.1 -- the FsTarget bridge (target_key, process_path)
-  rule: 'MINION_ARCHITECTURAL_MAPPING, owner-approved explicitly (GOVERNANCE_SOURCE
+  rule: 'REMEDIATED (independent Rust contract review, `L12-R005`/`L12-R008`). MINION_
+    ARCHITECTURAL_MAPPING, owner-approved explicitly (GOVERNANCE_SOURCE
     `https://github.com/EGAILab/minion-agent/issues/39#issuecomment-5736233272`): `resolve(path)
     -> Result[FsTarget, FsError]`; `FsTarget.target_key` is an opaque, backend-defined identity
-    value with no promised syntax -- callers must not parse it, compare its syntax to a path, or
-    infer backend identity/location from its shape; `process_path(target) -> Result[str, FsError]`
-    returns the path a process in the target''s own execution world (`EXEC-006`) can open to reach
-    the same resource.
+    value with no promised syntax; `process_path(target) -> Result[str, FsError]` returns the path
+    a process in the target''s own execution world (`EXEC-006`) can open to reach the same
+    resource.
 
-    Binding requirement: the SAME underlying filesystem resource, reached through two
-    syntactically different but semantically equivalent paths, MUST resolve to the SAME
-    `target_key`. This is the identity guarantee a future Layer 13 mutation-serialization queue
-    will key on -- this row owns proving the guarantee holds, not building that queue (explicitly
-    out of scope for Layer 12, owner decision above: "Do not implement the mutation queue in
-    WP-12.1 merely because target_key is designed to support it").
+    Correction (`L12-R005`, full detail: `spec/execution.md` §4): an earlier revision left this
+    guarantee unimplementable and internally self-contradictory. Now binding: (1) symlink identity
+    is FIXED, not provider-discretionary -- a symlink and its target always share one target_key,
+    matching canonical_path''s own resolution; (2) same-resource identity survives MUTATION, not
+    merely re-resolution -- a content-hash mechanism is explicitly EXCLUDED (it would make two
+    distinct byte-identical files collide, and make one file''s own key change when its content
+    changes, both violating the stated guarantee); permitted mechanisms are location-derived only
+    (canonical path string, device+inode-equivalent pair); (3) target_key comparison is scoped to
+    ONE provider instance -- cross-provider comparison is undefined even for coincidentally-equal
+    values; (4) target_key MUST support stable equality/hashing for the resource''s lifetime;
+    (5) resolve() MUST succeed for a not-yet-existing write target, keyed by the location a
+    create at that path would resolve to; (6) process_path MUST be called on the originating (or
+    independently-validated-compatible) provider -- a detectable foreign target returns FsError
+    (invalid), never a fabricated path.
 
-    This row states the REQUIRED guarantee, not a specific backend mechanism (content hash,
-    device+inode pair, canonical path string, or otherwise) -- the mechanism is a legitimate
-    per-provider implementation choice.
+    Binding requirement (unchanged in substance): the SAME underlying filesystem resource MUST
+    resolve to the SAME target_key. This is the identity guarantee a future Layer 13 mutation-
+    serialization queue will key on -- this row owns proving the guarantee holds, not building
+    that queue (explicitly out of scope for Layer 12, owner decision above).
+
+    Disposition correction (`L12-R008`): redispositioned `adopted` -> `intentional divergence`.
+    This row''s own text always said "no Pi equivalent"; `adopted` was incoherent alongside that
+    admission. Matches existing manifest precedent for Minion-only surfaces with no Pi behavior at
+    all (`MINION-001`: `pi: N/A -- Minion plugin architecture`, `disposition: intentional
+    divergence`).
 
     Full detail: `spec/execution.md` §4.'
   tests:
@@ -5772,52 +5826,59 @@ rows:
     independent contract review required before implementation begins (WP-12.1, issue #39)'
   python: 'NOT YET IMPLEMENTED -- CONTRACT_DRAFT, WP-12.1 (issue #39)'
   rust: 'NOT YET IMPLEMENTED -- CONTRACT_DRAFT, WP-12.1 (issue #39)'
-  disposition: adopted
+  disposition: intentional divergence
 - id: EXEC-004
   phase: 6
   pi: 'packages/agent/src/harness/types.ts:285-315 (ShellExecOptions, Shell); env/nodejs.ts:136-
-    238 (shell resolution), 367-500 (exec, the concrete process-management/timeout/abort/callback
-    behaviors)'
+    238 (shell resolution), 278-345 (waitForChildProcess, the actual completion mechanism),
+    367-500 (exec, the concrete process-management/timeout/abort/callback behaviors);
+    packages/agent/test/harness/nodejs-env.test.ts:379-400,448-449 (pinned regression tests)'
   surface: Layer 12, WP-12.1 -- ctx.shell (shell command execution capability seam)
-  rule: 'DIRECT_PI_PARITY. `exec(command, cwd?, env?, inherit_env=true, timeout?, signal?,
-    on_stdout?, on_stderr?) -> Result[{stdout,stderr,exit_code}, ShellError]`; `cleanup()`
-    best-effort, must not raise.
+  rule: 'REMEDIATED (independent Rust contract review, `L12-R004`/`L12-R007`). DIRECT_PI_PARITY.
+    `exec(command, cwd?, env?, inherit_env=true, timeout?, signal?, on_stdout?, on_stderr?) ->
+    Result[{stdout,stderr,exit_code}, ShellError]`; `cleanup()` best-effort, must not raise.
 
     Shell resolution (observable guarantee is DIRECT_PI_PARITY; the discovery mechanism itself is
     per-platform implementation mechanics): prefer `bash` if locatable (configured path, else a
     well-known local install path, else a PATH search); on POSIX, silently fall back to `sh` if no
-    `bash` is found at all -- `exec()` never fails purely for lacking `bash` on POSIX; on Windows,
-    fail with `shell_unavailable` and a specific, actionable diagnostic if no `bash` can be located
-    by any method -- Windows has no silently-acceptable fallback shell the way POSIX has `sh`.
+    `bash` is found at all; on Windows, fail with `shell_unavailable` and a specific, actionable
+    diagnostic if no `bash` can be located by any method.
 
     Working-directory precondition: the resolved cwd is checked to exist BEFORE attempting to
     spawn anything, failing early with `spawn_error` and a specific diagnostic naming the missing
-    directory if it does not -- not merely an incidental OS spawn failure surfacing generically.
+    directory if it does not.
 
     Environment: `inherit_env` defaults true. When true, the effective environment is the seam
     provider''s own base/inherited environment overlaid by any per-call `env`. When false, the
-    effective environment is EXACTLY the per-call `env` and nothing else -- no inherited variables
-    leak through.
+    effective environment is EXACTLY the per-call `env` and nothing else.
 
-    Timeout/abort precedence: `timeout` is in seconds, no default; an invalid timeout
-    (non-finite, non-positive, or exceeding roughly 2^31/1000 seconds) is a `Result` failure at
-    call time, before any process is spawned, never a validation exception. When both a timeout
-    and the caller''s abort signal are in play and the command is killed, TIMEOUT takes precedence
-    in the returned failure''s classification even if the signal also happened to be aborted; only
-    when the timeout did NOT fire does an aborted signal classify the result as `aborted`. Killing
-    a command on either abort or timeout terminates its ENTIRE process tree/group, not merely the
-    directly-spawned process.
+    Complete failure-precedence matrix (`L12-R007` resolved -- an earlier revision of this row
+    stated only the mid-flight timeout-vs-abort ordering, not the full sequence): checked in this
+    EXACT order -- (1) pre-aborted signal, before timeout is even validated or cwd/shell resolved;
+    (2) invalid timeout (finite/positive/in-range), before any process is spawned; (3) cwd/shell
+    resolution; (4) process runs; (5) on completion/interruption, exactly one of, in precedence
+    order: callback_error (wins over everything else) > timeout > aborted > success
+    ({stdout,stderr,exit_code}, regardless of exit_code). Killing a command on either abort or
+    timeout terminates its ENTIRE process tree/group.
 
     Streaming/callback-error: `on_stdout`/`on_stderr`, when provided, are invoked with each chunk
-    as it arrives IN ADDITION TO (not instead of) the full stdout/stderr the final Result carries.
-    A throwing callback is classified `callback_error` (`EXEC-001`) and kills the in-flight
-    command as a side effect of that classification.
+    as it arrives IN ADDITION TO the full stdout/stderr the final Result carries. A throwing
+    callback is classified `callback_error` (`EXEC-001`) and kills the in-flight command.
+
+    Completion mechanics (`L12-R007` resolved -- an earlier revision of `EXEC-005` described this
+    seam''s own completion as requiring stdio to "fully drain," overstating the actual guarantee):
+    `exec()` completes once the directly-spawned process has exited AND a short idle period has
+    elapsed with no further stdout/stderr activity from it -- NOT once every inherited pipe
+    descriptor, including ones held by unrelated detached descendant processes, has reached true
+    EOF. A pinned Windows-only regression test (`nodejs-env.test.ts:379-400`) exists specifically
+    to prove settlement in exactly the scenario where a detached descendant still holds inherited
+    stdio open.
 
     Result shape: a successful `exec()` returns `{stdout,stderr,exit_code}` regardless of whether
-    `exit_code` is zero -- a non-zero exit is NOT itself a `Result` failure at this seam;
-    classifying it as a tool-level failure is Layer 13''s own concern.
+    `exit_code` is zero (confirmed, `env.exec("exit 7")` -> `Ok({...,exitCode:7})`,
+    `nodejs-env.test.ts:448-449`) -- a non-zero exit is NOT itself a Result failure at this seam.
 
-    Full detail: `spec/execution.md` §5.'
+    Full detail: `spec/execution.md` §5, §5.1-§5.6.'
   tests:
   - 'no conformance evidence yet -- CONTRACT_DRAFT (spec/execution.md), not yet implemented;
     independent contract review required before implementation begins (WP-12.1, issue #39)'
@@ -5830,29 +5891,45 @@ rows:
     the process-management primitives env/nodejs.ts:392-499 (Shell.exec''s own concrete
     implementation) demonstrates ctx.shell''s own local provider needs, per the design''s own
     statement that ctx.shell''s local provider spawns through ctx.subprocess'
-  surface: Layer 12, WP-12.1 -- ctx.subprocess (raw argv-direct process spawning capability seam)
-  rule: 'MINION_EXTENSION, owner-directed: "Its contract must be designed from the frozen master
-    architecture rather than represented as Pi parity." `spawn(argv, cwd?, env?, inherit_env=true,
-    signal?) -> Result[Process, SubprocessError]`; `Process{pid, stdin?, stdout, stderr, wait()
-    -> Result[int|None, SubprocessError], terminate()}`.
+  surface: Layer 12, WP-12.1 -- ctx.subprocess (raw argv-direct process spawning capability seam),
+    including its own SubprocessErrorCode taxonomy
+  rule: 'REMEDIATED (independent Rust contract review, `L12-R006`/`L12-R008`). MINION_EXTENSION,
+    owner-directed: "Its contract must be designed from the frozen master architecture rather than
+    represented as Pi parity." `spawn(argv, options?) -> Result[Process, SubprocessError]` where
+    `options{cwd?, env?, inherit_env=true, stdin: StdioMode=null, stdout: StdioMode=piped,
+    stderr: StdioMode=piped, signal?}` and `StdioMode = inherit|piped|null`; `Process{pid,
+    stdin?, stdout?, stderr?, wait(signal?) -> Result[ExitStatus, SubprocessError], terminate()}`
+    where `ExitStatus{exit_code: int|None}`.
 
-    Binding requirements: `argv`-direct only -- `spawn` takes an argument VECTOR, never a command
-    string, and MUST NOT shell-interpret its arguments under any circumstance (no quoting/
-    globbing/variable-expansion/pipeline syntax applied to any `argv` element); a caller wanting
-    shell semantics explicitly invokes `ctx.shell` (`EXEC-004`) instead -- this seam never does so
-    implicitly on a caller''s behalf, regardless of what the command looks like. `wait()` observes
-    the process''s own exit AND its stdio streams fully draining, matching `ctx.shell`''s own
-    "wait for exit and stdio drain" discipline, not resolving the instant the OS reports exit
-    while buffered output is still in flight. `terminate()` and signal-triggered cancellation both
-    kill the whole process tree/group where the platform supports it, matching `ctx.shell`''s own
-    `EXEC-004` guarantee -- the SAME underlying mechanism `ctx.shell`''s local provider is built
-    from, so the guarantee must genuinely be shared, not merely similarly worded. A failure to
-    start the process at all is `spawn_error`; a failure reading/writing its stdio streams after
-    starting is `pipe_error` (`EXEC-001`).
+    SubprocessErrorCode (MINION_EXTENSION -- moved here from `EXEC-001` per `L12-R008`, since
+    `ctx.subprocess` has no Pi seam to inherit a taxonomy from at all): aborted | spawn_error |
+    pipe_error | unknown. `timeout` REMOVED (`L12-R006`): no operation in this contract accepts a
+    timeout parameter that could ever produce it -- ctx.subprocess has no native timeout concept;
+    a caller composes its own signal with a timer, exactly how ctx.shell layers its own timeout on
+    top (`EXEC-004`).
 
-    Flagged for independent review: this seam''s own error taxonomy and exact primitive shape have
-    no Pi source to audit against at all and should be checked against the process-lifecycle
-    primitives this contract actually requires, not merely accepted as complete.
+    Complete process/stream contract (`L12-R006` resolved -- an earlier revision left stdio
+    configuration, stream operations, cancellation-vs-termination semantics, idempotence,
+    ownership, and chunk type all unspecified or self-contradictory): `argv`-direct only, MUST NOT
+    shell-interpret under any circumstance. Stdio streams are typed (`WritableStream{write(bytes)
+    -> Result[None,SubprocessError], close()}`; `ReadableStream{read_chunk() ->
+    Result[bytes|None,SubprocessError]}`), populated on `Process` only for streams configured
+    `piped`; chunks are raw bytes, never decoded text (unlike ctx.shell''s own higher-level
+    `exec()`). A pre-aborted `spawn()` signal short-circuits before any process starts. `wait()`
+    after a caller-external signal fires classifies `aborted` (an error); `wait()` after an
+    explicit, signal-free `terminate()` call returns SUCCESS with `exit_code: None` (the caller''s
+    own deliberate action, not an unexpected failure) -- these are DIFFERENT classifications for
+    different causes, not interchangeable. `wait()` and `terminate()` are both idempotent
+    (repeated/concurrent calls return/produce the same outcome). A pipe read/write failure is
+    observed at that operation alone and does NOT change what `wait()` returns -- the two failure
+    domains are kept independent. `terminate()` and signal-triggered cancellation both kill the
+    whole process tree/group, matching `ctx.shell`''s own `EXEC-004` guarantee -- the SAME
+    underlying mechanism `ctx.shell`''s local provider is built from. A failure to start the
+    process at all is `spawn_error`.
+
+    Disposition correction (`L12-R008`): redispositioned `adopted` -> `intentional divergence`.
+    This row''s own text always said "MINION_EXTENSION... no Pi seam"; `adopted` was incoherent
+    alongside that admission. Matches existing manifest precedent (`MINION-001`).
 
     Full detail: `spec/execution.md` §6.'
   tests:
@@ -5860,25 +5937,24 @@ rows:
     independent contract review required before implementation begins (WP-12.1, issue #39)'
   python: 'NOT YET IMPLEMENTED -- CONTRACT_DRAFT, WP-12.1 (issue #39)'
   rust: 'NOT YET IMPLEMENTED -- CONTRACT_DRAFT, WP-12.1 (issue #39)'
-  disposition: adopted
+  disposition: intentional divergence
 - id: EXEC-006
   phase: 6
   pi: 'no direct Pi source -- see spec/execution.md §7; Pi''s own combined ExecutionEnv
     (types.ts:315) never needs this because it is never independently swappable'
   surface: Layer 12, WP-12.1 -- execution-world identity and cross-seam compatibility validation
-  rule: 'MINION_EXTENSION. Every execution-capability provider (a ctx.fs, ctx.shell, or
-    ctx.subprocess implementation) declares an opaque execution-world identity at construction/
-    activation. Governing rule (owner-restated verbatim in the approving decision, binding as
-    written): mounting capabilities from different execution worlds is legal; a consumer that
-    needs multiple capabilities to address the SAME resource must validate that those capabilities
-    belong to compatible execution worlds; cross-world resource transfer requires an explicit
-    bridge capability (`EXEC-003`).
+  rule: 'REMEDIATED disposition only (independent Rust contract review, `L12-R008`); rule
+    substance unchanged and independently found coherent by that review. MINION_EXTENSION. Every
+    execution-capability provider (a ctx.fs, ctx.shell, or ctx.subprocess implementation) declares
+    an opaque execution-world identity at construction/activation. Governing rule (owner-restated
+    verbatim in the approving decision, binding as written): mounting capabilities from different
+    execution worlds is legal; a consumer that needs multiple capabilities to address the SAME
+    resource must validate that those capabilities belong to compatible execution worlds;
+    cross-world resource transfer requires an explicit bridge capability (`EXEC-003`).
 
     Deliberately NOT a global runtime rule requiring every mounted fs/shell/subprocess provider to
-    share one world -- a local `ctx.fs` for configuration alongside a remote `ctx.shell` is a
-    legitimate deployment with nothing wrong about it, right up until something tries to carry a
-    resource between them. Validation is the CONSUMER''s responsibility, not the runtime''s: a
-    future consumer needing `fs`+`shell` (or `fs`+`subprocess`) in the same world performs its own
+    share one world. Validation is the CONSUMER''s responsibility, not the runtime''s: a future
+    consumer needing `fs`+`shell` (or `fs`+`subprocess`) in the same world performs its own
     compatibility check at its own activation, failing with a diagnostic naming the incompatible
     providers if the worlds don''t match; an unrelated consumer that doesn''t need cross-seam
     resource identity mounts happily beside an incompatible pairing without complaint.
@@ -5887,9 +5963,11 @@ rows:
     comparison/validation primitive a consumer calls) and proof the mechanism itself works
     correctly, using synthetic/test consumers -- it does NOT implement any real Layer 13 consumer
     (`bash`, etc.) to prove this, and does not need to. Local providers (`EXEC-002`/`EXEC-004`/
-    `EXEC-005`) share one execution-world identity by construction (same local machine) -- the
-    simplest possible case for this mechanism, not an exemption from declaring/validating identity
-    at all.
+    `EXEC-005`) share one execution-world identity by construction (same local machine).
+
+    Disposition correction (`L12-R008`): redispositioned `adopted` -> `intentional divergence`.
+    This row''s own text always said "MINION_EXTENSION... no Pi equivalent"; `adopted` was
+    incoherent alongside that admission. Matches existing manifest precedent (`MINION-001`).
 
     Full detail: `spec/execution.md` §7.'
   tests:
@@ -5897,4 +5975,4 @@ rows:
     independent contract review required before implementation begins (WP-12.1, issue #39)'
   python: 'NOT YET IMPLEMENTED -- CONTRACT_DRAFT, WP-12.1 (issue #39)'
   rust: 'NOT YET IMPLEMENTED -- CONTRACT_DRAFT, WP-12.1 (issue #39)'
-  disposition: adopted
+  disposition: intentional divergence

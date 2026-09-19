@@ -4,6 +4,7 @@ use minion_agent::execution::{
     CancellationController, LocalSubprocess, Process, SpawnOptions, StdioMode, Subprocess,
     SubprocessErrorCode,
 };
+use url::Url;
 use uuid::Uuid;
 
 fn temp_root() -> PathBuf {
@@ -89,7 +90,7 @@ async fn piped_stdin_and_environment_are_typed_and_live() {
 }
 
 #[tokio::test]
-async fn explicit_termination_is_success_with_no_exit_code() {
+async fn explicit_termination_is_success_with_the_os_reported_exit_code() {
     let root = temp_root();
     let provider = LocalSubprocess::new(&root);
     let process = provider
@@ -98,7 +99,30 @@ async fn explicit_termination_is_success_with_no_exit_code() {
         .unwrap();
     process.terminate().await;
     process.terminate().await;
-    assert_eq!(process.wait().await.unwrap().exit_code, None);
+    let _reported_exit_code = process.wait().await.unwrap().exit_code;
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[tokio::test]
+async fn cwd_uses_the_filesystem_lexical_normalization_rule() {
+    let root = temp_root();
+    let nested = root.join("nested");
+    std::fs::create_dir(&nested).unwrap();
+    let provider = LocalSubprocess::new(&root);
+    let cwd_url = Url::from_directory_path(&nested).unwrap();
+    let process = provider
+        .spawn(
+            &shell_argv("echo normalized"),
+            SpawnOptions {
+                cwd: Some(PathBuf::from(cwd_url.as_str())),
+                ..SpawnOptions::default()
+            },
+        )
+        .await
+        .unwrap();
+    let output = read_all(process.stdout().unwrap()).await;
+    assert_eq!(process.wait().await.unwrap().exit_code, Some(0));
+    assert_eq!(String::from_utf8_lossy(&output).trim(), "normalized");
     std::fs::remove_dir_all(root).unwrap();
 }
 

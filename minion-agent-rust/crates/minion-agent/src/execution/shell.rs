@@ -11,7 +11,7 @@ use tokio::sync::mpsc;
 
 use super::{
     AbortSignal, ExecutionWorldIdentity, Process, ShellError, ShellErrorCode, SpawnOptions,
-    StdioMode, Subprocess, SubprocessErrorCode,
+    StdioMode, Subprocess, SubprocessErrorCode, filesystem::resolve_local_path,
 };
 
 pub type StreamCallback = Arc<dyn Fn(&str) -> Result<(), String> + Send + Sync>;
@@ -87,8 +87,7 @@ impl LocalShell {
 
     fn resolved_cwd(&self, requested: Option<&Path>) -> PathBuf {
         match requested {
-            Some(path) if path.is_absolute() => path.to_owned(),
-            Some(path) => self.subprocess.cwd().join(path),
+            Some(path) => resolve_local_path(self.subprocess.cwd(), &path.to_string_lossy()),
             None => self.subprocess.cwd().to_owned(),
         }
     }

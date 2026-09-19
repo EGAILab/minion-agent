@@ -17,7 +17,10 @@ use tokio::{
     sync::{Mutex, Notify, watch},
 };
 
-use super::{AbortSignal, ExecutionWorldIdentity, SubprocessError, SubprocessErrorCode};
+use super::{
+    AbortSignal, ExecutionWorldIdentity, SubprocessError, SubprocessErrorCode,
+    filesystem::resolve_local_path,
+};
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum StdioMode {
@@ -116,8 +119,7 @@ impl LocalSubprocess {
 
     fn resolved_cwd(&self, cwd: Option<&Path>) -> PathBuf {
         match cwd {
-            Some(cwd) if cwd.is_absolute() => cwd.to_owned(),
-            Some(cwd) => self.cwd.join(cwd),
+            Some(cwd) => resolve_local_path(&self.cwd, &cwd.to_string_lossy()),
             None => self.cwd.clone(),
         }
     }
@@ -399,22 +401,24 @@ async fn monitor_child(
         }
     };
     let result = match status {
-        Ok(_status) if cause.load(Ordering::Acquire) == CAUSE_SIGNAL => Err(SubprocessError::new(
-            SubprocessErrorCode::Aborted,
-            "operation aborted",
-        )),
-        Ok(_status) if cause.load(Ordering::Acquire) == CAUSE_EXPLICIT => {
-            Ok(ExitStatus { exit_code: None })
-        }
-        Ok(status) => Ok(ExitStatus {
-            exit_code: status.code(),
-        }),
+        Ok(status) => classify_exit(cause.load(Ordering::Acquire), status.code()),
         Err(error) => Err(SubprocessError::new(
             SubprocessErrorCode::Unknown,
             error.to_string(),
         )),
     };
     outcome.send_replace(Some(result));
+}
+
+fn classify_exit(cause: u8, exit_code: Option<i32>) -> Result<ExitStatus, SubprocessError> {
+    if cause == CAUSE_SIGNAL {
+        Err(SubprocessError::new(
+            SubprocessErrorCode::Aborted,
+            "operation aborted",
+        ))
+    } else {
+        Ok(ExitStatus { exit_code })
+    }
 }
 
 async fn kill_process_tree(child: &mut Child) {
@@ -467,4 +471,31 @@ fn map_spawn_error(error: io::Error) -> SubprocessError {
 
 fn map_pipe_error(error: io::Error) -> SubprocessError {
     SubprocessError::new(SubprocessErrorCode::PipeError, error.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn explicit_termination_preserves_the_os_reported_exit_code() {
+        assert_eq!(
+            classify_exit(CAUSE_EXPLICIT, Some(23)).unwrap(),
+            ExitStatus {
+                exit_code: Some(23)
+            }
+        );
+        assert_eq!(
+            classify_exit(CAUSE_EXPLICIT, None).unwrap(),
+            ExitStatus { exit_code: None }
+        );
+    }
+
+    #[test]
+    fn signal_termination_remains_an_aborted_error() {
+        assert_eq!(
+            classify_exit(CAUSE_SIGNAL, Some(23)).unwrap_err().code,
+            SubprocessErrorCode::Aborted
+        );
+    }
 }

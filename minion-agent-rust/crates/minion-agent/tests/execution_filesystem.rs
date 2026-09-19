@@ -163,7 +163,9 @@ async fn fs_target_is_location_based_provider_scoped_and_live() {
     assert_ne!(first.target_key(), distinct.target_key());
     assert_eq!(
         fs.process_path(&first).await.unwrap(),
-        root.join("a.txt").to_string_lossy()
+        std::fs::canonicalize(root.join("a.txt"))
+            .unwrap()
+            .to_string_lossy()
     );
     assert_eq!(
         other.process_path(&first).await.unwrap_err().code,
@@ -173,6 +175,10 @@ async fn fs_target_is_location_based_provider_scoped_and_live() {
     let missing = fs.resolve("future.txt", None).await.unwrap();
     let missing_again = fs.resolve("future.txt", None).await.unwrap();
     assert_eq!(missing.target_key(), missing_again.target_key());
+    assert_eq!(
+        fs.process_path(&missing).await.unwrap(),
+        root.join("future.txt").to_string_lossy()
+    );
     std::fs::remove_dir_all(root).unwrap();
 }
 
@@ -205,9 +211,12 @@ async fn metadata_does_not_follow_symlinks_but_content_io_does() {
         FileKind::Symlink
     );
     assert_eq!(fs.read_text_file("link.txt", None).await.unwrap(), "target");
+    let link = fs.resolve("link.txt", None).await.unwrap();
+    let target = fs.resolve("target.txt", None).await.unwrap();
+    assert_eq!(link.target_key(), target.target_key());
     assert_eq!(
-        fs.resolve("link.txt", None).await.unwrap().target_key(),
-        fs.resolve("target.txt", None).await.unwrap().target_key()
+        fs.process_path(&link).await.unwrap(),
+        fs.process_path(&target).await.unwrap()
     );
     fs.rename_file("link.txt", "moved.txt", None).await.unwrap();
     assert!(

@@ -181,13 +181,7 @@ impl LocalFileSystem {
     }
 
     fn resolved(&self, raw: &str) -> PathBuf {
-        let expanded = expand_path(raw);
-        let path = if expanded.is_absolute() {
-            expanded
-        } else {
-            self.cwd.join(expanded)
-        };
-        lexical_normalize(&path)
+        resolve_local_path(&self.cwd, raw)
     }
 
     fn aborted(signal: Option<&dyn AbortSignal>) -> Result<(), FsError> {
@@ -482,7 +476,7 @@ impl FileSystem for LocalFileSystem {
         path: &str,
         signal: Option<&dyn AbortSignal>,
     ) -> Result<FsTarget, FsError> {
-        let process_path = self.absolute_path(path, signal).await?;
+        let absolute_path = self.absolute_path(path, signal).await?;
         let target_key = match self.canonical_path(path, signal).await {
             Ok(canonical) => canonical,
             Err(error)
@@ -491,14 +485,14 @@ impl FileSystem for LocalFileSystem {
                     FsErrorCode::NotFound | FsErrorCode::NotSupported
                 ) =>
             {
-                process_path.clone()
+                absolute_path
             }
             Err(error) => return Err(error),
         };
         Ok(FsTarget {
             provider_id: self.provider_id,
-            target_key: TargetKey(Arc::from(target_key)),
-            process_path: Arc::from(process_path),
+            target_key: TargetKey(Arc::from(target_key.clone())),
+            process_path: Arc::from(target_key),
         })
     }
 
@@ -535,6 +529,16 @@ async fn remove_addressed(path: &Path, recursive: bool, force: bool) -> Result<(
         Err(error) if force && error.kind() == io::ErrorKind::NotFound => Ok(()),
         Err(error) => Err(map_fs_error(error)),
     }
+}
+
+pub(crate) fn resolve_local_path(cwd: &Path, raw: &str) -> PathBuf {
+    let expanded = expand_path(raw);
+    let path = if expanded.is_absolute() {
+        expanded
+    } else {
+        cwd.join(expanded)
+    };
+    lexical_normalize(&path)
 }
 
 fn expand_path(raw: &str) -> PathBuf {

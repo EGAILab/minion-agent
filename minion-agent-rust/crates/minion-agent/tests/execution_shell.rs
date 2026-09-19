@@ -3,6 +3,7 @@ use std::{collections::BTreeMap, path::PathBuf, sync::Arc, time::Duration};
 use minion_agent::execution::{
     CancellationController, LocalShell, LocalSubprocess, Shell, ShellErrorCode, ShellExecOptions,
 };
+use url::Url;
 use uuid::Uuid;
 
 fn temp_root() -> PathBuf {
@@ -163,6 +164,27 @@ async fn shell_resolution_precedes_the_cwd_existence_check() {
         .await
         .unwrap_err();
     assert_eq!(error.code, ShellErrorCode::ShellUnavailable);
+    remove_root(root).await;
+}
+
+#[tokio::test]
+async fn shell_cwd_uses_the_filesystem_lexical_normalization_rule() {
+    let root = temp_root();
+    let nested = root.join("nested");
+    std::fs::create_dir(&nested).unwrap();
+    let Some(shell) = provider(&root) else { return };
+    let cwd_url = Url::from_directory_path(&nested).unwrap();
+    let output = shell
+        .exec(
+            "printf normalized",
+            ShellExecOptions {
+                cwd: Some(PathBuf::from(cwd_url.as_str())),
+                ..ShellExecOptions::default()
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(output.stdout, "normalized");
     remove_root(root).await;
 }
 

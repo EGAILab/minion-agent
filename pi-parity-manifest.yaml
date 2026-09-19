@@ -5714,24 +5714,38 @@ rows:
     FileSystem-only Pi consumer)'
   surface: Layer 12, WP-12.1 -- ctx.fs (filesystem capability seam)
   rule: 'REMEDIATED (independent Rust contract review, `L12-R001`/`L12-R002`/`L12-R003`,
-    `minion-agent-docs#111`). DIRECT_PI_PARITY for the operation set and each operation''s own
-    observable behavior. Operations: cwd; absolute_path; join_path; read_text_file;
+    `minion-agent-docs#111`; convergence episode `CE-L12-01-01`, `minion-agent-docs#113`,
+    resolving refined `L12-R001`/`L12-R002`/`L12-R008` findings from a second independent review,
+    `minion-agent-docs#112`). DIRECT_PI_PARITY for the operation set and each operation''s own
+    observable behavior, with NO residual divergence (see cancellation below) -- a single coherent
+    disposition. Operations: cwd; absolute_path; join_path; read_text_file;
     read_text_lines(max_lines?); read_binary_file; write_file; append_file; rename_file;
     file_info; list_dir; canonical_path; exists; create_dir(recursive=true);
     remove(recursive=false,force=false); create_temp_dir; create_temp_file; cleanup (best-effort,
     must not raise, narrowly scoped -- see below).
 
-    Cancellation (`L12-R001` resolved -- MINION_ARCHITECTURAL_MAPPING sourcing decision, not
-    unqualified direct parity): pinned Pi''s own FileSystem INTERFACE declares `signal?` on every
-    operation, but pinned Pi''s own reference implementation does not accept/check it on nine of
-    sixteen methods (`absolute_path`, `join_path`, `append_file`, `file_info`, `canonical_path`,
-    `exists`, `create_dir`, `remove`, `create_temp_dir`, `create_temp_file`) -- confirmed directly,
-    a genuine interface/reference-implementation conflict in pinned Pi itself, not merely
-    `append_file` alone as an earlier revision of this row claimed. Minion adopts the INTERFACE''s
-    fuller contract as the normative target: every operation MUST check a pre-aborted signal before
-    starting; operations with genuinely unbounded work (`read_text_file`/`read_binary_file`/
-    `write_file`/`read_text_lines`/`list_dir`) SHOULD also honor mid-operation cancellation. This
-    resolves the row''s own prior PI_BEHAVIOR_UNCERTAIN status -- it is no longer open.
+    Cancellation (`L12-R001`/`L12-R008` -- REVERSED at convergence): a first remediation adopted
+    pinned Pi''s own FileSystem INTERFACE-declared `signal?` contract (every operation checks it)
+    as a stricter MINION_ARCHITECTURAL_MAPPING. Convergence review found this was an UNAPPROVED
+    intentional divergence: Pi''s own reference implementation (`NodeExecutionEnv`, `nodejs.ts`)
+    does not actually accept/check `signal` on TEN of sixteen methods (`absolute_path`,
+    `join_path`, `append_file`, `file_info`, `canonical_path`, `exists`, `create_dir`, `remove`,
+    `create_temp_dir`, `create_temp_file` -- confirmed ten, not nine as an earlier revision
+    miscounted its own adjacent list), and this project''s own established epistemology treats
+    live OBSERVED behavior, never a type declaration''s unfulfilled promise, as authoritative for
+    "Pi behavior" without exception. Minion now adopts Pi''s own OBSERVABLE reference-
+    implementation cancellation behavior exactly, including its incompleteness, as
+    DIRECT_PI_PARITY:
+
+    checks pre-aborted AND honors mid-operation cancellation (signal threaded to the underlying
+    I/O): read_text_file, read_binary_file, write_file. Checks pre-aborted AND re-checks at each
+    loop iteration: read_text_lines, list_dir. Checks pre-aborted only, no mid-operation
+    checkpoint (a single fast syscall): rename_file. Does not accept or check a signal at all --
+    matches Pi exactly, not a Minion gap: absolute_path, join_path, append_file, file_info,
+    canonical_path, exists, create_dir, remove, create_temp_dir, create_temp_file.
+
+    This resolves `L12-R008` for this row directly: no divergence is bundled into `adopted`
+    anymore, so no split disposition or PI_BEHAVIOR_UNCERTAIN flag is needed.
 
     Path resolution (confirmed against `nodejs.ts:51-65`): paths may be absolute or cwd-relative;
     bare `~` and `~/`-prefixed (or, on Windows, `~\`-prefixed) paths expand against the home
@@ -5739,16 +5753,27 @@ rows:
     ordinary (almost certainly invalid) path string rather than raising, preserving the
     never-throw contract.
 
-    Symlinks (`L12-R002` resolved -- an earlier revision of this row wrongly claimed symlinks are
-    "never followed... except canonical_path"; confirmed false against pinned Pi directly):
-    lexical path resolution never traverses symlinks (it never touches the filesystem at all).
+    Symlinks (`L12-R002` -- corrected twice: an earlier revision of this row wrongly claimed
+    symlinks are "never followed... except canonical_path"; a first remediation then
+    MISCLASSIFIED `rename_file` as ordinary symlink-following content I/O and omitted `remove`
+    entirely -- both confirmed wrong against pinned Pi directly at convergence): lexical path
+    resolution never traverses symlinks (it never touches the filesystem at all).
     `file_info`/`list_dir`/`exists` use the non-following `lstat`-equivalent form, reporting a
     symlink itself as kind `symlink`. `canonical_path` is the one explicit, opt-in full-resolution
     operation. Ordinary CONTENT I/O (`read_text_file`/`read_binary_file`/`write_file`/
-    `append_file`/`rename_file`) DOES follow a symlink at its final path component, matching the
-    underlying OS `open()`/`rename()` semantics with no no-follow flag (`nodejs.ts:502-600`) --
-    reading through a symlink returns the target''s own content; writing/appending mutates the
-    target, not the link.
+    `append_file`) DOES follow a symlink at its final path component, matching the underlying OS
+    `open()` semantics with no no-follow flag (`nodejs.ts:502-577`) -- reading through a symlink
+    returns the target''s own content; writing/appending mutates the target, not the link.
+    `rename_file` NEVER traverses -- it calls raw `rename(source, destination)` (`nodejs.ts:594`)
+    and operates on the SOURCE directory entry itself (the link object, if source is a symlink);
+    replacing an existing destination replaces the destination''s own directory entry, not a
+    target it might point to (confirmed by an executable witness: renaming a symlink produces a
+    renamed symlink, target file untouched). `remove` NEVER traverses -- it calls raw
+    `rm(resolved, {recursive, force})` (`nodejs.ts:664`) and removes the addressed symlink itself;
+    recursive removal of a directory-symlink removes the link only, never recurses into the
+    target directory''s own contents (safety-relevant: this is the guarantee a caller relies on to
+    avoid an accidental cascading delete through a link). `create_dir` through an existing symlink
+    follows platform `mkdir` semantics at the existing prefix; no separate Minion rule.
 
     `read_text_lines`''s `max_lines` stops reading once that many lines have been produced, never
     reading a large file in full merely to return its first few lines; `max_lines<=0` returns an
@@ -5766,12 +5791,15 @@ rows:
     claim for temp resources, adopted or otherwise; a future implementation tracking/removing them
     would be a separately-dispositioned MINION_EXTENSION, not something adopted here.
 
-    Architecture-rationale scope (`L12-R003` resolved -- `EXEC-001`''s companion §1 correction):
-    Pi''s own EXECUTION TOOLS (bash/read/write/edit) require the combined ExecutionEnv; Pi''s own
+    Architecture-rationale scope (`L12-R003` resolved -- `EXEC-001`''s companion §1 correction,
+    also now applied to `design/2026-08-20-minion-agent-design.md` §7 at convergence): Pi''s own
+    EXECUTION TOOLS (bash/read/write/edit) require the combined ExecutionEnv; Pi''s own
     session-persistence layer does not (`JsonlSessionRepoFileSystem = Pick<FileSystem, ...>`,
     consumed by `JsonlSessionRepoOptions.fs` with no Shell dependency at all) -- a real,
     FileSystem-only Pi consumer. An earlier revision of the architecture rationale overgeneralized
-    to "no Pi consumer takes FileSystem or Shell alone," which this counter-example refutes.
+    to "no Pi consumer takes FileSystem or Shell alone," which this counter-example refutes; the
+    frozen design document contained the same overgeneralization and has now been corrected to
+    match.
 
     Full detail: `spec/execution.md` §3, §3.1-§3.8.'
   tests:
@@ -5782,43 +5810,57 @@ rows:
   disposition: adopted
 - id: EXEC-003
   phase: 6
-  pi: 'no direct Pi source -- see spec/execution.md §4; the design intent is cross-checked against
-    the fact that Pi''s own combined ExecutionEnv (types.ts:315) never needs this indirection,
-    since it is never independently swappable'
+  pi: 'no direct Pi source for FsTarget itself -- see spec/execution.md §4; but the target_key
+    MECHANISM is now modeled directly on Pi''s own REAL mutation-queue key derivation,
+    packages/agent/src/harness/tools/file-mutation-queue.ts:20-26 (getMutationQueueKey)'
   surface: Layer 12, WP-12.1 -- the FsTarget bridge (target_key, process_path)
-  rule: 'REMEDIATED (independent Rust contract review, `L12-R005`/`L12-R008`). MINION_
-    ARCHITECTURAL_MAPPING, owner-approved explicitly (GOVERNANCE_SOURCE
+  rule: 'REMEDIATED (independent Rust contract review, `L12-R005`/`L12-R008`; convergence episode
+    `CE-L12-01-01`, `minion-agent-docs#113`, resolving a refined `L12-R005` finding from a second
+    independent review, `minion-agent-docs#112`). MINION_ARCHITECTURAL_MAPPING, owner-approved
+    explicitly (GOVERNANCE_SOURCE
     `https://github.com/EGAILab/minion-agent/issues/39#issuecomment-5736233272`): `resolve(path)
     -> Result[FsTarget, FsError]`; `FsTarget.target_key` is an opaque, backend-defined identity
     value with no promised syntax; `process_path(target) -> Result[str, FsError]` returns the path
     a process in the target''s own execution world (`EXEC-006`) can open to reach the same
     resource.
 
-    Correction (`L12-R005`, full detail: `spec/execution.md` §4): an earlier revision left this
-    guarantee unimplementable and internally self-contradictory. Now binding: (1) symlink identity
-    is FIXED, not provider-discretionary -- a symlink and its target always share one target_key,
-    matching canonical_path''s own resolution; (2) same-resource identity survives MUTATION, not
-    merely re-resolution -- a content-hash mechanism is explicitly EXCLUDED (it would make two
-    distinct byte-identical files collide, and make one file''s own key change when its content
-    changes, both violating the stated guarantee); permitted mechanisms are location-derived only
-    (canonical path string, device+inode-equivalent pair); (3) target_key comparison is scoped to
-    ONE provider instance -- cross-provider comparison is undefined even for coincidentally-equal
-    values; (4) target_key MUST support stable equality/hashing for the resource''s lifetime;
-    (5) resolve() MUST succeed for a not-yet-existing write target, keyed by the location a
-    create at that path would resolve to; (6) process_path MUST be called on the originating (or
-    independently-validated-compatible) provider -- a detectable foreign target returns FsError
-    (invalid), never a fabricated path.
+    Correction (`L12-R005`, first remediation, full detail: `spec/execution.md` §4): an earlier
+    revision left this guarantee unimplementable and internally self-contradictory (provider-
+    discretionary symlink identity contradicting a fixed-identity requirement; a content-hash
+    mechanism that cannot satisfy the stated guarantee in either direction).
 
-    Binding requirement (unchanged in substance): the SAME underlying filesystem resource MUST
-    resolve to the SAME target_key. This is the identity guarantee a future Layer 13 mutation-
-    serialization queue will key on -- this row owns proving the guarantee holds, not building
-    that queue (explicitly out of scope for Layer 12, owner decision above).
+    Second correction (`L12-R005`, convergence): the first remediation''s own fix then required
+    BOTH "survives rename" (a resource-identity property) AND "not-yet-existing-target support" (a
+    location-identity property) from ONE mechanism -- a genuine logical impossibility (a
+    device+inode-equivalent pair satisfies the former but cannot predict a future inode for a
+    missing path; a canonical-path string satisfies the latter but changes on rename). Resolved by
+    re-reading pinned Pi''s own REAL mutation-queue key derivation (`getMutationQueueKey`,
+    `file-mutation-queue.ts:20-26`): a canonical-path STRING, falling back to the absolute path
+    when canonicalization fails (the not-yet-existing-path case) -- genuinely LOCATION-based, and
+    NOT designed to survive rename at all. `target_key` now adopts this SAME model:
+
+    `target_key = canonical_path(path) if it exists, else absolute_path(path)` -- mirrors Pi''s
+    own `getMutationQueueKey` exactly, including the not-yet-existing fallback.
+
+    Binding consequences: symlink identity is fixed via `canonical_path` (falls out of the
+    derivation for free, §3.2/`EXEC-002`); content mutation in place leaves `target_key`
+    unchanged; renaming `a` to `b` CHANGES the `target_key` (different canonical paths -- CORRECT,
+    not a defect, matching Pi''s own queue); deleting `a` and creating a new, unrelated file also
+    named `a` REUSES the same `target_key` (also correct and safe -- conservative serialization
+    against the same queue key, never wrong); a device+inode-equivalent pair is now EXCLUDED
+    alongside the already-excluded content hash, since it cannot satisfy the not-yet-existing-
+    target case. Canonical-path-string (falling back to absolute-path) is the ONE specified
+    mechanism, not one option among several. `target_key` comparison remains scoped to ONE
+    provider instance; `target_key` MUST support stable equality/hashing under this rule;
+    `process_path` MUST be called on the originating (or independently-validated-compatible)
+    provider -- a detectable foreign target returns FsError (invalid), never a fabricated path.
 
     Disposition correction (`L12-R008`): redispositioned `adopted` -> `intentional divergence`.
-    This row''s own text always said "no Pi equivalent"; `adopted` was incoherent alongside that
-    admission. Matches existing manifest precedent for Minion-only surfaces with no Pi behavior at
-    all (`MINION-001`: `pi: N/A -- Minion plugin architecture`, `disposition: intentional
-    divergence`).
+    This row''s own text always said "no Pi equivalent" for the FsTarget SHAPE itself (though the
+    target_key MECHANISM is now DIRECT_PI_PARITY-adjacent, modeled on Pi''s own real mutation-
+    queue key); `adopted` was incoherent alongside the shape''s own no-Pi-equivalent admission.
+    Matches existing manifest precedent for Minion-only surfaces (`MINION-001`: `pi: N/A --
+    Minion plugin architecture`, `disposition: intentional divergence`).
 
     Full detail: `spec/execution.md` §4.'
   tests:
@@ -5865,14 +5907,25 @@ rows:
     as it arrives IN ADDITION TO the full stdout/stderr the final Result carries. A throwing
     callback is classified `callback_error` (`EXEC-001`) and kills the in-flight command.
 
-    Completion mechanics (`L12-R007` resolved -- an earlier revision of `EXEC-005` described this
-    seam''s own completion as requiring stdio to "fully drain," overstating the actual guarantee):
-    `exec()` completes once the directly-spawned process has exited AND a short idle period has
-    elapsed with no further stdout/stderr activity from it -- NOT once every inherited pipe
-    descriptor, including ones held by unrelated detached descendant processes, has reached true
-    EOF. A pinned Windows-only regression test (`nodejs-env.test.ts:379-400`) exists specifically
-    to prove settlement in exactly the scenario where a detached descendant still holds inherited
-    stdio open.
+    Completion mechanics (`L12-R007` -- corrected twice: a first remediation fixed an earlier
+    revision of `EXEC-005` that described this seam''s own completion as requiring stdio to
+    "fully drain," overstating the actual guarantee, but left the idle period vague as "short";
+    convergence episode `CE-L12-01-01`, `minion-agent-docs#113`, restored the exact constant after
+    a second independent review, `minion-agent-docs#112`, flagged the vagueness): once the
+    directly-spawned process exits, arm an idle-grace timer of `EXIT_STDIO_GRACE_MS = 100`
+    milliseconds (`nodejs.ts` `armIdleTimer`/`onData`/`onExit`, lines ~305-334). Any stdout/stderr
+    data received BEFORE that timer fires RESETS it (`onData` clears the pending timer and
+    re-arms a fresh 100ms window) -- a process whose stdio keeps producing data every <100ms keeps
+    pushing completion out, not merely waiting a single fixed 100ms from exit. `exec()` settles
+    once the timer fires with no further data having reset it, OR once both stdout and stderr
+    streams have independently ended/closed on their own, whichever happens first -- NOT once
+    every inherited pipe descriptor, including ones held by unrelated detached descendant
+    processes, has reached true EOF. A pinned Windows-only regression test
+    (`nodejs-env.test.ts:379-400`) exists specifically to prove settlement in exactly the scenario
+    where a detached descendant still holds inherited stdio open. This idle-grace mechanism is
+    explicitly `ctx.shell`''s OWN layered concern, built on `ctx.subprocess`''s (`EXEC-005`)
+    simpler primitives -- it is not part of `ctx.subprocess`''s own `wait()` contract, which
+    settles on process exit alone, independent of stdio state.
 
     Result shape: a successful `exec()` returns `{stdout,stderr,exit_code}` regardless of whether
     `exit_code` is zero (confirmed, `env.exec("exit 7")` -> `Ok({...,exitCode:7})`,
@@ -5893,13 +5946,16 @@ rows:
     statement that ctx.shell''s local provider spawns through ctx.subprocess'
   surface: Layer 12, WP-12.1 -- ctx.subprocess (raw argv-direct process spawning capability seam),
     including its own SubprocessErrorCode taxonomy
-  rule: 'REMEDIATED (independent Rust contract review, `L12-R006`/`L12-R008`). MINION_EXTENSION,
-    owner-directed: "Its contract must be designed from the frozen master architecture rather than
-    represented as Pi parity." `spawn(argv, options?) -> Result[Process, SubprocessError]` where
-    `options{cwd?, env?, inherit_env=true, stdin: StdioMode=null, stdout: StdioMode=piped,
-    stderr: StdioMode=piped, signal?}` and `StdioMode = inherit|piped|null`; `Process{pid,
-    stdin?, stdout?, stderr?, wait(signal?) -> Result[ExitStatus, SubprocessError], terminate()}`
-    where `ExitStatus{exit_code: int|None}`.
+  rule: 'REMEDIATED (independent Rust contract review, `L12-R006`/`L12-R008`; convergence episode
+    `CE-L12-01-01`, `minion-agent-docs#113`, resolving refined `L12-R006` gaps from a second
+    independent review, `minion-agent-docs#112`). MINION_EXTENSION, owner-directed: "Its contract
+    must be designed from the frozen master architecture rather than represented as Pi parity."
+    `spawn(argv, options?) -> Result[Process, SubprocessError]` where `options{cwd?, env?,
+    inherit_env=true, stdin: StdioMode=null, stdout: StdioMode=piped, stderr: StdioMode=piped,
+    signal?}` and `StdioMode = inherit|piped|null`; `Process{pid, stdin?, stdout?, stderr?,
+    wait() -> Result[ExitStatus, SubprocessError], terminate()}` where `ExitStatus{exit_code:
+    int|None}`. NOTE: `wait()` takes NO signal parameter of its own (convergence correction,
+    below).
 
     SubprocessErrorCode (MINION_EXTENSION -- moved here from `EXEC-001` per `L12-R008`, since
     `ctx.subprocess` has no Pi seam to inherit a taxonomy from at all): aborted | spawn_error |
@@ -5908,24 +5964,43 @@ rows:
     a caller composes its own signal with a timer, exactly how ctx.shell layers its own timeout on
     top (`EXEC-004`).
 
-    Complete process/stream contract (`L12-R006` resolved -- an earlier revision left stdio
-    configuration, stream operations, cancellation-vs-termination semantics, idempotence,
-    ownership, and chunk type all unspecified or self-contradictory): `argv`-direct only, MUST NOT
-    shell-interpret under any circumstance. Stdio streams are typed (`WritableStream{write(bytes)
-    -> Result[None,SubprocessError], close()}`; `ReadableStream{read_chunk() ->
-    Result[bytes|None,SubprocessError]}`), populated on `Process` only for streams configured
-    `piped`; chunks are raw bytes, never decoded text (unlike ctx.shell''s own higher-level
-    `exec()`). A pre-aborted `spawn()` signal short-circuits before any process starts. `wait()`
-    after a caller-external signal fires classifies `aborted` (an error); `wait()` after an
-    explicit, signal-free `terminate()` call returns SUCCESS with `exit_code: None` (the caller''s
-    own deliberate action, not an unexpected failure) -- these are DIFFERENT classifications for
-    different causes, not interchangeable. `wait()` and `terminate()` are both idempotent
+    Complete process/stream contract (`L12-R006`, first remediation, resolved an earlier revision
+    that left stdio configuration, stream operations, cancellation-vs-termination semantics,
+    idempotence, ownership, and chunk type all unspecified or self-contradictory): `argv`-direct
+    only, MUST NOT shell-interpret under any circumstance. Stdio streams are typed
+    (`WritableStream{write(bytes) -> Result[None,SubprocessError], close()}`;
+    `ReadableStream{read_chunk() -> Result[bytes|None,SubprocessError]}`), populated on `Process`
+    only for streams configured `piped`; chunks are raw bytes, never decoded text (unlike
+    ctx.shell''s own higher-level `exec()`). `wait()` and `terminate()` are both idempotent
     (repeated/concurrent calls return/produce the same outcome). A pipe read/write failure is
     observed at that operation alone and does NOT change what `wait()` returns -- the two failure
     domains are kept independent. `terminate()` and signal-triggered cancellation both kill the
     whole process tree/group, matching `ctx.shell`''s own `EXEC-004` guarantee -- the SAME
     underlying mechanism `ctx.shell`''s local provider is built from. A failure to start the
     process at all is `spawn_error`.
+
+    Second correction (`L12-R006`, convergence -- the first remediation''s own `wait(signal?)`
+    shape created an unresolved ambiguity for "abort the original spawn signal, then call wait()
+    with no argument," left wait()''s own relationship to stdio drain unstated, and mixed an
+    unconditional "MUST NOT leak" with only a "SHOULD attempt termination" on implicit disposal --
+    not achievable in idiomatic Rust, since Drop cannot await async cleanup): ONE signal, not two.
+    `wait()` takes no signal parameter; cancellation flows only through `spawn()`''s own
+    `options.signal`. A pre-aborted `signal` supplied to `spawn()` short-circuits before any
+    process starts, returning `aborted`. `wait()` returns `Err(aborted)` when the process was
+    killed because the spawn-supplied signal fired (at any point); it returns
+    `Ok(ExitStatus{exit_code: None})` when killed via an explicit, signal-free `terminate()` call
+    (the caller''s own deliberate action, not an unexpected failure). `wait()` settles on the
+    PROCESS''s own exit ALONE, independent of stdio stream state -- it does not wait for, and is
+    not affected by, `stdout`/`stderr`/`stdin`; a caller wanting both "process exited" and "output
+    drained" does both explicitly. `ctx.shell`''s own idle-grace completion heuristic (`EXEC-004`)
+    is a SEPARATE, higher-level concern layered on top of these primitives, not part of this
+    contract. Disposal: `wait()` or `terminate()` is the ONLY guaranteed-safe disposal path, in
+    EITHER language equally -- a CALLER obligation, not an implicit-cleanup guarantee. Dropping a
+    `Process` without calling either first is UNDEFINED behavior (a caller bug), not a scenario
+    this API promises to handle safely -- removing the unconditional "MUST NOT leak" claim
+    implicit disposal cannot actually satisfy in idiomatic Rust. Python MAY additionally offer an
+    async context-manager form whose `__aexit__` calls `terminate()` as an ergonomic convenience,
+    but the contract does not depend on it.
 
     Disposition correction (`L12-R008`): redispositioned `adopted` -> `intentional divergence`.
     This row''s own text always said "MINION_EXTENSION... no Pi seam"; `adopted` was incoherent

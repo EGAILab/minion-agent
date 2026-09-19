@@ -5740,9 +5740,25 @@ rows:
     checks pre-aborted AND honors mid-operation cancellation (signal threaded to the underlying
     I/O): read_text_file, read_binary_file, write_file. Checks pre-aborted AND re-checks at each
     loop iteration: read_text_lines, list_dir. Checks pre-aborted only, no mid-operation
-    checkpoint (a single fast syscall): rename_file. Does not accept or check a signal at all --
-    matches Pi exactly, not a Minion gap: absolute_path, join_path, append_file, file_info,
-    canonical_path, exists, create_dir, remove, create_temp_dir, create_temp_file.
+    checkpoint (a single fast syscall): rename_file. Accepts signal (uniform typed API, below) but
+    does NOT inspect it -- matches Pi exactly, not a Minion gap: absolute_path, join_path,
+    append_file, file_info, canonical_path, exists, create_dir, remove, create_temp_dir,
+    create_temp_file.
+
+    Public API shape (refined `L12-R001`, targeted closure review, `minion-agent-docs#114`): the
+    typed operation signature declares `signal?` UNIFORMLY on every operation, including the ten
+    above -- matching pinned Pi''s own FileSystem INTERFACE shape exactly. This is a single,
+    explicit decision about the PUBLIC API SURFACE, separate from the OBSERVABLE-BEHAVIOR decision
+    above: every operation ACCEPTS an optional signal (a uniform seam-wide signature); whether it
+    is INSPECTED is the separate, per-operation fact stated above. No operation''s typed signature
+    omits the parameter; no operation raises/errors merely for being passed a signal it does not
+    inspect. A Rust implementation exposes this as an ordinary `Option<&CancelToken>` parameter on
+    every trait method, unused in the body for the ten non-inspecting operations -- not a second,
+    narrower trait shape. (An earlier revision of this row left the typed signature and this
+    behavior table implicitly inconsistent -- the operation inventory in `spec/execution.md` §3
+    already declared `signal?` everywhere, but §3.1''s own prose read as "does not accept," which a
+    typed Rust API cannot satisfy simultaneously with "accepts." Resolved by stating explicitly
+    that the parameter is always present and the distinction is inspection-only.)
 
     This resolves `L12-R008` for this row directly: no divergence is bundled into `adopted`
     anymore, so no split disposition or PI_BEHAVIOR_UNCERTAIN flag is needed.
@@ -5846,14 +5862,37 @@ rows:
     derivation for free, §3.2/`EXEC-002`); content mutation in place leaves `target_key`
     unchanged; renaming `a` to `b` CHANGES the `target_key` (different canonical paths -- CORRECT,
     not a defect, matching Pi''s own queue); deleting `a` and creating a new, unrelated file also
-    named `a` REUSES the same `target_key` (also correct and safe -- conservative serialization
-    against the same queue key, never wrong); a device+inode-equivalent pair is now EXCLUDED
-    alongside the already-excluded content hash, since it cannot satisfy the not-yet-existing-
-    target case. Canonical-path-string (falling back to absolute-path) is the ONE specified
-    mechanism, not one option among several. `target_key` comparison remains scoped to ONE
-    provider instance; `target_key` MUST support stable equality/hashing under this rule;
-    `process_path` MUST be called on the originating (or independently-validated-compatible)
+    named `a` REUSES the same `target_key`, PROVIDED no ancestor directory component of `a`''s path
+    is or becomes a symlink in between (see the symlinked-ancestor exception below) -- when it
+    holds, this reuse is correct and safe: conservative serialization against the same queue key,
+    never wrong; a device+inode-equivalent pair is now EXCLUDED alongside the already-excluded
+    content hash, since it cannot satisfy the not-yet-existing-target case. Canonical-path-string
+    (falling back to absolute-path) is the ONE specified mechanism, not one option among several.
+    Equality is by RESOLVED LOCATION, not by syntactic path equality -- two DIFFERENT syntactic
+    paths that resolve to the SAME location (a symlink and its target) correctly share one
+    `target_key`; two `resolve()` calls reaching DIFFERENT resolved locations produce unequal keys.
+    `target_key` comparison remains scoped to ONE provider instance; `target_key` MUST support
+    stable equality/hashing under this rule; `process_path` MUST be called on the originating (or
+    independently-validated-compatible)
     provider -- a detectable foreign target returns FsError (invalid), never a fabricated path.
+
+    Symlinked-ancestor exception to missing-then-create stability (refined `L12-R005`, targeted
+    closure review, `minion-agent-docs#114`): a not-yet-existing path''s `target_key` uses the
+    `absolute_path` fallback -- purely lexical, resolving NO symlink, including one in an ANCESTOR
+    directory component. Once the resource exists, `canonical_path` resolves EVERY symlink
+    component, ancestors included. For an ordinary path with no symlinked ancestor these coincide,
+    so the key is stable across creation. For a path whose ancestor is (or becomes) a symlink, they
+    do NOT coincide, and the key CHANGES across creation -- confirmed by direct reasoning about
+    `realpath` semantics and reproduced with an executable witness (`resolve("link/new.txt")`
+    before creation yields the lexical `.../link/new.txt`; after creating through `link`, it yields
+    the canonicalized `.../real/new.txt` -- unequal). This is NOT a Minion-introduced defect:
+    pinned Pi''s own real `getMutationQueueKey` calls the identical `absolutePath`/`canonicalPath`
+    fallback pair in the identical order (`file-mutation-queue.ts:20-26`), so Pi''s own real
+    mutation queue has this exact same property. `target_key` adopts Pi''s OBSERVABLE behavior here
+    exactly, including this instability, rather than inventing a stronger cross-creation guarantee
+    Pi''s own real mechanism does not provide -- consistent with `EXEC-002`''s own cancellation
+    sourcing decision: Minion does not silently strengthen an incomplete Pi mechanism into an
+    idealized promise.
 
     Disposition correction (`L12-R008`): redispositioned `adopted` -> `intentional divergence`.
     This row''s own text always said "no Pi equivalent" for the FsTarget SHAPE itself (though the

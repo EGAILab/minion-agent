@@ -5881,6 +5881,14 @@ rows:
     a process in the target''s own execution world (`EXEC-006`) can open to reach the same
     resource.
 
+    `process_path`''s canonical-vs-lexical form (post-closure finding `L12-R021`, discovered during
+    the first independent Rust closure review of the merged contract, `minion-agent#41`/
+    `minion-agent-docs#118`): this row previously left the returned string''s exact form unstated.
+    Corrected: `process_path(target)` returns the SAME string already used to derive that target''s
+    own `target_key` (the canonical-if-exists/absolute-if-missing derivation below) -- CANONICAL
+    once the resource exists, LEXICAL-ABSOLUTE for a not-yet-existing target''s own future
+    location. No separately-computed path; the two are the same value.
+
     Correction (`L12-R005`, first remediation, full detail: `spec/execution.md` §4): an earlier
     revision left this guarantee unimplementable and internally self-contradictory (provider-
     discretionary symlink identity contradicting a fixed-identity requirement; a content-hash
@@ -6163,8 +6171,23 @@ rows:
     `options.signal`. A pre-aborted `signal` supplied to `spawn()` short-circuits before any
     process starts, returning `aborted`. `wait()` returns `Err(aborted)` when the process was
     killed because the spawn-supplied signal fired (at any point); it returns
-    `Ok(ExitStatus{exit_code: None})` when killed via an explicit, signal-free `terminate()` call
-    (the caller''s own deliberate action, not an unexpected failure). `wait()` settles on the
+    `Ok(ExitStatus{exit_code})` when killed via an explicit, signal-free `terminate()` call
+    (the caller''s own deliberate action, not an unexpected failure).
+
+    `exit_code` after `terminate()` is CONDITIONAL, not unconditionally `None` (post-closure
+    finding `L12-R020`, discovered during the first independent Rust closure review of the merged
+    contract, `minion-agent#41`/`minion-agent-docs#118`): an earlier revision of this row said
+    `terminate()`-caused kills ALWAYS settle `exit_code: None`. That is structurally incompatible
+    with `EXEC-004`''s own `L12-R017` rule that `ctx.shell.cleanup()` -- architecturally built ON
+    `ctx.subprocess.terminate()`, with no other sanctioned kill mechanism -- must PRESERVE a real
+    exit code when one is reported; the two previously-settled rules were jointly unsatisfiable as
+    written. Corrected: `exit_code` reflects whatever the OS actually reports -- a REAL numeric
+    code `K` when the OS provides one (not guaranteed to be absent merely because the process was
+    killed), `None` ONLY when genuinely absent. This is the SAME code-preserving rule `EXEC-004`''s
+    own `ctx.shell.cleanup()` settlement already used -- now unified, since they are
+    architecturally the same underlying mechanism.
+
+    `wait()` settles on the
     PROCESS''s own exit ALONE, independent of stdio stream state -- it does not wait for, and is
     not affected by, `stdout`/`stderr`/`stdin`; a caller wanting both "process exited" and "output
     drained" does both explicitly. `ctx.shell`''s own idle-grace completion heuristic (`EXEC-004`)

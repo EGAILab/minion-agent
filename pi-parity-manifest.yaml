@@ -5884,19 +5884,26 @@ rows:
     stable equality/hashing under this rule.
 
     `process_path` scoped to the producing provider only (refined `L12-R014`, final complete
-    review, `minion-agent-docs#114`, convergence episode `CE-L12-01-02`): an earlier revision
-    permitted `process_path(target)` on the producing provider "or one independently validated as
+    review, `minion-agent-docs#114`, convergence episode `CE-L12-01-02`; second correction,
+    targeted closure review, `minion-agent-docs#114`, CE-L12-01-02): an earlier revision permitted
+    `process_path(target)` on the producing provider "or one independently validated as
     execution-world-compatible via `EXEC-006`" -- contradicting this row''s own provider-scoping
     rule above. Execution-world compatibility is a statement about whether a RESULTING PATH STRING
     is meaningful across providers, not a grant of authority for a second provider to decode the
     first provider''s own opaque `target_key`. Corrected: `process_path(target)` MUST be called on
-    the SAME provider instance that produced `target` -- no exception; calling it on any other
-    provider is outside this contract (undefined). The cross-seam workflow: `resolve()` and
-    `process_path()` both happen on the originating `ctx.fs` provider; the resulting PATH STRING
-    (never the `FsTarget`/`target_key` itself) is handed to a `ctx.shell`/`ctx.subprocess` provider
-    independently validated as execution-world-compatible (`EXEC-006`) with that SAME `ctx.fs`
-    provider. A provider detecting it did not itself produce `target` returns FsError (invalid),
-    never a fabricated path.
+    the SAME provider instance that produced `target` -- no exception.
+
+    A first fix then stated calling it on any other provider is "outside this contract (undefined)"
+    while also requiring a detecting provider to "return FsError (invalid)" -- two incompatible
+    classifications for the identical call. Corrected to ONE rule: calling `process_path` on any
+    non-producing provider is UNIFORMLY undefined (a caller bug), not a case with its own required
+    `Result`. A provider MAY, as best-effort hardening, detect foreign provenance and return
+    `FsError(invalid)` instead of a fabricated path, but this is NOT required -- a caller must not
+    rely on receiving any particular `Result` from this out-of-contract call. The cross-seam
+    workflow: `resolve()` and `process_path()` both happen on the originating `ctx.fs` provider;
+    the resulting PATH STRING (never the `FsTarget`/`target_key` itself) is handed to a
+    `ctx.shell`/`ctx.subprocess` provider independently validated as execution-world-compatible
+    (`EXEC-006`) with that SAME `ctx.fs` provider.
 
     Symlinked-ancestor exception to missing-then-create stability (refined `L12-R005`, targeted
     closure review, `minion-agent-docs#114`): a not-yet-existing path''s `target_key` uses the
@@ -6133,10 +6140,14 @@ rows:
     type shape, comparison operation, compatibility relation, or typed failure result, leaving "the
     compatibility VOCABULARY" above an unfulfilled promise): `ExecutionWorldIdentity` is opaque,
     provider-declared, and supports equality comparison. `compatible(a, b) -> bool` is the
-    compatibility relation -- identity EQUALITY is always sufficient (two providers with equal
-    identity values are always compatible); a provider MAY additionally declare compatibility with
-    specific OTHER identity values (e.g. a documented family of interoperable remote backends), but
-    equality is always the minimum baseline every provider must honor. `validate(providers:
+    compatibility relation -- EQUALITY-ONLY (refined `L12-R013`, targeted closure review,
+    `minion-agent-docs#114`, CE-L12-01-02: `compatible(a, b) := (a == b)`, full stop). An earlier
+    revision additionally permitted a provider to declare compatibility with specific OTHER
+    identity values without defining whether the declaration must be mutual/symmetric, leaving
+    `validate()` observably order-dependent. No deployment this row certifies needs
+    broader-than-equality compatibility; equality is inherently symmetric
+    (`compatible(a,b) == compatible(b,a)` always), closing the gap without a new declaration model.
+    `validate(providers:
     list[(name, identity)]) -> Result[None, ExecutionWorldError]` is called by a CONSUMER (never
     the runtime) at its own activation, over the specific providers it needs to address the same
     resource through; returns `Err(ExecutionWorldError)` naming every pairwise-incompatible

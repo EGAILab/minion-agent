@@ -3,7 +3,9 @@ Exercises every executable witness in spec section 10 that these two rows cover.
 
 from __future__ import annotations
 
+import asyncio
 import os
+import time
 from pathlib import Path
 
 import pytest
@@ -61,6 +63,57 @@ def test_malformed_file_url_is_kept_as_literal_string() -> None:
     assert isinstance(resolved, str)
 
 
+@pytest.mark.skipif(
+    os.name == "nt", reason="a non-empty file:// host is a legitimate UNC path on Windows"
+)
+def test_file_url_with_non_local_host_is_kept_as_literal_string_on_posix() -> None:
+    """`L12-PY-R002` witness: pinned Node's `fileURLToPath` throws `ERR_INVALID_FILE_URL_HOST`
+    for a non-empty, non-"localhost" host on POSIX -- `file://nonlocalhost/some/path` is
+    malformed there, not a legitimate path. This seam never raises, so it must instead preserve
+    the literal input string unchanged, exactly like the other malformed-URL witness above --
+    NOT silently drop the host and produce a wrong resolved path."""
+    literal = "file://nonlocalhost/some/path"
+    resolved = resolve_local_path("/cwd", literal)
+    assert resolved == literal
+
+
+def test_file_url_with_non_local_host_is_kept_as_literal_string_portable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Portable twin of the witness above, closing coverage on Windows (where `os.name` is
+    genuinely `"nt"` and the real POSIX-only branch never executes on its own): monkeypatches
+    `os.name` just for this one check, matching this module's `_UnsupportedFileType` /
+    monkeypatch-`os.lstat` coverage-closing convention used further below."""
+    monkeypatch.setattr(os, "name", "posix")
+    literal = "file://nonlocalhost/some/path"
+    resolved = resolve_local_path("/cwd", literal)
+    assert resolved == literal
+
+
+# ---------------------------------------------------------------------------
+# join_path (`L12-PY-R002`)
+# ---------------------------------------------------------------------------
+
+
+async def test_join_path_empty_parts_returns_dot(tmp_path: Path) -> None:
+    """Matches Node's own `path.join()` with zero arguments, which returns `"."`, not `""`."""
+    fs = LocalFileSystem(cwd=str(tmp_path))
+    assert await fs.join_path([]) == Ok(".")
+
+
+@pytest.mark.skipif(os.name != "nt", reason="exercises the Windows-only join-reset bug")
+async def test_join_path_windows_later_separator_prefixed_segment_does_not_reset(
+    tmp_path: Path,
+) -> None:
+    """`L12-PY-R002` witness: `os.path.join("a", "\\\\b")` resets accumulation and returns just
+    `"\\\\b"`, because a leading separator makes a segment look absolute to `os.path.join` --
+    Node's own `path.join` has no such special case, it simply concatenates every segment and
+    THEN normalizes, giving `"a\\\\b"`. This seam must match Node, not `os.path.join`'s own
+    behavior."""
+    fs = LocalFileSystem(cwd=str(tmp_path))
+    assert await fs.join_path(["a", "\\b"]) == Ok("a\\b")
+
+
 # ---------------------------------------------------------------------------
 # Reads, writes, append, rename
 # ---------------------------------------------------------------------------
@@ -90,6 +143,23 @@ async def test_read_text_file_not_found(tmp_path: Path) -> None:
     result = await fs.read_text_file("missing.txt")
     assert isinstance(result, Err)
     assert result.error.code == FsErrorCode.NOT_FOUND
+
+
+async def test_read_text_file_with_invalid_utf8_replaces_instead_of_raising(
+    tmp_path: Path,
+) -> None:
+    """`L12-PY-R002` witness: matches pinned Node's own UTF-8 decoding, which never throws for
+    invalid bytes -- it substitutes the replacement character (U+FFFD). The default
+    `errors="strict"` would raise `UnicodeDecodeError`, which is NOT an `OSError` subclass and
+    would therefore escape this operation's own `except OSError` handling entirely, violating
+    the never-raise `Result` contract outright."""
+    fs = LocalFileSystem(cwd=str(tmp_path))
+    await fs.write_file("bad.txt", b"before \xff\xfe after")
+    result = await fs.read_text_file("bad.txt")
+    assert isinstance(result, Ok)
+    assert "�" in result.value
+    assert result.value.startswith("before ")
+    assert result.value.endswith(" after")
 
 
 async def test_append_file_creates_and_appends(tmp_path: Path) -> None:
@@ -377,6 +447,18 @@ async def test_symlink_rename_never_follows(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
+async def test_read_text_file_succeeds_with_a_never_aborted_signal(tmp_path: Path) -> None:
+    """Closes `_race_signal`'s OTHER branch (the operation winning the race, `op_task.done()`):
+    every existing signal-bearing witness for these three ops either pre-aborts or aborts
+    mid-block, never exercising the ordinary case of a live-but-never-fired signal alongside a
+    normal (fast, non-blocking) operation."""
+    fs = LocalFileSystem(cwd=str(tmp_path))
+    await fs.write_file("a.txt", "hello")
+    controller = RunAbortController()
+    result = await fs.read_text_file("a.txt", signal=controller.signal)
+    assert result == Ok("hello")
+
+
 async def test_read_text_file_pre_aborted(tmp_path: Path) -> None:
     fs = LocalFileSystem(cwd=str(tmp_path))
     await fs.write_file("a.txt", "x")
@@ -489,6 +571,144 @@ async def test_list_dir_has_no_post_loop_checkpoint(tmp_path: Path) -> None:
     signal = _AbortAtCall(trigger_at=4)
     result = await fs.list_dir(".", signal=signal)  # type: ignore[arg-type]
     assert isinstance(result, Ok)
+
+
+async def test_list_dir_pre_aborted_on_empty_directory_still_returns_err(tmp_path: Path) -> None:
+    """`L12-PY-R001` witness: the pre-loop checkpoint must fire independent of entry count.
+    Previously an EMPTY directory never entered the `for entry in scandir(...)` loop body at
+    all, so a signal that was already aborted BEFORE the call even started was never actually
+    checked -- silently returning `Ok([])` instead of `Err(aborted)`."""
+    fs = LocalFileSystem(cwd=str(tmp_path))
+    controller = RunAbortController()
+    controller.abort()
+    result = await fs.list_dir(".", signal=controller.signal)
+    assert isinstance(result, Err)
+    assert result.error.code == FsErrorCode.ABORTED
+
+
+class _AbortAfterDelay:
+    """A `RunSignal`-shaped stand-in that becomes `aborted` after a fixed real-time delay --
+    used to race against a genuinely blocking operation without needing an external trigger."""
+
+    def __init__(self, delay: float) -> None:
+        self._deadline = asyncio.get_running_loop().time() + delay
+
+    @property
+    def aborted(self) -> bool:
+        return asyncio.get_running_loop().time() >= self._deadline
+
+
+async def test_read_text_file_settles_promptly_when_signal_fires_mid_block(
+    tmp_path: Path,
+) -> None:
+    """`L12-PY-R001` witness: a blocking read that is genuinely stuck (no writer on the other
+    end of a FIFO) cannot be forcibly interrupted mid-syscall, but the CALLER-OBSERVABLE result
+    must still settle promptly once the signal fires -- via `_race_signal`'s polling race, not
+    by waiting for the underlying blocked thread to ever return. POSIX-only (real FIFO);
+    skipped on platforms without `os.mkfifo` -- see the portable monkeypatch-based twins below
+    for the platform-independent equivalent (e.g. Windows coverage)."""
+    if not hasattr(os, "mkfifo"):
+        pytest.skip("os.mkfifo is not available on this platform")
+    fifo_path = tmp_path / "blocking-read-fifo"
+    os.mkfifo(str(fifo_path))
+    fs = LocalFileSystem(cwd=str(tmp_path))
+
+    signal = _AbortAfterDelay(0.05)
+    try:
+        result = await asyncio.wait_for(
+            fs.read_text_file("blocking-read-fifo", signal=signal),  # type: ignore[arg-type]
+            timeout=2.0,
+        )
+        assert isinstance(result, Err)
+        assert result.error.code == FsErrorCode.ABORTED
+    finally:
+        # `_race_signal` deliberately ABANDONS the still-blocked underlying thread (Python
+        # cannot forcibly interrupt a blocked `open()` syscall) -- unblock it here so it
+        # doesn't hang the interpreter's own executor-thread join at process exit.
+        writer_fd = os.open(str(fifo_path), os.O_WRONLY)
+        os.close(writer_fd)
+
+
+async def test_write_file_settles_promptly_when_signal_fires_mid_block(tmp_path: Path) -> None:
+    """The `write_file` half of the same `L12-PY-R001` witness: opening a FIFO for WRITE blocks
+    identically until a reader appears -- the same prompt-settlement guarantee applies.
+    POSIX-only (real FIFO); see the portable twin below for platform-independent coverage."""
+    if not hasattr(os, "mkfifo"):
+        pytest.skip("os.mkfifo is not available on this platform")
+    fifo_path = tmp_path / "blocking-write-fifo"
+    os.mkfifo(str(fifo_path))
+    fs = LocalFileSystem(cwd=str(tmp_path))
+
+    signal = _AbortAfterDelay(0.05)
+    try:
+        result = await asyncio.wait_for(
+            fs.write_file("blocking-write-fifo", "x", signal=signal),  # type: ignore[arg-type]
+            timeout=2.0,
+        )
+        assert isinstance(result, Err)
+        assert result.error.code == FsErrorCode.ABORTED
+    finally:
+        reader_fd = os.open(str(fifo_path), os.O_RDONLY)
+        os.close(reader_fd)
+
+
+async def test_read_text_file_settles_promptly_when_signal_fires_mid_block_portable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Portable (non-FIFO) twin of the witness above, closing coverage on platforms without
+    `os.mkfifo` (e.g. Windows): `_read_text_sync` is monkeypatched to take longer than the
+    signal's own abort delay, exercising `_race_signal`'s actual polling race directly rather
+    than a real blocked syscall."""
+    fs = LocalFileSystem(cwd=str(tmp_path))
+    await fs.write_file("a.txt", "x")
+
+    def _slow_read_text_sync(_path: str) -> str:
+        time.sleep(0.2)
+        return "unreachable"
+
+    monkeypatch.setattr(filesystem_module, "_read_text_sync", _slow_read_text_sync)
+    result = await fs.read_text_file("a.txt", signal=_AbortAfterDelay(0.05))  # type: ignore[arg-type]
+    assert isinstance(result, Err)
+    assert result.error.code == FsErrorCode.ABORTED
+
+
+async def test_read_binary_file_settles_promptly_when_signal_fires_mid_block_portable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The `read_binary_file` half of the same portable witness."""
+    fs = LocalFileSystem(cwd=str(tmp_path))
+    await fs.write_file("a.txt", "x")
+
+    def _slow_read_binary_sync(_path: str) -> bytes:
+        time.sleep(0.2)
+        return b"unreachable"
+
+    monkeypatch.setattr(filesystem_module, "_read_binary_sync", _slow_read_binary_sync)
+    result = await fs.read_binary_file(
+        "a.txt",
+        signal=_AbortAfterDelay(0.05),  # type: ignore[arg-type]
+    )
+    assert isinstance(result, Err)
+    assert result.error.code == FsErrorCode.ABORTED
+
+
+async def test_write_file_settles_promptly_when_signal_fires_mid_block_portable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The `write_file` half of the same portable witness."""
+    fs = LocalFileSystem(cwd=str(tmp_path))
+
+    def _slow_write_file_sync(_path: str, _content: str | bytes) -> None:
+        time.sleep(0.2)
+
+    monkeypatch.setattr(filesystem_module, "_write_file_sync", _slow_write_file_sync)
+    result = await fs.write_file(
+        "a.txt",
+        "x",
+        signal=_AbortAfterDelay(0.05),  # type: ignore[arg-type]
+    )
+    assert isinstance(result, Err)
+    assert result.error.code == FsErrorCode.ABORTED
 
 
 async def test_ten_operations_accept_but_do_not_inspect_signal(tmp_path: Path) -> None:

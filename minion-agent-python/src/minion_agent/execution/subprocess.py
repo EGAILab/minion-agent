@@ -21,13 +21,18 @@ from collections.abc import Sequence
 from contextlib import suppress
 from dataclasses import dataclass
 from enum import StrEnum
+from typing import Literal, Protocol
 
 from ..runtime.signal import RunSignal
 from .errors import SubprocessError, SubprocessErrorCode
 from .filesystem import resolve_local_path
 from .result import Err, Ok, Result
+from .world import ExecutionWorldIdentity
 
 _SIGNAL_POLL_INTERVAL_S = 0.01
+_TASKKILL_WAIT_TIMEOUT_S = 5.0
+
+_KillCause = Literal["signal", "explicit", None]
 
 
 class StdioMode(StrEnum):
@@ -81,7 +86,43 @@ def _stdio_to_asyncio(mode: StdioMode) -> int | None:
     return _subprocess.DEVNULL
 
 
-def _kill_process_tree(pid: int) -> None:
+def _wait_and_settle_helper(helper: _subprocess.Popen[bytes]) -> None:
+    """Runs OFF the event loop (`asyncio.to_thread`) since `Popen.wait()` blocks. Best-effort,
+    MUST NOT raise: a bounded wait, falling back to killing the helper itself if `taskkill` is
+    somehow still running past that."""
+    try:
+        helper.wait(timeout=_TASKKILL_WAIT_TIMEOUT_S)
+    except _subprocess.TimeoutExpired:
+        with suppress(OSError):
+            helper.kill()
+        with suppress(OSError, _subprocess.TimeoutExpired):
+            helper.wait(timeout=_TASKKILL_WAIT_TIMEOUT_S)
+
+
+def _close_transport(proc: asyncio.subprocess.Process) -> None:
+    """`L12-PY-R007`'s other resource-warning source: once a process is confirmed exited (`wait()`
+    has returned), close its underlying subprocess transport explicitly rather than leaving it for
+    the garbage collector. Left implicit, a transport whose process was force-killed (rather than
+    exiting on its own) -- or whose stdout/stderr `StreamReader` was never fully drained -- can
+    still have buffered pipe-transport state on Windows' `ProactorEventLoop` at GC time, producing
+    a `PytestUnraisableExceptionWarning`/`ValueError: I/O operation on closed pipe` from
+    `ProactorBasePipeTransport.__del__`. Each stdio `StreamReader` owns its OWN
+    `_ProactorReadPipeTransport`, separate from (not transitively closed by) the top-level
+    `proc._transport` -- both `proc._transport` AND each configured stream's own `._transport`
+    need an explicit close. All are private `asyncio` attributes (no public API exposes them) --
+    accessed defensively; their absence or an error while closing any of them is never this
+    function's own failure to propagate, matching every other best-effort cleanup path in this
+    module."""
+    for owner in (proc, proc.stdin, proc.stdout, proc.stderr):
+        if owner is None:
+            continue
+        transport = getattr(owner, "_transport", None)
+        if transport is not None:
+            with suppress(Exception):
+                transport.close()
+
+
+async def _kill_process_tree(pid: int) -> None:
     """Kills the WHOLE process tree/group where the platform supports it -- the SAME mechanism
     `ctx.shell`'s own tree-kill guarantee (`EXEC-004`) relies on, since it is built on this
     primitive. POSIX: process-group `SIGKILL` via a negative PID (requires the process to have
@@ -89,12 +130,19 @@ def _kill_process_tree(pid: int) -> None:
     kill. Windows: `taskkill /T /F`, matching pinned Pi's own `killProcessTree` exactly."""
     if os.name == "nt":
         with suppress(OSError):
-            _subprocess.Popen(
+            helper = _subprocess.Popen(
                 ["taskkill", "/F", "/T", "/PID", str(pid)],
                 stdout=_subprocess.DEVNULL,
                 stderr=_subprocess.DEVNULL,
                 stdin=_subprocess.DEVNULL,
             )
+            # `L12-PY-R007`: a fire-and-forget Popen with no wait()/close() leaks the helper
+            # process's own handle (a ResourceWarning at GC time) and, transitively, its
+            # DEVNULL pipe transports. `Popen.wait()` blocks, so it runs off the event loop --
+            # `_kill_process_tree` is itself `async` (both its callers, `_watch_signal` and
+            # `terminate()`, are already coroutines) precisely so this settling can be awaited
+            # rather than blocking the loop for up to `_TASKKILL_WAIT_TIMEOUT_S`.
+            await asyncio.to_thread(_wait_and_settle_helper, helper)
         return
     # POSIX-only: unreachable on Windows (the os.name == "nt" branch above always returns
     # first) -- os.killpg/signal.SIGKILL also aren't in Windows' own typeshed subset.
@@ -159,6 +207,7 @@ class Process:
     on it."""
 
     __slots__ = (
+        "_kill_cause",
         "_proc",
         "_spawn_signal",
         "_terminate_called",
@@ -188,6 +237,15 @@ class Process:
         self._wait_result: Result[ExitStatus, SubprocessError] | None = None
         self._wait_lock = asyncio.Lock()
         self._terminate_called = False
+        self._kill_cause: _KillCause = None
+        """Recorded ONCE, at the true moment of causation (`L12-PY-R004`) -- never re-derived
+        reactively from the signal's CURRENT state at `wait()` time, which would misclassify a
+        process that exited naturally (or was explicitly terminated) followed much later by an
+        UNRELATED signal abort. `"signal"`: `_watch_signal` decided to kill the process because
+        the spawn-time signal fired. `"explicit"`: `terminate()` was called with no spawn-signal
+        involved. Whichever is recorded FIRST wins -- a `terminate()` racing a signal that
+        already fired must not overwrite the signal's own causal priority (matches the existing
+        "terminate() racing an already-fired signal is a no-op" idempotence rule)."""
         self._watcher_task: asyncio.Task[None] | None = None
         if spawn_signal is not None:
             self._watcher_task = asyncio.ensure_future(self._watch_signal(spawn_signal))
@@ -197,14 +255,17 @@ class Process:
         the moment the signal fires (cooperative/poll-based, matching `RunSignal`'s own design)."""
         while self._proc.returncode is None:
             if signal.aborted:
-                _kill_process_tree(self.pid)
+                if self._kill_cause is None:
+                    self._kill_cause = "signal"
+                await _kill_process_tree(self.pid)
                 return
             await asyncio.sleep(_SIGNAL_POLL_INTERVAL_S)
 
     async def wait(self) -> Result[ExitStatus, SubprocessError]:
         """Settles on the PROCESS's own exit alone, independent of stdio state. `Err(aborted)`
-        when the spawn-supplied signal fired (checked reactively at settlement time, matching
-        pinned Pi's own `exec()` pattern -- not a claim of strict causal proof); otherwise
+        ONLY when the spawn-supplied signal actually CAUSED this process's own termination
+        (`_kill_cause`, recorded at the moment of the kill -- `L12-PY-R004`, not re-derived from
+        the signal's current state, which would misclassify an unrelated later abort); otherwise
         `Ok(ExitStatus{...})`, whether the process exited on its own or was killed via an
         explicit `terminate()` (`L12-R020`'s conditional exit-code preservation)."""
         if self._wait_result is not None:
@@ -215,8 +276,9 @@ class Process:
             returncode = await self._proc.wait()
             if self._watcher_task is not None:
                 self._watcher_task.cancel()
+            _close_transport(self._proc)
             result: Result[ExitStatus, SubprocessError]
-            if self._spawn_signal is not None and self._spawn_signal.aborted:
+            if self._kill_cause == "signal":
                 result = Err(SubprocessError(SubprocessErrorCode.ABORTED, "aborted"))
             else:
                 # POSIX: asyncio reports a signal-terminated child as a NEGATIVE returncode
@@ -241,7 +303,9 @@ class Process:
         if self._terminate_called:
             return
         self._terminate_called = True
-        _kill_process_tree(self.pid)
+        if self._kill_cause is None:
+            self._kill_cause = "explicit"
+        await _kill_process_tree(self.pid)
 
     async def __aenter__(self) -> Process:
         return self
@@ -250,15 +314,39 @@ class Process:
         await self.terminate()
 
 
+class Subprocess(Protocol):
+    """The `ctx.subprocess` capability seam (`EXEC-005`) -- an independently-swappable
+    abstraction, matching the SAME shape `FileSystem`/`Shell` already declare (`L12-PY-R003`).
+    Registered on the Runtime under `__service_name__` so `Context.require(Subprocess)`/
+    `ctx.subprocess` resolves whichever conforming provider is mounted, not necessarily
+    `LocalSubprocess` -- `LocalShell` depends on THIS protocol, never the concrete class."""
+
+    __service_name__: str = "subprocess"
+
+    cwd: str
+    execution_world: ExecutionWorldIdentity
+
+    async def spawn(
+        self, argv: Sequence[str], options: SpawnOptions | None = None
+    ) -> Result[Process, SubprocessError]: ...
+
+
 class LocalSubprocess:
     """The local `ctx.subprocess` provider (`EXEC-005`/spec section 8) -- `MINION_EXTENSION`,
     matching `EXEC-005`'s own `intentional divergence` disposition (no Pi seam exists for it to
     be direct parity with)."""
 
-    __slots__ = ("cwd",)
+    __service_name__: str = "subprocess"
 
-    def __init__(self, cwd: str | None = None) -> None:
+    __slots__ = ("cwd", "execution_world")
+
+    def __init__(
+        self, cwd: str | None = None, execution_world: ExecutionWorldIdentity | None = None
+    ) -> None:
         self.cwd = cwd if cwd is not None else os.getcwd()
+        self.execution_world = (
+            execution_world if execution_world is not None else ExecutionWorldIdentity.local()
+        )
 
     async def spawn(
         self, argv: Sequence[str], options: SpawnOptions | None = None

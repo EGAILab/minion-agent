@@ -6292,8 +6292,13 @@ rows:
   tests:
   - minion-agent-rust/crates/minion-agent/tests/execution_world.rs
   - minion-agent-python/tests/execution/test_world.py
+  - minion-agent-python/tests/execution/test_plugin.py
   python: 'minion-agent-python/src/minion_agent/execution/world.py; integration evidence in
-    minion-agent-python/tests/execution/test_world.py'
+    minion-agent-python/tests/execution/test_world.py; the "local providers share one identity by
+    construction" claim specifically evidenced in
+    minion-agent-python/tests/execution/test_plugin.py (`L12-PY-R003`, via the three `Local*`
+    providers'' new `execution_world` field and `ExecutionWorldIdentity.local()` constructor,
+    mounted through the new minion_agent/execution/plugin.py Runtime wiring)'
   rust: 'minion-agent-rust/crates/minion-agent/src/execution/world.rs and service.rs; integration
     evidence in minion-agent-rust/crates/minion-agent/tests/execution_world.rs'
   disposition: intentional divergence

@@ -21,6 +21,7 @@ from .filesystem import (
     LocalFileSystem,
     resolve_local_path,
 )
+from .plugin import fs_plugin, shell_plugin, subprocess_plugin
 from .result import Err, Ok, Result, is_err, is_ok
 from .shell import LocalShell, Shell, ShellResult
 from .subprocess import (
@@ -30,6 +31,7 @@ from .subprocess import (
     ReadableStream,
     SpawnOptions,
     StdioMode,
+    Subprocess,
     WritableStream,
 )
 from .world import (
@@ -65,12 +67,16 @@ __all__ = [
     "ShellResult",
     "SpawnOptions",
     "StdioMode",
+    "Subprocess",
     "SubprocessError",
     "SubprocessErrorCode",
     "WritableStream",
     "compatible",
+    "fs_plugin",
     "is_err",
     "is_ok",
     "resolve_local_path",
+    "shell_plugin",
+    "subprocess_plugin",
     "validate",
 ]

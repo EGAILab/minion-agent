@@ -6,14 +6,20 @@ import asyncio
 import os
 import shutil
 import sys
+from collections.abc import Sequence
 from pathlib import Path
 
 import pytest
 
 from minion_agent.execution.errors import ShellErrorCode, SubprocessError, SubprocessErrorCode
-from minion_agent.execution.result import Err, Ok
+from minion_agent.execution.result import Err, Ok, Result
 from minion_agent.execution.shell import LocalShell
-from minion_agent.execution.subprocess import LocalSubprocess
+from minion_agent.execution.subprocess import (
+    ExitStatus,
+    LocalSubprocess,
+    Process,
+    SpawnOptions,
+)
 from minion_agent.runtime.signal import RunAbortController
 
 PY = sys.executable
@@ -134,7 +140,7 @@ async def test_exec_callback_error_wins_over_timeout() -> None:
     when both conditions are true for the same call."""
     shell = LocalShell()
 
-    def raising_callback(_chunk: bytes) -> None:
+    def raising_callback(_chunk: str) -> None:
         raise ValueError("callback boom")
 
     result = await shell.exec(
@@ -147,23 +153,163 @@ async def test_exec_callback_error_wins_over_timeout() -> None:
 
 
 async def test_exec_streams_stdout_via_callback_in_addition_to_accumulating() -> None:
+    """`L12-PY-R005`: callback payloads are DECODED TEXT (`str`), matching pinned Pi's own
+    `onStdout?: (chunk: string) => void` exactly -- not raw bytes."""
     shell = LocalShell()
-    seen: list[bytes] = []
+    seen: list[str] = []
     result = await shell.exec(_py_shell_command("print('streamed')"), on_stdout=seen.append)
     assert isinstance(result, Ok)
-    assert b"".join(seen).strip() == b"streamed"
+    assert all(isinstance(chunk, str) for chunk in seen)
+    assert "".join(seen).strip() == "streamed"
     assert result.value.stdout.strip() == "streamed"
 
 
 async def test_exec_streams_stderr_via_callback() -> None:
     shell = LocalShell()
-    seen: list[bytes] = []
+    seen: list[str] = []
     result = await shell.exec(
         _py_shell_command("import sys; print('err', file=sys.stderr)"), on_stderr=seen.append
     )
     assert isinstance(result, Ok)
-    assert b"".join(seen).strip() == b"err"
+    assert all(isinstance(chunk, str) for chunk in seen)
+    assert "".join(seen).strip() == "err"
     assert result.value.stderr.strip() == "err"
+
+
+class _ManualReadableStream:
+    """A hand-fed stand-in for `ReadableStream` giving the test EXACT control over chunk
+    boundaries -- real OS pipes (especially through an intermediate `bash -c` hop) do not
+    reliably preserve a deliberate split even across a sleep. `read_started` is set the moment
+    a `read_chunk()` call begins (before it awaits `feed`), so the test can synchronize on the
+    PUMP LOOP actually having started its next read, rather than guessing at scheduling ticks."""
+
+    def __init__(self) -> None:
+        self._queue: asyncio.Queue[bytes | None] = asyncio.Queue()
+        self.read_started = asyncio.Event()
+
+    def feed(self, chunk: bytes | None) -> None:
+        self._queue.put_nowait(chunk)
+
+    async def read_chunk(self) -> Ok[bytes | None]:
+        self.read_started.set()
+        chunk = await self._queue.get()
+        return Ok(chunk)
+
+
+class _FakeProcess:
+    """A minimal `Process` duck-type wrapping two `_ManualReadableStream`s."""
+
+    def __init__(self, stdout: _ManualReadableStream, stderr: _ManualReadableStream) -> None:
+        self.stdout = stdout
+        self.stderr = stderr
+
+    async def wait(self) -> Ok[ExitStatus]:
+        return Ok(ExitStatus(exit_code=0))
+
+    async def terminate(self) -> None:
+        pass
+
+
+async def test_exec_streams_stdout_correctly_reassembles_a_multibyte_char_split_across_chunks() -> (
+    None
+):
+    """`L12-PY-R005` witness: a single UTF-8 character split across two separate `read_chunk()`
+    calls must still reassemble correctly through the callback -- a naive per-chunk
+    `bytes.decode()` would raise or emit a replacement character for the first (incomplete)
+    half. Drives `_run_to_completion` directly (see `_FakeProcess`/`_ManualReadableStream`) for
+    a deterministic, platform-independent split, rather than trusting real OS/pipe timing to
+    land a 4-byte write exactly on a chunk boundary."""
+    emoji = "\U0001f600"  # 4 UTF-8 bytes: F0 9F 98 80 -- split after the first 2.
+    emoji_bytes = emoji.encode("utf-8")
+    stdout_stream = _ManualReadableStream()
+    stderr_stream = _ManualReadableStream()
+    stderr_stream.feed(None)  # immediate EOF -- this witness only cares about stdout
+    process = _FakeProcess(stdout_stream, stderr_stream)
+
+    shell = LocalShell()
+    seen: list[str] = []
+    run_task = asyncio.ensure_future(
+        shell._run_to_completion(process, None, seen.append, None)  # type: ignore[arg-type]
+    )
+
+    await asyncio.wait_for(stdout_stream.read_started.wait(), timeout=2.0)  # 1st read_chunk()
+    stdout_stream.read_started.clear()
+    stdout_stream.feed(emoji_bytes[:2])  # incomplete sequence -- decoder emits nothing yet
+
+    await asyncio.wait_for(stdout_stream.read_started.wait(), timeout=2.0)  # 2nd read_chunk()
+    stdout_stream.read_started.clear()
+    stdout_stream.feed(emoji_bytes[2:])  # completes the sequence -- decoder emits the char
+
+    await asyncio.wait_for(stdout_stream.read_started.wait(), timeout=2.0)  # 3rd read_chunk()
+    stdout_stream.feed(None)  # EOF
+
+    result = await run_task
+
+    assert isinstance(result, Ok)
+    assert all(isinstance(chunk, str) for chunk in seen)
+    assert seen == [emoji]  # the incomplete first half produced NO callback call on its own
+    assert result.value.stdout == emoji
+
+
+async def test_exec_flushes_a_dangling_incomplete_sequence_at_eof_as_replacement_char() -> None:
+    """The other half of the `L12-PY-R005` incremental-decoder witness: a stream that reaches
+    EOF WHILE an incomplete multi-byte sequence is still buffered in the decoder must still
+    flush it through the callback as a replacement character (`errors="replace"`, matching
+    Node's own non-throwing decode semantics, `L12-PY-R002`) -- not silently drop it."""
+    stdout_stream = _ManualReadableStream()
+    stderr_stream = _ManualReadableStream()
+    stderr_stream.feed(None)
+    process = _FakeProcess(stdout_stream, stderr_stream)
+
+    shell = LocalShell()
+    seen: list[str] = []
+    run_task = asyncio.ensure_future(
+        shell._run_to_completion(process, None, seen.append, None)  # type: ignore[arg-type]
+    )
+
+    await asyncio.wait_for(stdout_stream.read_started.wait(), timeout=2.0)
+    stdout_stream.read_started.clear()
+    stdout_stream.feed(b"\xf0\x9f")  # first half of the same emoji -- deliberately never completed
+    await asyncio.wait_for(stdout_stream.read_started.wait(), timeout=2.0)
+    stdout_stream.feed(None)  # EOF while the sequence is still dangling
+
+    result = await run_task
+
+    assert isinstance(result, Ok)
+    assert seen == ["�"]
+    assert result.value.stdout == "�"
+
+
+async def test_exec_callback_error_on_trailing_flush_is_reported() -> None:
+    """Closes `pump()`'s OTHER callback-error branch: a callback that raises specifically on
+    the trailing (at-EOF) flush -- not on an ordinary per-chunk call, already covered by
+    `test_exec_callback_error_wins_over_timeout` -- must still be captured as `callback_error`
+    and terminate the process, exactly like the ordinary per-chunk case."""
+    stdout_stream = _ManualReadableStream()
+    stderr_stream = _ManualReadableStream()
+    stderr_stream.feed(None)
+    process = _FakeProcess(stdout_stream, stderr_stream)
+
+    def raising_callback(_chunk: str) -> None:
+        raise ValueError("callback boom on trailing flush")
+
+    shell = LocalShell()
+    run_task = asyncio.ensure_future(
+        shell._run_to_completion(  # type: ignore[arg-type]
+            process, None, raising_callback, None
+        )
+    )
+
+    await asyncio.wait_for(stdout_stream.read_started.wait(), timeout=2.0)
+    stdout_stream.read_started.clear()
+    stdout_stream.feed(b"\xf0\x9f")  # dangling incomplete sequence, never completed
+    await asyncio.wait_for(stdout_stream.read_started.wait(), timeout=2.0)
+    stdout_stream.feed(None)  # EOF -- the trailing flush fires the raising callback
+
+    result = await run_task
+
+    assert isinstance(result, Err)
+    assert result.error.code == ShellErrorCode.CALLBACK_ERROR
 
 
 async def test_exec_streams_multiple_chunks_before_exit() -> None:
@@ -296,13 +442,34 @@ async def test_exec_spawn_failure_after_cwd_check_maps_to_spawn_error() -> None:
     exercised via an injected failing subprocess seam."""
 
     class _FailingSubprocess(LocalSubprocess):
-        async def spawn(self, argv: object, options: object = None) -> object:  # type: ignore[override]
+        async def spawn(
+            self, argv: Sequence[str], options: SpawnOptions | None = None
+        ) -> Result[Process, SubprocessError]:
             return Err(SubprocessError(SubprocessErrorCode.SPAWN_ERROR, "simulated spawn failure"))
 
     shell = LocalShell(subprocess_seam=_FailingSubprocess())
     result = await shell.exec(_py_shell_command("print('unreachable')"))
     assert isinstance(result, Err)
     assert result.error.code == ShellErrorCode.SPAWN_ERROR
+
+
+async def test_exec_spawn_abort_race_preserves_aborted_not_spawn_error() -> None:
+    """`L12-PY-R006` witness: when the underlying `ctx.subprocess` seam's own `spawn()` fails
+    with `SubprocessErrorCode.ABORTED` -- the narrow race where a signal fires between this
+    shell seam's own pre-check and the actual spawn call -- that must be preserved as
+    `ShellErrorCode.ABORTED`, not unconditionally collapsed into `SPAWN_ERROR` alongside every
+    other spawn failure reason."""
+
+    class _AbortingSubprocess(LocalSubprocess):
+        async def spawn(
+            self, argv: Sequence[str], options: SpawnOptions | None = None
+        ) -> Result[Process, SubprocessError]:
+            return Err(SubprocessError(SubprocessErrorCode.ABORTED, "aborted"))
+
+    shell = LocalShell(subprocess_seam=_AbortingSubprocess())
+    result = await shell.exec(_py_shell_command("print('unreachable')"))
+    assert isinstance(result, Err)
+    assert result.error.code == ShellErrorCode.ABORTED
 
 
 async def test_exec_signal_aborted_mid_flight_classifies_aborted() -> None:

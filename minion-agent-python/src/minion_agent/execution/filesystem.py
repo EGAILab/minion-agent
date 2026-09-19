@@ -7,19 +7,21 @@ INSPECT it, exactly per the binding per-operation table in spec section 3.1: `re
 `read_binary_file`/`write_file` check pre-aborted plus one underlying-call checkpoint (`write_file`
 gets a THIRD checkpoint, immediately after its own parent-mkdir, before the write begins);
 `read_text_lines` checks pre-aborted, at each loop iteration, AND once more after the loop
-completes (four checkpoints); `list_dir` checks pre-aborted and at each loop iteration only, with
+completes (four checkpoints); `list_dir` checks pre-aborted (including for an EMPTY directory,
+independent of loop-entry count -- `L12-PY-R001`) and at each loop iteration only, with
 deliberately NO post-loop check (fewer than `read_text_lines`, not a bug); `rename_file` checks
 pre-aborted only; every other operation accepts `signal` but never reads it at all, matching
 pinned Pi's own reference implementation exactly, not a gap.
 
-Genuine Python/Node platform difference (flagged per this project's own discipline of naming a
-judgment call rather than burying it): pinned Pi's `read_text_file`/`read_binary_file` can observe
-a signal firing WHILE a large read is still streaming, because Node's `fs.readFile({signal})`
-integrates the abort into the underlying read. Python's blocking `open().read()` has no equivalent
-mid-syscall interruption point when the whole read runs as one call in a worker thread. The
-PRE-aborted checkpoint (the one every acceptance witness in spec section 10 actually exercises) is
-implemented exactly; a genuine mid-large-file-read interruption is not practically achievable
-without chunked reads, which the spec does not require and no witness tests.
+Prompt mid-operation settlement (`L12-PY-R001`): Python's blocking `open().read()`/`.write()` run
+as one `asyncio.to_thread` call with no native mid-syscall interruption point the way Node's
+`fs.readFile({signal})` has. Python cannot forcibly kill a blocking OS thread -- but the
+CALLER-OBSERVABLE result can and must still settle promptly when the signal fires while the
+underlying call is still blocked (e.g. reading a slow/blocked source). `_race_signal` below races
+the `to_thread` call against the signal; if the signal wins, `read_text_file`/`read_binary_file`/
+`write_file`'s own final phase settles `Err(aborted)` immediately, abandoning the still-running
+thread in the background (its eventual result/exception is discarded, not left to raise an
+unretrieved-exception warning).
 """
 
 from __future__ import annotations
@@ -30,17 +32,20 @@ import shutil
 import stat as _stat
 import tempfile
 import uuid
-from collections.abc import Sequence
+from collections.abc import Coroutine, Sequence
 from contextlib import suppress
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import Protocol
+from typing import Any, Protocol
 from urllib.parse import urlparse
 from urllib.request import url2pathname
 
 from ..runtime.signal import RunSignal
 from .errors import FsError, FsErrorCode, to_fs_error
 from .result import Err, Ok, Result
+from .world import ExecutionWorldIdentity
+
+_SIGNAL_POLL_INTERVAL_S = 0.01
 
 
 class FileKind(StrEnum):
@@ -91,9 +96,23 @@ def resolve_local_path(cwd: str, path: str) -> str:
     elif normalized.startswith("~/") or (os.name == "nt" and normalized.startswith("~\\")):
         normalized = os.path.join(os.path.expanduser("~"), normalized[2:])
     elif normalized.startswith("file://"):
-        with suppress(ValueError, OSError):
-            # Keep the literal string on failure -- preserve the never-throw contract.
-            normalized = url2pathname(urlparse(normalized).path)
+        try:
+            parsed = urlparse(normalized)
+            # `L12-PY-R002`: pinned Node's real `fileURLToPath` throws `ERR_INVALID_FILE_URL_HOST`
+            # for a non-empty, non-"localhost" host on POSIX (`file://nonlocalhost/some/path` is
+            # malformed there, not a UNC-style path) -- `urlparse`/`url2pathname` neither raise
+            # for this on their own, so without this explicit check the host is silently dropped
+            # and a wrong path is produced instead of preserving the literal input. On Windows, a
+            # non-empty host IS legitimate (`file://host/share/path` -> `\\host\share\path`, a UNC
+            # path) and must NOT be rejected here.
+            if os.name != "nt" and parsed.netloc and parsed.netloc != "localhost":
+                raise ValueError("non-local file:// host on POSIX")
+            normalized = url2pathname(parsed.path)
+        except (ValueError, OSError):
+            # Return the literal input VERBATIM, bypassing the isabs/join fallback below --
+            # that fallback would still silently mangle the string (e.g. `normpath` collapsing
+            # the "//" in "file://...") rather than truly preserving it.
+            return path
     if os.path.isabs(normalized):
         return os.path.normpath(normalized)
     return os.path.normpath(os.path.join(cwd, normalized))
@@ -101,6 +120,36 @@ def resolve_local_path(cwd: str, path: str) -> str:
 
 def _aborted(path: str | None = None) -> FsError:
     return FsError(FsErrorCode.ABORTED, "aborted", path)
+
+
+async def _race_signal(op: Coroutine[Any, Any, Any], signal: RunSignal | None) -> Any:
+    """`L12-PY-R001`. Races `op` (an `asyncio.to_thread(...)` coroutine) against `signal` firing.
+    Returns `op`'s own result/re-raises its own exception if it finishes first. If `signal` fires
+    first, raises `_AbortedSignal` promptly -- `op`'s own underlying thread, if still running, is
+    abandoned in the background (Python cannot forcibly interrupt a blocking syscall); its
+    eventual result or exception is discarded via a suppressing done-callback, never left to raise
+    an "exception was never retrieved" warning."""
+    if signal is None:
+        return await op
+    op_task: asyncio.Task[Any] = asyncio.ensure_future(op)
+
+    async def _poll() -> None:
+        while not op_task.done():
+            if signal.aborted:
+                return
+            await asyncio.sleep(_SIGNAL_POLL_INTERVAL_S)
+
+    poll_task = asyncio.ensure_future(_poll())
+    await asyncio.wait({op_task, poll_task}, return_when=asyncio.FIRST_COMPLETED)
+    if op_task.done():
+        poll_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await poll_task
+        return op_task.result()
+    # The signal won the race -- the to_thread call is still running; abandon it without
+    # awaiting, but keep it from logging an unretrieved-exception warning once it does finish.
+    op_task.add_done_callback(lambda t: t.exception() if not t.cancelled() else None)
+    raise _AbortedSignal
 
 
 def _file_kind_from_stat(st: os.stat_result) -> FileKind | None:
@@ -128,7 +177,12 @@ def _file_info_sync(path: str) -> FileInfo:
 
 
 def _read_text_sync(path: str) -> str:
-    with open(path, encoding="utf-8") as f:
+    # `L12-PY-R002`: `errors="replace"` matches pinned Node's own UTF-8 decoding, which never
+    # throws for invalid bytes -- it substitutes the replacement character (U+FFFD). The default
+    # `errors="strict"` raises `UnicodeDecodeError`, which is NOT an `OSError` subclass and would
+    # therefore escape this operation's own `except OSError` entirely, violating the never-raise
+    # `Result` contract outright.
+    with open(path, encoding="utf-8", errors="replace") as f:
         return f.read()
 
 
@@ -143,7 +197,7 @@ def _read_text_lines_sync(path: str, max_lines: int | None, signal: RunSignal | 
     if max_lines is not None and max_lines <= 0:
         return []
     lines: list[str] = []
-    with open(path, encoding="utf-8") as f:
+    with open(path, encoding="utf-8", errors="replace") as f:
         for raw_line in f:
             if signal is not None and signal.aborted:
                 raise _AbortedSignal
@@ -174,6 +228,11 @@ def _append_file_sync(path: str, content: str | bytes) -> None:
 
 
 def _list_dir_sync(path: str, signal: RunSignal | None) -> list[FileInfo]:
+    if signal is not None and signal.aborted:
+        # `L12-PY-R001`: a check living only INSIDE the loop below never runs at all for an
+        # empty directory (zero iterations), so a pre-aborted signal on an empty dir wrongly
+        # returned Ok([]). This is the genuine pre-check, independent of entry count.
+        raise _AbortedSignal
     infos: list[FileInfo] = []
     with os.scandir(path) as entries:
         for entry in entries:
@@ -213,10 +272,16 @@ def _remove_sync(path: str, recursive: bool, force: bool) -> None:
 
 
 class FileSystem(Protocol):
-    """The filesystem capability seam. Every operation accepts an optional `signal` in its
-    typed signature uniformly; whether it is inspected is per-operation (module docstring)."""
+    """The filesystem capability seam -- an independently-swappable abstraction (`L12-PY-R003`).
+    Every operation accepts an optional `signal` in its typed signature uniformly; whether it is
+    inspected is per-operation (module docstring). Registered on the Runtime under
+    `__service_name__` so `Context.require(FileSystem)`/`ctx.fs` resolves whichever conforming
+    provider is mounted."""
+
+    __service_name__: str = "fs"
 
     cwd: str
+    execution_world: ExecutionWorldIdentity
 
     async def absolute_path(
         self, path: str, signal: RunSignal | None = None
@@ -293,10 +358,17 @@ class LocalFileSystem:
     for `ctx.fs`'s own observable behavior, `MINION_ARCHITECTURAL_MAPPING` for the `FsTarget`
     bridge it also implements."""
 
-    __slots__ = ("cwd",)
+    __service_name__: str = "fs"
 
-    def __init__(self, cwd: str | None = None) -> None:
+    __slots__ = ("cwd", "execution_world")
+
+    def __init__(
+        self, cwd: str | None = None, execution_world: ExecutionWorldIdentity | None = None
+    ) -> None:
         self.cwd = cwd if cwd is not None else os.getcwd()
+        self.execution_world = (
+            execution_world if execution_world is not None else ExecutionWorldIdentity.local()
+        )
 
     async def absolute_path(
         self, path: str, signal: RunSignal | None = None
@@ -306,7 +378,17 @@ class LocalFileSystem:
     async def join_path(
         self, parts: Sequence[str], signal: RunSignal | None = None
     ) -> Result[str, FsError]:
-        return Ok(os.path.normpath(os.path.join(*parts)) if parts else "")
+        # `L12-PY-R002`: matches Node's `path.join()` exactly, not `os.path.join`, which differs
+        # in two ways Node does not: (1) `os.path.join()` requires at least one argument and has
+        # no zero-arg return; Node's `path.join()` called with zero paths returns "." -- handled
+        # by the `if parts else "."` branch. (2) `os.path.join` treats a LATER path-separator-
+        # prefixed component as resetting the accumulated path (`os.path.join("a", "\\b") ==
+        # "\\b")`; Node just concatenates every segment with the separator, then normalizes
+        # (`path.join("a", "\\b") == "a\\b"`) -- reproduced here by joining with `os.sep`
+        # directly rather than delegating to `os.path.join`'s own differing semantics.
+        if not parts:
+            return Ok(".")
+        return Ok(os.path.normpath(os.sep.join(p for p in parts if p)))
 
     async def read_text_file(
         self, path: str, signal: RunSignal | None = None
@@ -315,7 +397,9 @@ class LocalFileSystem:
             return Err(_aborted(path))
         resolved = resolve_local_path(self.cwd, path)
         try:
-            content = await asyncio.to_thread(_read_text_sync, resolved)
+            content = await _race_signal(asyncio.to_thread(_read_text_sync, resolved), signal)
+        except _AbortedSignal:
+            return Err(_aborted(resolved))
         except OSError as exc:
             return Err(to_fs_error(exc, resolved))
         return Ok(content)
@@ -339,7 +423,9 @@ class LocalFileSystem:
             return Err(_aborted(path))
         resolved = resolve_local_path(self.cwd, path)
         try:
-            content = await asyncio.to_thread(_read_binary_sync, resolved)
+            content = await _race_signal(asyncio.to_thread(_read_binary_sync, resolved), signal)
+        except _AbortedSignal:
+            return Err(_aborted(resolved))
         except OSError as exc:
             return Err(to_fs_error(exc, resolved))
         return Ok(content)
@@ -359,7 +445,9 @@ class LocalFileSystem:
         if signal is not None and signal.aborted:
             return Err(_aborted(resolved))
         try:
-            await asyncio.to_thread(_write_file_sync, resolved, content)
+            await _race_signal(asyncio.to_thread(_write_file_sync, resolved, content), signal)
+        except _AbortedSignal:
+            return Err(_aborted(resolved))
         except OSError as exc:
             return Err(to_fs_error(exc, resolved))
         return Ok(None)

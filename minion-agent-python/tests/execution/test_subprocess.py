@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import inspect
 import os
+import subprocess
 import sys
 from pathlib import Path
 
@@ -16,6 +17,7 @@ from minion_agent.execution.subprocess import (
     LocalSubprocess,
     SpawnOptions,
     StdioMode,
+    _wait_and_settle_helper,
 )
 from minion_agent.runtime.signal import RunAbortController
 
@@ -102,12 +104,96 @@ async def test_spawn_signal_aborted_after_start_triggers_termination() -> None:
     assert wait_result.error.code == SubprocessErrorCode.ABORTED
 
 
+async def test_watch_signal_task_completes_its_own_kill_and_return_before_wait_is_called() -> None:
+    """Deterministically closes `_watch_signal`'s own terminal `return` line -- distinct from
+    `test_spawn_signal_aborted_after_start_triggers_termination` above, which races the watcher
+    task against `wait()`'s own cancellation of it (so it does not reliably reach its own
+    `return` before being cancelled). Here the watcher is given enough time to finish killing
+    the process and return ON ITS OWN before `wait()` is ever called, removing that race."""
+    sp = LocalSubprocess()
+    controller = RunAbortController()
+    result = await sp.spawn(
+        [PY, "-c", "import time; time.sleep(30)"], SpawnOptions(signal=controller.signal)
+    )
+    process = result.value  # type: ignore[union-attr]
+    controller.abort()
+    await asyncio.sleep(0.3)  # let the watcher task kill the process AND reach its own return
+    wait_result = await process.wait()
+    assert isinstance(wait_result, Err)
+    assert wait_result.error.code == SubprocessErrorCode.ABORTED
+
+
+def test_wait_and_settle_helper_kills_after_timeout_and_waits_again() -> None:
+    """`L12-PY-R007` coverage-closing: `_wait_and_settle_helper`'s own timeout-fallback branch
+    -- if the `taskkill` helper process is somehow still running past the bounded wait, kill it
+    directly and wait once more, best-effort."""
+
+    class _FakeHelper:
+        def __init__(self) -> None:
+            self.wait_calls = 0
+            self.killed = False
+
+        def wait(self, timeout: float) -> None:
+            self.wait_calls += 1
+            if self.wait_calls == 1:
+                raise subprocess.TimeoutExpired(cmd="taskkill", timeout=timeout)
+
+        def kill(self) -> None:
+            self.killed = True
+
+    helper = _FakeHelper()
+    _wait_and_settle_helper(helper)  # type: ignore[arg-type]
+    assert helper.killed
+    assert helper.wait_calls == 2
+
+
+async def test_wait_first_call_after_natural_exit_and_later_signal_abort_is_ok() -> None:
+    """`L12-PY-R004` witness: the process EXITS NATURALLY (never killed by anything), and only
+    AFTER that does its spawn signal get aborted -- an unrelated abort with no causal
+    connection to this process's own termination. The FIRST call to `wait()` (uncached, so the
+    classification logic is genuinely exercised, not just the cache) must still settle `Ok`
+    with the real exit code -- reactively re-checking `signal.aborted` at `wait()` time would
+    wrongly report `Err(aborted)` here, since the signal happens to be aborted by then even
+    though it never caused anything."""
+    sp = LocalSubprocess()
+    controller = RunAbortController()
+    result = await sp.spawn(
+        [PY, "-c", "import sys; sys.exit(5)"], SpawnOptions(signal=controller.signal)
+    )
+    process = result.value  # type: ignore[union-attr]
+    await asyncio.sleep(0.2)  # let the process exit naturally, well before any abort
+    controller.abort()  # fires AFTER natural exit -- must not retroactively poison the result
+    wait_result = await process.wait()  # first (uncached) call
+    assert isinstance(wait_result, Ok)
+    assert wait_result.value.exit_code == 5
+
+
+async def test_wait_first_call_after_explicit_terminate_and_later_signal_abort_is_ok() -> None:
+    """Case B of the same witness: `terminate()` is called explicitly while the spawn signal is
+    still un-aborted (so the kill cause is recorded as `"explicit"`, not `"signal"`). The SAME
+    spawn signal is then aborted afterward, unrelated to the termination that already happened.
+    `wait()`'s FIRST (uncached) call must still settle `Ok`, not flip to `Err(aborted)` just
+    because the signal happens to be aborted by the time `wait()` runs -- whichever cause was
+    recorded FIRST wins."""
+    sp = LocalSubprocess()
+    controller = RunAbortController()
+    result = await sp.spawn(
+        [PY, "-c", "import time; time.sleep(30)"], SpawnOptions(signal=controller.signal)
+    )
+    process = result.value  # type: ignore[union-attr]
+    await process.terminate()  # explicit kill; signal never fired -- kill_cause = "explicit"
+    controller.abort()  # fires AFTER the explicit terminate -- must not flip the recorded cause
+    wait_result = await process.wait()  # first (uncached) call
+    assert isinstance(wait_result, Ok)
+
+
 async def test_wait_takes_no_signal_argument() -> None:
     """`wait()` accepts no arguments at all -- there is no separate wait-time signal."""
     sp = LocalSubprocess()
     result = await sp.spawn([PY, "-c", "pass"])
     process = result.value  # type: ignore[union-attr]
     assert list(inspect.signature(process.wait).parameters) == []
+    await process.wait()  # `L12-PY-R007`: settle/close, don't leak this process to the GC.
 
 
 async def test_terminate_settles_wait_as_success() -> None:

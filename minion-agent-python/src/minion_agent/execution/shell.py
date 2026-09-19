@@ -11,6 +11,7 @@ this seam's OWN layered concern, built on `ctx.subprocess.wait()`'s simpler exit
 from __future__ import annotations
 
 import asyncio
+import codecs
 import math
 import os
 import shutil
@@ -20,10 +21,18 @@ from dataclasses import dataclass
 from typing import Protocol
 
 from ..runtime.signal import RunSignal
-from .errors import ShellError, ShellErrorCode
+from .errors import ShellError, ShellErrorCode, SubprocessErrorCode
 from .filesystem import resolve_local_path
 from .result import Err, Ok, Result
-from .subprocess import LocalSubprocess, Process, ReadableStream, SpawnOptions, StdioMode
+from .subprocess import (
+    LocalSubprocess,
+    Process,
+    ReadableStream,
+    SpawnOptions,
+    StdioMode,
+    Subprocess,
+)
+from .world import ExecutionWorldIdentity
 
 _MAX_TIMEOUT_MS = 2_147_483_647
 _EXIT_STDIO_GRACE_S = 0.1
@@ -40,9 +49,17 @@ class ShellResult:
 
 
 class Shell(Protocol):
-    """`EXEC-004`."""
+    """`EXEC-004` -- an independently-swappable abstraction (`L12-PY-R003`). Registered on the
+    Runtime under `__service_name__` so `Context.require(Shell)`/`ctx.shell` resolves whichever
+    conforming provider is mounted. `on_stdout`/`on_stderr` receive DECODED TEXT (`str`), never
+    raw bytes -- matching pinned Pi's own callback type exactly (`types.ts:298,300`,
+    `L12-PY-R005`); `ctx.subprocess`'s own raw byte streams are the lower-level, protocol-agnostic
+    primitive this seam is built on, and stay bytes."""
+
+    __service_name__: str = "shell"
 
     cwd: str
+    execution_world: ExecutionWorldIdentity
 
     async def exec(
         self,
@@ -52,8 +69,8 @@ class Shell(Protocol):
         inherit_env: bool = True,
         timeout: float | None = None,
         signal: RunSignal | None = None,
-        on_stdout: Callable[[bytes], None] | None = None,
-        on_stderr: Callable[[bytes], None] | None = None,
+        on_stdout: Callable[[str], None] | None = None,
+        on_stderr: Callable[[str], None] | None = None,
     ) -> Result[ShellResult, ShellError]: ...
     async def cleanup(self) -> None: ...
 
@@ -123,18 +140,29 @@ class LocalShell:
     """The local `ctx.shell` provider (`EXEC-004`/spec section 8) -- `DIRECT_PI_PARITY`,
     genuinely sourced from pinned Pi's own harness-tier reference implementation."""
 
-    __slots__ = ("_active", "_shell_path", "_subprocess", "cwd")
+    __service_name__: str = "shell"
+
+    __slots__ = ("_active", "_shell_path", "_subprocess", "cwd", "execution_world")
 
     def __init__(
         self,
         cwd: str | None = None,
         shell_path: str | None = None,
-        subprocess_seam: LocalSubprocess | None = None,
+        subprocess_seam: Subprocess | None = None,
+        execution_world: ExecutionWorldIdentity | None = None,
     ) -> None:
         self.cwd = cwd if cwd is not None else os.getcwd()
+        self.execution_world = (
+            execution_world if execution_world is not None else ExecutionWorldIdentity.local()
+        )
         self._shell_path = shell_path
-        self._subprocess = (
-            subprocess_seam if subprocess_seam is not None else LocalSubprocess(self.cwd)
+        # `L12-PY-R003`: depends on the ABSTRACT `Subprocess` protocol, not the concrete
+        # `LocalSubprocess` class -- "independently swappable capabilities" means `ctx.shell`'s
+        # own local provider must accept ANY conforming `Subprocess` implementation.
+        self._subprocess: Subprocess = (
+            subprocess_seam
+            if subprocess_seam is not None
+            else LocalSubprocess(self.cwd, execution_world=self.execution_world)
         )
         self._active: set[Process] = set()
 
@@ -188,8 +216,8 @@ class LocalShell:
         inherit_env: bool = True,
         timeout: float | None = None,
         signal: RunSignal | None = None,
-        on_stdout: Callable[[bytes], None] | None = None,
-        on_stderr: Callable[[bytes], None] | None = None,
+        on_stdout: Callable[[str], None] | None = None,
+        on_stderr: Callable[[str], None] | None = None,
     ) -> Result[ShellResult, ShellError]:
         # Step 1: pre-aborted signal.
         if signal is not None and signal.aborted:
@@ -228,6 +256,13 @@ class LocalShell:
         )
         if isinstance(spawn_result, Err):
             spawn_error = spawn_result.error
+            # `L12-PY-R006`: when the signal aborts in the narrow window between step 1's own
+            # pre-check and this spawn() call, the subprocess seam's OWN pre-aborted check fires
+            # and correctly returns `SubprocessErrorCode.ABORTED` -- that classification must
+            # survive through to the shell layer as `ShellErrorCode.ABORTED`, not be collapsed
+            # into `spawn_error` alongside a genuine spawn failure (binary not found, etc.).
+            if spawn_error.code == SubprocessErrorCode.ABORTED:
+                return Err(ShellError(ShellErrorCode.ABORTED, spawn_error.message))
             return Err(
                 ShellError(ShellErrorCode.SPAWN_ERROR, spawn_error.message, spawn_error.cause)
             )
@@ -242,8 +277,8 @@ class LocalShell:
         self,
         process: Process,
         timeout_s: float | None,
-        on_stdout: Callable[[bytes], None] | None,
-        on_stderr: Callable[[bytes], None] | None,
+        on_stdout: Callable[[str], None] | None,
+        on_stderr: Callable[[str], None] | None,
     ) -> Result[ShellResult, ShellError]:
         completion = _Completion()
         stdout_chunks: list[bytes] = []
@@ -254,28 +289,46 @@ class LocalShell:
         async def pump(
             stream: ReadableStream | None,
             chunks: list[bytes],
-            on_chunk: Callable[[bytes], None] | None,
+            on_chunk: Callable[[str], None] | None,
             mark_end: Callable[[], None],
         ) -> None:
             nonlocal callback_error
             if stream is None:  # pragma: no cover -- exec() always spawns piped stdout/stderr
                 mark_end()
                 return
+            # `L12-PY-R005`: pinned Pi's own on_stdout/on_stderr receive DECODED TEXT
+            # (`types.ts:298,300`), never raw bytes. Chunks arrive at arbitrary byte boundaries,
+            # so a multi-byte UTF-8 character can be split across two `read_chunk()` calls -- an
+            # incremental decoder (one per stream) buffers a trailing partial sequence across
+            # calls instead of corrupting/raising on it; `errors="replace"` matches Node's own
+            # non-throwing decode semantics (`L12-PY-R002`).
+            decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
             while True:
                 result = await stream.read_chunk()
                 if isinstance(result, Err) or result.value is None:
+                    if on_chunk is not None:
+                        trailing = decoder.decode(b"", final=True)
+                        if trailing:
+                            try:
+                                on_chunk(trailing)
+                            except Exception as exc:
+                                if callback_error is None:
+                                    callback_error = exc
+                                await process.terminate()
                     mark_end()
                     return
                 chunk = result.value
                 chunks.append(chunk)
                 completion.on_data()
                 if on_chunk is not None:
-                    try:
-                        on_chunk(chunk)
-                    except Exception as exc:
-                        if callback_error is None:
-                            callback_error = exc
-                        await process.terminate()
+                    text = decoder.decode(chunk)
+                    if text:
+                        try:
+                            on_chunk(text)
+                        except Exception as exc:
+                            if callback_error is None:
+                                callback_error = exc
+                            await process.terminate()
 
         async def watch_exit() -> None:
             await process.wait()

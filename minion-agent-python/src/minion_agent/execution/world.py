@@ -21,6 +21,16 @@ class ExecutionWorldIdentity:
 
     value: str
 
+    @classmethod
+    def local(cls) -> ExecutionWorldIdentity:
+        """The identity every LOCAL provider (`LocalFileSystem`/`LocalShell`/`LocalSubprocess`)
+        declares by default. A FIXED value (not per-instance/random) so that constructing the
+        three local providers independently -- with no shared state passed between them --
+        still gives them the SAME identity by construction, matching spec section 8's own
+        "all three local providers share one execution-world identity by construction, the
+        simplest possible case" rule (`L12-PY-R003`)."""
+        return cls("local")
+
 
 def compatible(a: ExecutionWorldIdentity, b: ExecutionWorldIdentity) -> bool:
     """`L12-R013`: EQUALITY-ONLY. No broader/declarable relation -- that earlier design left

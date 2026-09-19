@@ -5906,8 +5906,21 @@ rows:
     table) -- a direct consequence of composing `absolute_path` and `canonical_path`, both already
     in that group.
 
-    Binding consequences: symlink identity is fixed via `canonical_path` (falls out of the
-    derivation for free, §3.2/`EXEC-002`); content mutation in place leaves `target_key`
+    Symlink identity holds WHEN canonicalization succeeds, not unconditionally (refined `L12-R018`,
+    third final complete review, `minion-agent-docs#114`, convergence episode `CE-L12-01-04`;
+    narrowed per the `agent-workflow.md` §11.10 governance decision recorded in
+    `minion-agent-docs#117`): an earlier revision of this row claimed symlink identity "falls out
+    of the derivation for free" unconditionally. That contradicts the exact fallback condition
+    above -- a provider whose `canonical_path` returns `not_supported` for every path falls back to
+    LEXICAL `absolute_path` for both a symlink and its target, producing UNEQUAL keys. Corrected:
+    symlink identity is fixed via `canonical_path` for every canonicalization-CAPABLE provider
+    (every provider this row currently certifies; pinned Pi''s own local reference implementation''s
+    `toFileError` never produces `not_supported` at all, `nodejs.ts:97-121`, so this narrowing
+    affects no current provider). A provider whose `canonical_path` is unsupported is NOT required
+    to alias-unify a symlink with its target -- a documented provider limitation, not a contract
+    violation.
+
+    Binding consequences: content mutation in place leaves `target_key`
     unchanged; renaming `a` to `b` CHANGES the `target_key` (different canonical paths -- CORRECT,
     not a defect, matching Pi''s own queue); deleting `a` and creating a new, unrelated file also
     named `a` REUSES the same `target_key`, PROVIDED no ancestor directory component of `a`''s path
@@ -6215,6 +6228,19 @@ rows:
     returns `Ok(None)` otherwise. Providers not passed to a given `validate()` call are never
     implicated -- mounting incompatible capabilities no consumer ever asks to be validated together
     remains legal, unchanged from the governing rule above.
+
+    Concrete `ExecutionWorldError` payload (refined `L12-R019`, third final complete review,
+    `minion-agent-docs#114`, convergence episode `CE-L12-01-04` -- an earlier revision required
+    only that the error "name every pairwise-incompatible provider," with no stated field shape,
+    ordering, or duplicate-label handling): `MINION_EXTENSION`, no Pi source.
+    `incompatible_pairs: ordered list of {left: str, right: str}` -- one entry per
+    pairwise-incompatible combination among the `validate()`-supplied providers, enumerated in the
+    SAME relative order the caller supplied them (input index `i < j` -> `{left: name[i], right:
+    name[j]}`, never reversed) -- deterministic, independent of implementation choice beyond the
+    caller''s own input order. Caller-supplied labels MUST be unique within one `validate()` call;
+    a duplicate label is a caller precondition violation (undefined behavior), not a case
+    `ExecutionWorldError` itself represents. Any human-readable message text is NON-NORMATIVE --
+    `incompatible_pairs` is the sole normative payload.
 
     Disposition correction (`L12-R008`): redispositioned `adopted` -> `intentional divergence`.
     This row''s own text always said "MINION_EXTENSION... no Pi equivalent"; `adopted` was

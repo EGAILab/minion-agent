@@ -5660,9 +5660,15 @@ rows:
   surface: Layer 12, WP-12.1 -- the shared Result/error boundary across ctx.fs/ctx.shell, and the
     DIRECT_PI_PARITY FsErrorCode/ShellErrorCode taxonomies
   rule: 'REMEDIATED (independent Rust contract review, `L12-R004`/`L12-R008`, `minion-agent-docs
-    #111`, review commit `092f63a5e3136f598fe1e508d4c60f6d8fe4dc17`): every ctx.fs/ctx.shell
-    operation returns Result[T, E], never raises/rejects, including for unexpected backend
-    failures (DIRECT_PI_PARITY, `types.ts:228-229`). This rule applies PER-OPERATION, not
+    #111`, review commit `092f63a5e3136f598fe1e508d4c60f6d8fe4dc17`; refined `L12-R015`, second
+    final complete review, `minion-agent-docs#114`, convergence episode `CE-L12-01-03`): an
+    execution seam normalizes every EXPECTED operational/environmental failure into a typed
+    `Result` error. An unexpected OPERATIONAL backend failure that has no narrower mapping still
+    normalizes (to `unknown`, matching pinned Pi''s own `toFileError` for any unrecognized errno) --
+    unexpected does not mean exempt. A broken provider invariant, an impossible state transition, an
+    assertion failure, or a programming error remains an exception/panic, INCLUDING when it
+    originates from within a seam provider''s own implementation. `Result[T, E]` at these three
+    seams; ordinary exceptions/panics everywhere else. This rule applies PER-OPERATION, not
     uniformly -- some operations have a documented SUCCESS value that itself reports an otherwise-
     unsuccessful outcome (a shell command''s own non-zero exit code is not a Result error at
     ctx.shell, `EXEC-004`); lifecycle/cleanup methods are explicitly exempt from returning Result
@@ -5672,6 +5678,14 @@ rows:
     primitives onto this SAME language-neutral taxonomy is the provider''s obligation, not the
     caller''s, and is implementation mechanics -- the resulting code taxonomy and which conditions
     map to which code are normative.
+
+    Correction (`L12-R015`, CE-L12-01-03): an earlier revision of this row said every operation
+    "never raises/rejects, including for unexpected backend failures" as an UNSCOPED universal
+    claim, immediately followed by the SAME Exceptions list above -- the same universal-vs-scoped
+    contradiction `L12-R004` found and fixed in `design/2026-08-20-minion-agent-design.md` §7. That
+    earlier fix touched only the design document; this row''s own independent copy of the identical
+    claim was never checked. Corrected above to the SAME scoped boundary, keeping all three
+    documents (this row, the frozen design, `spec/execution.md` §2) in sync.
 
     FsErrorCode (DIRECT_PI_PARITY, `types.ts:132-140`): aborted | not_found | permission_denied |
     not_directory | is_directory | invalid | not_supported | unknown. Confirmed concrete mapping
@@ -5810,11 +5824,22 @@ rows:
 
     Cleanup/temp-resource scope (`L12-R003` resolved -- an earlier revision of this row implied
     cleanup must remove a temp file''s own private directory; confirmed false against pinned Pi
-    directly): `NodeExecutionEnv.cleanup()` does nothing with temporary files/directories at all
-    -- it only kills active tracked child-process PIDs (itself really a ctx.subprocess-owned
-    concern this method happens to also expose, `EXEC-005`). This row makes NO cleanup-obligation
-    claim for temp resources, adopted or otherwise; a future implementation tracking/removing them
-    would be a separately-dispositioned MINION_EXTENSION, not something adopted here.
+    directly): `NodeExecutionEnv.cleanup()` does nothing with temporary files/directories at all.
+    This row makes NO cleanup-obligation claim for temp resources, adopted or otherwise; a future
+    implementation tracking/removing them would be a separately-dispositioned MINION_EXTENSION,
+    not something adopted here.
+
+    Correction (`L12-R017`, second final complete review, `minion-agent-docs#114`, convergence
+    episode `CE-L12-01-03`): an earlier revision of this row also said `ctx.fs.cleanup()` "kills
+    active tracked child-process PIDs (itself really a ctx.subprocess-owned concern this method
+    happens to also expose)." That misattributes pinned Pi''s own COMBINED
+    `NodeExecutionEnv.cleanup()` behavior to the WRONG split provider -- in Pi''s unsplit
+    environment, `cleanup()` kills active children because `exec()`''s own spawned child shares the
+    SAME `activeChildPids` set `cleanup()` iterates (`nodejs.ts:429,691-694`), making this a
+    `ctx.shell`-owned concern, not `ctx.fs`-owned. Corrected: `ctx.fs.cleanup()` makes NO
+    child-process claim at all -- it has no observable effect beyond best-effort/must-not-raise; a
+    conforming implementation MAY be a true no-op. `ctx.shell`''s own active-command cleanup is now
+    specified in `EXEC-004`.
 
     Architecture-rationale scope (`L12-R003` resolved -- `EXEC-001`''s companion §1 correction,
     also now applied to `design/2026-08-20-minion-agent-design.md` §7 at convergence): Pi''s own
@@ -5866,6 +5891,20 @@ rows:
 
     `target_key = canonical_path(path) if it exists, else absolute_path(path)` -- mirrors Pi''s
     own `getMutationQueueKey` exactly, including the not-yet-existing fallback.
+
+    Exact fallback condition (refined `L12-R016`, second final complete review,
+    `minion-agent-docs#114`, convergence episode `CE-L12-01-03` -- the prose above did not commit
+    to a precise condition, permitting mutually different Rust implementations): `absolute_path`
+    is used ONLY when `canonical_path` fails with error code `not_found` or `not_supported`. Any
+    OTHER `canonical_path` failure (`permission_denied`, `invalid`, `not_directory`, `is_directory`,
+    `unknown`) PROPAGATES as `resolve()`''s own `FsError` -- no silent fallback for those cases.
+    `DIRECT_PI_PARITY`: pinned Pi''s own `getMutationQueueKey` falls back for exactly these two
+    codes and re-throws for any other (`file-mutation-queue.ts:20-26`).
+
+    `resolve()`''s own cancellation classification (refined `L12-R016`, CE-L12-01-03):
+    `resolve(path, signal?)` is in the accepts-but-does-not-inspect group (`EXEC-002`''s own §3.1
+    table) -- a direct consequence of composing `absolute_path` and `canonical_path`, both already
+    in that group.
 
     Binding consequences: symlink identity is fixed via `canonical_path` (falls out of the
     derivation for free, §3.2/`EXEC-002`); content mutation in place leaves `target_key`
@@ -6013,7 +6052,20 @@ rows:
     `exit_code` is zero (confirmed, `env.exec("exit 7")` -> `Ok({...,exitCode:7})`,
     `nodejs-env.test.ts:448-449`) -- a non-zero exit is NOT itself a Result failure at this seam.
 
-    Full detail: `spec/execution.md` §5, §5.1-§5.6.'
+    Cleanup kills active commands (refined `L12-R017`, second final complete review,
+    `minion-agent-docs#114`, convergence episode `CE-L12-01-03` -- reassigned here from `EXEC-002`,
+    which misattributed this behavior to `ctx.fs`): `DIRECT_PI_PARITY`. `cleanup()` MUST kill the
+    process tree of every command THIS provider instance currently has in flight (tracked
+    internally, independent of `ctx.subprocess`''s own per-`Process` disposal, an unrelated,
+    already-settled concern from `CE-L12-01-01`) and clear its own tracking; best-effort, MUST NOT
+    raise, matching pinned Pi''s own combined `NodeExecutionEnv.cleanup()`, whose `activeChildPids`
+    set is shared with `exec()`''s own spawned children (`nodejs.ts:429,691-694`). A command killed
+    by `cleanup()` does NOT go through the `aborted`/`timeout` precedence machinery above at all --
+    it settles through the ORDINARY exit-handling path, `exitCode: code ?? 0` (`nodejs.ts:495`),
+    normalizing a killed (signal-terminated, null-exit-code) process to `0`: the caller observes
+    `Ok({stdout,stderr,exit_code:0})`, NOT an error.
+
+    Full detail: `spec/execution.md` §5, §5.1-§5.7.'
   tests:
   - 'no conformance evidence yet -- CONTRACT_DRAFT (spec/execution.md), not yet implemented;
     independent contract review required before implementation begins (WP-12.1, issue #39)'

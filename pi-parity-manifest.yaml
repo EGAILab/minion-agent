@@ -5725,7 +5725,9 @@ rows:
   - minion-agent-rust/crates/minion-agent/tests/execution_filesystem.rs
   - minion-agent-rust/crates/minion-agent/tests/execution_process.rs
   - minion-agent-rust/crates/minion-agent/tests/execution_shell.rs
-  python: 'NOT YET IMPLEMENTED -- CONTRACT_DRAFT, WP-12.1 (issue #39)'
+  - minion-agent-python/tests/execution/test_errors.py
+  python: 'minion-agent-python/src/minion_agent/execution/errors.py; typed boundary exercised by
+    test_errors.py, test_filesystem.py, test_shell.py, and test_subprocess.py'
   rust: 'minion-agent-rust/crates/minion-agent/src/execution/error.rs; typed boundary exercised by
     execution_filesystem.rs, execution_process.rs, and execution_shell.rs'
   disposition: adopted
@@ -5863,7 +5865,9 @@ rows:
     Full detail: `spec/execution.md` §3, §3.1-§3.8.'
   tests:
   - minion-agent-rust/crates/minion-agent/tests/execution_filesystem.rs
-  python: 'NOT YET IMPLEMENTED -- CONTRACT_DRAFT, WP-12.1 (issue #39)'
+  - minion-agent-python/tests/execution/test_filesystem.py
+  python: 'minion-agent-python/src/minion_agent/execution/filesystem.py; integration evidence in
+    minion-agent-python/tests/execution/test_filesystem.py'
   rust: 'minion-agent-rust/crates/minion-agent/src/execution/filesystem.rs; integration evidence in
     minion-agent-rust/crates/minion-agent/tests/execution_filesystem.rs'
   disposition: adopted
@@ -6002,7 +6006,9 @@ rows:
     Full detail: `spec/execution.md` §4.'
   tests:
   - minion-agent-rust/crates/minion-agent/tests/execution_filesystem.rs
-  python: 'NOT YET IMPLEMENTED -- CONTRACT_DRAFT, WP-12.1 (issue #39)'
+  - minion-agent-python/tests/execution/test_filesystem.py
+  python: 'minion-agent-python/src/minion_agent/execution/filesystem.py (`FsTarget`, `resolve`,
+    and provider-scoped `process_path`); integration evidence in test_filesystem.py'
   rust: 'minion-agent-rust/crates/minion-agent/src/execution/filesystem.rs (`FsTarget`, `resolve`,
     and provider-scoped `process_path`); integration evidence in execution_filesystem.rs'
   disposition: intentional divergence
@@ -6106,7 +6112,9 @@ rows:
     Full detail: `spec/execution.md` §5, §5.1-§5.7.'
   tests:
   - minion-agent-rust/crates/minion-agent/tests/execution_shell.rs
-  python: 'NOT YET IMPLEMENTED -- CONTRACT_DRAFT, WP-12.1 (issue #39)'
+  - minion-agent-python/tests/execution/test_shell.py
+  python: 'minion-agent-python/src/minion_agent/execution/shell.py; integration evidence in
+    minion-agent-python/tests/execution/test_shell.py'
   rust: 'minion-agent-rust/crates/minion-agent/src/execution/shell.rs; integration evidence in
     minion-agent-rust/crates/minion-agent/tests/execution_shell.rs'
   disposition: adopted
@@ -6209,7 +6217,9 @@ rows:
     Full detail: `spec/execution.md` §6.'
   tests:
   - minion-agent-rust/crates/minion-agent/tests/execution_process.rs
-  python: 'NOT YET IMPLEMENTED -- CONTRACT_DRAFT, WP-12.1 (issue #39)'
+  - minion-agent-python/tests/execution/test_subprocess.py
+  python: 'minion-agent-python/src/minion_agent/execution/subprocess.py; integration evidence in
+    minion-agent-python/tests/execution/test_subprocess.py'
   rust: 'minion-agent-rust/crates/minion-agent/src/execution/subprocess.rs; integration evidence in
     minion-agent-rust/crates/minion-agent/tests/execution_process.rs'
   disposition: intentional divergence
@@ -6281,7 +6291,9 @@ rows:
     Full detail: `spec/execution.md` §7.'
   tests:
   - minion-agent-rust/crates/minion-agent/tests/execution_world.rs
-  python: 'NOT YET IMPLEMENTED -- CONTRACT_DRAFT, WP-12.1 (issue #39)'
+  - minion-agent-python/tests/execution/test_world.py
+  python: 'minion-agent-python/src/minion_agent/execution/world.py; integration evidence in
+    minion-agent-python/tests/execution/test_world.py'
   rust: 'minion-agent-rust/crates/minion-agent/src/execution/world.rs and service.rs; integration
     evidence in minion-agent-rust/crates/minion-agent/tests/execution_world.rs'
   disposition: intentional divergence

@@ -108,15 +108,124 @@ def test_file_url_with_non_local_host_falls_through_portable(
     assert resolved == os.path.normpath(os.path.join(str(tmp_path), literal))
 
 
-def test_file_url_host_containing_percent_is_rejected_even_on_windows_uncshaped(
+def test_file_url_host_containing_invalid_percent_escape_is_rejected_even_on_windows_uncshaped(
     tmp_path: Path,
 ) -> None:
-    """A `%` in a file:// URL's own host is never a valid hostname on ANY platform -- unlike an
-    ordinary non-local host, which IS a legitimate UNC path on Windows, this must still fall
-    through (be treated as malformed) regardless of platform."""
+    """An INVALID percent-escape (`%zz` -- `z` is not a hex digit) in a file:// URL's own host
+    is never a valid hostname on ANY platform -- unlike an ordinary non-local host, which IS a
+    legitimate UNC path on Windows, this must still fall through (be treated as malformed)
+    regardless of platform. NOT the same claim as "any `%` in a host is invalid" -- a host whose
+    percent-escapes all decode cleanly (`file://%41/share`, see the test below) IS a legitimate
+    UNC host on Windows (`L12-PY-R002`, refined a third time, targeted closure review)."""
     literal = "file://%zz-not-a-valid-escape/some/path"
     resolved = resolve_local_path(str(tmp_path), literal)
     assert resolved == os.path.normpath(os.path.join(str(tmp_path), literal))
+
+
+@pytest.mark.skipif(os.name != "nt", reason="UNC host resolution is Windows-specific")
+def test_file_url_percent_encoded_ascii_host_is_accepted_as_unc_share(tmp_path: Path) -> None:
+    """`L12-PY-R002` exact discriminating witness (targeted closure review): a host whose
+    percent-escapes decode CLEANLY (`%41` -> `A`) is a legitimate WHATWG host, not malformed --
+    the prior candidate rejected ANY host containing a raw `%`, even a validly-encoded one, which
+    a live Node comparison showed diverges from `fileURLToPath`'s own behavior. Exact witness
+    value verified against live Node 22 (`fileURLToPath('file://%41/share')` ->
+    `'\\\\a\\share'`, then `path.resolve()`'s own UNC-root canonicalization adds the trailing
+    separator)."""
+    assert resolve_local_path("C:\\cwd", "file://%41/share") == "\\\\a\\share\\"
+
+
+def test_file_url_percent_encoded_ascii_host_decode_step_never_raises_on_posix(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Portable twin closing coverage on POSIX: `_file_url_to_path`'s own host-decode/
+    forbidden-char-validation step (step 1 of its docstring's algorithm) still ACCEPTS the
+    cleanly-decoded host `"a"` -- it does not raise there. POSIX rejects `file://%41/share`
+    LATER, for a completely different reason (the host is neither empty nor `"localhost"`,
+    already covered by `test_file_url_with_non_local_host_falls_through_portable`). Asserting
+    the specific error message isolates WHICH check actually rejects it."""
+    monkeypatch.setattr(os, "name", "posix")
+    with pytest.raises(ValueError, match="is not local"):
+        filesystem_module._file_url_to_path("file://%41/share")
+
+
+def test_file_url_posix_empty_or_localhost_host_succeeds_portable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Closes coverage on the POSIX success path itself (`_file_url_to_path`'s final return),
+    which no Windows-real-`os.name` test reaches: an empty or `"localhost"` host is accepted,
+    and the decoded pathname is returned as-is -- verified against live Node 22
+    (`fileURLToPath(url, {windows: false})`). Also covers the empty-decoded-pathname edge case
+    (`"file://"` alone, with no trailing `/` at all) becoming `"/"` rather than `""`."""
+    monkeypatch.setattr(os, "name", "posix")
+    assert filesystem_module._file_url_to_path("file:///home/user/x.txt") == "/home/user/x.txt"
+    assert (
+        filesystem_module._file_url_to_path("file://localhost/home/user/x.txt")
+        == "/home/user/x.txt"
+    )
+    assert filesystem_module._file_url_to_path("file://") == "/"
+
+
+@pytest.mark.skipif(os.name != "nt", reason="drive-letter path validation is Windows-specific")
+def test_file_url_encoded_forward_slash_in_path_is_rejected(tmp_path: Path) -> None:
+    """`L12-PY-R002` exact discriminating witness: an encoded `/` (`%2F`/`%2f`) anywhere in the
+    path is rejected BEFORE decoding, on every platform -- Node's own path-traversal/ambiguity
+    guard. Exact witness value verified against live Node 22's full `resolvePath` wrapper."""
+    assert resolve_local_path("C:\\cwd", "file:///C:/a%2Fb") == "C:\\cwd\\file:\\C:\\a%2Fb"
+
+
+@pytest.mark.skipif(os.name != "nt", reason="encoded-backslash rejection is Windows-specific")
+def test_file_url_encoded_backslash_in_path_is_rejected_on_windows(tmp_path: Path) -> None:
+    """The `%5C`/`%5c` (encoded `\\`) counterpart of the guard above -- Windows-only, since
+    POSIX has no backslash-as-separator convention (an encoded backslash there decodes to a
+    literal `\\` character in the path, verified in the POSIX ground-truth table)."""
+    assert resolve_local_path("C:\\cwd", "file:///C:/a%5Cb") == "C:\\cwd\\file:\\C:\\a%5Cb"
+
+
+@pytest.mark.skipif(os.name != "nt", reason="drive-letter path validation is Windows-specific")
+def test_file_url_localhost_host_is_treated_as_empty_on_windows(tmp_path: Path) -> None:
+    """`L12-PY-R002` witness: `"localhost"` collapses to the empty-host (drive-letter) branch on
+    Windows too, not the UNC branch -- `file://localhost/C:/...` resolves to an ordinary drive
+    path, not a UNC path to a literal `localhost` share. Verified against live Node 22."""
+    assert (
+        resolve_local_path("C:\\cwd", "file://localhost/C:/Users/test/file.txt")
+        == "C:\\Users\\test\\file.txt"
+    )
+
+
+@pytest.mark.skipif(os.name != "nt", reason="UNC host resolution is Windows-specific")
+def test_file_url_ipv6_literal_host_resolves_as_unc(tmp_path: Path) -> None:
+    """An IPv6 literal host (bracket-delimited) is its own host type, exempt from the ordinary
+    domain forbidden-character check (which would otherwise reject its own `[`/`]` delimiters)
+    -- verified against live Node 22."""
+    assert resolve_local_path("C:\\cwd", "file://[::1]/C:/foo") == "\\\\[::1]\\C:\\foo"
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows-specific path shapes")
+@pytest.mark.parametrize(
+    ("literal", "expected"),
+    [
+        ("file:///C:/%ZZ", "C:\\cwd\\file:\\C:\\%ZZ"),
+        ("file:///%ZZ", "C:\\cwd\\file:\\%ZZ"),
+        ("file:///C:/Users/test/file.txt", "C:\\Users\\test\\file.txt"),
+        ("file:///c:/foo/bar", "c:\\foo\\bar"),
+        ("file://192.168.1.5/share/file.txt", "\\\\192.168.1.5\\share\\file.txt"),
+        ("file:///C:/a%20b", "C:\\a b"),
+        ("file:///C:/a%252Fb", "C:\\a%2Fb"),  # double-encoded -- single decode pass only
+        ("file://%2541/share", "C:\\cwd\\file:\\%2541\\share"),  # host decodes to "%41", rejected
+        ("file:///C:/%25ZZ", "C:\\%ZZ"),  # %25 -> literal "%", no further decode of "ZZ"
+        ("file:///C%3A/foo", "C:\\foo"),  # drive check applies to the DECODED path
+        ("file:///C:foo", "C:\\cwd\\foo"),  # drive-relative, not absolute
+        ("file:///foo", "C:\\cwd\\file:\\foo"),  # no drive letter, no host -- malformed
+        ("file://a.b.c/share", "\\\\a.b.c\\share\\"),
+        ("file://EXAMPLE.COM/share", "\\\\example.com\\share\\"),  # domain hosts are lowercased
+    ],
+)
+def test_file_url_ground_truth_table(literal: str, expected: str) -> None:
+    """A curated subset of a 37-case table independently verified against live Node 22 execution
+    (`fileURLToPath(url, {windows: true})` plus `path.win32.resolve`'s own root-canonicalization,
+    both invoked directly, not read from source or guessed) -- `L12-PY-R002`, targeted closure
+    review. Each of these is a genuine ground-truth value, not a hand-derived expectation."""
+    assert resolve_local_path("C:\\cwd", literal) == expected
 
 
 @pytest.mark.skipif(os.name != "nt", reason="Windows-specific drive-letter validation")

@@ -39,7 +39,6 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any, Protocol
 from urllib.parse import urlparse
-from urllib.request import url2pathname
 
 from ..runtime.signal import RunSignal
 from .errors import FsError, FsErrorCode, to_fs_error
@@ -109,35 +108,144 @@ def resolve_local_path(cwd: str, path: str) -> str:
         with suppress(ValueError, OSError):
             normalized = _file_url_to_path(normalized)
     if os.path.isabs(normalized):
-        return os.path.normpath(normalized)
+        resolved = os.path.normpath(normalized)
+        if os.name == "nt":
+            # `L12-PY-R002` (refined a third time): a bare drive letter (`C:`) or UNC share
+            # (`\\host\share`) root, with nothing past it, gets a trailing separator here --
+            # matching `path.win32.resolve`'s own root-canonicalization (live-verified:
+            # `resolve('C:')` -> `"C:\\"`, `resolve('\\\\a\\share')` -> `"\\\\a\\share\\"`),
+            # which `os.path.normpath` alone does not add.
+            drive, tail = os.path.splitdrive(resolved)
+            if drive and not tail:
+                resolved += os.sep
+        return resolved
     return os.path.normpath(os.path.join(cwd, normalized))
 
 
 _WINDOWS_DRIVE_PATH_RE = re.compile(r"^/[A-Za-z]:")
 
+_HEX_DIGITS = frozenset("0123456789abcdefABCDEF")
+
+# WHATWG "forbidden host code point" set (tab/LF/CR/space plus `#/:<>?@[\]^|`), extended with
+# a literal "%" -- live Node probes (`file://%2541/share`, `file://a%25b/share`, ...) confirm
+# any decoded host still containing "%" is rejected at Node's own `new URL(...)` construction
+# step, even though "%" is not itself in the WHATWG spec's own forbidden-host-code-point list.
+_FORBIDDEN_HOST_CHARS = frozenset("\x00\t\n\r #%/:<>?@[\\]^|")
+
+
+def _strict_percent_decode(value: str) -> str:
+    """Byte-accurate equivalent of JavaScript's `decodeURIComponent` -- percent-decodes `%XX`
+    escapes to raw bytes (an unescaped character contributes its own UTF-8 bytes), then decodes
+    the WHOLE byte sequence as UTF-8. Raises `ValueError` for a truncated/non-hex escape or
+    invalid UTF-8, matching `decodeURIComponent`'s own thrown `URIError` (`UnicodeDecodeError`
+    is itself a `ValueError` subclass, so both failure modes reach the caller identically)."""
+    raw = bytearray()
+    i = 0
+    n = len(value)
+    while i < n:
+        ch = value[i]
+        if ch == "%":
+            if i + 3 > n or value[i + 1] not in _HEX_DIGITS or value[i + 2] not in _HEX_DIGITS:
+                raise ValueError(f"invalid percent-encoding in {value!r}")
+            raw.append(int(value[i + 1 : i + 3], 16))
+            i += 3
+        else:
+            raw.extend(ch.encode("utf-8"))
+            i += 1
+    return raw.decode("utf-8")
+
 
 def _file_url_to_path(url: str) -> str:
-    """An equivalent-fidelity port of pinned Node's `fileURLToPath`, sufficient for this
-    function's own two observable validation requirements (`L12-PY-R002`, second review):
-    a non-empty, non-"localhost", non-hostname-shaped host is malformed on EVERY platform
-    (Node's own WHATWG URL host parsing rejects a raw `%` in a host outright, e.g.
-    `file://%zz-not-a-valid-escape` -- there is no such thing as a literal `%` in a real
-    hostname); on Windows specifically, a host-less URL's own path must additionally look like
-    a drive path (`/C:/...`) -- `file:///%ZZ` has no drive letter and is ALSO malformed, not a
-    valid (if oddly-encoded) local path. Raises `ValueError` for either case, mirroring
-    `fileURLToPath`'s own thrown `ERR_INVALID_FILE_URL_HOST`/`ERR_INVALID_FILE_URL_PATH`."""
+    """A characterized port of pinned Node's `fileURLToPath` (`L12-PY-R002`, refined a third
+    time, targeted closure review), verified against live Node 22 execution in both
+    `windows: true` and `windows: false` modes (Node's own `fileURLToPath(url, {windows})`
+    override) rather than guessed or trusted from a review's prose. Node's real algorithm, as
+    observed:
+
+    1. The host is percent-decoded (UTF-8, strict) and, if it contains any WHATWG "forbidden
+       host code point" (space/control/``#%/:<>?@[\\]^|``), the WHOLE URL is rejected -- this
+       happens at Node's OWN `new URL(...)` construction step, before `fileURLToPath`'s body
+       even runs (`file://%2541/share` -- decodes to the literal string `%41`, which still
+       contains `%` -- is rejected; `file://%41/share` -- decodes cleanly to `A` -- is
+       accepted). A valid decoded host is ASCII-lowercased (domain names are case-insensitive).
+       An IPv6 literal host (`[::1]`, bracket-delimited) is its own host TYPE, parsed before --
+       and exempt from -- the forbidden-host-code-point/domain check (`[`/`]` are themselves in
+       that forbidden set for an ordinary domain host, but are exactly what DELIMITS an IPv6
+       literal, so checking them against that same set would reject every IPv6 host outright).
+    2. On Windows specifically, a host that is (after decoding) exactly `"localhost"` is treated
+       identically to an EMPTY host -- routed to the drive-letter branch (5), not the UNC branch
+       (4) (`file://localhost/C:/foo` resolves to `C:\foo`, not a UNC path to a literal
+       `localhost` share).
+    3. The RAW (undecoded) pathname is scanned for the literal case-insensitive substrings
+       `%2f` (encoded `/`) and, on Windows only, `%5c` (encoded `\\`) -- either one, anywhere,
+       rejects the whole URL BEFORE decoding (a path-traversal/ambiguity guard Node applies
+       even to a host-qualified UNC path).
+    4. The pathname is THEN percent-decoded (UTF-8, strict) -- an incomplete/invalid escape
+       (`%ZZ`, a bare trailing `%`, invalid UTF-8 continuation bytes) rejects the whole URL.
+    5. Non-empty, non-`"localhost"` host (Windows) / ANY non-empty host (this function is only
+       ever reached from a Windows-or-POSIX-routed caller, see below): the result is a UNC path,
+       ``\\\\<decoded-host><decoded-pathname>``, with every `/` in the FINAL combined string
+       converted to `\\`.
+    6. Empty (or `"localhost"`-collapsed) host, Windows: the DECODED pathname must start with
+       `/<ascii-letter>:` (checked AFTER decoding, not before -- `file:///C%3A/foo` decodes to
+       `/C:/foo` and IS valid, even though the raw path `/C%3A/foo` would not match a raw-text
+       check) or the whole URL is rejected; the leading `/` is dropped and remaining `/`
+       converted to `\\`.
+    7. Empty host, POSIX: the host must be `""` or `"localhost"` (any other host rejects,
+       independent of its own encoding validity); the decoded pathname is returned as-is (an
+       EMPTY decoded pathname -- `"file://"` alone, with no trailing `/` at all -- becomes `"/"`
+       rather than the empty string), with NO backslash-to-slash conversion (POSIX has no such
+       convention).
+
+    A bare drive letter (`C:`) or UNC share (`\\\\host\\share`) RESULT with nothing past it is
+    given a trailing separator by `resolve_local_path`'s own final `os.path.normpath` step
+    (mirroring `path.win32.resolve`'s own root-canonicalization, empirically confirmed via live
+    probes of `resolve('C:')` -> `"C:\\\\"` and `resolve('\\\\\\\\a\\\\share')` ->
+    `"\\\\\\\\a\\\\share\\\\"`), not here -- this function returns the bare, un-rooted form.
+
+    Known, deliberate scope boundary (neither affects any reviewed witness): Node's own
+    `domainToUnicode` step (rendering an already-valid ASCII `"xn--..."` punycode label back to
+    its Unicode glyphs for display) is not replicated -- such a label is kept as-is. Likewise, a
+    RAW (unescaped) backslash in a `file:` URL's own path segment is a WHATWG-level path-
+    separator equivalent to `/` at Node's OWN URL-parsing stage, before `fileURLToPath` ever
+    runs -- not replicated here; only the *encoded* `%5c` form (step 3) is checked, matching
+    every reviewed witness's own encoded-input shape."""
     parsed = urlparse(url)
-    if parsed.netloc and "%" in parsed.netloc:
-        # No real hostname ever contains a raw "%" -- a percent-encoded (or malformed-percent)
-        # host is invalid on every platform, never a legitimate UNC host on Windows either.
-        raise ValueError(f"file:// URL host is not a valid hostname: {parsed.netloc!r}")
-    if parsed.netloc and parsed.netloc != "localhost" and os.name != "nt":
+    windows = os.name == "nt"
+
+    host = ""
+    if parsed.netloc:
+        if parsed.netloc.startswith("[") and parsed.netloc.endswith("]"):
+            host = parsed.netloc  # IPv6 literal -- its own host type, not a domain
+        else:
+            host = _strict_percent_decode(parsed.netloc)
+            if any(c in _FORBIDDEN_HOST_CHARS for c in host):
+                raise ValueError(f"file:// URL host is not a valid hostname: {parsed.netloc!r}")
+            host = host.lower()
+    windows_empty_host = windows and host == "localhost"
+
+    raw_pathname = parsed.path
+    lowered_pathname = raw_pathname.lower()
+    if "%2f" in lowered_pathname:
+        raise ValueError(
+            f"file:// URL path must not include an encoded / character: {raw_pathname!r}"
+        )
+    if windows and "%5c" in lowered_pathname:
+        raise ValueError(
+            f"file:// URL path must not include an encoded \\ character: {raw_pathname!r}"
+        )
+    pathname = _strict_percent_decode(raw_pathname)
+
+    if windows:
+        if host and not windows_empty_host:
+            return ("\\\\" + host + pathname).replace("/", "\\")
+        if not _WINDOWS_DRIVE_PATH_RE.match(pathname):
+            raise ValueError(f"file:// URL path has no drive letter on Windows: {pathname!r}")
+        return pathname[1:].replace("/", "\\")
+
+    if host and host != "localhost":
         raise ValueError(f"file:// URL host is not local: {parsed.netloc!r}")
-    if os.name == "nt" and not parsed.netloc and not _WINDOWS_DRIVE_PATH_RE.match(parsed.path):
-        # A host-less Windows file URL's path must look like a drive path ("/C:/...") --
-        # anything else (no drive letter at all) is malformed, not a valid local path.
-        raise ValueError(f"file:// URL path has no drive letter on Windows: {parsed.path!r}")
-    return url2pathname(parsed.path)
+    return pathname if pathname else "/"
 
 
 def _aborted(path: str | None = None) -> FsError:

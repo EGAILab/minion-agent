@@ -288,7 +288,7 @@ class Process:
         """Polls the ORIGINAL spawn-time signal for the lifetime of the process, terminating it
         the moment the signal fires (cooperative/poll-based, matching `RunSignal`'s own design).
 
-        `L12-PY-R004` (refined, second review): `_kill_cause` is recorded ONLY if
+        `L12-PY-R004` (refined again, third review): `_kill_cause` is recorded ONLY if
         `_kill_process_tree` reports it actually found a live target (`True`) -- NOT merely
         because this loop observed the signal fire and CALLED that function. A genuine race
         exists between this poll loop noticing `signal.aborted` and the process ALREADY having
@@ -298,15 +298,19 @@ class Process:
         completed successfully on its own.
 
         Records the flag EAGERLY (before calling `_kill_process_tree`), then CORRECTS it if the
-        kill attempt reports no live target was found -- not deferred until after the call
-        returns. `Process.wait()` cancels this task as soon as it observes the underlying
-        `asyncio` process object's own exit (which can race ahead of, and resolve WHILE, this
-        task is still awaiting `_kill_process_tree`'s own OS-level confirmation) -- deferring the
-        flag-set until after that await would let the cancellation wipe out a GENUINELY
-        signal-caused kill's own classification before it's ever recorded. Setting eagerly and
-        correcting afterward is safe either way: a genuine kill keeps its (correct) eager flag
-        even if cancelled before the correction step runs; a no-effect kill gets the flag cleared
-        whenever the correction step DOES get to run."""
+        kill attempt reports no live target was found. An earlier revision of `Process.wait()`
+        CANCELLED this task as soon as it observed the underlying process's own exit, racing
+        ahead of a still-in-flight `_kill_process_tree` confirmation and wiping out the
+        correction step before it could ever run -- a genuinely no-effect kill attempt stayed
+        eagerly (and permanently) misclassified as `"signal"`-caused. `Process.wait()` no longer
+        cancels this task at all; it AWAITS it instead, relying on THIS loop's own `while
+        self._proc.returncode is None` condition to exit naturally within one poll tick once the
+        process has exited (`self._proc.returncode` is set by the same underlying exit callback
+        `self._proc.wait()` itself resolves from, so by the time `wait()` observes that exit, this
+        loop's very next wake-up already sees it too) -- so a kill attempt that is already in
+        flight always gets to run its correction step to completion before `wait()` reads
+        `_kill_cause`, in every ordering, with no cancellation race left to lose either
+        direction's classification."""
         while self._proc.returncode is None:
             if signal.aborted:
                 if self._kill_cause is None:
@@ -331,7 +335,10 @@ class Process:
                 return self._wait_result
             returncode = await self._proc.wait()
             if self._watcher_task is not None:
-                self._watcher_task.cancel()
+                # `L12-PY-R004` (refined again, third review): AWAIT, never cancel -- see
+                # `_watch_signal`'s own docstring for why cancelling here raced a still-in-flight
+                # kill-attempt confirmation and lost its classification correction.
+                await self._watcher_task
             # `L12-PY-R007` (refined, second review): close ONLY the process's own transport
             # here -- confirmed empirically NOT to affect the separate stdio stream transports
             # (each owns its own). Closing stdout/stderr HERE, unconditionally, would break the

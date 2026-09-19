@@ -5737,13 +5737,22 @@ rows:
     implementation cancellation behavior exactly, including its incompleteness, as
     DIRECT_PI_PARITY:
 
-    checks pre-aborted AND honors mid-operation cancellation (signal threaded to the underlying
-    I/O): read_text_file, read_binary_file, write_file. Checks pre-aborted AND re-checks at each
-    loop iteration: read_text_lines, list_dir. Checks pre-aborted only, no mid-operation
-    checkpoint (a single fast syscall): rename_file. Accepts signal (uniform typed API, below) but
-    does NOT inspect it -- matches Pi exactly, not a Minion gap: absolute_path, join_path,
-    append_file, file_info, canonical_path, exists, create_dir, remove, create_temp_dir,
-    create_temp_file.
+    Complete checkpoint table (refined `L12-R009`, final complete review, `minion-agent-docs#114`,
+    convergence episode `CE-L12-01-02` -- checkpoint COUNT and ORDER per operation, not merely a
+    pre-aborted/mid-operation binary): read_text_file/read_binary_file -- pre-check; signal
+    threaded into the single underlying read call (single-phase, no separate checkpoint,
+    `nodejs.ts:502-511,544-553`). write_file -- pre-check; awaits recursive parent mkdir (itself
+    NOT abort-checked); checks AGAIN immediately after mkdir completes, before the write begins;
+    signal also threaded into the underlying write call -- THREE checkpoints, not one
+    (`nodejs.ts:555-572`). read_text_lines -- pre-check (before opening the stream); signal passed
+    to the stream; re-checks at EACH loop iteration; checks ONCE MORE after the loop completes,
+    before returning success -- FOUR checkpoints (`nodejs.ts:513-542`). list_dir -- pre-check;
+    re-checks at each loop iteration; NO check after the loop completes -- genuinely FEWER
+    checkpoints than read_text_lines despite both superficially "looping over entries"
+    (`nodejs.ts:611-633`). rename_file -- pre-check only; the underlying rename() call accepts no
+    signal option at all (`nodejs.ts:585-600`). Accepts signal (uniform typed API, below) but does
+    NOT inspect it -- matches Pi exactly, not a Minion gap: absolute_path, join_path, append_file,
+    file_info, canonical_path, exists, create_dir, remove, create_temp_dir, create_temp_file.
 
     Public API shape (refined `L12-R001`, targeted closure review, `minion-agent-docs#114`): the
     typed operation signature declares `signal?` UNIFORMLY on every operation, including the ten
@@ -5872,9 +5881,22 @@ rows:
     paths that resolve to the SAME location (a symlink and its target) correctly share one
     `target_key`; two `resolve()` calls reaching DIFFERENT resolved locations produce unequal keys.
     `target_key` comparison remains scoped to ONE provider instance; `target_key` MUST support
-    stable equality/hashing under this rule; `process_path` MUST be called on the originating (or
-    independently-validated-compatible)
-    provider -- a detectable foreign target returns FsError (invalid), never a fabricated path.
+    stable equality/hashing under this rule.
+
+    `process_path` scoped to the producing provider only (refined `L12-R014`, final complete
+    review, `minion-agent-docs#114`, convergence episode `CE-L12-01-02`): an earlier revision
+    permitted `process_path(target)` on the producing provider "or one independently validated as
+    execution-world-compatible via `EXEC-006`" -- contradicting this row''s own provider-scoping
+    rule above. Execution-world compatibility is a statement about whether a RESULTING PATH STRING
+    is meaningful across providers, not a grant of authority for a second provider to decode the
+    first provider''s own opaque `target_key`. Corrected: `process_path(target)` MUST be called on
+    the SAME provider instance that produced `target` -- no exception; calling it on any other
+    provider is outside this contract (undefined). The cross-seam workflow: `resolve()` and
+    `process_path()` both happen on the originating `ctx.fs` provider; the resulting PATH STRING
+    (never the `FsTarget`/`target_key` itself) is handed to a `ctx.shell`/`ctx.subprocess` provider
+    independently validated as execution-world-compatible (`EXEC-006`) with that SAME `ctx.fs`
+    provider. A provider detecting it did not itself produce `target` returns FsError (invalid),
+    never a fabricated path.
 
     Symlinked-ancestor exception to missing-then-create stability (refined `L12-R005`, targeted
     closure review, `minion-agent-docs#114`): a not-yet-existing path''s `target_key` uses the
@@ -5927,20 +5949,34 @@ rows:
 
     Working-directory precondition: the resolved cwd is checked to exist BEFORE attempting to
     spawn anything, failing early with `spawn_error` and a specific diagnostic naming the missing
-    directory if it does not.
+    directory if it does not. This check happens AFTER shell discovery, not before (see the
+    precedence matrix below).
 
     Environment: `inherit_env` defaults true. When true, the effective environment is the seam
     provider''s own base/inherited environment overlaid by any per-call `env`. When false, the
     effective environment is EXACTLY the per-call `env` and nothing else.
 
     Complete failure-precedence matrix (`L12-R007` resolved -- an earlier revision of this row
-    stated only the mid-flight timeout-vs-abort ordering, not the full sequence): checked in this
-    EXACT order -- (1) pre-aborted signal, before timeout is even validated or cwd/shell resolved;
-    (2) invalid timeout (finite/positive/in-range), before any process is spawned; (3) cwd/shell
-    resolution; (4) process runs; (5) on completion/interruption, exactly one of, in precedence
-    order: callback_error (wins over everything else) > timeout > aborted > success
-    ({stdout,stderr,exit_code}, regardless of exit_code). Killing a command on either abort or
-    timeout terminates its ENTIRE process tree/group.
+    stated only the mid-flight timeout-vs-abort ordering, not the full sequence; refined `L12-R010`,
+    final complete review, `minion-agent-docs#114`, convergence episode `CE-L12-01-02` -- the
+    combined "cwd/shell resolution" step split into its own exact order): checked in this EXACT
+    order -- (1) pre-aborted signal; (2) invalid timeout (finite/positive/within the exact
+    boundary below), before any process is spawned; (3) lexical cwd resolution (a pure string
+    operation, no filesystem touch); (4) shell discovery (`getShellConfig`, MAY fail
+    `shell_unavailable`) -- happens BEFORE the cwd existence check, not after: a configured-
+    nonexistent shell together with a nonexistent cwd observably returns `shell_unavailable`, never
+    `spawn_error`; (5) cwd existence check (`access(cwd)`, MAY fail `spawn_error`); (6) process
+    runs; (7) on completion/interruption, exactly one of, in precedence order: callback_error (wins
+    over everything else) > timeout > aborted > success ({stdout,stderr,exit_code}, regardless of
+    exit_code). Killing a command on either abort or timeout terminates its ENTIRE process tree/
+    group.
+
+    Exact timeout ceiling (refined `L12-R011`, final complete review, `minion-agent-docs#114`,
+    convergence episode `CE-L12-01-02` -- an earlier revision said "roughly `2^31/1000` seconds,"
+    which is `2147483.648`, not the actual boundary): pinned Pi''s own constant is `MAX_TIMEOUT_MS
+    = 2_147_483_647` (`2^31 - 1`, `nodejs.ts:34`). A timeout is rejected when `timeout * 1000 >
+    2_147_483_647`. The largest ACCEPTED value is `2147483.647` seconds exactly; `2147483.648`
+    seconds is rejected.
 
     Streaming/callback-error: `on_stdout`/`on_stderr`, when provided, are invoked with each chunk
     as it arrives IN ADDITION TO the full stdout/stderr the final Result carries. A throwing
@@ -6018,6 +6054,19 @@ rows:
     underlying mechanism `ctx.shell`''s local provider is built from. A failure to start the
     process at all is `spawn_error`.
 
+    `cwd`/environment defaults (`L12-R012`, final complete review, `minion-agent-docs#114`,
+    convergence episode `CE-L12-01-02`): MINION_EXTENSION -- `ctx.subprocess` has no Pi seam to
+    source these from, but the frozen design''s own statement that `ctx.shell`''s local provider
+    spawns THROUGH `ctx.subprocess` requires this seam''s own cwd/environment rule to be
+    well-defined, so it mirrors `ctx.shell`''s own already-specified rule (`EXEC-004`) exactly
+    rather than inventing a second, independent one. `cwd`, when omitted, defaults to the
+    provider''s own current working directory; when supplied and relative, it resolves against
+    that same provider cwd, using the identical lexical resolution rule `ctx.fs`''s own
+    `absolute_path` (`EXEC-002`) uses. `inherit_env=true` (default): effective environment is the
+    provider''s own base/inherited environment overlaid by any per-call `env` -- identical to
+    `ctx.shell`''s own `EXEC-004` rule. `inherit_env=false`: effective environment is EXACTLY the
+    per-call `env` and nothing else.
+
     Second correction (`L12-R006`, convergence -- the first remediation''s own `wait(signal?)`
     shape created an unresolved ambiguity for "abort the original spawn signal, then call wait()
     with no argument," left wait()''s own relationship to stdio drain unstated, and mixed an
@@ -6078,6 +6127,23 @@ rows:
     correctly, using synthetic/test consumers -- it does NOT implement any real Layer 13 consumer
     (`bash`, etc.) to prove this, and does not need to. Local providers (`EXEC-002`/`EXEC-004`/
     `EXEC-005`) share one execution-world identity by construction (same local machine).
+
+    Concrete primitive (`L12-R013`, final complete review, `minion-agent-docs#114`, convergence
+    episode `CE-L12-01-02` -- an earlier revision stated only the governing rule in prose, with no
+    type shape, comparison operation, compatibility relation, or typed failure result, leaving "the
+    compatibility VOCABULARY" above an unfulfilled promise): `ExecutionWorldIdentity` is opaque,
+    provider-declared, and supports equality comparison. `compatible(a, b) -> bool` is the
+    compatibility relation -- identity EQUALITY is always sufficient (two providers with equal
+    identity values are always compatible); a provider MAY additionally declare compatibility with
+    specific OTHER identity values (e.g. a documented family of interoperable remote backends), but
+    equality is always the minimum baseline every provider must honor. `validate(providers:
+    list[(name, identity)]) -> Result[None, ExecutionWorldError]` is called by a CONSUMER (never
+    the runtime) at its own activation, over the specific providers it needs to address the same
+    resource through; returns `Err(ExecutionWorldError)` naming every pairwise-incompatible
+    provider (by its caller-supplied name/diagnostic label) if any pair fails `compatible()`;
+    returns `Ok(None)` otherwise. Providers not passed to a given `validate()` call are never
+    implicated -- mounting incompatible capabilities no consumer ever asks to be validated together
+    remains legal, unchanged from the governing rule above.
 
     Disposition correction (`L12-R008`): redispositioned `adopted` -> `intentional divergence`.
     This row''s own text always said "MINION_EXTENSION... no Pi equivalent"; `adopted` was

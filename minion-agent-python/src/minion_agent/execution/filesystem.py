@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import re
 import shutil
 import stat as _stat
 import tempfile
@@ -96,26 +97,47 @@ def resolve_local_path(cwd: str, path: str) -> str:
     elif normalized.startswith("~/") or (os.name == "nt" and normalized.startswith("~\\")):
         normalized = os.path.join(os.path.expanduser("~"), normalized[2:])
     elif normalized.startswith("file://"):
-        try:
-            parsed = urlparse(normalized)
-            # `L12-PY-R002`: pinned Node's real `fileURLToPath` throws `ERR_INVALID_FILE_URL_HOST`
-            # for a non-empty, non-"localhost" host on POSIX (`file://nonlocalhost/some/path` is
-            # malformed there, not a UNC-style path) -- `urlparse`/`url2pathname` neither raise
-            # for this on their own, so without this explicit check the host is silently dropped
-            # and a wrong path is produced instead of preserving the literal input. On Windows, a
-            # non-empty host IS legitimate (`file://host/share/path` -> `\\host\share\path`, a UNC
-            # path) and must NOT be rejected here.
-            if os.name != "nt" and parsed.netloc and parsed.netloc != "localhost":
-                raise ValueError("non-local file:// host on POSIX")
-            normalized = url2pathname(parsed.path)
-        except (ValueError, OSError):
-            # Return the literal input VERBATIM, bypassing the isabs/join fallback below --
-            # that fallback would still silently mangle the string (e.g. `normpath` collapsing
-            # the "//" in "file://...") rather than truly preserving it.
-            return path
+        # `L12-PY-R002` (refined, second review): pinned Node's own `resolvePath` does NOT
+        # early-return the raw URL on a `fileURLToPath` failure -- it leaves `normalized`
+        # UNCHANGED (still the literal "file://..." string) and falls through to the SAME
+        # final isabs/resolve pipeline every other path goes through. An earlier revision of
+        # this function early-returned the literal string, bypassing that pipeline entirely --
+        # observably different from Pi (which then applies ordinary cwd-relative resolution TO
+        # the literal string, producing e.g. `<cwd>\file:\%ZZ` on Windows, not the bare
+        # `"file:///%ZZ"` string an early return would keep). Suppressing here (no reassignment
+        # on failure) reproduces that exact fallthrough.
+        with suppress(ValueError, OSError):
+            normalized = _file_url_to_path(normalized)
     if os.path.isabs(normalized):
         return os.path.normpath(normalized)
     return os.path.normpath(os.path.join(cwd, normalized))
+
+
+_WINDOWS_DRIVE_PATH_RE = re.compile(r"^/[A-Za-z]:")
+
+
+def _file_url_to_path(url: str) -> str:
+    """An equivalent-fidelity port of pinned Node's `fileURLToPath`, sufficient for this
+    function's own two observable validation requirements (`L12-PY-R002`, second review):
+    a non-empty, non-"localhost", non-hostname-shaped host is malformed on EVERY platform
+    (Node's own WHATWG URL host parsing rejects a raw `%` in a host outright, e.g.
+    `file://%zz-not-a-valid-escape` -- there is no such thing as a literal `%` in a real
+    hostname); on Windows specifically, a host-less URL's own path must additionally look like
+    a drive path (`/C:/...`) -- `file:///%ZZ` has no drive letter and is ALSO malformed, not a
+    valid (if oddly-encoded) local path. Raises `ValueError` for either case, mirroring
+    `fileURLToPath`'s own thrown `ERR_INVALID_FILE_URL_HOST`/`ERR_INVALID_FILE_URL_PATH`."""
+    parsed = urlparse(url)
+    if parsed.netloc and "%" in parsed.netloc:
+        # No real hostname ever contains a raw "%" -- a percent-encoded (or malformed-percent)
+        # host is invalid on every platform, never a legitimate UNC host on Windows either.
+        raise ValueError(f"file:// URL host is not a valid hostname: {parsed.netloc!r}")
+    if parsed.netloc and parsed.netloc != "localhost" and os.name != "nt":
+        raise ValueError(f"file:// URL host is not local: {parsed.netloc!r}")
+    if os.name == "nt" and not parsed.netloc and not _WINDOWS_DRIVE_PATH_RE.match(parsed.path):
+        # A host-less Windows file URL's path must look like a drive path ("/C:/...") --
+        # anything else (no drive letter at all) is malformed, not a valid local path.
+        raise ValueError(f"file:// URL path has no drive letter on Windows: {parsed.path!r}")
+    return url2pathname(parsed.path)
 
 
 def _aborted(path: str | None = None) -> FsError:

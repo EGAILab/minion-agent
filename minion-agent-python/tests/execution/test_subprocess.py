@@ -11,6 +11,7 @@ from pathlib import Path
 
 import pytest
 
+from minion_agent.execution import subprocess as subprocess_module
 from minion_agent.execution.errors import SubprocessErrorCode
 from minion_agent.execution.result import Err, Ok
 from minion_agent.execution.subprocess import (
@@ -187,6 +188,62 @@ async def test_wait_first_call_after_explicit_terminate_and_later_signal_abort_i
     assert isinstance(wait_result, Ok)
 
 
+async def test_signal_kill_attempt_with_no_effect_does_not_classify_aborted(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`L12-PY-R004` witness (refined, second review): the signal fires while `_watch_signal`'s
+    poll loop still observes `returncode is None`, so it DOES attempt a kill -- but the process
+    has, by the time the attempt actually runs, already exited naturally (or via a concurrent
+    explicit action) on its own, making the kill attempt a genuine no-op. `wait()` must settle
+    `Ok` with the process's own REAL exit status, not `Err(aborted)`, merely because a kill was
+    ATTEMPTED -- only an attempt that `_kill_process_tree` itself confirms found a live target
+    may be recorded as causal. Monkeypatches `_kill_process_tree` to report `False` (no live
+    target) unconditionally, and gives the child a long enough natural lifetime that the abort
+    is guaranteed to fire while `_watch_signal`'s loop still observes `returncode is None` (so
+    it deterministically enters the kill-attempt branch, lines 314-316, rather than depending on
+    real OS-level exit-detection timing -- the review's own exact race is not independently
+    reproducible against genuinely live, non-deterministic process timing)."""
+
+    async def fake_kill_process_tree(pid: int) -> bool:
+        return False
+
+    monkeypatch.setattr(subprocess_module, "_kill_process_tree", fake_kill_process_tree)
+
+    sp = LocalSubprocess()
+    controller = RunAbortController()
+    result = await sp.spawn(
+        [PY, "-c", "import time; time.sleep(0.5); import sys; sys.exit(0)"],
+        SpawnOptions(signal=controller.signal),
+    )
+    process = result.value  # type: ignore[union-attr]
+    await asyncio.sleep(0.05)  # child is still running (sleeping); watcher sees returncode None
+    controller.abort()  # _watch_signal's poll loop attempts a kill; the mock reports no effect
+    await asyncio.sleep(0.05)  # give the watcher a chance to observe the abort and attempt it
+    wait_result = await process.wait()  # settles once the child's own 0.5s sleep finishes
+    assert isinstance(wait_result, Ok), (
+        f"a no-op kill attempt must not classify Err(aborted): {wait_result!r}"
+    )
+    assert wait_result.value.exit_code == 0
+
+
+@pytest.mark.skipif(os.name != "nt", reason="exercises the taskkill-spawn OSError branch")
+async def test_kill_process_tree_reports_no_target_when_taskkill_itself_fails_to_spawn(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`_kill_process_tree`'s own `except OSError: return False` branch (e.g. `taskkill.exe`
+    missing from `PATH`) -- the helper `Popen(...)` call itself raises rather than the child
+    process, and this must be reported the same as "no live target found", not propagate."""
+
+    def fake_popen(*args: object, **kwargs: object) -> subprocess.Popen[bytes]:
+        raise OSError("simulated: taskkill not found")
+
+    monkeypatch.setattr(subprocess_module._subprocess, "Popen", fake_popen)
+
+    killed = await subprocess_module._kill_process_tree(os.getpid())
+
+    assert killed is False
+
+
 async def test_wait_takes_no_signal_argument() -> None:
     """`wait()` accepts no arguments at all -- there is no separate wait-time signal."""
     sp = LocalSubprocess()
@@ -257,6 +314,36 @@ async def test_wait_is_safe_when_called_concurrently() -> None:
     results = await asyncio.gather(process.wait(), process.wait(), process.wait())
     assert all(r == results[0] for r in results)
     assert results[0].value.exit_code == 5
+
+
+async def test_read_chunk_returns_buffered_output_after_wait() -> None:
+    """`L12-PY-R007` witness (refined, second review): the earlier fix closed `proc.stdout`'s
+    own transport as part of `wait()`'s cleanup (piggybacking on the top-level `proc._transport`
+    close), which discarded already-buffered-but-not-yet-read stdout data -- `read_chunk()`
+    called AFTER `wait()` has settled returned `Err(pipe_error)` instead of the real payload.
+    `wait()` must close only `proc._transport` itself; each stdio stream's OWN separate
+    transport (confirmed empirically independent on Windows' ProactorEventLoop) is closed by
+    `ReadableStream.read_chunk()` on its own natural EOF, so already-buffered output already
+    sitting in the pipe remains fully readable after `wait()` returns."""
+    sp = LocalSubprocess()
+    result = await sp.spawn(
+        [PY, "-c", "import sys; sys.stdout.write('buffered-payload'); sys.exit(0)"],
+        SpawnOptions(stdout=StdioMode.PIPED),
+    )
+    process = result.value  # type: ignore[union-attr]
+    wait_result = await process.wait()
+    assert isinstance(wait_result, Ok)
+    assert process.stdout is not None
+    chunks = b""
+    while True:
+        chunk_result = await process.stdout.read_chunk()
+        assert isinstance(chunk_result, Ok), (
+            f"reading buffered stdout after wait() must not fail: {chunk_result!r}"
+        )
+        if chunk_result.value is None:
+            break
+        chunks += chunk_result.value
+    assert chunks == b"buffered-payload"
 
 
 async def test_async_context_manager_terminates_on_exit() -> None:

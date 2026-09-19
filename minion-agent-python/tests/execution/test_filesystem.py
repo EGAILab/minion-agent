@@ -57,28 +57,46 @@ def test_file_url_is_parsed(tmp_path: Path) -> None:
     assert Path(resolved) == target
 
 
-def test_malformed_file_url_is_kept_as_literal_string() -> None:
-    """Never raises -- preserves the never-throw contract even at the lexical stage."""
-    resolved = resolve_local_path("/cwd", "file://%zz-not-a-valid-escape")
-    assert isinstance(resolved, str)
+def test_malformed_file_url_falls_through_to_ordinary_resolution(tmp_path: Path) -> None:
+    """`L12-PY-R002` (refined, second review): pinned Node's own `resolvePath` does NOT
+    early-return the raw URL on a `fileURLToPath` failure -- it leaves the string UNCHANGED and
+    falls through to the SAME cwd-relative resolution every other path goes through. This is
+    NOT "preserve the literal string verbatim" (an earlier revision's wrong fix) -- the literal
+    URL string itself becomes the INPUT to ordinary resolution, exactly like any other
+    weird-but-not-file-URL path would be treated. Asserted against the formula itself (not a
+    hardcoded platform-specific string), matching pinned Node's own observable structure: a
+    host containing a raw "%" is never a valid hostname on any platform."""
+    literal = "file://%zz-not-a-valid-escape"
+    resolved = resolve_local_path(str(tmp_path), literal)
+    assert resolved == os.path.normpath(os.path.join(str(tmp_path), literal))
+
+
+def test_malformed_file_url_exact_witness_values(tmp_path: Path) -> None:
+    """The exact two discriminating inputs the second review reproduced against pinned Node,
+    each asserted against the SAME fallthrough formula rather than only `isinstance(..., str)`
+    (which the first attempt's own test used, and which passes for ANY string, discriminating
+    nothing)."""
+    for literal in ("file:///%ZZ", "file://%zz-not-a-valid-escape"):
+        resolved = resolve_local_path(str(tmp_path), literal)
+        assert resolved == os.path.normpath(os.path.join(str(tmp_path), literal))
 
 
 @pytest.mark.skipif(
     os.name == "nt", reason="a non-empty file:// host is a legitimate UNC path on Windows"
 )
-def test_file_url_with_non_local_host_is_kept_as_literal_string_on_posix() -> None:
+def test_file_url_with_non_local_host_falls_through_on_posix(tmp_path: Path) -> None:
     """`L12-PY-R002` witness: pinned Node's `fileURLToPath` throws `ERR_INVALID_FILE_URL_HOST`
     for a non-empty, non-"localhost" host on POSIX -- `file://nonlocalhost/some/path` is
-    malformed there, not a legitimate path. This seam never raises, so it must instead preserve
-    the literal input string unchanged, exactly like the other malformed-URL witness above --
-    NOT silently drop the host and produce a wrong resolved path."""
+    malformed there, not a legitimate path. Falls through to ordinary cwd-relative resolution
+    of the literal URL string, matching the fallthrough formula above -- not a bare "return the
+    literal string unchanged" (an earlier revision's wrong fix)."""
     literal = "file://nonlocalhost/some/path"
-    resolved = resolve_local_path("/cwd", literal)
-    assert resolved == literal
+    resolved = resolve_local_path(str(tmp_path), literal)
+    assert resolved == os.path.normpath(os.path.join(str(tmp_path), literal))
 
 
-def test_file_url_with_non_local_host_is_kept_as_literal_string_portable(
-    monkeypatch: pytest.MonkeyPatch,
+def test_file_url_with_non_local_host_falls_through_portable(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     """Portable twin of the witness above, closing coverage on Windows (where `os.name` is
     genuinely `"nt"` and the real POSIX-only branch never executes on its own): monkeypatches
@@ -86,8 +104,48 @@ def test_file_url_with_non_local_host_is_kept_as_literal_string_portable(
     monkeypatch-`os.lstat` coverage-closing convention used further below."""
     monkeypatch.setattr(os, "name", "posix")
     literal = "file://nonlocalhost/some/path"
-    resolved = resolve_local_path("/cwd", literal)
-    assert resolved == literal
+    resolved = resolve_local_path(str(tmp_path), literal)
+    assert resolved == os.path.normpath(os.path.join(str(tmp_path), literal))
+
+
+def test_file_url_host_containing_percent_is_rejected_even_on_windows_uncshaped(
+    tmp_path: Path,
+) -> None:
+    """A `%` in a file:// URL's own host is never a valid hostname on ANY platform -- unlike an
+    ordinary non-local host, which IS a legitimate UNC path on Windows, this must still fall
+    through (be treated as malformed) regardless of platform."""
+    literal = "file://%zz-not-a-valid-escape/some/path"
+    resolved = resolve_local_path(str(tmp_path), literal)
+    assert resolved == os.path.normpath(os.path.join(str(tmp_path), literal))
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows-specific drive-letter validation")
+def test_file_url_windows_path_without_drive_letter_is_rejected(tmp_path: Path) -> None:
+    """`L12-PY-R002` exact witness: a host-less Windows file:// URL whose path has no drive
+    letter (`file:///%ZZ`) is malformed on Windows -- pinned Node's `fileURLToPath` requires a
+    drive-letter-shaped path when there's no UNC host."""
+    literal = "file:///%ZZ"
+    resolved = resolve_local_path(str(tmp_path), literal)
+    assert resolved == os.path.normpath(os.path.join(str(tmp_path), literal))
+
+
+def test_file_url_windows_path_without_drive_letter_portable(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Portable twin closing coverage on POSIX, where the real Windows-only branch never
+    executes on its own."""
+    monkeypatch.setattr(os, "name", "nt")
+    literal = "file:///%ZZ"
+    resolved = resolve_local_path(str(tmp_path), literal)
+    assert resolved == os.path.normpath(os.path.join(str(tmp_path), literal))
+
+
+def test_file_url_valid_windows_drive_path_still_resolves(tmp_path: Path) -> None:
+    """A WELL-formed file:// URL (matching `Path.as_uri()`'s own output shape) must still
+    resolve correctly -- the new drive-letter/host validation must not reject legitimate URLs."""
+    target = tmp_path / "a.txt"
+    resolved = resolve_local_path("/cwd", target.as_uri())
+    assert Path(resolved) == target
 
 
 # ---------------------------------------------------------------------------

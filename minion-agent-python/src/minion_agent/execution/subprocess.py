@@ -99,58 +99,84 @@ def _wait_and_settle_helper(helper: _subprocess.Popen[bytes]) -> None:
             helper.wait(timeout=_TASKKILL_WAIT_TIMEOUT_S)
 
 
-def _close_transport(proc: asyncio.subprocess.Process) -> None:
-    """`L12-PY-R007`'s other resource-warning source: once a process is confirmed exited (`wait()`
-    has returned), close its underlying subprocess transport explicitly rather than leaving it for
-    the garbage collector. Left implicit, a transport whose process was force-killed (rather than
-    exiting on its own) -- or whose stdout/stderr `StreamReader` was never fully drained -- can
-    still have buffered pipe-transport state on Windows' `ProactorEventLoop` at GC time, producing
-    a `PytestUnraisableExceptionWarning`/`ValueError: I/O operation on closed pipe` from
-    `ProactorBasePipeTransport.__del__`. Each stdio `StreamReader` owns its OWN
-    `_ProactorReadPipeTransport`, separate from (not transitively closed by) the top-level
-    `proc._transport` -- both `proc._transport` AND each configured stream's own `._transport`
-    need an explicit close. All are private `asyncio` attributes (no public API exposes them) --
-    accessed defensively; their absence or an error while closing any of them is never this
-    function's own failure to propagate, matching every other best-effort cleanup path in this
-    module."""
-    for owner in (proc, proc.stdin, proc.stdout, proc.stderr):
-        if owner is None:
-            continue
-        transport = getattr(owner, "_transport", None)
-        if transport is not None:
-            with suppress(Exception):
-                transport.close()
+def _close_owned_transport(owner: object | None) -> None:
+    """`L12-PY-R007`'s other resource-warning source: an `asyncio` subprocess/stream transport
+    left open for the garbage collector, rather than explicitly closed, can still have buffered
+    pipe-transport state on Windows' `ProactorEventLoop` at GC time, producing a
+    `PytestUnraisableExceptionWarning`/`ValueError: I/O operation on closed pipe` from
+    `ProactorBasePipeTransport.__del__`. `owner._transport` is a private `asyncio` attribute (no
+    public API exposes it) -- accessed defensively; its absence or an error while closing it is
+    never this function's own failure to propagate, matching every other best-effort cleanup
+    path in this module.
+
+    Takes ONE owner at a time (refined at `L12-PY-R007`, second review): an
+    earlier revision closed `proc`, `proc.stdin`, `proc.stdout`, AND `proc.stderr` all together,
+    unconditionally, inside `wait()` -- empirically confirmed each stdio `StreamReader` owns its
+    OWN separate pipe transport, NOT transitively closed by `proc`'s own transport, so closing
+    stdout/stderr THERE broke the contracted "wait() settles on exit alone; the caller may keep
+    calling `read_chunk()` until EOF afterward" guarantee (spec section 6): any buffered-but-
+    unread output became inaccessible the instant `wait()` returned. `wait()` now closes ONLY
+    `proc`'s own transport (confirmed empirically NOT to affect the separate stdio transports);
+    each `ReadableStream` closes its OWN transport once it reaches EOF NATURALLY (below);
+    `terminate()` additionally closes any STILL-OPEN stdio transports as a final best-effort
+    sweep, covering the original scenario (a forcibly-killed process whose caller never drains
+    its streams at all) without breaking the read-after-wait contract for the ordinary case."""
+    transport = getattr(owner, "_transport", None)
+    if transport is not None:
+        with suppress(Exception):
+            transport.close()
 
 
-async def _kill_process_tree(pid: int) -> None:
+async def _kill_process_tree(pid: int) -> bool:
     """Kills the WHOLE process tree/group where the platform supports it -- the SAME mechanism
     `ctx.shell`'s own tree-kill guarantee (`EXEC-004`) relies on, since it is built on this
     primitive. POSIX: process-group `SIGKILL` via a negative PID (requires the process to have
     been spawned into its own session, `start_new_session=True`), falling back to a single-PID
-    kill. Windows: `taskkill /T /F`, matching pinned Pi's own `killProcessTree` exactly."""
+    kill. Windows: `taskkill /T /F`, matching pinned Pi's own `killProcessTree` exactly.
+
+    Returns whether a LIVE target was actually found and a kill was attempted (`True`), as
+    opposed to the target already being gone (`False`) -- `L12-PY-R004` (refined, second
+    review): `_watch_signal` must NOT attribute a process's own termination to the spawn-time
+    signal merely because it OBSERVED the signal fired and CALLED this function; a genuine
+    race exists where the process has already exited (naturally, or via a concurrent explicit
+    `terminate()`) by the time this function actually runs, making the kill attempt a pure
+    no-op -- this return value is how the caller distinguishes that case. Still best-effort:
+    this is advisory detection, not a hard guarantee, but sufficient to close the exact race
+    the review reproduced."""
     if os.name == "nt":
-        with suppress(OSError):
+        try:
             helper = _subprocess.Popen(
                 ["taskkill", "/F", "/T", "/PID", str(pid)],
                 stdout=_subprocess.DEVNULL,
                 stderr=_subprocess.DEVNULL,
                 stdin=_subprocess.DEVNULL,
             )
-            # `L12-PY-R007`: a fire-and-forget Popen with no wait()/close() leaks the helper
-            # process's own handle (a ResourceWarning at GC time) and, transitively, its
-            # DEVNULL pipe transports. `Popen.wait()` blocks, so it runs off the event loop --
-            # `_kill_process_tree` is itself `async` (both its callers, `_watch_signal` and
-            # `terminate()`, are already coroutines) precisely so this settling can be awaited
-            # rather than blocking the loop for up to `_TASKKILL_WAIT_TIMEOUT_S`.
-            await asyncio.to_thread(_wait_and_settle_helper, helper)
-        return
+        except OSError:
+            return False
+        # `L12-PY-R007`: a fire-and-forget Popen with no wait()/close() leaks the helper
+        # process's own handle (a ResourceWarning at GC time) and, transitively, its DEVNULL
+        # pipe transports. `Popen.wait()` blocks, so it runs off the event loop --
+        # `_kill_process_tree` is itself `async` (both its callers, `_watch_signal` and
+        # `terminate()`, are already coroutines) precisely so this settling can be awaited
+        # rather than blocking the loop for up to `_TASKKILL_WAIT_TIMEOUT_S`.
+        await asyncio.to_thread(_wait_and_settle_helper, helper)
+        # taskkill exits non-zero (commonly 128, "process not found") when the target PID no
+        # longer exists -- a real, if coarse, success/failure signal, unlike a fully-suppressed
+        # fire-and-forget call.
+        return helper.returncode == 0
     # POSIX-only: unreachable on Windows (the os.name == "nt" branch above always returns
     # first) -- os.killpg/signal.SIGKILL also aren't in Windows' own typeshed subset.
     try:  # pragma: no cover
         os.killpg(pid, _os_signal.SIGKILL)  # type: ignore[attr-defined]
+        return True  # pragma: no cover
+    except ProcessLookupError:  # pragma: no cover
+        return False
     except OSError:  # pragma: no cover
-        with suppress(OSError):
+        try:
             os.kill(pid, _os_signal.SIGKILL)  # type: ignore[attr-defined]
+            return True
+        except OSError:
+            return False
 
 
 class WritableStream:
@@ -196,7 +222,15 @@ class ReadableStream:
             chunk = await self._reader.read(self._CHUNK_SIZE)
         except OSError as exc:
             return Err(SubprocessError(SubprocessErrorCode.PIPE_ERROR, str(exc), exc))
-        return Ok(chunk if chunk else None)
+        if not chunk:
+            # `L12-PY-R007`: close THIS stream's own transport once it reaches EOF naturally --
+            # a fully-drained stream's resources are cleaned up promptly at the point its own
+            # lifecycle actually ends, rather than left for the garbage collector (the original
+            # resource-warning source) or closed prematurely by `wait()` before the caller has
+            # finished reading (the second review's own regression).
+            _close_owned_transport(self._reader)
+            return Ok(None)
+        return Ok(chunk)
 
 
 class Process:
@@ -252,12 +286,34 @@ class Process:
 
     async def _watch_signal(self, signal: RunSignal) -> None:
         """Polls the ORIGINAL spawn-time signal for the lifetime of the process, terminating it
-        the moment the signal fires (cooperative/poll-based, matching `RunSignal`'s own design)."""
+        the moment the signal fires (cooperative/poll-based, matching `RunSignal`'s own design).
+
+        `L12-PY-R004` (refined, second review): `_kill_cause` is recorded ONLY if
+        `_kill_process_tree` reports it actually found a live target (`True`) -- NOT merely
+        because this loop observed the signal fire and CALLED that function. A genuine race
+        exists between this poll loop noticing `signal.aborted` and the process ALREADY having
+        exited on its own (or via a concurrent explicit `terminate()`) by the time the kill
+        attempt actually runs; recording causation unconditionally, before knowing whether the
+        kill had any effect, misclassified that race as an aborted result even when the process
+        completed successfully on its own.
+
+        Records the flag EAGERLY (before calling `_kill_process_tree`), then CORRECTS it if the
+        kill attempt reports no live target was found -- not deferred until after the call
+        returns. `Process.wait()` cancels this task as soon as it observes the underlying
+        `asyncio` process object's own exit (which can race ahead of, and resolve WHILE, this
+        task is still awaiting `_kill_process_tree`'s own OS-level confirmation) -- deferring the
+        flag-set until after that await would let the cancellation wipe out a GENUINELY
+        signal-caused kill's own classification before it's ever recorded. Setting eagerly and
+        correcting afterward is safe either way: a genuine kill keeps its (correct) eager flag
+        even if cancelled before the correction step runs; a no-effect kill gets the flag cleared
+        whenever the correction step DOES get to run."""
         while self._proc.returncode is None:
             if signal.aborted:
                 if self._kill_cause is None:
                     self._kill_cause = "signal"
-                await _kill_process_tree(self.pid)
+                killed = await _kill_process_tree(self.pid)
+                if not killed and self._kill_cause == "signal":
+                    self._kill_cause = None
                 return
             await asyncio.sleep(_SIGNAL_POLL_INTERVAL_S)
 
@@ -276,7 +332,13 @@ class Process:
             returncode = await self._proc.wait()
             if self._watcher_task is not None:
                 self._watcher_task.cancel()
-            _close_transport(self._proc)
+            # `L12-PY-R007` (refined, second review): close ONLY the process's own transport
+            # here -- confirmed empirically NOT to affect the separate stdio stream transports
+            # (each owns its own). Closing stdout/stderr HERE, unconditionally, would break the
+            # contracted "read_chunk() still works after wait()" guarantee; each stream instead
+            # closes its own transport when IT naturally reaches EOF (`ReadableStream.read_chunk`
+            # above), and `terminate()` sweeps any still-open ones as a final best-effort step.
+            _close_owned_transport(self._proc)
             result: Result[ExitStatus, SubprocessError]
             if self._kill_cause == "signal":
                 result = Err(SubprocessError(SubprocessErrorCode.ABORTED, "aborted"))

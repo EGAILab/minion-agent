@@ -6061,9 +6061,17 @@ rows:
     raise, matching pinned Pi''s own combined `NodeExecutionEnv.cleanup()`, whose `activeChildPids`
     set is shared with `exec()`''s own spawned children (`nodejs.ts:429,691-694`). A command killed
     by `cleanup()` does NOT go through the `aborted`/`timeout` precedence machinery above at all --
-    it settles through the ORDINARY exit-handling path, `exitCode: code ?? 0` (`nodejs.ts:495`),
-    normalizing a killed (signal-terminated, null-exit-code) process to `0`: the caller observes
-    `Ok({stdout,stderr,exit_code:0})`, NOT an error.
+    it settles through the ORDINARY exit-handling path, `exitCode: code ?? 0` (`nodejs.ts:495`).
+
+    Settlement is CONDITIONAL, not unconditional zero (refined `L12-R017`, targeted closure review,
+    `minion-agent-docs#114`, CE-L12-01-03 -- an earlier revision of this row overgeneralized the
+    settlement to "unconditionally `exit_code: 0`," which pinned Pi does NOT state): `code` is
+    whatever numeric exit code the killed child''s own `exit` event reports (`number | null`). If
+    the child reports a real numeric exit code `K`, the caller observes
+    `Ok({stdout,stderr,exit_code:K})`, PRESERVING `K` exactly; `0` is substituted ONLY when `code`
+    is absent/null. Either case is a SUCCESS, never `aborted`/`timeout` -- cleanup-triggered
+    termination never sets the abort signal or fires the timeout, regardless of which exit-code
+    case occurs.
 
     Full detail: `spec/execution.md` §5, §5.1-§5.7.'
   tests:

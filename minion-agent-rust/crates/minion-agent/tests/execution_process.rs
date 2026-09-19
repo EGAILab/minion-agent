@@ -99,7 +99,13 @@ async fn explicit_termination_is_success_with_the_os_reported_exit_code() {
         .unwrap();
     process.terminate().await;
     process.terminate().await;
-    let _reported_exit_code = process.wait().await.unwrap().exit_code;
+    let first = process.wait().await.unwrap();
+    let second = process.wait().await.unwrap();
+    assert_eq!(first, second);
+    #[cfg(windows)]
+    assert!(first.exit_code.is_some());
+    #[cfg(unix)]
+    assert_eq!(first.exit_code, None);
     std::fs::remove_dir_all(root).unwrap();
 }
 

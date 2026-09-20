@@ -228,6 +228,33 @@ def test_file_url_punycode_host_decodes_labels_ineligible_under_idna2003(tmp_pat
     assert resolve_local_path("C:\\cwd", "file://xn--zca/share") == "\\\\ß\\share\\"
 
 
+@pytest.mark.skipif(os.name != "nt", reason="UNC host resolution is Windows-specific")
+def test_file_url_punycode_host_rejects_whatwg_invalid_a_labels() -> None:
+    """`L12-PY-R002` exact discriminating witness (FOURTH targeted closure review): a bare
+    RFC 3492 Punycode decode plus `isprintable()` correctly closes the IDNA2003 gap, but is
+    NOT full WHATWG/UTS46 host validation -- it accepts A-labels the real algorithm rejects on
+    grounds `isprintable()` cannot see. `"xn--abc-ppe"` decodes to a right-to-left
+    Hebrew-prefixed label that violates the BIDI rule; `"xn--abc-jdc"` decodes to a label
+    starting with a combining accent, which IDNA2008/UTS46 forbids as a label's first
+    character -- both decoded strings ARE printable, so the prior fix's only validity check
+    could not reject them. Fixed by delegating to the third-party `idna` package
+    (`_domain_to_unicode`), which implements the real UTS46 validation surface. Falls through
+    to ordinary cwd-relative resolution of the literal string, matching Node's own rejection."""
+    for literal in ("file://xn--abc-ppe/share", "file://xn--abc-jdc/share"):
+        resolved = resolve_local_path("C:\\cwd", literal)
+        assert resolved == os.path.normpath(os.path.join("C:\\cwd", literal))
+
+
+@pytest.mark.skipif(os.name != "nt", reason="UNC host resolution is Windows-specific")
+def test_file_url_host_with_no_punycode_label_skips_domain_decode() -> None:
+    """`L12-PY-R002` regression guard: `_domain_to_unicode` must be skipped entirely for a host
+    with no `"xn--"`-prefixed label at all -- the third-party `idna` package performs full
+    domain-STRUCTURE validation (e.g. rejecting an empty label) even when there is nothing to
+    decode, which would otherwise incorrectly reject `file://./share/file`'s bare-dot host
+    (Node's own legitimate `\\\\.\\share\\file`, a Windows local-device UNC form)."""
+    assert resolve_local_path("C:\\cwd", "file://./share/file") == "\\\\.\\share\\file"
+
+
 @pytest.mark.skipif(os.name != "nt", reason="Windows-specific path shapes")
 @pytest.mark.parametrize(
     "literal",

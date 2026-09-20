@@ -127,7 +127,28 @@ def _close_owned_transport(owner: object | None) -> None:
             transport.close()
 
 
-async def _issue_kill(pid: int) -> _subprocess.Popen[bytes] | None:
+@dataclass(frozen=True, slots=True)
+class _KillIssue:
+    """The result of ATTEMPTING to issue an OS-level kill command (`L12-PY-R004`, refined a
+    sixth time, fourth targeted closure review). `issued`: whether the OS genuinely accepted
+    the command (Windows: `taskkill` was successfully SPAWNED; POSIX: `killpg`/`kill` did not
+    raise) -- NOT whether it found/killed a live target, which this deliberately never
+    confirms (see `_issue_kill`'s own docstring). `helper`: the Windows `taskkill` helper's own
+    `Popen` handle, for a SEPARATE, later, decoupled confirmation/cleanup step
+    (`_confirm_kill`); always `None` on POSIX or when spawning the helper itself failed.
+
+    An earlier revision returned only `helper: Popen | None`, which cannot distinguish a
+    successful POSIX issuance (always `None`, since POSIX has no helper process) from a FAILED
+    Windows issuance (`Popen` itself raised `OSError`, also `None`) -- the fourth targeted
+    closure review's own exact discriminating counterexample: a failed `taskkill` spawn still
+    got attributed to the signal, misclassifying a process that in fact exited naturally with
+    no kill ever reaching the OS."""
+
+    issued: bool
+    helper: _subprocess.Popen[bytes] | None = None
+
+
+async def _issue_kill(pid: int) -> _KillIssue:
     """Kills the WHOLE process tree/group where the platform supports it -- the SAME mechanism
     `ctx.shell`'s own tree-kill guarantee (`EXEC-004`) relies on, since it is built on this
     primitive. POSIX: process-group `SIGKILL` via a negative PID (requires the process to have
@@ -141,10 +162,7 @@ async def _issue_kill(pid: int) -> _subprocess.Popen[bytes] | None:
     is spawned -- it does NOT wait for `taskkill` to finish), WITHOUT waiting for confirmation
     that a live target was actually found or that the kill succeeded -- matching pinned Pi's
     own `killProcessTree` (`nodejs.ts:253-276`), which is `void`, fire-and-forget, and never
-    awaited by its own callers either. On Windows, returns the helper's own `Popen` handle for
-    a SEPARATE, later, DECOUPLED confirmation/cleanup step (`_confirm_kill`) that has no
-    bearing on causal classification; `None` when there is nothing left to confirm (POSIX, or
-    a failed spawn).
+    awaited by its own callers either.
 
     An earlier revision combined "issue" and "confirm" into one function and set the eager
     causal flag BEFORE calling it at all -- correctly restoring exit-only `wait()` settlement,
@@ -155,27 +173,34 @@ async def _issue_kill(pid: int) -> _subprocess.Popen[bytes] | None:
     signal's own kill was never actually issued. Splitting `_issue_kill` (fast, always
     completes) from `_confirm_kill` (slow, decoupled) lets `_watch_signal` record `_kill_cause`
     right after genuine OS-level issuance -- fast enough that a REAL, quickly-confirmed kill's
-    classification is never read by `wait()` before it's recorded (the confirmation wait, up to
-    `_TASKKILL_WAIT_TIMEOUT_S`, no longer sits between "decided to kill" and "classification
-    recorded" at all) -- while still never blocking `wait()` on that confirmation."""
+    classification is never read by `wait()` before it's recorded -- while still never blocking
+    `wait()` on that confirmation.
+
+    A LATER revision's `_KillIssue.issued` (see its own docstring) closes the remaining gap:
+    the ORIGINAL bare `Popen | None` return here could not tell a successful POSIX issuance
+    apart from a genuinely FAILED Windows one, both `None`."""
     if os.name == "nt":
         try:
-            return _subprocess.Popen(
+            helper = _subprocess.Popen(
                 ["taskkill", "/F", "/T", "/PID", str(pid)],
                 stdout=_subprocess.DEVNULL,
                 stderr=_subprocess.DEVNULL,
                 stdin=_subprocess.DEVNULL,
             )
         except OSError:
-            return None
+            return _KillIssue(issued=False)
+        return _KillIssue(issued=True, helper=helper)
     # POSIX-only: unreachable on Windows (the os.name == "nt" branch above always returns
     # first) -- os.killpg/signal.SIGKILL also aren't in Windows' own typeshed subset.
     try:  # pragma: no cover
         os.killpg(pid, _os_signal.SIGKILL)  # type: ignore[attr-defined]
+        return _KillIssue(issued=True)  # pragma: no cover
     except OSError:  # pragma: no cover
-        with suppress(OSError):
+        try:
             os.kill(pid, _os_signal.SIGKILL)  # type: ignore[attr-defined]
-    return None  # pragma: no cover
+            return _KillIssue(issued=True)
+        except OSError:
+            return _KillIssue(issued=False)
 
 
 async def _confirm_kill(helper: _subprocess.Popen[bytes] | None) -> None:
@@ -293,7 +318,7 @@ class Process:
         self._watcher_task: asyncio.Task[None] | None = None
         """Stored solely to keep a strong reference alive for the task's own lifetime (asyncio
         only weakly tracks a fire-and-forget task otherwise) -- `wait()` deliberately never reads
-        or awaits this (`L12-PY-R004`, refined a fifth time); see its own docstring."""
+        or awaits this (`L12-PY-R004`, refined a sixth time); see its own docstring."""
         if spawn_signal is not None:
             self._watcher_task = asyncio.ensure_future(self._watch_signal(spawn_signal))
 
@@ -301,13 +326,15 @@ class Process:
         """Polls the ORIGINAL spawn-time signal for the lifetime of the process, terminating it
         the moment the signal fires (cooperative/poll-based, matching `RunSignal`'s own design).
 
-        `L12-PY-R004` (refined a fifth time, third targeted closure review): AWAITS
+        `L12-PY-R004` (refined a sixth time, fourth targeted closure review): AWAITS
         `_issue_kill` (fast -- the OS-level command has genuinely been issued, not merely
-        decided upon) BEFORE recording `_kill_cause`, first-wins -- so a signal that never
-        actually reaches the OS (an entirely-mocked/hung kill mechanism, or in principle any
-        cause) never gets attributed causally, closing the second targeted closure review's own
-        exact witness (see `_issue_kill`'s own docstring for the full rationale and the prior
-        revisions this superseded). Confirmation/cleanup (`_confirm_kill`, up to
+        decided upon) BEFORE recording `_kill_cause`, first-wins, and ONLY records it when
+        `_KillIssue.issued` is `True` -- a Windows `taskkill` SPAWN failure (`OSError`, e.g. the
+        binary missing from `PATH`) is `issued=False`, exactly as un-causal as the never-
+        reaches-the-OS case the prior revision already closed (an earlier revision's bare
+        `Popen | None` return could not tell a failed Windows issuance apart from a successful
+        POSIX one, both `None` -- the fourth targeted closure review's own exact
+        counterexample). Confirmation/cleanup (`_confirm_kill`, up to
         `_TASKKILL_WAIT_TIMEOUT_S`) is then dispatched as a background, UN-AWAITED task
         (`add_done_callback` suppresses an unexpected exception there from raising an "exception
         was never retrieved" warning, matching `filesystem.py`'s own `_race_signal` convention)
@@ -316,10 +343,10 @@ class Process:
         on the process's own exit alone" rule unconditionally."""
         while self._proc.returncode is None:
             if signal.aborted:
-                helper = await _issue_kill(self.pid)
-                if self._kill_cause is None:
+                issue = await _issue_kill(self.pid)
+                if issue.issued and self._kill_cause is None:
                     self._kill_cause = "signal"
-                confirm_task = asyncio.ensure_future(_confirm_kill(helper))
+                confirm_task = asyncio.ensure_future(_confirm_kill(issue.helper))
                 confirm_task.add_done_callback(
                     lambda t: t.exception() if not t.cancelled() else None
                 )
@@ -329,7 +356,7 @@ class Process:
     async def wait(self) -> Result[ExitStatus, SubprocessError]:
         """Settles on the PROCESS's own exit alone -- independent of stdio state, AND
         independent of any signal-triggered kill's own confirmation (`L12-PY-R004`, refined a
-        fifth time): this awaits ONLY `self._proc.wait()`, never `_watch_signal`'s own task or
+        sixth time): this awaits ONLY `self._proc.wait()`, never `_watch_signal`'s own task or
         `_confirm_kill`'s own completion, so a slow (or permanently stuck) kill-confirmation
         helper can never delay settlement past the target process's own already-observed exit --
         the targeted closure review's own exact reproduction of an earlier revision that awaited
@@ -345,7 +372,7 @@ class Process:
             if self._wait_result is not None:
                 return self._wait_result
             returncode = await self._proc.wait()
-            # `L12-PY-R004` (refined a fifth time): deliberately does NOT touch
+            # `L12-PY-R004` (refined a sixth time): deliberately does NOT touch
             # `self._watcher_task` here -- no cancel, no await. `_watch_signal`'s own loop
             # condition (`while self._proc.returncode is None`) exits naturally, on its own,
             # within one poll tick of the process exiting (whether the signal ever fired or
@@ -381,18 +408,19 @@ class Process:
 
     async def terminate(self) -> None:
         """Best-effort, MUST NOT raise, idempotent. Kills the whole process tree. Matches
-        `_watch_signal`'s own issue-then-classify ordering (`L12-PY-R004`, refined a fifth
+        `_watch_signal`'s own issue-then-classify ordering (`L12-PY-R004`, refined a sixth
         time) so the spec's "whichever caused the actual kill first" race rule stays symmetric
         between the two paths -- `_kill_cause` is recorded only after the OS-level kill was
-        genuinely issued, not before. Unlike `_watch_signal`, this method's OWN caller
-        explicitly awaits it, so it also awaits confirmation/cleanup before returning."""
+        genuinely ISSUED (`_KillIssue.issued`), not merely attempted. Unlike `_watch_signal`,
+        this method's OWN caller explicitly awaits it, so it also awaits confirmation/cleanup
+        before returning."""
         if self._terminate_called:
             return
         self._terminate_called = True
-        helper = await _issue_kill(self.pid)
-        if self._kill_cause is None:
+        issue = await _issue_kill(self.pid)
+        if issue.issued and self._kill_cause is None:
             self._kill_cause = "explicit"
-        await _confirm_kill(helper)
+        await _confirm_kill(issue.helper)
 
     async def __aenter__(self) -> Process:
         return self

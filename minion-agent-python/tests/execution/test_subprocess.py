@@ -201,9 +201,9 @@ async def test_wait_classifies_ok_when_kill_is_never_actually_issued(
     (not `_confirm_kill`) to hang forever, so `_kill_cause` is never set at all."""
     stuck = asyncio.Event()
 
-    async def hanging_issue_kill(pid: int) -> subprocess.Popen[bytes] | None:
+    async def hanging_issue_kill(pid: int) -> subprocess_module._KillIssue:
         await stuck.wait()  # never set -- the OS-level kill command is never actually issued
-        return None
+        return subprocess_module._KillIssue(issued=False)
 
     monkeypatch.setattr(subprocess_module, "_issue_kill", hanging_issue_kill)
 
@@ -264,22 +264,62 @@ async def test_wait_settles_promptly_and_classifies_aborted_when_confirmation_ne
 
 
 @pytest.mark.skipif(os.name != "nt", reason="exercises the taskkill-spawn OSError branch")
-async def test_issue_kill_suppresses_a_failure_to_spawn_taskkill_itself(
+async def test_issue_kill_reports_not_issued_when_taskkill_itself_fails_to_spawn(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """`_issue_kill`'s own `except OSError: return None` branch (e.g. `taskkill.exe` missing
-    from `PATH`) -- the helper `Popen(...)` call itself raises rather than the child process,
-    and this must be suppressed (matching pinned Pi's own fire-and-forget `killProcessTree`),
-    not propagate."""
+    """`_issue_kill`'s own `except OSError: return _KillIssue(issued=False)` branch (e.g.
+    `taskkill.exe` missing from `PATH`) -- the helper `Popen(...)` call itself raises rather
+    than the child process. `L12-PY-R004` (refined a sixth time, fourth targeted closure
+    review): a bare `Popen | None` return here could not distinguish this genuine issuance
+    FAILURE from a successful POSIX issuance (also `None`, since POSIX has no helper) -- this
+    is the exact discriminating shape the review's own composed test below exercises through
+    `wait()`; this unit-level test isolates just `_issue_kill`'s own return value."""
 
     def fake_popen(*args: object, **kwargs: object) -> subprocess.Popen[bytes]:
         raise OSError("simulated: taskkill not found")
 
     monkeypatch.setattr(subprocess_module._subprocess, "Popen", fake_popen)
 
-    helper = await subprocess_module._issue_kill(os.getpid())  # must not raise
+    issue = await subprocess_module._issue_kill(os.getpid())  # must not raise
 
-    assert helper is None
+    assert issue.issued is False
+    assert issue.helper is None
+
+
+@pytest.mark.skipif(os.name != "nt", reason="exercises the taskkill-spawn OSError branch")
+async def test_wait_classifies_ok_when_taskkill_itself_fails_to_spawn(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`L12-PY-R004` witness (fourth targeted closure review's own exact minimal witness,
+    composed through the public API, not just `_issue_kill` in isolation): a failed Windows
+    `taskkill` spawn (`Popen` raises `OSError`) means NO kill command ever reached the OS --
+    the review's own reproduction found that an earlier revision still recorded
+    `_kill_cause = "signal"` unconditionally after `_issue_kill` returned (regardless of
+    whether issuance succeeded), misclassifying a naturally-exiting child as `Err(aborted)`.
+    Monkeypatches the real `Popen` to fail, letting the real child exit naturally, and asserts
+    through the PUBLIC `process.wait()` -- not by inspecting `_issue_kill`'s return value
+    directly, closing the exact gap the review identified in the prior round's test."""
+
+    def fake_popen(*args: object, **kwargs: object) -> subprocess.Popen[bytes]:
+        raise OSError("simulated: taskkill not found")
+
+    monkeypatch.setattr(subprocess_module._subprocess, "Popen", fake_popen)
+
+    sp = LocalSubprocess()
+    controller = RunAbortController()
+    result = await sp.spawn(
+        [PY, "-c", "import time; time.sleep(0.1); import sys; sys.exit(0)"],
+        SpawnOptions(signal=controller.signal),
+    )
+    process = result.value  # type: ignore[union-attr]
+    await asyncio.sleep(0.02)  # watcher is polling; child is still running
+    controller.abort()  # _watch_signal attempts to issue a kill; the spawn itself fails
+    wait_result = await asyncio.wait_for(process.wait(), timeout=2.0)
+    assert isinstance(wait_result, Ok), (
+        f"a failed taskkill SPAWN (no OS-level kill command ever issued) must not classify "
+        f"Err(aborted): {wait_result!r}"
+    )
+    assert wait_result.value.exit_code == 0
 
 
 async def test_wait_takes_no_signal_argument() -> None:

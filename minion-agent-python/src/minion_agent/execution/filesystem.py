@@ -32,6 +32,7 @@ import re
 import shutil
 import stat as _stat
 import tempfile
+import unicodedata
 import uuid
 from collections.abc import Coroutine, Sequence
 from contextlib import suppress
@@ -41,8 +42,11 @@ from typing import Any, Protocol
 from urllib.parse import urlparse
 
 import idna
+import idna.core as _idna_core
+import idna.idnadata as _idnadata
 from ada_url import URL as _AdaURL
 from ada_url import HostType as _AdaHostType
+from idna.intranges import intranges_contain as _intranges_contain
 
 from ..runtime.signal import RunSignal
 from .errors import FsError, FsErrorCode, to_fs_error
@@ -153,32 +157,118 @@ def _strict_percent_decode(value: str) -> str:
     return raw.decode("utf-8")
 
 
+def _relaxed_codepoint_ok(label: str, pos: int) -> bool:
+    """The ONE narrow widening `_relaxed_punycode_label` makes to `idna.core.check_label`'s own
+    per-codepoint PVALID/CONTEXTJ/CONTEXTO/DISALLOWED loop (RFC 5892): a codepoint that loop
+    would otherwise raise `InvalidCodepoint` for (genuinely outside PVALID/CONTEXTJ/CONTEXTO) is
+    additionally accepted when its Unicode general category is `"So"` (Symbol, other) -- the
+    EXACT category of the two live-Node-accepted witnesses this fix targets (`☃` U+2603, `💩`
+    U+1F4A9 -- `minion-agent-docs#120` @ `09423f0a962d1139ba16155eff6113c026a1f89a`), and
+    NOTHING broader: a genuinely disallowed codepoint outside that category (e.g. the C1 control
+    character U+0080 `"xn--a"` Punycode-decodes to -- correctly still REJECTED, matching Node's
+    own rejection of that malformed label) is NOT widened by this function. This is
+    characterized, evidenced-scope acceptance, not a claim that Node/ICU's own UTS46 validity
+    table is coextensive with Unicode category `"So"` in general -- a future witness outside
+    this category would be a SEPARATE characterized finding, not silently covered here."""
+    return unicodedata.category(label[pos]) == "So"
+
+
+def _relaxed_punycode_label(alabel: str) -> str:
+    """Decodes a SINGLE `"xn--..."` A-label to its U-label form the same way `idna.core.ulabel`/
+    `check_label` do (RFC 3492 Punycode decode, RFC 5891 section 5.3's canonical-re-encoding
+    check, NFC/hyphen/leading-combining-mark/bidi structural rules, and the PVALID/CONTEXTJ/
+    CONTEXTO/DISALLOWED per-codepoint loop, RFC 5892) -- reusing `idna.core`'s own private
+    building blocks directly (`_alabel_prefix`, `_punycode`, `check_nfc`, `check_hyphen_ok`,
+    `check_initial_combiner`, `check_bidi`, `valid_contextj`, `valid_contexto`,
+    `intranges_contain`, `idnadata.codepoint_classes`) rather than reimplementing RFC 5891/5892/
+    5893 by hand a second time -- with exactly ONE difference from `check_label`'s own loop:
+    a codepoint that loop would reject as DISALLOWED is additionally accepted when
+    `_relaxed_codepoint_ok` says so (see its own docstring for the exact, narrowly-evidenced
+    scope of that widening -- Unicode category `"So"` specifically, matching live Node's own
+    acceptance of emoji/symbol hosts that strict `idna.decode()` incorrectly rejected;
+    `minion-agent-docs#120` @ `09423f0a962d1139ba16155eff6113c026a1f89a`). Every OTHER
+    structural rule (canonical Punycode form, NFC, hyphen placement, leading-combining-mark,
+    bidi, CONTEXTJ/CONTEXTO) is UNCHANGED from the strict path -- `"xn--abc-ppe"` (bidi) and
+    `"xn--abc-jdc"` (combining mark) still correctly reject here exactly as they do in
+    `idna.decode()` itself. `idna.IDNAError` (raised by any of these) propagates to the caller
+    unchanged."""
+    payload = alabel[len(_idna_core._alabel_prefix) :].encode("ascii")
+    if not payload or payload.endswith(b"-"):
+        raise _idna_core.IDNAError(f"Malformed A-label: {alabel!r}", code="invalid_alabel")
+    try:
+        decoded = payload.decode("punycode")
+    except UnicodeError as exc:
+        raise _idna_core.IDNAError(f"Invalid A-label: {alabel!r}", code="invalid_alabel") from exc
+    if _idna_core._alabel_prefix + _idna_core._punycode(decoded) != alabel.encode("ascii"):
+        raise _idna_core.IDNAError(
+            f"A-label is not the canonical Punycode encoding of its U-label: {alabel!r}",
+            code="non_canonical_alabel",
+        )
+    _idna_core.check_nfc(decoded)
+    _idna_core.check_hyphen_ok(decoded)
+    _idna_core.check_initial_combiner(decoded)
+    for pos, cp in enumerate(decoded):
+        cp_value = ord(cp)
+        classes = _idnadata.codepoint_classes
+        if _intranges_contain(cp_value, classes["PVALID"]):
+            continue
+        if _intranges_contain(cp_value, classes["CONTEXTJ"]):
+            if not _idna_core.valid_contextj(decoded, pos):
+                raise _idna_core.InvalidCodepointContext(
+                    f"Joiner not allowed at position {pos + 1} in {decoded!r}", code="contextj"
+                )
+            continue
+        if _intranges_contain(cp_value, classes["CONTEXTO"]):
+            if not _idna_core.valid_contexto(decoded, pos):
+                raise _idna_core.InvalidCodepointContext(
+                    f"Codepoint not allowed at position {pos + 1} in {decoded!r}", code="contexto"
+                )
+            continue
+        if not _relaxed_codepoint_ok(decoded, pos):
+            raise _idna_core.InvalidCodepoint(
+                f"Codepoint {cp_value:#x} at position {pos + 1} of {decoded!r} not allowed",
+                code="disallowed_codepoint",
+            )
+    _idna_core.check_bidi(decoded)
+    return decoded
+
+
 def _domain_to_unicode(host: str) -> str:
     """WHATWG/UTS46-compatible per-label domain decode of a purely-ASCII host (`L12-PY-R002`,
     R002 checkpoint composition -- `minion-agent-docs#121` @
-    `2db656c01126bfb775d1fe453241e191ed78b2f0`) -- an `"xn--..."` label decodes to its Unicode
-    glyphs (`"xn--fa-hia"` -> `"faß"`), matching Node's own `domainToUnicode` (WHATWG/ICU-backed).
-    Called on the host `ada_url` has already validated/canonicalized for IPv4/IPv6/forbidden-
-    code-point/general syntax (`_file_url_to_path`) -- this function's OWN remaining job is
-    exactly the part neither `ada_url.URL.host` nor its lenient `idna_to_unicode()` helper
-    performs: real bidi/combining-mark validation and actual Punycode decoding.
+    `2db656c01126bfb775d1fe453241e191ed78b2f0`, targeted closure remediation --
+    `minion-agent-docs#120` @ `09423f0a962d1139ba16155eff6113c026a1f89a`) -- an `"xn--..."`
+    label decodes to its Unicode glyphs (`"xn--fa-hia"` -> `"faß"`), matching Node's own
+    `domainToUnicode` (WHATWG/ICU-backed). Called on the host `ada_url` has already validated/
+    canonicalized for IPv4/IPv6/forbidden-code-point/general syntax (`_file_url_to_path`) --
+    this function's OWN remaining job is exactly the part neither `ada_url.URL.host` nor its
+    lenient `idna_to_unicode()` helper performs: real bidi/combining-mark validation and actual
+    Punycode decoding.
 
     Delegates to the third-party `idna` package (`kjd/idna` on PyPI, NOT Python's built-in
-    `encodings.idna` codec of the same name), which implements the actual UTS46/IDNA2008
-    validation surface (bidi rule, combining-mark placement, contextual rules, ToASCII/
-    ToUnicode) that Node's own ICU-backed `domainToUnicode` also implements: `"xn--abc-ppe"`
-    decodes to a right-to-left Hebrew-prefixed label Node rejects, `"xn--abc-jdc"` decodes to
-    a label starting with a combining accent Node also rejects -- both correctly rejected by
-    `idna.decode()`, and NOT rejected by `ada_url`'s own `URL.host`/`idna_to_unicode()`, which
-    pass already-ASCII `"xn--..."` labels through unvalidated (live-verified). Verified against
-    every prior witness (`bücher`, `faß`, `straße`, bare `ß`, `xn--abc-ppe`/BIDI-rejected,
-    `xn--abc-jdc`/combining-mark-rejected, `xn--`/`xn--zzzz`/`xn--a`) via direct execution of
-    the real library, matching Node exactly in every case.
+    `encodings.idna` codec of the same name) for the FULL, strict IDNA2008/UTS46 validation
+    surface first. `"xn--abc-ppe"` decodes to a right-to-left Hebrew-prefixed label Node
+    rejects, `"xn--abc-jdc"` decodes to a label starting with a combining accent Node also
+    rejects -- both correctly rejected by `idna.decode()`, and NOT rejected by `ada_url`'s own
+    `URL.host`/`idna_to_unicode()`, which pass already-ASCII `"xn--..."` labels through
+    unvalidated (live-verified).
 
-    `idna.IDNAError` (the package's own common base exception, itself already a `ValueError`
-    subclass covering `IDNABidiError`/`InvalidCodepoint`/every other specific failure) is
-    re-raised as a plain `ValueError` here only for a uniform message; the caller's own
-    `except ValueError` handling is unchanged.
+    If (and ONLY if) that strict decode fails on `InvalidCodepoint`/`InvalidCodepointContext`
+    specifically -- IDNA2008's own disallowed/unassigned-codepoint registration policy, which
+    live Node evidence shows its ICU-backed `domainToUnicode` does NOT enforce for symbol/emoji
+    codepoints (`_relaxed_punycode_label`'s own docstring) -- each `"xn--..."` label is retried
+    through `_relaxed_punycode_label`, which keeps every OTHER structural check (canonical
+    Punycode form, NFC, hyphen placement, leading-combining-mark, bidi) and only omits that one
+    codepoint-class table. A non-`"xn--"` label is not itself independently re-validated here --
+    it was never subject to IDNA validation before reaching this function (`ada_url` already
+    validated general host syntax) and passes through literally, matching Node. Any OTHER
+    `idna.IDNAError` (bidi, combining-mark, malformed Punycode, non-canonical encoding, ...)
+    still rejects the whole host, from either the strict or the relaxed path -- re-raised as a
+    plain `ValueError` here only for a uniform message; the caller's own `except ValueError`
+    handling is unchanged. Verified against every prior witness (`bücher`, `faß`, `straße`,
+    bare `ß`, `xn--abc-ppe`/BIDI-rejected, `xn--abc-jdc`/combining-mark-rejected, `xn--`/
+    `xn--zzzz`/`xn--a`, plus the new `xn--n3h`/`xn--ls8h` emoji witnesses) via direct execution
+    of the real library, matching Node exactly in every case.
 
     `idna.decode()` is skipped ENTIRELY when no label actually starts with `"xn--"` -- it
     performs full domain-structure validation (e.g. rejecting an empty label) even for a host
@@ -190,6 +280,15 @@ def _domain_to_unicode(host: str) -> str:
         return host
     try:
         return idna.decode(host)
+    except (_idna_core.InvalidCodepoint, _idna_core.InvalidCodepointContext):
+        pass
+    except idna.IDNAError as exc:
+        raise ValueError(f"invalid IDNA/punycode host label in {host!r}: {exc}") from exc
+    try:
+        return ".".join(
+            _relaxed_punycode_label(label) if label.startswith("xn--") else label
+            for label in host.split(".")
+        )
     except idna.IDNAError as exc:
         raise ValueError(f"invalid IDNA/punycode host label in {host!r}: {exc}") from exc
 
@@ -237,14 +336,25 @@ def _file_url_to_path(url: str) -> str:
        that fails bidi/combining-mark validation, `"xn--abc-ppe"`/`"xn--abc-jdc"`) rejects the
        whole URL, matching Node's own `ERR_INVALID_URL` -- `ada_url` alone does not perform this
        validation (its own `URL.host`/`idna_to_unicode()` pass already-ASCII `"xn--..."` labels
-       through unchecked, live-verified). KNOWN, CHARACTERIZED divergence (not in the approved
-       corpus, not fixed in this pass): a host that is non-ASCII only after PERCENT-DECODING
-       (e.g. `%C3%A9xample.com`) is round-tripped through `ada_url`'s own ToASCII step into
-       Punycode form (`"xn--xample-9ua.com"`) before reaching `_domain_to_unicode`, which then
-       decodes it back to Unicode (`"éxample.com"`) -- the OBSERVABLE result is the same in this
-       specific case, but Node's own behavior (keeping such a host exactly as percent-decoded,
-       without an intermediate ASCII round-trip) has not been differentially verified for every
-       input in this class.
+       through unchecked, live-verified). A host that is non-ASCII only after PERCENT-DECODING
+       (e.g. `%C3%A9xample.com`, or the emoji witnesses below) is round-tripped through
+       `ada_url`'s own ToASCII step into Punycode form before reaching `_domain_to_unicode`,
+       which then decodes it back to Unicode -- an EARLIER revision of this function
+       characterized this round-trip as "observably identical" to Node's own behavior (which
+       keeps such a host exactly as percent-decoded, with no intermediate ASCII round-trip) but
+       left it undifferentially verified; the targeted section 11.8.7 closure review of the
+       `CE-L12-PY-01-01` R002 remediation (`minion-agent-docs#120` @
+       `09423f0a962d1139ba16155eff6113c026a1f89a`) supplied the FIRST discriminating
+       counterexample proving that claim FALSE for at least one input class: `%E2%98%83.com`/
+       `%F0%9F%92%A9.com` (decoding to a snowman/pile-of-poo, both Unicode category `"So"`)
+       round-tripped to `idna.decode()`'s own strict DISALLOWED-codepoint rejection, where Node
+       accepts them. Fixed for that specific, evidenced class (`_domain_to_unicode`'s relaxed
+       retry, see its own and `_relaxed_codepoint_ok`'s docstrings). The round-trip itself is
+       lossless for any codepoint category the strict-or-relaxed decode ultimately accepts, but
+       NO CLAIM is made that every OTHER not-yet-witnessed disallowed-codepoint category
+       (unassigned, private-use, control, ...) Node's ICU-backed UTS46 profile might also accept
+       is now covered -- that would be un-evidenced generalization beyond what this pass
+       characterized; a future witness in one of those categories would be a SEPARATE finding.
     2. On Windows specifically, a host that is (after decoding) exactly `"localhost"` is treated
        identically to an EMPTY host -- routed to the drive-letter branch (6), not the UNC branch
        (5) (`file://localhost/C:/foo` resolves to `C:\foo`, not a UNC path to a literal

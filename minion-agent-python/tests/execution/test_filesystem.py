@@ -8,6 +8,7 @@ import os
 import time
 from pathlib import Path
 
+import idna.core
 import pytest
 
 from minion_agent.execution import filesystem as filesystem_module
@@ -17,6 +18,7 @@ from minion_agent.execution.filesystem import (
     LocalFileSystem,
     _file_info_sync,
     _file_kind_from_stat,
+    _relaxed_punycode_label,
     _UnsupportedFileType,
     resolve_local_path,
 )
@@ -243,6 +245,72 @@ def test_file_url_punycode_host_rejects_whatwg_invalid_a_labels() -> None:
     for literal in ("file://xn--abc-ppe/share", "file://xn--abc-jdc/share"):
         resolved = resolve_local_path("C:\\cwd", literal)
         assert resolved == os.path.normpath(os.path.join("C:\\cwd", literal))
+
+
+@pytest.mark.skipif(os.name != "nt", reason="UNC host resolution is Windows-specific")
+def test_file_url_punycode_host_decodes_symbol_codepoints_whatwg_incorrectly_rejects() -> None:
+    """`L12-PY-R002` exact discriminating witness (targeted section 11.8.7 closure review of the
+    `CE-L12-PY-01-01` R002 remediation -- `minion-agent-docs#120` @
+    `09423f0a962d1139ba16155eff6113c026a1f89a`): the strict `idna` package's own per-codepoint
+    PVALID/CONTEXTJ/CONTEXTO/DISALLOWED table (RFC 5892) rejects a punycode label that decodes
+    to a Unicode SYMBOL codepoint (general category `"So"`) as containing a "not allowed"
+    codepoint, but live Node (v22.15.1, v22.19.0, v22.23.2, all checksum-verified) accepts it
+    and returns a UNC path containing the literal glyph -- `"xn--n3h"` decodes to a snowman
+    (`☃`, U+2603), `"xn--ls8h"` decodes to a pile of poo (`💩`, U+1F4A9). This does NOT reopen
+    the malformed-punycode/bidi/combining-mark rejections above (`xn--`/`xn--zzzz`/`xn--a`/
+    `xn--abc-ppe`/`xn--abc-jdc` all still correctly fall through) -- see `_relaxed_codepoint_ok`'s
+    own docstring for the exact, narrowly-scoped widening this fix makes."""
+    assert (
+        resolve_local_path("C:\\cwd", "file://%E2%98%83.com/share") == "\\\\☃.com\\share\\"
+    )
+    assert (
+        resolve_local_path("C:\\cwd", "file://%F0%9F%92%A9.com/share") == "\\\\💩.com\\share\\"
+    )
+
+
+def test_relaxed_punycode_label_accepts_pvalid_mixed_with_symbol() -> None:
+    """`_relaxed_punycode_label` unit coverage: a label mixing an ordinary PVALID ASCII
+    codepoint with a Unicode symbol (category `"So"`) -- exercises the loop's PVALID `continue`
+    branch before reaching the symbol that triggered the relaxed retry in the first place."""
+    assert _relaxed_punycode_label("xn--a-1xp") == "a☃"
+
+
+def test_relaxed_punycode_label_accepts_valid_contextj_and_contexto_mixed_with_symbol() -> None:
+    """`_relaxed_punycode_label` unit coverage (structural parity with `idna.core.check_label`,
+    not itself a live-Node witness -- no corpus case combines a CONTEXTJ/CONTEXTO-valid sequence
+    with a symbol codepoint): a Devanagari virama-then-ZWJ sequence (valid CONTEXTJ placement)
+    and a Catalan-style geminate-L middle dot (valid CONTEXTO placement), each followed by a
+    symbol codepoint that forces the relaxed retry -- both must still validate their own
+    placement correctly (the `continue` branches), not merely skip validation entirely."""
+    assert _relaxed_punycode_label("xn--11b6iy14eoof") == "क्‍☃"
+    assert _relaxed_punycode_label("xn--ll-0ea7039a") == "l·l☃"
+
+
+def test_relaxed_punycode_label_still_rejects_invalid_contextj_and_contexto() -> None:
+    """`_relaxed_punycode_label` must NOT widen CONTEXTJ/CONTEXTO placement validation just
+    because it widens the DISALLOWED-codepoint table for symbols -- a bare joiner/middle-dot
+    with no valid adjacency, even alongside a symbol codepoint elsewhere in the same label,
+    still raises exactly as `idna.core.check_label` does."""
+    with pytest.raises(idna.core.InvalidCodepointContext):
+        _relaxed_punycode_label("xn--a-ugnw2y")
+    with pytest.raises(idna.core.InvalidCodepointContext):
+        _relaxed_punycode_label("xn--aa-0ea7039a")
+
+
+@pytest.mark.parametrize(
+    "alabel",
+    ["xn--", "xn--a-", "xn--zzzz", "xn---bbk"],
+)
+def test_relaxed_punycode_label_rejects_malformed_and_non_canonical_alabels(
+    alabel: str,
+) -> None:
+    """`_relaxed_punycode_label` unit coverage for its own structural guards, mirroring
+    `idna.core.ulabel`'s own equivalents exactly: an empty or hyphen-ending payload
+    (`"xn--"`/`"xn--a-"`), an undecodable Punycode digit sequence (`"xn--zzzz"`), and a
+    non-canonical re-encoding (`"xn---bbk"`, RFC 5891 section 5.3) all raise `idna.IDNAError`,
+    never silently accepted."""
+    with pytest.raises(idna.IDNAError):
+        _relaxed_punycode_label(alabel)
 
 
 @pytest.mark.skipif(os.name != "nt", reason="UNC host resolution is Windows-specific")

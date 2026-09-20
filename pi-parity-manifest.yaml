@@ -5822,15 +5822,39 @@ rows:
     this validation -- confirmed live) on top, plus a hand-written layer for the
     `fileURLToPath`-SPECIFIC rules neither library attempts (encoded-separator rejection,
     drive-letter validation, backslash pre-normalization). Reverified against the FULL 65-case
-    corpus: `65/65`. One divergence is characterized but NOT fixed in this pass, per the
-    checkpoint''s own scope (not exercised by the approved corpus): a host that is non-ASCII only
-    after PERCENT-DECODING is round-tripped through `ada_url`''s own ToASCII step into Punycode
-    before Unicode-decoding, rather than kept exactly as percent-decoded the way Node does --
-    observably identical for every corpus case, not yet differentially verified beyond it (see
-    `_file_url_to_path`''s own docstring). `minion-agent-rust`''s own `expand_path`/
-    `Url::parse(...).to_file_path()` branch matched only `48/65` against the SAME oracle and
-    remains `REVALIDATE_REQUIRED` -- untouched by this Python-side remediation, a Rust-owned
-    follow-up per `CE-L12-PY-01-01`''s own scope.
+    corpus: `65/65`. An earlier revision of this row characterized one residual divergence as
+    "observably identical for every corpus case, not yet differentially verified beyond it": a
+    host that is non-ASCII only after PERCENT-DECODING is round-tripped through `ada_url`''s own
+    ToASCII step into Punycode before `_domain_to_unicode` decodes it back to Unicode, rather
+    than kept exactly as percent-decoded the way Node does.
+
+    Correction (targeted section 11.8.7 closure review of the `CE-L12-PY-01-01` R002
+    remediation, `minion-agent-docs#120` @ `09423f0a962d1139ba16155eff6113c026a1f89a`): that
+    "observably identical" claim was FALSIFIED by a direct counterexample -- `file://%E2%98%83.
+    com/share`/`file://%F0%9F%92%A9.com/share` (a snowman/pile-of-poo, decoding to Unicode
+    category `"So"`, Symbol-other) round-tripped through `ada_url`''s ToASCII step into a
+    Punycode label the STRICT `idna.decode()` then rejected as a disallowed codepoint (RFC 5892),
+    while live Node (v22.15.1/v22.19.0/v22.23.2, all checksum-verified) accepts both and returns
+    a UNC path containing the literal glyph. Fixed: `_domain_to_unicode` now retries, on strict
+    rejection specifically for `InvalidCodepoint`/`InvalidCodepointContext`, through
+    `_relaxed_punycode_label` -- the SAME structural validation (canonical Punycode form, NFC,
+    hyphen placement, leading-combining-mark, bidi, CONTEXTJ/CONTEXTO), but additionally
+    accepting a disallowed codepoint specifically in Unicode category `"So"` (see
+    `filesystem.py`''s `_relaxed_codepoint_ok` for the exact, narrowly-evidenced scope of that
+    widening). Reverified against the FULL corpus, now 67 cases (the two new witnesses added as
+    permanent regression evidence): `67/67`. The malformed-punycode/bidi/combining-mark
+    rejections this fix must NOT reopen (`"xn--"`, `"xn--zzzz"`, `"xn--a"`, `"xn--abc-ppe"`,
+    `"xn--abc-jdc"`) were reverified unchanged. NO CLAIM is made that every OTHER
+    not-yet-witnessed disallowed-codepoint category (unassigned, private-use, control, ...)
+    Node''s ICU-backed UTS46 profile might also accept is now covered by this fix -- a future
+    witness in one of those categories would be a SEPARATE characterized finding, not silently
+    resolved here.
+
+    `minion-agent-rust`''s own `expand_path`/`Url::parse(...).to_file_path()` branch matched only
+    `48/67` against the SAME extended oracle (including the two new emoji witnesses, both also
+    mismatching -- Rust keeps the Punycode form, does not decode to Unicode) and remains
+    `REVALIDATE_REQUIRED` -- untouched by this Python-side remediation, a Rust-owned follow-up
+    per `CE-L12-PY-01-01`''s own scope.
 
     Symlinks (`L12-R002` -- corrected twice: an earlier revision of this row wrongly claimed
     symlinks are "never followed... except canonical_path"; a first remediation then

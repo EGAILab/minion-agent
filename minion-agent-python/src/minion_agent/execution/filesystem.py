@@ -155,6 +155,47 @@ def _strict_percent_decode(value: str) -> str:
     return raw.decode("utf-8")
 
 
+def _domain_to_unicode(host: str) -> str:
+    """Per-label Punycode decode of a purely-ASCII host (`L12-PY-R002`, refined a fifth time,
+    third targeted closure review) -- an `"xn--..."` label decodes to its Unicode glyphs
+    (`"xn--fa-hia"` -> `"faß"`), matching Node's own `domainToUnicode` (WHATWG/ICU-backed).
+
+    Python's built-in `"idna"` codec was tried first and REJECTED for this purpose: it
+    implements the OLDER IDNA2003 profile, whose `nameprep` step maps `ß` to `"ss"` -- decoding
+    then round-trip-VALIDATES the result by re-encoding it and comparing byte-for-byte against
+    the original label, so `"xn--fa-hia"` (`faß`, the modern UTS46/IDNA2008 A-label WHATWG/ICU
+    actually produce) fails because IDNA2003's OWN encoder would have produced `"xn--fa-ssa"`
+    instead -- confirmed via live probe (`'xn--fa-hia'.encode('ascii').decode('idna')` raises
+    `UnicodeDecodeError: ... does not round-trip`). This function instead applies the BARE RFC
+    3492 Punycode algorithm per label (`bytes.decode('punycode')` on the label's own suffix,
+    after stripping `"xn--"`) with NO nameprep/round-trip step -- verified against every
+    witness both reviews supplied (`bücher`, `faß`, `straße`, bare `ß`) via direct execution
+    against real Node 22.
+
+    An empty suffix (`"xn--"` alone) or one Punycode itself cannot decode (`"xn--zzzz"`) raises
+    `ValueError`, matching Node's own `ERR_INVALID_URL` for the same malformed inputs. A
+    successfully-decoded label containing a non-printable character (Python's built-in Punycode
+    codec permits arbitrary code points, including control characters, that a real punycode
+    payload would never legitimately encode -- `"xn--a"` decodes to bare `U+0080`) is ALSO
+    rejected -- Node rejects this exact input too, live-probed."""
+    decoded_labels = []
+    for label in host.split("."):
+        if not label.startswith("xn--"):
+            decoded_labels.append(label)
+            continue
+        suffix = label[4:]
+        if not suffix:
+            raise ValueError(f"invalid punycode label: {label!r}")
+        try:
+            decoded = suffix.encode("ascii").decode("punycode")
+        except UnicodeError as exc:
+            raise ValueError(f"invalid punycode label: {label!r}") from exc
+        if not decoded.isprintable():
+            raise ValueError(f"invalid punycode label: {label!r}")
+        decoded_labels.append(decoded)
+    return ".".join(decoded_labels)
+
+
 def _file_url_to_path(url: str) -> str:
     """A characterized port of pinned Node's `fileURLToPath` (`L12-PY-R002`, refined a fourth
     time, second targeted closure review), verified against live Node 22 execution in both
@@ -181,13 +222,13 @@ def _file_url_to_path(url: str) -> str:
        that forbidden set for an ordinary domain host, but are exactly what DELIMITS an IPv6
        literal, so checking them against that same set would reject every IPv6 host outright).
        If the (lowercased) decoded host is PURELY ASCII, it is additionally passed through
-       `domainToUnicode` -- an `"xn--..."` punycode label decodes to its Unicode glyphs
-       (`"xn--bcher-kva"` -> `"bücher"`; Python's built-in `"idna"` codec implements the same
-       Punycode algorithm, RFC 3492, that Node's ICU-backed `domainToUnicode` uses), and an
-       INVALID punycode label (`"xn--"`, `"xn--zzzz"`) rejects the whole URL, matching Node's
-       own `ERR_INVALID_URL`. A host that is ALREADY non-ASCII after percent-decoding (e.g.
-       `%C3%A9xample.com` -> `"éxample.com"`) is NOT round-tripped through this step at all --
-       confirmed by live probe, Node keeps such a host exactly as decoded.
+       `_domain_to_unicode` (a bare per-label RFC 3492 Punycode decode -- see its own
+       docstring for why Python's built-in `"idna"` codec is NOT used here) -- an
+       `"xn--..."` punycode label decodes to its Unicode glyphs (`"xn--fa-hia"` -> `"faß"`),
+       and an INVALID punycode label (`"xn--"`, `"xn--zzzz"`) rejects the whole URL, matching
+       Node's own `ERR_INVALID_URL`. A host that is ALREADY non-ASCII after percent-decoding
+       (e.g. `%C3%A9xample.com` -> `"éxample.com"`) is NOT round-tripped through this step at
+       all -- confirmed by live probe, Node keeps such a host exactly as decoded.
     2. On Windows specifically, a host that is (after decoding) exactly `"localhost"` is treated
        identically to an EMPTY host -- routed to the drive-letter branch (6), not the UNC branch
        (5) (`file://localhost/C:/foo` resolves to `C:\foo`, not a UNC path to a literal
@@ -232,8 +273,8 @@ def _file_url_to_path(url: str) -> str:
             host = host.lower()
             if host.isascii():
                 try:
-                    host = host.encode("ascii").decode("idna")
-                except UnicodeError as exc:
+                    host = _domain_to_unicode(host)
+                except ValueError as exc:
                     raise ValueError(
                         f"file:// URL host is not a valid hostname: {parsed.netloc!r}"
                     ) from exc

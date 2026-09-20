@@ -206,11 +206,26 @@ def test_file_url_punycode_host_decodes_to_unicode(tmp_path: Path) -> None:
     ASCII decoded host that looks like a punycode label (`"xn--..."`) is passed through Node's
     own `domainToUnicode` step -- `"xn--bcher-kva"` decodes to `"bücher"`. An earlier revision
     disclosed this as an intentional scope exclusion; the review rejected that as an
-    unauthorized narrowing of observable Pi behavior with no governance record. Fixed via
-    Python's built-in `"idna"` codec (RFC 3492 Punycode), verified against live Node 22.
-    Case-insensitive: `"XN--BCHER-KVA"` decodes identically (lowercased before the codec)."""
+    unauthorized narrowing of observable Pi behavior with no governance record. Case-insensitive
+    (`"XN--BCHER-KVA"` decodes identically, lowercased first)."""
     assert resolve_local_path("C:\\cwd", "file://xn--bcher-kva/share") == "\\\\bücher\\share\\"
     assert resolve_local_path("C:\\cwd", "file://XN--BCHER-KVA/share") == "\\\\bücher\\share\\"
+
+
+@pytest.mark.skipif(os.name != "nt", reason="UNC host resolution is Windows-specific")
+def test_file_url_punycode_host_decodes_labels_ineligible_under_idna2003(tmp_path: Path) -> None:
+    """`L12-PY-R002` exact discriminating witness (THIRD targeted closure review): a first
+    attempt at this fix used Python's built-in `"idna"` codec (IDNA2003), which the review
+    caught rejecting VALID Node/WHATWG A-labels -- IDNA2003's `nameprep` maps `ß` to `"ss"`, so
+    its own round-trip-validating decoder rejects `"xn--fa-hia"` (`faß`, the genuine modern
+    A-label) because IDNA2003's OWN encoder would have produced `"xn--fa-ssa"` instead. Fixed
+    via `_domain_to_unicode`'s bare per-label Punycode decode (no nameprep/round-trip step),
+    verified against exactly the three additional witnesses the review supplied."""
+    assert resolve_local_path("C:\\cwd", "file://xn--fa-hia.de/share") == "\\\\faß.de\\share\\"
+    assert (
+        resolve_local_path("C:\\cwd", "file://xn--strae-oqa.de/share") == "\\\\straße.de\\share\\"
+    )
+    assert resolve_local_path("C:\\cwd", "file://xn--zca/share") == "\\\\ß\\share\\"
 
 
 @pytest.mark.skipif(os.name != "nt", reason="Windows-specific path shapes")

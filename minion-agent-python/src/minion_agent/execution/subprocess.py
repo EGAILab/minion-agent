@@ -127,22 +127,31 @@ def _close_owned_transport(owner: object | None) -> None:
             transport.close()
 
 
-async def _kill_process_tree(pid: int) -> bool:
+async def _kill_process_tree(pid: int) -> None:
     """Kills the WHOLE process tree/group where the platform supports it -- the SAME mechanism
     `ctx.shell`'s own tree-kill guarantee (`EXEC-004`) relies on, since it is built on this
     primitive. POSIX: process-group `SIGKILL` via a negative PID (requires the process to have
     been spawned into its own session, `start_new_session=True`), falling back to a single-PID
-    kill. Windows: `taskkill /T /F`, matching pinned Pi's own `killProcessTree` exactly.
+    kill. Windows: `taskkill /T /F`.
 
-    Returns whether a LIVE target was actually found and a kill was attempted (`True`), as
-    opposed to the target already being gone (`False`) -- `L12-PY-R004` (refined, second
-    review): `_watch_signal` must NOT attribute a process's own termination to the spawn-time
-    signal merely because it OBSERVED the signal fired and CALLED this function; a genuine
-    race exists where the process has already exited (naturally, or via a concurrent explicit
-    `terminate()`) by the time this function actually runs, making the kill attempt a pure
-    no-op -- this return value is how the caller distinguishes that case. Still best-effort:
-    this is advisory detection, not a hard guarantee, but sufficient to close the exact race
-    the review reproduced."""
+    Fire-and-forget, matching pinned Pi's own `killProcessTree` EXACTLY (`nodejs.ts:253-276`):
+    a bare `spawn("taskkill", ...)` / `process.kill(-pid, "SIGKILL")` call with NO confirmation
+    of whether a live target was even found -- `killProcessTree` there returns `void`, not a
+    Promise, and is never awaited by its own callers either.
+
+    `L12-PY-R004` (refined a fourth time, third targeted closure review): an earlier revision
+    returned `bool` (whether a live target was found) so `_watch_signal` could avoid
+    classifying a genuinely no-effect kill attempt as `"signal"`-caused -- but that required
+    `Process.wait()` to await this function's own confirmation before settling, which violated
+    the approved contract's own "`wait()` settles on the process's own exit alone" rule (a
+    slow, or permanently stuck, kill-confirmation could delay `wait()` past the target
+    process's own already-observed exit -- the targeted closure review's own exact
+    reproduction). Pinned Pi does not attempt this "did the kill actually have an effect"
+    distinction at all -- `Shell.exec()`'s own classification simply checks
+    `abortSignal.aborted` ONCE, at the moment the process's own exit is FIRST observed
+    (`nodejs.ts:491`), with no kill-confirmation step in between. `_watch_signal` now matches
+    that: it records causation the instant it decides to kill (eager, unconfirmed, first-wins)
+    and dispatches this call as a background, un-awaited task -- see its own docstring."""
     if os.name == "nt":
         try:
             helper = _subprocess.Popen(
@@ -152,31 +161,22 @@ async def _kill_process_tree(pid: int) -> bool:
                 stdin=_subprocess.DEVNULL,
             )
         except OSError:
-            return False
+            return
         # `L12-PY-R007`: a fire-and-forget Popen with no wait()/close() leaks the helper
         # process's own handle (a ResourceWarning at GC time) and, transitively, its DEVNULL
-        # pipe transports. `Popen.wait()` blocks, so it runs off the event loop --
-        # `_kill_process_tree` is itself `async` (both its callers, `_watch_signal` and
-        # `terminate()`, are already coroutines) precisely so this settling can be awaited
-        # rather than blocking the loop for up to `_TASKKILL_WAIT_TIMEOUT_S`.
+        # pipe transports. `Popen.wait()` blocks, so it runs off the event loop -- this
+        # function is itself `async` precisely so that settling can be awaited (by ITS OWN
+        # caller's background task, never by `Process.wait()` directly) rather than blocking
+        # the loop for up to `_TASKKILL_WAIT_TIMEOUT_S`.
         await asyncio.to_thread(_wait_and_settle_helper, helper)
-        # taskkill exits non-zero (commonly 128, "process not found") when the target PID no
-        # longer exists -- a real, if coarse, success/failure signal, unlike a fully-suppressed
-        # fire-and-forget call.
-        return helper.returncode == 0
+        return
     # POSIX-only: unreachable on Windows (the os.name == "nt" branch above always returns
     # first) -- os.killpg/signal.SIGKILL also aren't in Windows' own typeshed subset.
     try:  # pragma: no cover
         os.killpg(pid, _os_signal.SIGKILL)  # type: ignore[attr-defined]
-        return True  # pragma: no cover
-    except ProcessLookupError:  # pragma: no cover
-        return False
     except OSError:  # pragma: no cover
-        try:
+        with suppress(OSError):
             os.kill(pid, _os_signal.SIGKILL)  # type: ignore[attr-defined]
-            return True
-        except OSError:
-            return False
 
 
 class WritableStream:
@@ -281,6 +281,9 @@ class Process:
         already fired must not overwrite the signal's own causal priority (matches the existing
         "terminate() racing an already-fired signal is a no-op" idempotence rule)."""
         self._watcher_task: asyncio.Task[None] | None = None
+        """Stored solely to keep a strong reference alive for the task's own lifetime (asyncio
+        only weakly tracks a fire-and-forget task otherwise) -- `wait()` deliberately never reads
+        or awaits this (`L12-PY-R004`, refined a fourth time); see its own docstring."""
         if spawn_signal is not None:
             self._watcher_task = asyncio.ensure_future(self._watch_signal(spawn_signal))
 
@@ -288,57 +291,51 @@ class Process:
         """Polls the ORIGINAL spawn-time signal for the lifetime of the process, terminating it
         the moment the signal fires (cooperative/poll-based, matching `RunSignal`'s own design).
 
-        `L12-PY-R004` (refined again, third review): `_kill_cause` is recorded ONLY if
-        `_kill_process_tree` reports it actually found a live target (`True`) -- NOT merely
-        because this loop observed the signal fire and CALLED that function. A genuine race
-        exists between this poll loop noticing `signal.aborted` and the process ALREADY having
-        exited on its own (or via a concurrent explicit `terminate()`) by the time the kill
-        attempt actually runs; recording causation unconditionally, before knowing whether the
-        kill had any effect, misclassified that race as an aborted result even when the process
-        completed successfully on its own.
-
-        Records the flag EAGERLY (before calling `_kill_process_tree`), then CORRECTS it if the
-        kill attempt reports no live target was found. An earlier revision of `Process.wait()`
-        CANCELLED this task as soon as it observed the underlying process's own exit, racing
-        ahead of a still-in-flight `_kill_process_tree` confirmation and wiping out the
-        correction step before it could ever run -- a genuinely no-effect kill attempt stayed
-        eagerly (and permanently) misclassified as `"signal"`-caused. `Process.wait()` no longer
-        cancels this task at all; it AWAITS it instead, relying on THIS loop's own `while
-        self._proc.returncode is None` condition to exit naturally within one poll tick once the
-        process has exited (`self._proc.returncode` is set by the same underlying exit callback
-        `self._proc.wait()` itself resolves from, so by the time `wait()` observes that exit, this
-        loop's very next wake-up already sees it too) -- so a kill attempt that is already in
-        flight always gets to run its correction step to completion before `wait()` reads
-        `_kill_cause`, in every ordering, with no cancellation race left to lose either
-        direction's classification."""
+        `L12-PY-R004` (refined a fourth time, third targeted closure review): records
+        `_kill_cause` the INSTANT this loop decides to kill -- eager, UNCONFIRMED, first-wins --
+        matching pinned Pi's own `Shell.exec()` classification, which checks `abortSignal.aborted`
+        ONCE at process-exit-observation time with no kill-confirmation step at all (see
+        `_kill_process_tree`'s own docstring for the full rationale and the prior revisions this
+        superseded). The actual kill is dispatched as a background, UN-AWAITED task
+        (`add_done_callback` suppresses an unexpected exception there from raising an "exception
+        was never retrieved" warning, matching `filesystem.py`'s own `_race_signal` convention)
+        -- this loop's own critical path never awaits the kill's confirmation, so `Process.wait()`
+        has nothing kill-confirmation-related to ever wait for either, preserving the contract's
+        own "`wait()` settles on the process's own exit alone" rule unconditionally."""
         while self._proc.returncode is None:
             if signal.aborted:
                 if self._kill_cause is None:
                     self._kill_cause = "signal"
-                killed = await _kill_process_tree(self.pid)
-                if not killed and self._kill_cause == "signal":
-                    self._kill_cause = None
+                kill_task = asyncio.ensure_future(_kill_process_tree(self.pid))
+                kill_task.add_done_callback(lambda t: t.exception() if not t.cancelled() else None)
                 return
             await asyncio.sleep(_SIGNAL_POLL_INTERVAL_S)
 
     async def wait(self) -> Result[ExitStatus, SubprocessError]:
-        """Settles on the PROCESS's own exit alone, independent of stdio state. `Err(aborted)`
-        ONLY when the spawn-supplied signal actually CAUSED this process's own termination
-        (`_kill_cause`, recorded at the moment of the kill -- `L12-PY-R004`, not re-derived from
-        the signal's current state, which would misclassify an unrelated later abort); otherwise
-        `Ok(ExitStatus{...})`, whether the process exited on its own or was killed via an
-        explicit `terminate()` (`L12-R020`'s conditional exit-code preservation)."""
+        """Settles on the PROCESS's own exit alone -- independent of stdio state, AND
+        independent of any signal-triggered kill's own confirmation (`L12-PY-R004`, refined a
+        fourth time): this awaits ONLY `self._proc.wait()`, never `_watch_signal`'s own task or
+        `_kill_process_tree`'s own completion, so a slow (or permanently stuck) kill-confirmation
+        helper can never delay settlement past the target process's own already-observed exit --
+        the targeted closure review's own exact reproduction of an earlier revision that awaited
+        the watcher task here. `Err(aborted)` when `_kill_cause` was recorded (`"signal"`, set
+        the instant `_watch_signal` decided to kill -- eager, unconfirmed, matching pinned Pi's
+        own lack of kill confirmation, not re-derived from the signal's current state, which
+        would misclassify an unrelated later abort); otherwise `Ok(ExitStatus{...})`, whether the
+        process exited on its own or was killed via an explicit `terminate()` (`L12-R020`'s
+        conditional exit-code preservation)."""
         if self._wait_result is not None:
             return self._wait_result
         async with self._wait_lock:
             if self._wait_result is not None:
                 return self._wait_result
             returncode = await self._proc.wait()
-            if self._watcher_task is not None:
-                # `L12-PY-R004` (refined again, third review): AWAIT, never cancel -- see
-                # `_watch_signal`'s own docstring for why cancelling here raced a still-in-flight
-                # kill-attempt confirmation and lost its classification correction.
-                await self._watcher_task
+            # `L12-PY-R004` (refined a fourth time): deliberately does NOT touch
+            # `self._watcher_task` here -- no cancel, no await. `_watch_signal`'s own loop
+            # condition (`while self._proc.returncode is None`) exits naturally, on its own,
+            # within one poll tick of the process exiting (whether the signal ever fired or
+            # not), and its actual kill dispatch is itself a fire-and-forget background task
+            # this method never depends on -- see both docstrings above.
             # `L12-PY-R007` (refined, second review): close ONLY the process's own transport
             # here -- confirmed empirically NOT to affect the separate stdio stream transports
             # (each owns its own). Closing stdout/stderr HERE, unconditionally, would break the

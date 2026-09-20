@@ -200,6 +200,60 @@ def test_file_url_ipv6_literal_host_resolves_as_unc(tmp_path: Path) -> None:
     assert resolve_local_path("C:\\cwd", "file://[::1]/C:/foo") == "\\\\[::1]\\C:\\foo"
 
 
+@pytest.mark.skipif(os.name != "nt", reason="UNC host resolution is Windows-specific")
+def test_file_url_punycode_host_decodes_to_unicode(tmp_path: Path) -> None:
+    """`L12-PY-R002` exact discriminating witness (second targeted closure review): a purely-
+    ASCII decoded host that looks like a punycode label (`"xn--..."`) is passed through Node's
+    own `domainToUnicode` step -- `"xn--bcher-kva"` decodes to `"bücher"`. An earlier revision
+    disclosed this as an intentional scope exclusion; the review rejected that as an
+    unauthorized narrowing of observable Pi behavior with no governance record. Fixed via
+    Python's built-in `"idna"` codec (RFC 3492 Punycode), verified against live Node 22.
+    Case-insensitive: `"XN--BCHER-KVA"` decodes identically (lowercased before the codec)."""
+    assert resolve_local_path("C:\\cwd", "file://xn--bcher-kva/share") == "\\\\bücher\\share\\"
+    assert resolve_local_path("C:\\cwd", "file://XN--BCHER-KVA/share") == "\\\\bücher\\share\\"
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows-specific path shapes")
+@pytest.mark.parametrize(
+    "literal",
+    ["file://xn--/share", "file://xn--zzzz/share", "file://xn--a/share"],
+)
+def test_file_url_invalid_punycode_host_falls_through(literal: str) -> None:
+    """An invalid/incomplete punycode label (empty, malformed digits, or otherwise undecodable)
+    rejects the whole URL, matching Node's own `ERR_INVALID_URL` -- falls through to ordinary
+    cwd-relative resolution of the literal string, verified against live Node 22."""
+    assert resolve_local_path("C:\\cwd", literal) == os.path.normpath(
+        os.path.join("C:\\cwd", literal)
+    )
+
+
+def test_file_url_raw_backslash_in_path_is_normalized_to_separator_portable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`L12-PY-R002` exact discriminating witness (second targeted closure review): a RAW
+    (unescaped) backslash anywhere in a `file:` URL is normalized to `/` at the WHATWG
+    URL-parsing stage itself, universally across BOTH platform modes -- NOT Windows-specific,
+    confirmed via live Node 22 probes under `{windows: false}` too (`file:///a\\b\\c` decodes
+    to `/a/b/c` there). An earlier revision disclosed this as an intentional scope exclusion;
+    the review rejected that as an unauthorized narrowing with no governance record. Uses an
+    EMPTY-host input so the POSIX branch's own SEPARATE "host must be empty or localhost" rule
+    (already covered by other tests) doesn't also fire and mask what this test isolates."""
+    monkeypatch.setattr(os, "name", "posix")
+    assert filesystem_module._file_url_to_path("file:///a\\b\\c") == "/a/b/c"
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows-specific backslash-to-separator output")
+def test_file_url_raw_backslash_in_path_resolves_on_windows(tmp_path: Path) -> None:
+    """The Windows-mode counterpart, exact witness value verified against live Node 22's full
+    `resolvePath` wrapper: `file://host\\share\\file` -> `\\\\host\\share\\file` (the raw
+    backslashes are the SAME separators the UNC path itself uses, so the fully-resolved result
+    is indistinguishable from an equivalent forward-slash input) -- host lowercased, path
+    segments case-preserved."""
+    assert resolve_local_path("C:\\cwd", "file://host\\share\\file") == "\\\\host\\share\\file"
+    assert resolve_local_path("C:\\cwd", "file://HOST\\Share\\File") == "\\\\host\\Share\\File"
+    assert resolve_local_path("C:\\cwd", "file:///C:\\Users\\test") == "C:\\Users\\test"
+
+
 @pytest.mark.skipif(os.name != "nt", reason="Windows-specific path shapes")
 @pytest.mark.parametrize(
     ("literal", "expected"),

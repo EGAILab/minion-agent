@@ -188,161 +188,62 @@ async def test_wait_first_call_after_explicit_terminate_and_later_signal_abort_i
     assert isinstance(wait_result, Ok)
 
 
-async def test_signal_kill_attempt_with_no_effect_does_not_classify_aborted(
+async def test_wait_settles_promptly_even_when_kill_confirmation_never_returns(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """`L12-PY-R004` witness (refined, second review): the signal fires while `_watch_signal`'s
-    poll loop still observes `returncode is None`, so it DOES attempt a kill -- but the process
-    has, by the time the attempt actually runs, already exited naturally (or via a concurrent
-    explicit action) on its own, making the kill attempt a genuine no-op. `wait()` must settle
-    `Ok` with the process's own REAL exit status, not `Err(aborted)`, merely because a kill was
-    ATTEMPTED -- only an attempt that `_kill_process_tree` itself confirms found a live target
-    may be recorded as causal. Monkeypatches `_kill_process_tree` to report `False` (no live
-    target) unconditionally, and gives the child a long enough natural lifetime that the abort
-    is guaranteed to fire while `_watch_signal`'s loop still observes `returncode is None` (so
-    it deterministically enters the kill-attempt branch, lines 314-316, rather than depending on
-    real OS-level exit-detection timing -- the review's own exact race is not independently
-    reproducible against genuinely live, non-deterministic process timing)."""
+    """`L12-PY-R004` witness (refined a fourth time, third targeted closure review): `wait()`
+    must settle "on the process's own exit alone" -- NEVER delayed by a kill-confirmation
+    helper that is slow, or never returns at all. A prior revision awaited `_watch_signal`'s own
+    task inside `wait()`, which transitively awaited `_kill_process_tree`'s own confirmation --
+    the review's own exact objection ("blocking an already-observed natural exit on auxiliary
+    kill confirmation"). Monkeypatches `_kill_process_tree` to hang FOREVER (blocked on an
+    `asyncio.Event` that is never set), simulating a permanently stuck `taskkill` helper, and
+    proves `wait()` still settles promptly once the real child process actually exits --
+    bounded by this test's own short `wait_for` timeout, which an entangled `wait()` would
+    blow through indefinitely. Also proves the classification itself: a signal that fired while
+    the loop observed the process still running is classified `Err(aborted)` EAGERLY and
+    UNCONFIRMED (matching pinned Pi's own lack of kill-confirmation, per `_kill_process_tree`'s
+    own docstring), not merely because `wait()` happened to settle promptly."""
+    stuck = asyncio.Event()
 
-    async def fake_kill_process_tree(pid: int) -> bool:
-        return False
+    async def hanging_kill_process_tree(pid: int) -> None:
+        await stuck.wait()  # never set -- simulates a permanently stuck confirmation helper
 
-    monkeypatch.setattr(subprocess_module, "_kill_process_tree", fake_kill_process_tree)
+    monkeypatch.setattr(subprocess_module, "_kill_process_tree", hanging_kill_process_tree)
 
     sp = LocalSubprocess()
     controller = RunAbortController()
     result = await sp.spawn(
-        [PY, "-c", "import time; time.sleep(0.5); import sys; sys.exit(0)"],
-        SpawnOptions(signal=controller.signal),
-    )
-    process = result.value  # type: ignore[union-attr]
-    await asyncio.sleep(0.05)  # child is still running (sleeping); watcher sees returncode None
-    controller.abort()  # _watch_signal's poll loop attempts a kill; the mock reports no effect
-    await asyncio.sleep(0.05)  # give the watcher a chance to observe the abort and attempt it
-    wait_result = await process.wait()  # settles once the child's own 0.5s sleep finishes
-    assert isinstance(wait_result, Ok), (
-        f"a no-op kill attempt must not classify Err(aborted): {wait_result!r}"
-    )
-    assert wait_result.value.exit_code == 0
-
-
-async def test_wait_awaits_a_pending_kill_attempt_before_reading_kill_cause(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """`L12-PY-R004` witness (refined a third time, targeted closure review): an IMMEDIATE mock
-    result (as in the test above) is not a sufficient negative control for this race, per the
-    review -- it never exercises `wait()` actually observing the process's own exit WHILE a kill
-    attempt is still in flight. This test controls that exact interleaving deterministically with
-    `asyncio.Event`s instead of relying on sleep-based timing luck:
-
-    1. `_kill_process_tree` is monkeypatched to signal `entered` the moment it's called, then
-       BLOCK on `release` before returning `False` (no live target found).
-    2. The real child process is left running; once the kill attempt is confirmed pending
-       (`entered` is set), `process.wait()` is started concurrently and given time to observe
-       the child exit on its own (`self._proc.wait()` resolves) -- but the kill attempt is still
-       blocked on `release`, so `wait()` must NOT have settled yet.
-    3. Only then is `release` set, letting the pending kill attempt resolve to `False`.
-
-    An earlier revision's `wait()` cancelled the watcher task as soon as it observed the
-    process's own exit (step 2), which would have thrown away the still-pending correction step
-    entirely and left the eagerly-set `"signal"` flag uncorrected -- misclassifying this genuinely
-    no-effect kill as `Err(aborted)`. The current `wait()` awaits the watcher instead of
-    cancelling it, so the correction always gets to run before `_kill_cause` is read."""
-    entered = asyncio.Event()
-    release = asyncio.Event()
-
-    async def fake_kill_process_tree(pid: int) -> bool:
-        entered.set()
-        await release.wait()
-        return False
-
-    monkeypatch.setattr(subprocess_module, "_kill_process_tree", fake_kill_process_tree)
-
-    sp = LocalSubprocess()
-    controller = RunAbortController()
-    result = await sp.spawn(
-        [PY, "-c", "import time; time.sleep(0.15); import sys; sys.exit(0)"],
+        [PY, "-c", "import time; time.sleep(0.1); import sys; sys.exit(0)"],
         SpawnOptions(signal=controller.signal),
     )
     process = result.value  # type: ignore[union-attr]
     await asyncio.sleep(0.02)  # watcher is polling; child is still running
-    controller.abort()
-    await asyncio.wait_for(entered.wait(), timeout=2.0)  # kill attempt is now pending/blocked
-
-    wait_task = asyncio.ensure_future(process.wait())
-    await asyncio.sleep(0.3)  # the real child has exited naturally by now (its own 0.15s sleep)
-    assert not wait_task.done(), (
-        "wait() must not settle while the watcher's kill-attempt correction is still pending"
-    )
-
-    release.set()  # let the pending (no-effect) kill attempt resolve
-    wait_result = await asyncio.wait_for(wait_task, timeout=2.0)
-    assert isinstance(wait_result, Ok), (
-        f"a pending no-effect kill attempt must not classify Err(aborted): {wait_result!r}"
-    )
-    assert wait_result.value.exit_code == 0
-
-
-async def test_wait_awaits_a_pending_kill_attempt_that_eventually_succeeds(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """`L12-PY-R004` witness, delayed-`True` counterpart to the test above (per the review: "Add
-    both delayed-`False` and delayed-`True` witnesses"). Here the pending kill attempt eventually
-    DOES find and kill a live target -- `_kill_cause` must remain `"signal"` and `wait()` must
-    classify `Err(aborted)`, proving the fix's `await` (rather than `cancel()`) of the watcher
-    task doesn't merely coincidentally pass the no-effect case but correctly preserves a genuine
-    kill's classification too. Wraps the REAL `_kill_process_tree` so `release` gates an actual
-    OS-level kill of the real long-running child, rather than only simulating one."""
-    entered = asyncio.Event()
-    release = asyncio.Event()
-    real_kill_process_tree = subprocess_module._kill_process_tree
-
-    async def delayed_kill_process_tree(pid: int) -> bool:
-        entered.set()
-        await release.wait()
-        return await real_kill_process_tree(pid)
-
-    monkeypatch.setattr(subprocess_module, "_kill_process_tree", delayed_kill_process_tree)
-
-    sp = LocalSubprocess()
-    controller = RunAbortController()
-    result = await sp.spawn(
-        [PY, "-c", "import time; time.sleep(30)"], SpawnOptions(signal=controller.signal)
-    )
-    process = result.value  # type: ignore[union-attr]
-    await asyncio.sleep(0.02)
-    controller.abort()
-    # kill attempt is pending; the real kill has not been issued yet
-    await asyncio.wait_for(entered.wait(), timeout=2.0)
-
-    wait_task = asyncio.ensure_future(process.wait())
-    await asyncio.sleep(0.1)
-    assert not wait_task.done(), "wait() must not settle while the real kill is still pending"
-
-    release.set()  # let the pending kill attempt actually run now
-    wait_result = await asyncio.wait_for(wait_task, timeout=5.0)
+    controller.abort()  # dispatches the (permanently hanging) kill as a background task
+    wait_result = await asyncio.wait_for(process.wait(), timeout=2.0)
     assert isinstance(wait_result, Err), (
-        f"a genuine pending kill must classify aborted: {wait_result!r}"
+        f"a signal observed while the process was still running classifies aborted, EVEN "
+        f"THOUGH kill confirmation never returned -- wait() does not depend on it: "
+        f"{wait_result!r}"
     )
     assert wait_result.error.code == SubprocessErrorCode.ABORTED
 
 
 @pytest.mark.skipif(os.name != "nt", reason="exercises the taskkill-spawn OSError branch")
-async def test_kill_process_tree_reports_no_target_when_taskkill_itself_fails_to_spawn(
+async def test_kill_process_tree_suppresses_a_failure_to_spawn_taskkill_itself(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """`_kill_process_tree`'s own `except OSError: return False` branch (e.g. `taskkill.exe`
-    missing from `PATH`) -- the helper `Popen(...)` call itself raises rather than the child
-    process, and this must be reported the same as "no live target found", not propagate."""
+    """`_kill_process_tree`'s own `except OSError: return` branch (e.g. `taskkill.exe` missing
+    from `PATH`) -- the helper `Popen(...)` call itself raises rather than the child process,
+    and this must be suppressed (fire-and-forget, matching pinned Pi's own `killProcessTree`,
+    `L12-PY-R004` refined a fourth time), not propagate."""
 
     def fake_popen(*args: object, **kwargs: object) -> subprocess.Popen[bytes]:
         raise OSError("simulated: taskkill not found")
 
     monkeypatch.setattr(subprocess_module._subprocess, "Popen", fake_popen)
 
-    killed = await subprocess_module._kill_process_tree(os.getpid())
-
-    assert killed is False
+    await subprocess_module._kill_process_tree(os.getpid())  # must not raise
 
 
 async def test_wait_takes_no_signal_argument() -> None:

@@ -188,22 +188,24 @@ async def test_wait_first_call_after_explicit_terminate_and_later_signal_abort_i
     assert isinstance(wait_result, Ok)
 
 
-async def test_wait_classifies_ok_when_kill_is_never_actually_issued(
+async def test_wait_classifies_aborted_even_when_kill_issuance_hangs_forever(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """`L12-PY-R004` witness (refined a fifth time, THIRD targeted closure review's own exact
-    minimal witness): a prior revision recorded `_kill_cause = "signal"` from mere INTENT to
-    kill -- the instant the poll loop observed `signal.aborted`, before the OS-level kill was
-    ever actually issued. The review's own reproduction: mock the entire kill mechanism to hang
-    FOREVER before it ever reaches the OS, while the real child exits naturally and unrelatedly.
-    Contract requirement: `Ok(ExitStatus{exit_code: 0})`, NOT `Err(aborted)` -- a signal that
-    never actually causes anything must not be attributed. Monkeypatches `_issue_kill` itself
-    (not `_confirm_kill`) to hang forever, so `_kill_cause` is never set at all."""
+    """`L12-PY-R004` witness (deterministic first-claim model, independently agreed at the
+    `CE-L12-PY-01-01` checkpoint -- `minion-agent-docs#121` @
+    `2db656c01126bfb775d1fe453241e191ed78b2f0`): classification happens at OBSERVATION time --
+    the instant the poll loop sees the signal fired while the process was still running -- NOT
+    gated on the subsequent kill attempt ever completing, succeeding, or even reaching the OS
+    (matching pinned Rust's own certified `subprocess.rs`, whose CAS happens before
+    `kill_process_tree` is ever called). Monkeypatches `_issue_kill` to hang forever, never
+    reaching the OS at all; the real child exits naturally shortly after, unrelated to the
+    (never-issued) kill. `wait()` must still classify `Err(aborted)` promptly, since the claim
+    was already recorded before the child's natural exit."""
     stuck = asyncio.Event()
 
-    async def hanging_issue_kill(pid: int) -> subprocess_module._KillIssue:
-        await stuck.wait()  # never set -- the OS-level kill command is never actually issued
-        return subprocess_module._KillIssue(issued=False)
+    async def hanging_issue_kill(pid: int) -> subprocess.Popen[bytes] | None:
+        await stuck.wait()  # never set -- this kill attempt never reaches the OS
+        return None
 
     monkeypatch.setattr(subprocess_module, "_issue_kill", hanging_issue_kill)
 
@@ -215,13 +217,14 @@ async def test_wait_classifies_ok_when_kill_is_never_actually_issued(
     )
     process = result.value  # type: ignore[union-attr]
     await asyncio.sleep(0.02)  # watcher is polling; child is still running
-    controller.abort()  # watcher enters the kill branch but hangs before ever issuing anything
+    controller.abort()  # watcher claims the cause immediately, then hangs before ever issuing
     wait_result = await asyncio.wait_for(process.wait(), timeout=2.0)
-    assert isinstance(wait_result, Ok), (
-        f"a signal whose kill was never actually issued to the OS must not classify "
-        f"Err(aborted) merely because the loop DECIDED to kill: {wait_result!r}"
+    assert isinstance(wait_result, Err), (
+        f"a signal claim must not be un-classified merely because the kill attempt never "
+        f"reached the OS -- classification happens at observation time, not at issuance "
+        f"success: {wait_result!r}"
     )
-    assert wait_result.value.exit_code == 0
+    assert wait_result.error.code == SubprocessErrorCode.ABORTED
     stuck.set()  # release the still-pending watcher task so it can finish and be garbage-safe
 
 
@@ -264,41 +267,39 @@ async def test_wait_settles_promptly_and_classifies_aborted_when_confirmation_ne
 
 
 @pytest.mark.skipif(os.name != "nt", reason="exercises the taskkill-spawn OSError branch")
-async def test_issue_kill_reports_not_issued_when_taskkill_itself_fails_to_spawn(
+async def test_issue_kill_returns_none_when_taskkill_itself_fails_to_spawn(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """`_issue_kill`'s own `except OSError: return _KillIssue(issued=False)` branch (e.g.
-    `taskkill.exe` missing from `PATH`) -- the helper `Popen(...)` call itself raises rather
-    than the child process. `L12-PY-R004` (refined a sixth time, fourth targeted closure
-    review): a bare `Popen | None` return here could not distinguish this genuine issuance
-    FAILURE from a successful POSIX issuance (also `None`, since POSIX has no helper) -- this
-    is the exact discriminating shape the review's own composed test below exercises through
-    `wait()`; this unit-level test isolates just `_issue_kill`'s own return value."""
+    """`_issue_kill`'s own `except OSError: return None` branch (e.g. `taskkill.exe` missing
+    from `PATH`) -- the helper `Popen(...)` call itself raises rather than the child process.
+    Under the agreed deterministic first-claim model (`CE-L12-PY-01-01`,
+    `minion-agent-docs#121` @ `2db656c01126bfb775d1fe453241e191ed78b2f0`) this failure is no
+    longer causally significant -- see `_watch_signal`'s own docstring -- so `_issue_kill`
+    degrades to `None` (matching the POSIX "no helper" case) rather than raising or signaling
+    failure through a dedicated return shape."""
 
     def fake_popen(*args: object, **kwargs: object) -> subprocess.Popen[bytes]:
         raise OSError("simulated: taskkill not found")
 
     monkeypatch.setattr(subprocess_module._subprocess, "Popen", fake_popen)
 
-    issue = await subprocess_module._issue_kill(os.getpid())  # must not raise
+    helper = await subprocess_module._issue_kill(os.getpid())  # must not raise
 
-    assert issue.issued is False
-    assert issue.helper is None
+    assert helper is None
 
 
 @pytest.mark.skipif(os.name != "nt", reason="exercises the taskkill-spawn OSError branch")
-async def test_wait_classifies_ok_when_taskkill_itself_fails_to_spawn(
+async def test_wait_classifies_aborted_even_when_taskkill_itself_fails_to_spawn(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """`L12-PY-R004` witness (fourth targeted closure review's own exact minimal witness,
-    composed through the public API, not just `_issue_kill` in isolation): a failed Windows
-    `taskkill` spawn (`Popen` raises `OSError`) means NO kill command ever reached the OS --
-    the review's own reproduction found that an earlier revision still recorded
-    `_kill_cause = "signal"` unconditionally after `_issue_kill` returned (regardless of
-    whether issuance succeeded), misclassifying a naturally-exiting child as `Err(aborted)`.
-    Monkeypatches the real `Popen` to fail, letting the real child exit naturally, and asserts
-    through the PUBLIC `process.wait()` -- not by inspecting `_issue_kill`'s return value
-    directly, closing the exact gap the review identified in the prior round's test."""
+    """`L12-PY-R004` witness (deterministic first-claim model, independently agreed at the
+    `CE-L12-PY-01-01` checkpoint -- `minion-agent-docs#121` @
+    `2db656c01126bfb775d1fe453241e191ed78b2f0`): a failed Windows `taskkill` spawn (`Popen`
+    raises `OSError`) must NOT retroactively un-classify an already-claimed abort --
+    `_kill_cause` is recorded at OBSERVATION time, before the kill is even attempted, matching
+    pinned Rust's own CAS-before-kill-attempt ordering. Monkeypatches the real `Popen` to fail;
+    the real child exits naturally shortly after, independent of the (failed) kill attempt, and
+    `wait()` must still classify `Err(aborted)` through the PUBLIC API."""
 
     def fake_popen(*args: object, **kwargs: object) -> subprocess.Popen[bytes]:
         raise OSError("simulated: taskkill not found")
@@ -313,13 +314,14 @@ async def test_wait_classifies_ok_when_taskkill_itself_fails_to_spawn(
     )
     process = result.value  # type: ignore[union-attr]
     await asyncio.sleep(0.02)  # watcher is polling; child is still running
-    controller.abort()  # _watch_signal attempts to issue a kill; the spawn itself fails
+    controller.abort()  # watcher claims the cause immediately; the taskkill spawn itself fails
     wait_result = await asyncio.wait_for(process.wait(), timeout=2.0)
-    assert isinstance(wait_result, Ok), (
-        f"a failed taskkill SPAWN (no OS-level kill command ever issued) must not classify "
-        f"Err(aborted): {wait_result!r}"
+    assert isinstance(wait_result, Err), (
+        f"a failed taskkill SPAWN must not un-classify an already-claimed abort -- "
+        f"classification happens at observation time, not at kill-issuance success: "
+        f"{wait_result!r}"
     )
-    assert wait_result.value.exit_code == 0
+    assert wait_result.error.code == SubprocessErrorCode.ABORTED
 
 
 async def test_wait_takes_no_signal_argument() -> None:

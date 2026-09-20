@@ -41,6 +41,8 @@ from typing import Any, Protocol
 from urllib.parse import urlparse
 
 import idna
+from ada_url import URL as _AdaURL
+from ada_url import HostType as _AdaHostType
 
 from ..runtime.signal import RunSignal
 from .errors import FsError, FsErrorCode, to_fs_error
@@ -128,12 +130,6 @@ _WINDOWS_DRIVE_PATH_RE = re.compile(r"^/[A-Za-z]:")
 
 _HEX_DIGITS = frozenset("0123456789abcdefABCDEF")
 
-# WHATWG "forbidden host code point" set (tab/LF/CR/space plus `#/:<>?@[\]^|`), extended with
-# a literal "%" -- live Node probes (`file://%2541/share`, `file://a%25b/share`, ...) confirm
-# any decoded host still containing "%" is rejected at Node's own `new URL(...)` construction
-# step, even though "%" is not itself in the WHATWG spec's own forbidden-host-code-point list.
-_FORBIDDEN_HOST_CHARS = frozenset("\x00\t\n\r #%/:<>?@[\\]^|")
-
 
 def _strict_percent_decode(value: str) -> str:
     """Byte-accurate equivalent of JavaScript's `decodeURIComponent` -- percent-decodes `%XX`
@@ -159,31 +155,25 @@ def _strict_percent_decode(value: str) -> str:
 
 def _domain_to_unicode(host: str) -> str:
     """WHATWG/UTS46-compatible per-label domain decode of a purely-ASCII host (`L12-PY-R002`,
-    refined a SIXTH time, fourth targeted closure review) -- an `"xn--..."` label decodes to
-    its Unicode glyphs (`"xn--fa-hia"` -> `"faß"`), matching Node's own `domainToUnicode`
-    (WHATWG/ICU-backed).
+    R002 checkpoint composition -- `minion-agent-docs#121` @
+    `2db656c01126bfb775d1fe453241e191ed78b2f0`) -- an `"xn--..."` label decodes to its Unicode
+    glyphs (`"xn--fa-hia"` -> `"faß"`), matching Node's own `domainToUnicode` (WHATWG/ICU-backed).
+    Called on the host `ada_url` has already validated/canonicalized for IPv4/IPv6/forbidden-
+    code-point/general syntax (`_file_url_to_path`) -- this function's OWN remaining job is
+    exactly the part neither `ada_url.URL.host` nor its lenient `idna_to_unicode()` helper
+    performs: real bidi/combining-mark validation and actual Punycode decoding.
 
-    TWO prior revisions of this function were rejected for progressively approximating the
-    real algorithm instead of implementing it: Python's built-in `"idna"` codec (IDNA2003,
-    whose `nameprep` step maps `ß` to `"ss"`, rejecting modern A-labels via a round-trip
-    check Node doesn't perform), then a hand-rolled bare-RFC-3492-Punycode-plus-`isprintable()`
-    decoder (which correctly closed the IDNA2003 gap but still accepted labels the real
-    WHATWG/ICU host parser rejects on BIDI grounds -- `"xn--abc-ppe"` decodes to a
-    right-to-left Hebrew-prefixed label Node rejects -- and on leading-combining-mark grounds
-    -- `"xn--abc-jdc"` decodes to a label starting with a combining accent Node also rejects
-    -- neither of which `isprintable()` catches, since both decoded strings ARE printable).
-
-    This now delegates to the third-party `idna` package (`kjd/idna` on PyPI, NOT Python's
-    built-in `encodings.idna` codec of the same name) -- already present in this project's
-    own resolved dependency tree (a transitive dependency via `httpx`, now declared directly)
-    -- which implements the actual UTS46/IDNA2008 validation surface (bidi rule, combining-
-    mark placement, contextual rules, ToASCII/ToUnicode) that Node's own ICU-backed
-    `domainToUnicode` also implements, rather than re-approximating pieces of it by hand.
-    `idna.decode()` operates on a full dotted domain directly (splitting labels and decoding
-    only `"xn--..."`-prefixed ones itself), so this function is now a thin wrapper. Verified
-    against every witness across all four review rounds (`bücher`, `faß`, `straße`, bare `ß`,
-    `xn--abc-ppe`/BIDI-rejected, `xn--abc-jdc`/combining-mark-rejected, `xn--`/`xn--zzzz`/
-    `xn--a`) via direct execution of the real library, matching Node exactly in every case.
+    Delegates to the third-party `idna` package (`kjd/idna` on PyPI, NOT Python's built-in
+    `encodings.idna` codec of the same name), which implements the actual UTS46/IDNA2008
+    validation surface (bidi rule, combining-mark placement, contextual rules, ToASCII/
+    ToUnicode) that Node's own ICU-backed `domainToUnicode` also implements: `"xn--abc-ppe"`
+    decodes to a right-to-left Hebrew-prefixed label Node rejects, `"xn--abc-jdc"` decodes to
+    a label starting with a combining accent Node also rejects -- both correctly rejected by
+    `idna.decode()`, and NOT rejected by `ada_url`'s own `URL.host`/`idna_to_unicode()`, which
+    pass already-ASCII `"xn--..."` labels through unvalidated (live-verified). Verified against
+    every prior witness (`bücher`, `faß`, `straße`, bare `ß`, `xn--abc-ppe`/BIDI-rejected,
+    `xn--abc-jdc`/combining-mark-rejected, `xn--`/`xn--zzzz`/`xn--a`) via direct execution of
+    the real library, matching Node exactly in every case.
 
     `idna.IDNAError` (the package's own common base exception, itself already a `ValueError`
     subclass covering `IDNABidiError`/`InvalidCodepoint`/every other specific failure) is
@@ -205,10 +195,20 @@ def _domain_to_unicode(host: str) -> str:
 
 
 def _file_url_to_path(url: str) -> str:
-    """A characterized port of pinned Node's `fileURLToPath` (`L12-PY-R002`, refined a fourth
-    time, second targeted closure review), verified against live Node 22 execution in both
-    `windows: true` and `windows: false` modes (Node's own `fileURLToPath(url, {windows})`
-    override) rather than guessed or trusted from a review's prose. Node's real algorithm, as
+    """A characterized port of pinned Node's `fileURLToPath` (`L12-PY-R002`, R002 checkpoint
+    composition -- `minion-agent-docs#121` @ `2db656c01126bfb775d1fe453241e191ed78b2f0`),
+    verified against live Node 22 execution in both `windows: true` and `windows: false` modes
+    (Node's own `fileURLToPath(url, {windows})` override) rather than guessed or trusted from a
+    review's prose, and against the committed 65-case differential corpus
+    (`assurance/layers/data/12-python-r002-differential-corpus.md`). No off-the-shelf Python
+    package reproduces the FULL algorithm in one call (see that artifact's own library-research
+    table), so this composes: `ada_url` (the SAME URL engine Node itself has used internally
+    since 18.17) for host syntax/IPv4/IPv6/forbidden-code-point validation and canonicalization,
+    `idna` as a strict bidi/combining-mark/Punycode-decode gate on top of that (see
+    `_domain_to_unicode`'s own docstring for why `ada_url`'s own lenient `idna_to_unicode()`
+    helper is not sufficient by itself), and a hand-written layer below for the
+    `fileURLToPath`-SPECIFIC rules neither library attempts: the encoded-separator guard,
+    drive-letter validation, and backslash-to-`/` pre-normalization. Node's real algorithm, as
     observed:
 
     0. A RAW (unescaped) backslash ANYWHERE in the URL text is normalized to `/` BEFORE any
@@ -219,24 +219,32 @@ def _file_url_to_path(url: str) -> str:
        applies there -- confirmed by live probe). An *encoded* `%5c` is NOT touched by this step
        (it is a different 3-character sequence, not a literal backslash byte) -- that is a
        SEPARATE, later check (step 3).
-    1. The host is percent-decoded (UTF-8, strict) and, if it contains any WHATWG "forbidden
-       host code point" (space/control/``#%/:<>?@[\\]^|``), the WHOLE URL is rejected -- this
-       happens at Node's OWN `new URL(...)` construction step, before `fileURLToPath`'s body
-       even runs (`file://%2541/share` -- decodes to the literal string `%41`, which still
-       contains `%` -- is rejected; `file://%41/share` -- decodes cleanly to `A` -- is
-       accepted). A valid decoded host is ASCII-lowercased (domain names are case-insensitive).
-       An IPv6 literal host (`[::1]`, bracket-delimited) is its own host TYPE, parsed before --
-       and exempt from -- the forbidden-host-code-point/domain check (`[`/`]` are themselves in
-       that forbidden set for an ordinary domain host, but are exactly what DELIMITS an IPv6
-       literal, so checking them against that same set would reject every IPv6 host outright).
-       If the (lowercased) decoded host is PURELY ASCII, it is additionally passed through
-       `_domain_to_unicode` (a bare per-label RFC 3492 Punycode decode -- see its own
-       docstring for why Python's built-in `"idna"` codec is NOT used here) -- an
-       `"xn--..."` punycode label decodes to its Unicode glyphs (`"xn--fa-hia"` -> `"faß"`),
-       and an INVALID punycode label (`"xn--"`, `"xn--zzzz"`) rejects the whole URL, matching
-       Node's own `ERR_INVALID_URL`. A host that is ALREADY non-ASCII after percent-decoding
-       (e.g. `%C3%A9xample.com` -> `"éxample.com"`) is NOT round-tripped through this step at
-       all -- confirmed by live probe, Node keeps such a host exactly as decoded.
+    1. The host is validated and canonicalized by `ada_url.URL` -- the SAME engine Node's own
+       `new URL(...)` construction step uses internally, closing the gaps this function's own
+       hand-rolled predecessor got wrong: an invalid-range IPv4-shaped host (`256.256.256.256`,
+       `1.2.3.4.5`) is REJECTED, not passed through as a literal domain label; an IPv6 literal
+       (`[::ffff:192.168.1.1]`) is CANONICALIZED (`-> [::ffff:c0a8:101]`), not kept as typed; a
+       decoded host containing any WHATWG "forbidden host code point" (space/control/
+       ``#%/:<>?@[\\]^|``) is rejected (`file://%2541/share` -- decodes to the literal string
+       `%41`, still containing `%` -- is rejected; `file://%41/share` -- decodes cleanly to `A`
+       -- is accepted); a domain host is ASCII-lowercased and non-ASCII input is converted to its
+       Punycode (`xn--...`) ASCII form. `ada_url`'s own `host_type` distinguishes an IPv4/IPv6
+       literal (exempt from the domain-specific step below -- an IPv6 host's brackets are exactly
+       what delimits it, not a forbidden character on that host type) from an ordinary domain. A
+       domain-typed (`ada_url.HostType.DEFAULT`) host is additionally passed through
+       `_domain_to_unicode` -- an `"xn--..."` punycode label decodes to its Unicode glyphs
+       (`"xn--fa-hia"` -> `"faß"`), and an INVALID punycode label (`"xn--"`, `"xn--zzzz"`, or one
+       that fails bidi/combining-mark validation, `"xn--abc-ppe"`/`"xn--abc-jdc"`) rejects the
+       whole URL, matching Node's own `ERR_INVALID_URL` -- `ada_url` alone does not perform this
+       validation (its own `URL.host`/`idna_to_unicode()` pass already-ASCII `"xn--..."` labels
+       through unchecked, live-verified). KNOWN, CHARACTERIZED divergence (not in the approved
+       corpus, not fixed in this pass): a host that is non-ASCII only after PERCENT-DECODING
+       (e.g. `%C3%A9xample.com`) is round-tripped through `ada_url`'s own ToASCII step into
+       Punycode form (`"xn--xample-9ua.com"`) before reaching `_domain_to_unicode`, which then
+       decodes it back to Unicode (`"éxample.com"`) -- the OBSERVABLE result is the same in this
+       specific case, but Node's own behavior (keeping such a host exactly as percent-decoded,
+       without an intermediate ASCII round-trip) has not been differentially verified for every
+       input in this class.
     2. On Windows specifically, a host that is (after decoding) exactly `"localhost"` is treated
        identically to an EMPTY host -- routed to the drive-letter branch (6), not the UNC branch
        (5) (`file://localhost/C:/foo` resolves to `C:\foo`, not a UNC path to a literal
@@ -268,24 +276,25 @@ def _file_url_to_path(url: str) -> str:
     probes of `resolve('C:')` -> `"C:\\\\"` and `resolve('\\\\\\\\a\\\\share')` ->
     `"\\\\\\\\a\\\\share\\\\"`), not here -- this function returns the bare, un-rooted form."""
     windows = os.name == "nt"
-    parsed = urlparse(url.replace("\\", "/"))
+    normalized_url = url.replace("\\", "/")
+    parsed = urlparse(normalized_url)
 
     host = ""
     if parsed.netloc:
-        if parsed.netloc.startswith("[") and parsed.netloc.endswith("]"):
-            host = parsed.netloc  # IPv6 literal -- its own host type, not a domain
-        else:
-            host = _strict_percent_decode(parsed.netloc)
-            if any(c in _FORBIDDEN_HOST_CHARS for c in host):
-                raise ValueError(f"file:// URL host is not a valid hostname: {parsed.netloc!r}")
-            host = host.lower()
-            if host.isascii():
-                try:
-                    host = _domain_to_unicode(host)
-                except ValueError as exc:
-                    raise ValueError(
-                        f"file:// URL host is not a valid hostname: {parsed.netloc!r}"
-                    ) from exc
+        try:
+            ada = _AdaURL(normalized_url)
+        except ValueError as exc:
+            raise ValueError(
+                f"file:// URL host is not a valid hostname: {parsed.netloc!r}"
+            ) from exc
+        host = ada.host
+        if ada.host_type == _AdaHostType.DEFAULT and host.isascii():
+            try:
+                host = _domain_to_unicode(host)
+            except ValueError as exc:
+                raise ValueError(
+                    f"file:// URL host is not a valid hostname: {parsed.netloc!r}"
+                ) from exc
     windows_empty_host = windows and host == "localhost"
 
     raw_pathname = parsed.path

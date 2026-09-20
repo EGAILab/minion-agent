@@ -5803,6 +5803,35 @@ rows:
     ordinary (almost certainly invalid) path string rather than raising, preserving the
     never-throw contract.
 
+    `file://` URL conversion (`L12-PY-R002`, resolved at the `CE-L12-PY-01-01` checkpoint,
+    `minion-agent-docs#121` @ `2db656c01126bfb775d1fe453241e191ed78b2f0`, `AGREED FOR
+    IMPLEMENTATION: YES`): pinned Pi delegates 100% of `file://`-to-path conversion to Node''s
+    own `url.fileURLToPath` (`nodejs.ts:18,20,51-65`) -- Pi has no narrower Pi-authored subset of
+    this behavior, so DIRECT_PI_PARITY for this row means direct Node parity specifically. The
+    Python candidate''s own hand-rolled predecessor was differentially tested against a 65-case
+    corpus (`minion-agent-docs/assurance/layers/data/12-python-r002-differential-corpus.md`,
+    Node `v22.19.0` -- Pi''s exact declared `engines.node` floor, checksum-verified -- as the
+    primary oracle, with a `v22.23.2` drift check confirming byte-for-byte identical output) and
+    found to diverge on 4/65 cases, all IPv4-range-validation/IPv6-canonicalization/disallowed-
+    codepoint shaped. No off-the-shelf Python package reproduces Node''s full algorithm in one
+    call (that artifact''s own library-research table); the Python implementation
+    (`filesystem.py`''s `_file_url_to_path`) now composes `ada_url` (the SAME URL engine Node
+    itself has used internally since 18.17, for host syntax/IPv4/IPv6/forbidden-code-point
+    validation and canonicalization) with `idna.decode()` as a strict bidi/combining-mark/
+    Punycode-decode gate (`ada_url`''s own `idna_to_unicode()` is lenient and does not perform
+    this validation -- confirmed live) on top, plus a hand-written layer for the
+    `fileURLToPath`-SPECIFIC rules neither library attempts (encoded-separator rejection,
+    drive-letter validation, backslash pre-normalization). Reverified against the FULL 65-case
+    corpus: `65/65`. One divergence is characterized but NOT fixed in this pass, per the
+    checkpoint''s own scope (not exercised by the approved corpus): a host that is non-ASCII only
+    after PERCENT-DECODING is round-tripped through `ada_url`''s own ToASCII step into Punycode
+    before Unicode-decoding, rather than kept exactly as percent-decoded the way Node does --
+    observably identical for every corpus case, not yet differentially verified beyond it (see
+    `_file_url_to_path`''s own docstring). `minion-agent-rust`''s own `expand_path`/
+    `Url::parse(...).to_file_path()` branch matched only `48/65` against the SAME oracle and
+    remains `REVALIDATE_REQUIRED` -- untouched by this Python-side remediation, a Rust-owned
+    follow-up per `CE-L12-PY-01-01`''s own scope.
+
     Symlinks (`L12-R002` -- corrected twice: an earlier revision of this row wrongly claimed
     symlinks are "never followed... except canonical_path"; a first remediation then
     MISCLASSIFIED `rename_file` as ordinary symlink-following content I/O and omitted `remove`

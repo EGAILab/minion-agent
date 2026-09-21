@@ -9,6 +9,7 @@ version.workspace = true
 conformance = []
 
 [dependencies]
+ada-url.workspace = true
 async-trait.workspace = true
 base64.workspace = true
 futures.workspace = true

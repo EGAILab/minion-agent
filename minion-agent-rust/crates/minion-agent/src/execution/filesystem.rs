@@ -8,9 +8,9 @@ use std::{
     time::UNIX_EPOCH,
 };
 
+use ada_url::{HostType, Idna, Url as AdaUrl};
 use async_trait::async_trait;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use url::Url;
 use uuid::Uuid;
 
 use super::{AbortSignal, ExecutionWorldIdentity, FsError, FsErrorCode};
@@ -542,11 +542,10 @@ pub(crate) fn resolve_local_path(cwd: &Path, raw: &str) -> PathBuf {
 }
 
 fn expand_path(raw: &str) -> PathBuf {
-    if let Ok(url) = Url::parse(raw)
-        && url.scheme() == "file"
-        && let Ok(path) = url.to_file_path()
+    if raw.starts_with("file://")
+        && let Some(path) = file_url_to_path(raw, cfg!(windows))
     {
-        return path;
+        return PathBuf::from(path);
     }
     if raw == "~" || raw.starts_with("~/") || raw.starts_with("~\\") {
         let home = env::var_os("HOME").or_else(|| env::var_os("USERPROFILE"));
@@ -556,6 +555,85 @@ fn expand_path(raw: &str) -> PathBuf {
         }
     }
     PathBuf::from(raw)
+}
+
+fn file_url_to_path(raw: &str, windows: bool) -> Option<String> {
+    let normalized = raw.replace('\\', "/");
+    let url = AdaUrl::parse(normalized, None).ok()?;
+    if url.protocol() != "file:" {
+        return None;
+    }
+    let host = unicode_host(&url)?;
+
+    let raw_pathname = url.pathname();
+    let lowered_pathname = raw_pathname.to_ascii_lowercase();
+    if lowered_pathname.contains("%2f") || (windows && lowered_pathname.contains("%5c")) {
+        return None;
+    }
+    let pathname = strict_percent_decode(raw_pathname)?;
+
+    if windows {
+        if !host.is_empty() && host != "localhost" {
+            return Some(format!("\\\\{host}{pathname}").replace('/', "\\"));
+        }
+        let bytes = pathname.as_bytes();
+        if bytes.len() < 3
+            || bytes[0] != b'/'
+            || !bytes[1].is_ascii_alphabetic()
+            || bytes[2] != b':'
+        {
+            return None;
+        }
+        return Some(pathname[1..].replace('/', "\\"));
+    }
+
+    if !host.is_empty() && host != "localhost" {
+        return None;
+    }
+    Some(if pathname.is_empty() {
+        "/".to_owned()
+    } else {
+        pathname
+    })
+}
+
+fn unicode_host(url: &AdaUrl) -> Option<String> {
+    let ascii_host = url.host();
+    if url.host_type() == HostType::Domain
+        && ascii_host.split('.').any(|label| label.starts_with("xn--"))
+    {
+        let decoded = Idna::unicode(ascii_host);
+        (decoded != ascii_host).then_some(decoded)
+    } else {
+        Some(ascii_host.to_owned())
+    }
+}
+
+fn strict_percent_decode(value: &str) -> Option<String> {
+    let input = value.as_bytes();
+    let mut output = Vec::with_capacity(input.len());
+    let mut index = 0;
+    while index < input.len() {
+        if input[index] == b'%' {
+            let high = *input.get(index + 1)?;
+            let low = *input.get(index + 2)?;
+            output.push((hex_value(high)? << 4) | hex_value(low)?);
+            index += 3;
+        } else {
+            output.push(input[index]);
+            index += 1;
+        }
+    }
+    String::from_utf8(output).ok()
+}
+
+fn hex_value(value: u8) -> Option<u8> {
+    match value {
+        b'0'..=b'9' => Some(value - b'0'),
+        b'a'..=b'f' => Some(value - b'a' + 10),
+        b'A'..=b'F' => Some(value - b'A' + 10),
+        _ => None,
+    }
 }
 
 fn lexical_normalize(path: &Path) -> PathBuf {
@@ -618,5 +696,57 @@ async fn abortable_io<T>(
             result = &mut future => return result.map_err(map_fs_error),
             () = tokio::time::sleep(std::time::Duration::from_millis(1)) => {}
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const ADA_292_ORACLE: &str = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../../minion-agent-python/tests/execution/data/r002_ada_oracle/systematic_ada292.txt"
+    ));
+
+    #[test]
+    fn exact_ada_292_host_oracle_matches_all_8246_cases() {
+        let mut count = 0;
+        for row in ADA_292_ORACLE.lines() {
+            let (raw, expected) = row.split_once('\t').expect("oracle row has two fields");
+            let actual = AdaUrl::parse(raw, None)
+                .ok()
+                .and_then(|url| unicode_host(&url));
+            if expected == "PARSE_ERROR" {
+                assert_eq!(actual, None, "{raw}");
+            } else {
+                assert_eq!(actual.as_deref(), Some(expected), "{raw}");
+            }
+            count += 1;
+        }
+        assert_eq!(count, 8_246);
+    }
+
+    #[test]
+    fn file_url_conversion_applies_node_platform_rules_after_ada_parsing() {
+        assert_eq!(
+            file_url_to_path("file://xn--bcher-kva/share", true).as_deref(),
+            Some("\\\\bücher\\share")
+        );
+        assert_eq!(
+            file_url_to_path("file://localhost/C:/a%20b", true).as_deref(),
+            Some("C:\\a b")
+        );
+        assert_eq!(
+            file_url_to_path("file:///C%3A/foo", true).as_deref(),
+            Some("C:\\foo")
+        );
+        assert_eq!(file_url_to_path("file:///C:/a%2Fb", true), None);
+        assert_eq!(file_url_to_path("file:///C:/a%5Cb", true), None);
+        assert_eq!(
+            file_url_to_path("file:///home/user/a%20b", false).as_deref(),
+            Some("/home/user/a b")
+        );
+        assert_eq!(file_url_to_path("file://remote/share", false), None);
+        assert_eq!(file_url_to_path("file:///%ZZ", true), None);
     }
 }

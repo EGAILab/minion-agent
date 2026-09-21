@@ -5968,8 +5968,9 @@ rows:
   - minion-agent-python/tests/execution/test_filesystem.py
   python: 'minion-agent-python/src/minion_agent/execution/filesystem.py; integration evidence in
     minion-agent-python/tests/execution/test_filesystem.py'
-  rust: 'minion-agent-rust/crates/minion-agent/src/execution/filesystem.rs; integration evidence in
-    minion-agent-rust/crates/minion-agent/tests/execution_filesystem.rs'
+  rust: 'minion-agent-rust/crates/minion-agent/src/execution/filesystem.rs (`ada-url = 3.1.0`,
+    whose bundled core is exact Ada 2.9.2); 8,246-case direct-oracle gate in that module''s unit
+    tests; integration evidence in minion-agent-rust/crates/minion-agent/tests/execution_filesystem.rs'
   disposition: adopted
 - id: EXEC-003
   phase: 6
@@ -6320,7 +6321,8 @@ rows:
   - minion-agent-python/tests/execution/test_subprocess.py
   python: 'minion-agent-python/src/minion_agent/execution/subprocess.py; integration evidence in
     minion-agent-python/tests/execution/test_subprocess.py'
-  rust: 'minion-agent-rust/crates/minion-agent/src/execution/subprocess.rs; integration evidence in
+  rust: 'minion-agent-rust/crates/minion-agent/src/execution/subprocess.rs; R004-A states 7/9 and
+    R004-B state-10 settlement witnesses in that module''s unit tests; integration evidence in
     minion-agent-rust/crates/minion-agent/tests/execution_process.rs'
   disposition: intentional divergence
 - id: EXEC-006

@@ -13,6 +13,7 @@ dependencies = [
     "jsonschema>=4.22",
     "httpx>=0.27",
     "url-py>=2026.5.1",
+    "ada-url==1.15.3",
 ]
 
 [dependency-groups]
@@ -50,6 +51,7 @@ files = ["src/minion_agent"]
 source = [
     "src/minion_agent/runtime",
     "src/minion_agent/auth",
+    "src/minion_agent/execution",
     "src/minion_agent/llm",
     "src/minion_agent/session",
     "src/minion_agent/telemetry",

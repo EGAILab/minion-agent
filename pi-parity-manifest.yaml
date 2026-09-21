@@ -5725,7 +5725,9 @@ rows:
   - minion-agent-rust/crates/minion-agent/tests/execution_filesystem.rs
   - minion-agent-rust/crates/minion-agent/tests/execution_process.rs
   - minion-agent-rust/crates/minion-agent/tests/execution_shell.rs
-  python: 'NOT YET IMPLEMENTED -- CONTRACT_DRAFT, WP-12.1 (issue #39)'
+  - minion-agent-python/tests/execution/test_errors.py
+  python: 'minion-agent-python/src/minion_agent/execution/errors.py; typed boundary exercised by
+    test_errors.py, test_filesystem.py, test_shell.py, and test_subprocess.py'
   rust: 'minion-agent-rust/crates/minion-agent/src/execution/error.rs; typed boundary exercised by
     execution_filesystem.rs, execution_process.rs, and execution_shell.rs'
   disposition: adopted
@@ -5801,6 +5803,106 @@ rows:
     ordinary (almost certainly invalid) path string rather than raising, preserving the
     never-throw contract.
 
+    `file://` URL conversion (`L12-PY-R002`, resolved at the `CE-L12-PY-01-01` checkpoint,
+    `minion-agent-docs#121` @ `2db656c01126bfb775d1fe453241e191ed78b2f0`, `AGREED FOR
+    IMPLEMENTATION: YES`): pinned Pi delegates 100% of `file://`-to-path conversion to Node''s
+    own `url.fileURLToPath` (`nodejs.ts:18,20,51-65`) -- Pi has no narrower Pi-authored subset of
+    this behavior, so DIRECT_PI_PARITY for this row means direct Node parity specifically. The
+    Python candidate''s own hand-rolled predecessor was differentially tested against a 65-case
+    corpus (`minion-agent-docs/assurance/layers/data/12-python-r002-differential-corpus.md`,
+    Node `v22.19.0` -- Pi''s exact declared `engines.node` floor, checksum-verified -- as the
+    primary oracle, with a `v22.23.2` drift check confirming byte-for-byte identical output) and
+    found to diverge on 4/65 cases, all IPv4-range-validation/IPv6-canonicalization/disallowed-
+    codepoint shaped. No off-the-shelf Python package reproduces Node''s full algorithm in one
+    call (that artifact''s own library-research table); the Python implementation
+    (`filesystem.py`''s `_file_url_to_path`) now composes `ada_url` (the SAME URL engine Node
+    itself has used internally since 18.17, for host syntax/IPv4/IPv6/forbidden-code-point
+    validation and canonicalization) with `idna.decode()` as a strict bidi/combining-mark/
+    Punycode-decode gate (`ada_url`''s own `idna_to_unicode()` is lenient and does not perform
+    this validation -- confirmed live) on top, plus a hand-written layer for the
+    `fileURLToPath`-SPECIFIC rules neither library attempts (encoded-separator rejection,
+    drive-letter validation, backslash pre-normalization). Reverified against the FULL 65-case
+    corpus: `65/65`. An earlier revision of this row characterized one residual divergence as
+    "observably identical for every corpus case, not yet differentially verified beyond it": a
+    host that is non-ASCII only after PERCENT-DECODING is round-tripped through `ada_url`''s own
+    ToASCII step into Punycode before `_domain_to_unicode` decodes it back to Unicode, rather
+    than kept exactly as percent-decoded the way Node does.
+
+    Correction (targeted section 11.8.7 closure review of the `CE-L12-PY-01-01` R002
+    remediation, `minion-agent-docs#120` @ `09423f0a962d1139ba16155eff6113c026a1f89a`): that
+    "observably identical" claim was FALSIFIED by a direct counterexample -- `file://%E2%98%83.
+    com/share`/`file://%F0%9F%92%A9.com/share` (a snowman/pile-of-poo, decoding to Unicode
+    category `"So"`, Symbol-other) round-tripped through `ada_url`''s ToASCII step into a
+    Punycode label the STRICT `idna.decode()` then rejected as a disallowed codepoint (RFC 5892),
+    while live Node (v22.15.1/v22.19.0/v22.23.2, all checksum-verified) accepts both and returns
+    a UNC path containing the literal glyph. Fixed: `_domain_to_unicode` now retries, on strict
+    rejection specifically for `InvalidCodepoint`/`InvalidCodepointContext`, through
+    `_relaxed_punycode_label` -- the SAME structural validation (canonical Punycode form, NFC,
+    hyphen placement, leading-combining-mark, bidi, CONTEXTJ/CONTEXTO), but additionally
+    accepting a disallowed codepoint specifically in Unicode category `"So"` (see
+    `filesystem.py`''s `_relaxed_codepoint_ok` for the exact, narrowly-evidenced scope of that
+    widening). Reverified against the FULL corpus, now 67 cases (the two new witnesses added as
+    permanent regression evidence): `67/67`. The malformed-punycode/bidi/combining-mark
+    rejections this fix must NOT reopen (`"xn--"`, `"xn--zzzz"`, `"xn--a"`, `"xn--abc-ppe"`,
+    `"xn--abc-jdc"`) were reverified unchanged. NO CLAIM is made that every OTHER
+    not-yet-witnessed disallowed-codepoint category (unassigned, private-use, control, ...)
+    Node''s ICU-backed UTS46 profile might also accept is now covered by this fix -- a future
+    witness in one of those categories would be a SEPARATE characterized finding, not silently
+    resolved here.
+
+    `minion-agent-rust`''s own `expand_path`/`Url::parse(...).to_file_path()` branch matched only
+    `48/67` against the SAME extended oracle (including the two new emoji witnesses, both also
+    mismatching -- Rust keeps the Punycode form, does not decode to Unicode) and remains
+    `REVALIDATE_REQUIRED` -- untouched by this Python-side remediation, a Rust-owned follow-up
+    per `CE-L12-PY-01-01`''s own scope.
+
+    Root characterization and FINAL resolution (checkpoint invalidated under section 11.8.10
+    after this finding failed a SECOND targeted closure review with `Sc`/`Sm`-category
+    witnesses beyond the `"So"`-only fix above; `minion-agent-docs#121` @
+    `00afd5178d5c1bed4ec5175eea873061a9928fb1`, `AGREED FOR IMPLEMENTATION: YES` after five
+    checkpoint correction rounds): the category-by-category `idna`-package patching approach
+    above is SUPERSEDED, not extended further. Root cause, confirmed directly from Node
+    v22.19.0''s own source (`node_url.cc`): `fileURLToPath`/`domainToUnicode` delegate this
+    ENTIRE responsibility -- host validation (bidi, leading-combining-mark, codepoint-assignment)
+    AND Punycode-to-Unicode decoding -- to a single concrete engine, Ada, specifically Ada
+    `2.9.2` (`ada::idna::to_unicode(get_hostname())`, confirmed via the vendored
+    `ADA_VERSION` macro). A direct Ada 2.9.2 executable oracle was built (the exact vendored
+    C++ source, checksummed, compiled with a harness mirroring Node''s own call sequence) and
+    differentially tested against an 8,246-case systematic corpus
+    (`minion-agent-docs/assurance/layers/data/12-python-r002-ada-oracle/`): Node v22.19.0 vs
+    direct Ada 2.9.2, `0/8246` mismatches (Strategy A''s premise proven, not assumed). The
+    project''s own `idna`-package-based composition (both the strict and `"So"`-relaxed forms
+    above) was found NOT to be a faithful structural match to Ada''s actual validity gate,
+    independent of Unicode-table-version alignment -- including a genuine, source-verified bug
+    in Ada 2.9.2''s own `is_label_valid` (an LTR-bidi validation loop with an off-by-one bound
+    that never checks a label''s own last character), which any correct reimplementation would
+    need to deliberately REPRODUCE, not merely avoid, to match the pinned oracle exactly. PyPI
+    release history was checked for an `ada-url` version whose vendored Ada core matches 2.9.2
+    exactly: `ada-url==1.15.3` (the project''s own contemporary release, ~September 2024) matches
+    the direct Ada 2.9.2 oracle EXACTLY across all `8,246` corpus cases, INCLUDING Ada 2.9.2''s
+    own bidi bug (required for, not in tension with, that exact match) -- independently
+    reproduced by TWO separate checkpoint re-reviews from fresh isolated installs.
+
+    RESOLVED implementation: pin `ada-url==1.15.3` EXACTLY (not a range) in `pyproject.toml`.
+    `filesystem.py`''s `_domain_to_unicode` is now a thin wrapper over
+    `ada_url.idna_to_unicode()` directly -- the `idna` package, `_relaxed_punycode_label`, and
+    `_relaxed_codepoint_ok` are REMOVED entirely, not merely superseded in prose. Host validation
+    (bidi, leading-combining-mark, codepoint-assignment, hyphen -- NONE enforced by Ada, an
+    additional finding beyond WHATWG''s own documented `CheckHyphens=false` flag, confirmed
+    directly in Ada''s own source) now happens exclusively at the EARLIER `ada_url.URL(...)`
+    construction step, which `ada-url==1.15.3`''s own constructor raises for directly -- unlike
+    `ada-url==4.0.0` (the project''s prior dependency), whose `.host` property passed several of
+    these through unvalidated, a genuine, now-corrected regression risk that motivated the exact
+    pin over a floor. Two independent version-stability mechanisms are in place: the exact pin
+    itself, and a permanent differential-gate pytest fixture
+    (`tests/execution/test_filesystem_r002_ada_oracle_gate.py`, `minion-agent-python`) asserting
+    the pinned `ada-url` reproduces the FULL committed 8,246-case Ada-2.9.2-oracle-verified
+    corpus (copied into this repo from the checkpoint''s own committed evidence) exactly -- a
+    future deliberate version bump fails this gate loudly rather than silently drifting.
+    Reverified against the production 67-case corpus: `67/67` (unchanged). `minion-agent-rust`
+    remains untouched and `REVALIDATE_REQUIRED`; its own future revalidation should use this
+    SAME direct Ada 2.9.2 oracle, not merely a comparison against Python''s own output.
+
     Symlinks (`L12-R002` -- corrected twice: an earlier revision of this row wrongly claimed
     symlinks are "never followed... except canonical_path"; a first remediation then
     MISCLASSIFIED `rename_file` as ordinary symlink-following content I/O and omitted `remove`
@@ -5863,7 +5965,9 @@ rows:
     Full detail: `spec/execution.md` §3, §3.1-§3.8.'
   tests:
   - minion-agent-rust/crates/minion-agent/tests/execution_filesystem.rs
-  python: 'NOT YET IMPLEMENTED -- CONTRACT_DRAFT, WP-12.1 (issue #39)'
+  - minion-agent-python/tests/execution/test_filesystem.py
+  python: 'minion-agent-python/src/minion_agent/execution/filesystem.py; integration evidence in
+    minion-agent-python/tests/execution/test_filesystem.py'
   rust: 'minion-agent-rust/crates/minion-agent/src/execution/filesystem.rs; integration evidence in
     minion-agent-rust/crates/minion-agent/tests/execution_filesystem.rs'
   disposition: adopted
@@ -6002,7 +6106,9 @@ rows:
     Full detail: `spec/execution.md` §4.'
   tests:
   - minion-agent-rust/crates/minion-agent/tests/execution_filesystem.rs
-  python: 'NOT YET IMPLEMENTED -- CONTRACT_DRAFT, WP-12.1 (issue #39)'
+  - minion-agent-python/tests/execution/test_filesystem.py
+  python: 'minion-agent-python/src/minion_agent/execution/filesystem.py (`FsTarget`, `resolve`,
+    and provider-scoped `process_path`); integration evidence in test_filesystem.py'
   rust: 'minion-agent-rust/crates/minion-agent/src/execution/filesystem.rs (`FsTarget`, `resolve`,
     and provider-scoped `process_path`); integration evidence in execution_filesystem.rs'
   disposition: intentional divergence
@@ -6106,7 +6212,9 @@ rows:
     Full detail: `spec/execution.md` §5, §5.1-§5.7.'
   tests:
   - minion-agent-rust/crates/minion-agent/tests/execution_shell.rs
-  python: 'NOT YET IMPLEMENTED -- CONTRACT_DRAFT, WP-12.1 (issue #39)'
+  - minion-agent-python/tests/execution/test_shell.py
+  python: 'minion-agent-python/src/minion_agent/execution/shell.py; integration evidence in
+    minion-agent-python/tests/execution/test_shell.py'
   rust: 'minion-agent-rust/crates/minion-agent/src/execution/shell.rs; integration evidence in
     minion-agent-rust/crates/minion-agent/tests/execution_shell.rs'
   disposition: adopted
@@ -6209,7 +6317,9 @@ rows:
     Full detail: `spec/execution.md` §6.'
   tests:
   - minion-agent-rust/crates/minion-agent/tests/execution_process.rs
-  python: 'NOT YET IMPLEMENTED -- CONTRACT_DRAFT, WP-12.1 (issue #39)'
+  - minion-agent-python/tests/execution/test_subprocess.py
+  python: 'minion-agent-python/src/minion_agent/execution/subprocess.py; integration evidence in
+    minion-agent-python/tests/execution/test_subprocess.py'
   rust: 'minion-agent-rust/crates/minion-agent/src/execution/subprocess.rs; integration evidence in
     minion-agent-rust/crates/minion-agent/tests/execution_process.rs'
   disposition: intentional divergence
@@ -6281,7 +6391,14 @@ rows:
     Full detail: `spec/execution.md` §7.'
   tests:
   - minion-agent-rust/crates/minion-agent/tests/execution_world.rs
-  python: 'NOT YET IMPLEMENTED -- CONTRACT_DRAFT, WP-12.1 (issue #39)'
+  - minion-agent-python/tests/execution/test_world.py
+  - minion-agent-python/tests/execution/test_plugin.py
+  python: 'minion-agent-python/src/minion_agent/execution/world.py; integration evidence in
+    minion-agent-python/tests/execution/test_world.py; the "local providers share one identity by
+    construction" claim specifically evidenced in
+    minion-agent-python/tests/execution/test_plugin.py (`L12-PY-R003`, via the three `Local*`
+    providers'' new `execution_world` field and `ExecutionWorldIdentity.local()` constructor,
+    mounted through the new minion_agent/execution/plugin.py Runtime wiring)'
   rust: 'minion-agent-rust/crates/minion-agent/src/execution/world.rs and service.rs; integration
     evidence in minion-agent-rust/crates/minion-agent/tests/execution_world.rs'
   disposition: intentional divergence

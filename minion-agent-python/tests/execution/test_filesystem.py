@@ -8,7 +8,6 @@ import os
 import time
 from pathlib import Path
 
-import idna.core
 import pytest
 
 from minion_agent.execution import filesystem as filesystem_module
@@ -18,7 +17,6 @@ from minion_agent.execution.filesystem import (
     LocalFileSystem,
     _file_info_sync,
     _file_kind_from_stat,
-    _relaxed_punycode_label,
     _UnsupportedFileType,
     resolve_local_path,
 )
@@ -209,20 +207,23 @@ def test_file_url_punycode_host_decodes_to_unicode(tmp_path: Path) -> None:
     own `domainToUnicode` step -- `"xn--bcher-kva"` decodes to `"bücher"`. An earlier revision
     disclosed this as an intentional scope exclusion; the review rejected that as an
     unauthorized narrowing of observable Pi behavior with no governance record. Case-insensitive
-    (`"XN--BCHER-KVA"` decodes identically, lowercased first)."""
+    (`"XN--BCHER-KVA"` decodes identically, lowercased first). Decoding is now delegated to
+    `ada_url.idna_to_unicode()` directly (root-characterization checkpoint --
+    `minion-agent-docs#121` @ `00afd5178d5c1bed4ec5175eea873061a9928fb1`), not the earlier
+    hand-composed `idna`-package validation this witness originally exercised -- the observable
+    output is unchanged."""
     assert resolve_local_path("C:\\cwd", "file://xn--bcher-kva/share") == "\\\\bücher\\share\\"
     assert resolve_local_path("C:\\cwd", "file://XN--BCHER-KVA/share") == "\\\\bücher\\share\\"
 
 
 @pytest.mark.skipif(os.name != "nt", reason="UNC host resolution is Windows-specific")
-def test_file_url_punycode_host_decodes_labels_ineligible_under_idna2003(tmp_path: Path) -> None:
-    """`L12-PY-R002` exact discriminating witness (THIRD targeted closure review): a first
-    attempt at this fix used Python's built-in `"idna"` codec (IDNA2003), which the review
-    caught rejecting VALID Node/WHATWG A-labels -- IDNA2003's `nameprep` maps `ß` to `"ss"`, so
-    its own round-trip-validating decoder rejects `"xn--fa-hia"` (`faß`, the genuine modern
-    A-label) because IDNA2003's OWN encoder would have produced `"xn--fa-ssa"` instead. Fixed
-    via `_domain_to_unicode`'s bare per-label Punycode decode (no nameprep/round-trip step),
-    verified against exactly the three additional witnesses the review supplied."""
+def test_file_url_punycode_host_decodes_modern_a_labels(tmp_path: Path) -> None:
+    """`L12-PY-R002` exact discriminating witness (originally the THIRD targeted closure
+    review, which caught an IDNA2003-based first attempt rejecting these VALID modern A-labels
+    -- `"xn--fa-hia"` is `faß`, `"xn--strae-oqa"` is `straße`, `"xn--zca"` is bare `ß`). Now
+    delegated to `ada_url.idna_to_unicode()` directly (root-characterization checkpoint --
+    `minion-agent-docs#121` @ `00afd5178d5c1bed4ec5175eea873061a9928fb1`); the observable output
+    is unchanged."""
     assert resolve_local_path("C:\\cwd", "file://xn--fa-hia.de/share") == "\\\\faß.de\\share\\"
     assert (
         resolve_local_path("C:\\cwd", "file://xn--strae-oqa.de/share") == "\\\\straße.de\\share\\"
@@ -232,34 +233,32 @@ def test_file_url_punycode_host_decodes_labels_ineligible_under_idna2003(tmp_pat
 
 @pytest.mark.skipif(os.name != "nt", reason="UNC host resolution is Windows-specific")
 def test_file_url_punycode_host_rejects_whatwg_invalid_a_labels() -> None:
-    """`L12-PY-R002` exact discriminating witness (FOURTH targeted closure review): a bare
-    RFC 3492 Punycode decode plus `isprintable()` correctly closes the IDNA2003 gap, but is
-    NOT full WHATWG/UTS46 host validation -- it accepts A-labels the real algorithm rejects on
-    grounds `isprintable()` cannot see. `"xn--abc-ppe"` decodes to a right-to-left
-    Hebrew-prefixed label that violates the BIDI rule; `"xn--abc-jdc"` decodes to a label
-    starting with a combining accent, which IDNA2008/UTS46 forbids as a label's first
-    character -- both decoded strings ARE printable, so the prior fix's only validity check
-    could not reject them. Fixed by delegating to the third-party `idna` package
-    (`_domain_to_unicode`), which implements the real UTS46 validation surface. Falls through
-    to ordinary cwd-relative resolution of the literal string, matching Node's own rejection."""
+    """`L12-PY-R002` exact discriminating witness (originally the FOURTH targeted closure
+    review): `"xn--abc-ppe"` decodes to a right-to-left Hebrew-prefixed label that violates the
+    BIDI rule; `"xn--abc-jdc"` decodes to a label starting with a combining accent, which UTS46
+    forbids as a label's first character. Rejection now happens at the EARLIER
+    `ada_url.URL(...)` construction step itself (root-characterization checkpoint --
+    `minion-agent-docs#121` @ `00afd5178d5c1bed4ec5175eea873061a9928fb1`, `ada-url==1.15.3`
+    pinned exactly, proven to match Node's own vendored Ada 2.9.2 engine exactly for this
+    validation), not at a separate decode-time check -- the observable output (falls through to
+    ordinary cwd-relative resolution of the literal string) is unchanged."""
     for literal in ("file://xn--abc-ppe/share", "file://xn--abc-jdc/share"):
         resolved = resolve_local_path("C:\\cwd", literal)
         assert resolved == os.path.normpath(os.path.join("C:\\cwd", literal))
 
 
 @pytest.mark.skipif(os.name != "nt", reason="UNC host resolution is Windows-specific")
-def test_file_url_punycode_host_decodes_symbol_codepoints_whatwg_incorrectly_rejects() -> None:
-    """`L12-PY-R002` exact discriminating witness (targeted section 11.8.7 closure review of the
-    `CE-L12-PY-01-01` R002 remediation -- `minion-agent-docs#120` @
-    `09423f0a962d1139ba16155eff6113c026a1f89a`): the strict `idna` package's own per-codepoint
-    PVALID/CONTEXTJ/CONTEXTO/DISALLOWED table (RFC 5892) rejects a punycode label that decodes
-    to a Unicode SYMBOL codepoint (general category `"So"`) as containing a "not allowed"
-    codepoint, but live Node (v22.15.1, v22.19.0, v22.23.2, all checksum-verified) accepts it
-    and returns a UNC path containing the literal glyph -- `"xn--n3h"` decodes to a snowman
-    (`☃`, U+2603), `"xn--ls8h"` decodes to a pile of poo (`💩`, U+1F4A9). This does NOT reopen
-    the malformed-punycode/bidi/combining-mark rejections above (`xn--`/`xn--zzzz`/`xn--a`/
-    `xn--abc-ppe`/`xn--abc-jdc` all still correctly fall through) -- see `_relaxed_codepoint_ok`'s
-    own docstring for the exact, narrowly-scoped widening this fix makes."""
+def test_file_url_punycode_host_decodes_symbol_codepoints(tmp_path: Path) -> None:
+    """`L12-PY-R002` exact discriminating witness (originally the targeted section 11.8.7
+    closure review of the `CE-L12-PY-01-01` R002 remediation -- `minion-agent-docs#120` @
+    `09423f0a962d1139ba16155eff6113c026a1f89a`): live Node accepts a punycode label decoding to
+    a Unicode SYMBOL codepoint and returns a UNC path containing the literal glyph -- `"xn--n3h"`
+    decodes to a snowman (`☃`, U+2603), `"xn--ls8h"` decodes to a pile of poo (`💩`, U+1F4A9).
+    Delegating the WHOLE decode responsibility to `ada_url.idna_to_unicode()` directly
+    (root-characterization checkpoint -- `minion-agent-docs#121` @
+    `00afd5178d5c1bed4ec5175eea873061a9928fb1`) resolves this witness (and the discriminating
+    bidi/combining-mark/assignment-boundary witnesses above and below it) as a SINGLE
+    delegated primitive, not a category-by-category patched validity table."""
     assert (
         resolve_local_path("C:\\cwd", "file://%E2%98%83.com/share") == "\\\\☃.com\\share\\"
     )
@@ -268,58 +267,15 @@ def test_file_url_punycode_host_decodes_symbol_codepoints_whatwg_incorrectly_rej
     )
 
 
-def test_relaxed_punycode_label_accepts_pvalid_mixed_with_symbol() -> None:
-    """`_relaxed_punycode_label` unit coverage: a label mixing an ordinary PVALID ASCII
-    codepoint with a Unicode symbol (category `"So"`) -- exercises the loop's PVALID `continue`
-    branch before reaching the symbol that triggered the relaxed retry in the first place."""
-    assert _relaxed_punycode_label("xn--a-1xp") == "a☃"
-
-
-def test_relaxed_punycode_label_accepts_valid_contextj_and_contexto_mixed_with_symbol() -> None:
-    """`_relaxed_punycode_label` unit coverage (structural parity with `idna.core.check_label`,
-    not itself a live-Node witness -- no corpus case combines a CONTEXTJ/CONTEXTO-valid sequence
-    with a symbol codepoint): a Devanagari virama-then-ZWJ sequence (valid CONTEXTJ placement)
-    and a Catalan-style geminate-L middle dot (valid CONTEXTO placement), each followed by a
-    symbol codepoint that forces the relaxed retry -- both must still validate their own
-    placement correctly (the `continue` branches), not merely skip validation entirely."""
-    assert _relaxed_punycode_label("xn--11b6iy14eoof") == "क्‍☃"
-    assert _relaxed_punycode_label("xn--ll-0ea7039a") == "l·l☃"
-
-
-def test_relaxed_punycode_label_still_rejects_invalid_contextj_and_contexto() -> None:
-    """`_relaxed_punycode_label` must NOT widen CONTEXTJ/CONTEXTO placement validation just
-    because it widens the DISALLOWED-codepoint table for symbols -- a bare joiner/middle-dot
-    with no valid adjacency, even alongside a symbol codepoint elsewhere in the same label,
-    still raises exactly as `idna.core.check_label` does."""
-    with pytest.raises(idna.core.InvalidCodepointContext):
-        _relaxed_punycode_label("xn--a-ugnw2y")
-    with pytest.raises(idna.core.InvalidCodepointContext):
-        _relaxed_punycode_label("xn--aa-0ea7039a")
-
-
-@pytest.mark.parametrize(
-    "alabel",
-    ["xn--", "xn--a-", "xn--zzzz", "xn---bbk"],
-)
-def test_relaxed_punycode_label_rejects_malformed_and_non_canonical_alabels(
-    alabel: str,
-) -> None:
-    """`_relaxed_punycode_label` unit coverage for its own structural guards, mirroring
-    `idna.core.ulabel`'s own equivalents exactly: an empty or hyphen-ending payload
-    (`"xn--"`/`"xn--a-"`), an undecodable Punycode digit sequence (`"xn--zzzz"`), and a
-    non-canonical re-encoding (`"xn---bbk"`, RFC 5891 section 5.3) all raise `idna.IDNAError`,
-    never silently accepted."""
-    with pytest.raises(idna.IDNAError):
-        _relaxed_punycode_label(alabel)
-
-
 @pytest.mark.skipif(os.name != "nt", reason="UNC host resolution is Windows-specific")
 def test_file_url_host_with_no_punycode_label_skips_domain_decode() -> None:
-    """`L12-PY-R002` regression guard: `_domain_to_unicode` must be skipped entirely for a host
-    with no `"xn--"`-prefixed label at all -- the third-party `idna` package performs full
-    domain-STRUCTURE validation (e.g. rejecting an empty label) even when there is nothing to
-    decode, which would otherwise incorrectly reject `file://./share/file`'s bare-dot host
-    (Node's own legitimate `\\\\.\\share\\file`, a Windows local-device UNC form)."""
+    """`L12-PY-R002` regression guard: `_domain_to_unicode`/`ada_url.idna_to_unicode()` must be
+    skipped entirely for a host with no `"xn--"`-prefixed label at all -- calling it
+    unconditionally on an ordinary host would be harmless in isolation (it is a no-op for a host
+    with nothing to decode), but this candidate's own caller-side "an unchanged xn-- result means
+    rejected" convention would then wrongly reject the bare-dot host in
+    `file://./share/file` (Node's own legitimate `\\\\.\\share\\file`, a Windows local-device
+    UNC form) merely because nothing about it changed."""
     assert resolve_local_path("C:\\cwd", "file://./share/file") == "\\\\.\\share\\file"
 
 

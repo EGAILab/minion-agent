@@ -13,8 +13,7 @@ dependencies = [
     "jsonschema>=4.22",
     "httpx>=0.27",
     "url-py>=2026.5.1",
-    "idna>=3.19",
-    "ada-url>=4.0.0",
+    "ada-url==1.15.3",
 ]
 
 [dependency-groups]

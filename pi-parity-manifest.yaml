@@ -5856,6 +5856,53 @@ rows:
     `REVALIDATE_REQUIRED` -- untouched by this Python-side remediation, a Rust-owned follow-up
     per `CE-L12-PY-01-01`''s own scope.
 
+    Root characterization and FINAL resolution (checkpoint invalidated under section 11.8.10
+    after this finding failed a SECOND targeted closure review with `Sc`/`Sm`-category
+    witnesses beyond the `"So"`-only fix above; `minion-agent-docs#121` @
+    `00afd5178d5c1bed4ec5175eea873061a9928fb1`, `AGREED FOR IMPLEMENTATION: YES` after five
+    checkpoint correction rounds): the category-by-category `idna`-package patching approach
+    above is SUPERSEDED, not extended further. Root cause, confirmed directly from Node
+    v22.19.0''s own source (`node_url.cc`): `fileURLToPath`/`domainToUnicode` delegate this
+    ENTIRE responsibility -- host validation (bidi, leading-combining-mark, codepoint-assignment)
+    AND Punycode-to-Unicode decoding -- to a single concrete engine, Ada, specifically Ada
+    `2.9.2` (`ada::idna::to_unicode(get_hostname())`, confirmed via the vendored
+    `ADA_VERSION` macro). A direct Ada 2.9.2 executable oracle was built (the exact vendored
+    C++ source, checksummed, compiled with a harness mirroring Node''s own call sequence) and
+    differentially tested against an 8,246-case systematic corpus
+    (`minion-agent-docs/assurance/layers/data/12-python-r002-ada-oracle/`): Node v22.19.0 vs
+    direct Ada 2.9.2, `0/8246` mismatches (Strategy A''s premise proven, not assumed). The
+    project''s own `idna`-package-based composition (both the strict and `"So"`-relaxed forms
+    above) was found NOT to be a faithful structural match to Ada''s actual validity gate,
+    independent of Unicode-table-version alignment -- including a genuine, source-verified bug
+    in Ada 2.9.2''s own `is_label_valid` (an LTR-bidi validation loop with an off-by-one bound
+    that never checks a label''s own last character), which any correct reimplementation would
+    need to deliberately REPRODUCE, not merely avoid, to match the pinned oracle exactly. PyPI
+    release history was checked for an `ada-url` version whose vendored Ada core matches 2.9.2
+    exactly: `ada-url==1.15.3` (the project''s own contemporary release, ~September 2024) matches
+    the direct Ada 2.9.2 oracle EXACTLY across all `8,246` corpus cases, INCLUDING Ada 2.9.2''s
+    own bidi bug (required for, not in tension with, that exact match) -- independently
+    reproduced by TWO separate checkpoint re-reviews from fresh isolated installs.
+
+    RESOLVED implementation: pin `ada-url==1.15.3` EXACTLY (not a range) in `pyproject.toml`.
+    `filesystem.py`''s `_domain_to_unicode` is now a thin wrapper over
+    `ada_url.idna_to_unicode()` directly -- the `idna` package, `_relaxed_punycode_label`, and
+    `_relaxed_codepoint_ok` are REMOVED entirely, not merely superseded in prose. Host validation
+    (bidi, leading-combining-mark, codepoint-assignment, hyphen -- NONE enforced by Ada, an
+    additional finding beyond WHATWG''s own documented `CheckHyphens=false` flag, confirmed
+    directly in Ada''s own source) now happens exclusively at the EARLIER `ada_url.URL(...)`
+    construction step, which `ada-url==1.15.3`''s own constructor raises for directly -- unlike
+    `ada-url==4.0.0` (the project''s prior dependency), whose `.host` property passed several of
+    these through unvalidated, a genuine, now-corrected regression risk that motivated the exact
+    pin over a floor. Two independent version-stability mechanisms are in place: the exact pin
+    itself, and a permanent differential-gate pytest fixture
+    (`tests/execution/test_filesystem_r002_ada_oracle_gate.py`, `minion-agent-python`) asserting
+    the pinned `ada-url` reproduces the FULL committed 8,246-case Ada-2.9.2-oracle-verified
+    corpus (copied into this repo from the checkpoint''s own committed evidence) exactly -- a
+    future deliberate version bump fails this gate loudly rather than silently drifting.
+    Reverified against the production 67-case corpus: `67/67` (unchanged). `minion-agent-rust`
+    remains untouched and `REVALIDATE_REQUIRED`; its own future revalidation should use this
+    SAME direct Ada 2.9.2 oracle, not merely a comparison against Python''s own output.
+
     Symlinks (`L12-R002` -- corrected twice: an earlier revision of this row wrongly claimed
     symlinks are "never followed... except canonical_path"; a first remediation then
     MISCLASSIFIED `rename_file` as ordinary symlink-following content I/O and omitted `remove`

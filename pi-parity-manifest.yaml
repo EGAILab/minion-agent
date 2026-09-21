@@ -6404,3 +6404,130 @@ rows:
   rust: 'minion-agent-rust/crates/minion-agent/src/execution/world.rs and service.rs; integration
     evidence in minion-agent-rust/crates/minion-agent/tests/execution_world.rs'
   disposition: intentional divergence
+- id: TOOL-025
+  phase: 6
+  pi: 'packages/coding-agent/src/core/tools/read.ts (schema lines 21-25; execute lines 223-334);
+    packages/coding-agent/src/core/tools/truncate.ts (truncateHead, DEFAULT_MAX_LINES/BYTES)'
+  surface: Layer 13, WP-13.1 -- the `read` built-in tool
+  rule: 'CONTRACT_DRAFT (minion-agent#48; shared contract in spec/tools.md ("Layer 13 -- Built-in
+    tools" / "WP-13.1" / "`read` (`TOOL-025`)"), independent review round 1 minion-agent-docs#133
+    (CHANGES REQUIRED, findings L13-WP131-R001/R003/R004/R005/R008 against this requirement),
+    remediated in spec/tools.md pending a second independent review. `offset`/`limit` are Pi''s own
+    unconstrained `number` domain, not integer/minimum-narrowed (`DIRECT_PI_PARITY`). Two distinct
+    line-count meanings (whole-file `totalFileLines` used only in continuation-notice text, vs.
+    `details.truncation.total_lines` scoped to the already offset/limit-selected range) are kept
+    separate, not conflated. `details.truncation` is present for automatic truncation and the
+    first-line-byte-overflow case, but explicitly ABSENT when a caller-supplied `limit` alone
+    stopped the selection early. A successfully processed image is always returned to the model,
+    regardless of the requesting model''s own vision support -- a non-vision note is appended
+    text, never a substitution. Image `data` is base64-encoded text, not raw bytes; the exact
+    resize/re-encode pixel algorithm is `MINION_EXTENSION`/implementation-delegated, not required
+    for byte-identical parity. Cancellation follows the Layer 09/06 signal contract with explicit
+    post-resolution/post-access-check checkpoints. No implementation exists yet at either language;
+    `python`/`rust` below are forward references, not evidence of completed work.'
+  tests:
+  - read_offset_limit_then_truncation_ordering (planned canonical scenario)
+  - read_first_line_exceeds_byte_limit (planned canonical scenario)
+  - read_offset_out_of_bounds (planned canonical scenario)
+  - read_fractional_and_negative_numeric_inputs (planned canonical scenario)
+  - read_image_success_includes_image_for_non_vision_model (planned canonical scenario)
+  - read_image_bmp_converts_and_resizes (planned canonical scenario)
+  - read_image_processing_failure_is_text_only_success (planned canonical scenario)
+  python: 'planned; not yet implemented (WP-13.1 CONTRACT_DRAFT, minion-agent#48) -- intended
+    location minion_agent/tools/builtin/read.py'
+  rust: 'planned; not yet implemented (WP-13.1 CONTRACT_DRAFT, minion-agent#48) -- intended
+    location minion-agent-rust/crates/minion-agent/src/tools/builtin/read.rs'
+  disposition: adopted
+- id: TOOL-026
+  phase: 6
+  pi: 'packages/coding-agent/src/core/tools/path-utils.ts:40-49 (resolveToCwd); packages/
+    coding-agent/src/utils/paths.ts:75-106 (normalizePath/resolvePath); packages/agent/src/
+    harness/env/nodejs.ts:51-65 (resolvePath, the function Layer 12''s resolve_local_path already
+    mirrors)'
+  surface: Layer 13, WP-13.1 -- the shared `read`/`ls` path-argument preprocessing pipeline
+  rule: 'CONTRACT_DRAFT (minion-agent#48; shared contract in spec/tools.md, "Shared path-argument
+    pipeline (`TOOL-026`)"), independent review round 1 minion-agent-docs#133 (CHANGES REQUIRED,
+    findings L13-WP131-R001/R002 against this requirement), remediated in spec/tools.md pending a
+    second independent review. Pipeline: normalize the closed Unicode-space set (U+00A0,
+    U+2000..U+200A, U+202F, U+205F, U+3000) to ASCII space; strip one leading "@"; Windows-only
+    Git-Bash/MSYS/Cygwin/WSL drive-path rewrite; then pass the result DIRECTLY to the relevant
+    read-only ctx.fs operation (read_text_file/read_binary_file/file_info/list_dir), never through
+    ctx.fs.resolve()/FsTarget (that bridge is WP-13.2''s mutation-queue-key mechanism, not a
+    lexical path resolver) -- corrected from an earlier draft that named the wrong seam. No trim
+    step (Pi''s own tool call sites never set `trim: true`; ordinary ASCII whitespace is preserved,
+    corrected from an earlier draft that trimmed unconditionally). Disclosed, accepted divergence:
+    a malformed file:// path surfaces as an ordinary FsError here (via Layer 12''s
+    exception-catching resolve_local_path), where pinned Pi''s own coding-agent-layer resolver
+    (utils/paths.ts, uncaught fileURLToPath) would reject with a raw URL-parsing error instead --
+    reproducing that would mean reopening the already-certified Layer 12 resolver or duplicating
+    resolution logic a second time (the L12-R012 class of defect), both out of scope. No
+    implementation exists yet at either language.'
+  tests:
+  - read_leading_ascii_space_not_trimmed (planned canonical scenario)
+  - read_unicode_space_normalized (planned canonical scenario)
+  - read_malformed_file_url_surfaces_as_not_found (planned canonical scenario)
+  python: 'planned; not yet implemented (WP-13.1 CONTRACT_DRAFT, minion-agent#48) -- intended
+    location minion_agent/tools/builtin/_paths.py, shared by TOOL-025/TOOL-028'
+  rust: 'planned; not yet implemented (WP-13.1 CONTRACT_DRAFT, minion-agent#48) -- intended
+    location minion-agent-rust/crates/minion-agent/src/tools/builtin/paths.rs, shared by
+    TOOL-025/TOOL-028'
+  disposition: adopted
+- id: TOOL-027
+  phase: 6
+  pi: 'packages/coding-agent/src/core/tools/path-utils.ts:52-84 (resolveReadPath/
+    resolveReadPathAsync -- tryMacOSScreenshotPath, tryNFDVariant, tryCurlyQuoteVariant, and their
+    combination, tried in that order only when the initially resolved path does not exist)'
+  surface: Layer 13, WP-13.1 -- `read`''s macOS-specific filename-fallback heuristics
+  rule: 'OWNER-DISPOSITIONED, NOT adopted into the certified contract (owner governance decision,
+    this session, 2026-09-21; recorded in minion-agent#47/minion-agent#48 as owner disposition
+    "NOT_ADOPTED_CORE," mapped here onto the manifest''s own closed disposition taxonomy as
+    `intentional divergence` per independent review finding L13-WP131-R009 -- "NOT_ADOPTED_CORE"
+    itself is not a valid manifest disposition value). Pi''s AM/PM narrow-no-break-space
+    substitution, NFD normalization, straight-to-curly-apostrophe substitution, and their
+    combination are platform-specific (macOS screenshot filename) convenience heuristics, not
+    fundamental filesystem/read semantics, and were judged unfit for a universal ctx.fs contract
+    given Minion''s local/remote/virtual/swappable provider model. This identifier is reserved for
+    traceability, not implemented as part of TOOL-025''s core behavior; a future optional
+    local-macOS provider extension may reference it without an ID collision.'
+  tests:
+  - governance decision recorded in minion-agent#47 and minion-agent#48 (no discriminating test
+    exists or is required -- this row documents an explicit non-adoption, not a behavior to
+    reproduce)
+  python: 'not implemented; not planned as part of the certified WP-13.1 contract (see rule above)'
+  rust: 'not implemented; not planned as part of the certified WP-13.1 contract (see rule above)'
+  disposition: intentional divergence
+- id: TOOL-028
+  phase: 6
+  pi: 'packages/coding-agent/src/core/tools/ls.ts (schema lines 14-17; execute lines 111-213)'
+  surface: Layer 13, WP-13.1 -- the `ls` built-in tool
+  rule: 'CONTRACT_DRAFT (minion-agent#48; shared contract in spec/tools.md ("Layer 13 -- Built-in
+    tools" / "WP-13.1" / "`ls` (`TOOL-028`)"), independent review round 1 minion-agent-docs#133
+    (CHANGES REQUIRED, findings L13-WP131-R002/R003/R006/R007/R008 against this requirement),
+    remediated in spec/tools.md pending a second independent review, with ONE finding
+    (L13-WP131-R006, ls collation determinism) left explicitly open pending owner governance --
+    see spec/tools.md''s own "Open governance question" note; this row and TOOL-028''s contract
+    are not implementation-ready until that question is resolved. Consumes ctx.fs.list_dir()
+    directly (Layer 12, already returns FileInfo with kind per entry in one call --
+    MINION_ARCHITECTURAL_MAPPING from Pi''s own separate readdir+per-entry-stat pattern), with two
+    disclosed, accepted divergences inherited from that already-certified primitive: a broken
+    symlink appears as a kind=symlink entry here (Layer 12''s FileInfo is lstat-derived, never
+    following symlinks) where Pi''s stat()-following probe would skip it; and a single entry''s
+    OS-level enumeration error fails the whole list_dir call here, where Pi''s independent
+    per-entry try/catch skips only that entry. The entry-count limit is checked BEFORE attempting
+    the next entry, not after; a zero/negative limit on a non-empty directory takes the same
+    "(empty directory)" branch as a genuinely empty one, without setting entry_limit_reached. Byte
+    truncation applies to the raw joined listing before limit/truncation notices are appended. An
+    unreachable/failing directory enumeration is a third, distinct error shape, separate from
+    not-found and not-a-directory. No implementation exists yet at either language.'
+  tests:
+  - ls_entry_limit_checked_before_next_stat (planned canonical scenario)
+  - ls_zero_limit_on_nonempty_dir_no_details (planned canonical scenario)
+  - ls_broken_symlink_included_as_symlink_kind (planned canonical scenario)
+  - ls_readdir_failure_distinguishable (planned canonical scenario)
+  python: 'planned; not yet implemented (WP-13.1 CONTRACT_DRAFT, minion-agent#48) -- intended
+    location minion_agent/tools/builtin/ls.py; BLOCKED on the open L13-WP131-R006 collation
+    governance question before implementation can begin'
+  rust: 'planned; not yet implemented (WP-13.1 CONTRACT_DRAFT, minion-agent#48) -- intended
+    location minion-agent-rust/crates/minion-agent/src/tools/builtin/ls.rs; BLOCKED on the open
+    L13-WP131-R006 collation governance question before implementation can begin'
+  disposition: adopted

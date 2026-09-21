@@ -391,8 +391,8 @@ async fn monitor_child(
             );
         }
         if cause.load(Ordering::Acquire) != CAUSE_NONE {
-            kill_process_tree(&mut child).await;
-            break child.wait().await;
+            let helper = child.id().map(|pid| tokio::spawn(kill_process_tree(pid)));
+            break wait_for_exit_or_kill_helper(&mut child, helper).await;
         }
         tokio::select! {
             result = child.wait() => break result,
@@ -421,10 +421,25 @@ fn classify_exit(cause: u8, exit_code: Option<i32>) -> Result<ExitStatus, Subpro
     }
 }
 
-async fn kill_process_tree(child: &mut Child) {
-    let Some(pid) = child.id() else {
-        return;
+async fn wait_for_exit_or_kill_helper(
+    child: &mut Child,
+    helper: Option<tokio::task::JoinHandle<bool>>,
+) -> io::Result<std::process::ExitStatus> {
+    let Some(mut helper) = helper else {
+        return child.wait().await;
     };
+    tokio::select! {
+        status = child.wait() => status,
+        helper_result = &mut helper => {
+            if !helper_result.unwrap_or(false) {
+                let _ = child.start_kill();
+            }
+            child.wait().await
+        }
+    }
+}
+
+async fn kill_process_tree(pid: u32) -> bool {
     #[cfg(unix)]
     {
         let group = format!("-{pid}");
@@ -437,7 +452,7 @@ async fn kill_process_tree(child: &mut Child) {
             .await
             .is_ok_and(|status| status.success())
         {
-            return;
+            return true;
         }
     }
     #[cfg(windows)]
@@ -451,10 +466,10 @@ async fn kill_process_tree(child: &mut Child) {
             .await
             .is_ok_and(|status| status.success())
         {
-            return;
+            return true;
         }
     }
-    let _ = child.start_kill();
+    false
 }
 
 fn to_stdio(mode: StdioMode) -> Stdio {
@@ -477,6 +492,32 @@ fn map_pipe_error(error: io::Error) -> SubprocessError {
 mod tests {
     use super::*;
 
+    fn short_lived_child() -> Child {
+        let mut command = if cfg!(windows) {
+            let mut command = Command::new("cmd.exe");
+            command.args(["/C", "exit 0"]);
+            command
+        } else {
+            let mut command = Command::new("sh");
+            command.args(["-c", "exit 0"]);
+            command
+        };
+        command.spawn().unwrap()
+    }
+
+    fn long_lived_child() -> Child {
+        let mut command = if cfg!(windows) {
+            let mut command = Command::new("cmd.exe");
+            command.args(["/C", "ping 127.0.0.1 -n 10 >NUL"]);
+            command
+        } else {
+            let mut command = Command::new("sh");
+            command.args(["-c", "sleep 10"]);
+            command
+        };
+        command.spawn().unwrap()
+    }
+
     #[test]
     fn explicit_termination_preserves_the_os_reported_exit_code() {
         assert_eq!(
@@ -497,5 +538,70 @@ mod tests {
             classify_exit(CAUSE_SIGNAL, Some(23)).unwrap_err().code,
             SubprocessErrorCode::Aborted
         );
+    }
+
+    #[test]
+    fn first_successful_cause_claim_wins_a_signal_natural_exit_race() {
+        let cause = AtomicU8::new(CAUSE_NONE);
+        assert!(
+            cause
+                .compare_exchange(
+                    CAUSE_NONE,
+                    CAUSE_SIGNAL,
+                    Ordering::AcqRel,
+                    Ordering::Acquire,
+                )
+                .is_ok()
+        );
+        assert!(
+            cause
+                .compare_exchange(
+                    CAUSE_NONE,
+                    CAUSE_EXPLICIT,
+                    Ordering::AcqRel,
+                    Ordering::Acquire,
+                )
+                .is_err()
+        );
+        assert_eq!(
+            classify_exit(cause.load(Ordering::Acquire), Some(0))
+                .unwrap_err()
+                .code,
+            SubprocessErrorCode::Aborted
+        );
+    }
+
+    #[tokio::test]
+    async fn failed_kill_helper_does_not_reclassify_an_already_claimed_signal() {
+        let mut child = long_lived_child();
+        let helper = tokio::spawn(async { false });
+        let status = tokio::time::timeout(
+            Duration::from_secs(5),
+            wait_for_exit_or_kill_helper(&mut child, Some(helper)),
+        )
+        .await
+        .expect("fallback kill must settle")
+        .unwrap();
+        assert_eq!(
+            classify_exit(CAUSE_SIGNAL, status.code()).unwrap_err().code,
+            SubprocessErrorCode::Aborted
+        );
+    }
+
+    #[tokio::test]
+    async fn target_exit_settles_without_waiting_for_a_hung_kill_helper() {
+        let mut child = short_lived_child();
+        let helper = tokio::spawn(async {
+            std::future::pending::<()>().await;
+            true
+        });
+        let status = tokio::time::timeout(
+            Duration::from_secs(5),
+            wait_for_exit_or_kill_helper(&mut child, Some(helper)),
+        )
+        .await
+        .expect("target exit must be the only settlement dependency")
+        .unwrap();
+        assert_eq!(status.code(), Some(0));
     }
 }

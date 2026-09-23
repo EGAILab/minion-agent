@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import stat as _stat
 import time
 from pathlib import Path
 
@@ -13,6 +14,8 @@ import pytest
 from minion_agent.execution import filesystem as filesystem_module
 from minion_agent.execution.errors import FsError, FsErrorCode
 from minion_agent.execution.filesystem import (
+    DirEntryProbe,
+    DirEntryProbeKind,
     FileKind,
     LocalFileSystem,
     _file_info_sync,
@@ -20,8 +23,8 @@ from minion_agent.execution.filesystem import (
     _UnsupportedFileType,
     resolve_local_path,
 )
-from minion_agent.execution.result import Err, Ok
-from minion_agent.runtime.signal import RunAbortController
+from minion_agent.execution.result import Err, Ok, Result
+from minion_agent.runtime.signal import RunAbortController, RunSignal
 
 # ---------------------------------------------------------------------------
 # resolve_local_path (shared lexical resolution)
@@ -1384,3 +1387,353 @@ async def test_resolve_propagates_absolute_path_failure_after_not_found(
     result = await fs.resolve("missing.txt")
     assert isinstance(result, Err)
     assert result.error.code == FsErrorCode.INVALID
+
+
+# ---------------------------------------------------------------------------
+# `WP-12.E1` / `EXEC-007`: `list_dir_raw` / `probe_dir_entry` / `DirEntryProbe`
+# (spec/execution.md section 11, additive Layer-12 extension -- exercises every witness in
+# section 11.6, plus the two known-wrong-implementation discriminators identified during
+# contract review: eager-probe-beyond-cap (Lane D revision 2) and raw-caller-string path
+# identity (WP12E1-R003, refined).)
+# ---------------------------------------------------------------------------
+
+
+async def test_list_dir_raw_returns_raw_provider_order_unsorted(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """section 11.6 LIST_DIR_RAW PERFORMS ZERO PROBES, RETURNS RAW PROVIDER ORDER: exactly the
+    raw names, in provider order, unsorted -- ordering is Layer 13's own responsibility."""
+    fs = LocalFileSystem(cwd=str(tmp_path))
+    monkeypatch.setattr(os, "listdir", lambda _path: ["z_first", "a_second"])
+    result = await fs.list_dir_raw(".")
+    assert result == Ok(["z_first", "a_second"])
+
+
+async def test_list_dir_raw_performs_zero_per_entry_probing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """section 11.6 LIST_DIR_RAW PERFORMS ZERO PROBES: no lstat/stat of any per-entry kind occurs
+    as a side effect of `list_dir_raw` alone."""
+    fs = LocalFileSystem(cwd=str(tmp_path))
+    await fs.write_file("a.txt", "x")
+    await fs.write_file("b.txt", "y")
+    calls = 0
+    real_lstat = os.lstat
+
+    def _counting_lstat(path: str, *args: object, **kwargs: object) -> object:
+        nonlocal calls
+        calls += 1
+        return real_lstat(path, *args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(os, "lstat", _counting_lstat)
+    result = await fs.list_dir_raw(".")
+    assert isinstance(result, Ok)
+    assert calls == 0
+
+
+async def test_lazy_cap_boundary_never_probes_beyond_the_cap(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """section 11.6 LAZY CAP BOUNDARY: the exact discriminating case from the owner governance
+    record -- raw order [z_slow, a_ok], sorted [a_ok, z_slow], limit=1. `probe_dir_entry("a_ok")`
+    satisfies the cap BEFORE `probe_dir_entry("z_slow")` is ever called. This is the negative
+    control against the eager-probe-beyond-cap design a rejected earlier draft of this contract
+    used (Lane D revision 2)."""
+    fs = LocalFileSystem(cwd=str(tmp_path))
+    await fs.write_file("a_ok.txt", "x")
+    await fs.write_file("z_slow.txt", "y")
+    monkeypatch.setattr(os, "listdir", lambda _path: ["z_slow.txt", "a_ok.txt"])
+
+    probed: list[str] = []
+    real_probe = filesystem_module._probe_dir_entry_sync
+
+    def _recording_probe(path: str) -> DirEntryProbe:
+        probed.append(os.path.basename(path))
+        return real_probe(path)
+
+    monkeypatch.setattr(filesystem_module, "_probe_dir_entry_sync", _recording_probe)
+
+    raw = (await fs.list_dir_raw(".")).value  # type: ignore[union-attr]
+    sorted_names = sorted(raw)
+    limit = 1
+    results: list[DirEntryProbe] = []
+    for name in sorted_names:
+        if len(results) >= limit:
+            break
+        probed_result = await fs.probe_dir_entry(name)
+        if isinstance(probed_result, Ok):
+            results.append(probed_result.value)
+
+    assert probed == ["a_ok.txt"]  # z_slow.txt's own probe is never invoked
+    assert len(results) == 1
+    assert results[0].name == "a_ok.txt"
+
+
+async def test_probe_dir_entry_plain_file_and_directory_classification(tmp_path: Path) -> None:
+    """section 11.6 PLAIN FILE / PLAIN DIRECTORY CLASSIFICATION."""
+    fs = LocalFileSystem(cwd=str(tmp_path))
+    await fs.write_file("e1.txt", "x")
+    await fs.create_dir("e2")
+
+    file_result = await fs.probe_dir_entry("e1.txt")
+    assert isinstance(file_result, Ok)
+    assert file_result.value.kind == DirEntryProbeKind.FILE
+    assert file_result.value.name == "e1.txt"
+    assert file_result.value.path == str(tmp_path / "e1.txt")
+
+    dir_result = await fs.probe_dir_entry("e2")
+    assert isinstance(dir_result, Ok)
+    assert dir_result.value.kind == DirEntryProbeKind.DIRECTORY
+    assert dir_result.value.name == "e2"
+    assert dir_result.value.path == str(tmp_path / "e2")
+
+
+async def test_probe_dir_entry_symlink_to_file_and_directory(tmp_path: Path) -> None:
+    """section 11.6 SYMLINK_TO_FILE / SYMLINK_TO_DIRECTORY CLASSIFICATION: the symlink fact and
+    its resolved kind are BOTH preserved, and `name`/`path` describe the addressed LINK, never
+    the resolved target."""
+    fs = LocalFileSystem(cwd=str(tmp_path))
+    await fs.write_file("real_file.txt", "x")
+    await fs.create_dir("real_dir")
+    os.symlink(tmp_path / "real_file.txt", tmp_path / "link_to_file")
+    os.symlink(tmp_path / "real_dir", tmp_path / "link_to_dir", target_is_directory=True)
+
+    file_link_result = await fs.probe_dir_entry("link_to_file")
+    assert isinstance(file_link_result, Ok)
+    assert file_link_result.value.kind == DirEntryProbeKind.SYMLINK_TO_FILE
+    assert file_link_result.value.name == "link_to_file"
+    assert file_link_result.value.path == str(tmp_path / "link_to_file")
+
+    dir_link_result = await fs.probe_dir_entry("link_to_dir")
+    assert isinstance(dir_link_result, Ok)
+    assert dir_link_result.value.kind == DirEntryProbeKind.SYMLINK_TO_DIRECTORY
+    assert dir_link_result.value.name == "link_to_dir"
+    assert dir_link_result.value.path == str(tmp_path / "link_to_dir")
+
+
+class _FakeUnsupportedStat:
+    """Matches none of S_ISREG/S_ISDIR/S_ISLNK -- the portable stand-in for a FIFO/socket/device,
+    reused from this module's existing `_FakeStat` convention (see `_file_kind_from_stat` tests
+    further above)."""
+
+    st_mode = 0
+    st_size = 0
+    st_mtime = 0.0
+
+
+class _FakeSymlinkStat:
+    """A stat-like object with the `S_ISLNK` bit set -- the portable stand-in for `os.lstat`
+    reporting a symlink, paired with a following `os.stat` mock to exercise
+    `probe_dir_entry`'s symlink branch without a real filesystem symlink."""
+
+    st_mode = _stat.S_IFLNK | 0o777
+    st_size = 0
+    st_mtime = 0.0
+
+
+async def test_probe_dir_entry_unsupported_kind_classifies_as_other(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """section 11.6 KIND-UNSUPPORTED ENTRY INCLUSION: a non-symlink entry whose kind is none of
+    file/directory/symlink (e.g. a FIFO) is a SUCCESS classification (`other`), not an error."""
+    fs = LocalFileSystem(cwd=str(tmp_path))
+    monkeypatch.setattr(os, "lstat", lambda _path: _FakeUnsupportedStat())
+    result = await fs.probe_dir_entry("a-fifo")
+    assert isinstance(result, Ok)
+    assert result.value.kind == DirEntryProbeKind.OTHER
+
+
+async def test_probe_dir_entry_symlink_to_other_collapses_without_dedicated_value(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """section 11.6 SYMLINK-TO-OTHER COLLAPSES TO `other`, DISCLOSED: a symlink whose resolved
+    target is kind-unclassifiable (e.g. a symlink to a FIFO) classifies as plain `other` --
+    there is no `symlink_to_other` value, matching a genuine limit in pinned Pi's own `ls.ts`."""
+    fs = LocalFileSystem(cwd=str(tmp_path))
+    monkeypatch.setattr(os, "lstat", lambda _path: _FakeSymlinkStat())
+    monkeypatch.setattr(os, "stat", lambda _path: _FakeUnsupportedStat())
+    result = await fs.probe_dir_entry("link-to-fifo")
+    assert isinstance(result, Ok)
+    assert result.value.kind == DirEntryProbeKind.OTHER
+
+
+async def test_probe_dir_entry_broken_symlink_is_a_per_call_error(tmp_path: Path) -> None:
+    """section 11.6 BROKEN SYMLINK IS A PER-CALL ERROR, NOT A WHOLE-CALL ABORT: a broken symlink's
+    following `stat` maps to `not_found`, as this call's OWN `Result` error -- exercised here in
+    isolation (the loop-continuation half of this witness is a Layer-13 caller responsibility,
+    already covered structurally by `test_lazy_cap_boundary_never_probes_beyond_the_cap`'s own
+    per-name `Err` handling)."""
+    fs = LocalFileSystem(cwd=str(tmp_path))
+    os.symlink(tmp_path / "does-not-exist", tmp_path / "broken-link")
+    result = await fs.probe_dir_entry("broken-link")
+    assert isinstance(result, Err)
+    assert result.error.code == FsErrorCode.NOT_FOUND
+
+
+async def test_probe_dir_entry_within_the_section_11_5_loop_skips_broken_entry_and_continues(
+    tmp_path: Path,
+) -> None:
+    """The loop-continuation half of the BROKEN SYMLINK witness, exercised through the full
+    section 11.5 consumption pattern: e1 (regular), e2 (broken symlink), e3 (regular) -- e2's
+    error is skipped by the CALLER, and the loop continues to e3, which succeeds normally."""
+    fs = LocalFileSystem(cwd=str(tmp_path))
+    await fs.write_file("e1.txt", "x")
+    os.symlink(tmp_path / "does-not-exist", tmp_path / "e2-broken")
+    await fs.write_file("e3.txt", "z")
+
+    raw = (await fs.list_dir_raw(".")).value  # type: ignore[union-attr]
+    results: list[DirEntryProbe] = []
+    for name in sorted(raw):
+        probed_result = await fs.probe_dir_entry(name)
+        if isinstance(probed_result, Ok):
+            results.append(probed_result.value)
+
+    names = {probe.name for probe in results}
+    assert names == {"e1.txt", "e3.txt"}  # e2-broken skipped; whole loop did not abort
+
+
+async def test_probe_dir_entry_name_is_the_resolved_paths_basename(tmp_path: Path) -> None:
+    """section 11.6 `DirEntryProbe.name` identity: the resolved path's basename, exercised
+    through a nested relative lexical input where the raw caller string's own basename would
+    otherwise coincide -- distinguishing this from a trivial same-directory case."""
+    fs = LocalFileSystem(cwd=str(tmp_path))
+    (tmp_path / "sub").mkdir()
+    (tmp_path / "sub" / "item.txt").write_text("x")
+    result = await fs.probe_dir_entry("sub/item.txt")
+    assert isinstance(result, Ok)
+    assert result.value.name == "item.txt"
+
+
+async def test_probe_dir_entry_path_is_resolved_not_the_raw_caller_string(tmp_path: Path) -> None:
+    """section 11.6 `DirEntryProbe.path` IS THE RESOLVED PATH, MATCHING `file_info` -- NOT THE RAW
+    CALLER STRING: the exact discriminating witness from `WP12E1-R003` (refined) -- a relative
+    lexical input `"sub/item"` must resolve to `<cwd>/sub/item`, never the literal unresolved
+    string, and must agree with what `file_info` itself would produce for the same input."""
+    fs = LocalFileSystem(cwd=str(tmp_path))
+    (tmp_path / "sub").mkdir()
+    (tmp_path / "sub" / "item").write_text("x")
+
+    probe_result = await fs.probe_dir_entry("sub/item")
+    assert isinstance(probe_result, Ok)
+    assert probe_result.value.path == str(tmp_path / "sub" / "item")
+    assert probe_result.value.path != "sub/item"  # not the raw, unresolved caller string
+
+    file_info_result = await fs.file_info("sub/item")
+    assert isinstance(file_info_result, Ok)
+    assert probe_result.value.path == file_info_result.value.path  # agrees with file_info
+
+
+async def test_list_dir_raw_not_found(tmp_path: Path) -> None:
+    """section 11.3 error mapping: identical to `list_dir`'s own whole-directory-read failure --
+    exercises the genuine `except OSError` branch (not `_AbortedSignal`)."""
+    fs = LocalFileSystem(cwd=str(tmp_path))
+    result = await fs.list_dir_raw("missing")
+    assert isinstance(result, Err)
+    assert result.error.code == FsErrorCode.NOT_FOUND
+
+
+async def test_list_dir_raw_pre_aborted(tmp_path: Path) -> None:
+    """section 11.6 DIRECT-OPERATION CANCELLATION RULES, setup A: `list_dir_raw`'s own single
+    pre-aborted checkpoint fires."""
+    fs = LocalFileSystem(cwd=str(tmp_path))
+    controller = RunAbortController()
+    controller.abort()
+    result = await fs.list_dir_raw(".", signal=controller.signal)
+    assert isinstance(result, Err)
+    assert result.error.code == FsErrorCode.ABORTED
+
+
+async def test_probe_dir_entry_does_not_inspect_a_pre_aborted_signal(tmp_path: Path) -> None:
+    """section 11.6 DIRECT-OPERATION CANCELLATION RULES, setup B: `probe_dir_entry` accepts but
+    does NOT inspect `signal` -- its own explicit `MINION_ARCHITECTURAL_MAPPING`, matching
+    `file_info`'s own established behavior, deliberately asymmetric with `list_dir_raw`."""
+    fs = LocalFileSystem(cwd=str(tmp_path))
+    await fs.write_file("a.txt", "x")
+    controller = RunAbortController()
+    controller.abort()
+    result = await fs.probe_dir_entry("a.txt", signal=controller.signal)
+    assert isinstance(result, Ok)
+
+
+async def test_not_supported_is_distinguishable_from_list_dirs_own_failure_modes(
+    tmp_path: Path,
+) -> None:
+    """section 11.6 PROVIDER `not_supported` IS DISTINGUISHABLE FROM `list_dir`'s OWN FAILURE
+    MODES: a provider that cannot implement either new operation returns `not_supported` rather
+    than silently delegating to its own `list_dir`'s different (kind-filtered,
+    whole-call-fails-on-any-error) behavior. `LocalFileSystem` itself implements both operations,
+    so this is exercised via a minimal `FileSystem`-shaped stand-in for a provider that cannot --
+    proving the two failure modes remain observably distinct at the type/contract level, not that
+    `LocalFileSystem` itself produces `not_supported` (it never does)."""
+
+    class _NoRawEnumerationProvider(LocalFileSystem):
+        async def list_dir_raw(
+            self, path: str, signal: RunSignal | None = None
+        ) -> Result[list[str], FsError]:
+            return Err(FsError(FsErrorCode.NOT_SUPPORTED, "list_dir_raw not supported", path))
+
+        async def probe_dir_entry(
+            self, path: str, signal: RunSignal | None = None
+        ) -> Result[DirEntryProbe, FsError]:
+            return Err(FsError(FsErrorCode.NOT_SUPPORTED, "probe_dir_entry not supported", path))
+
+    fs = _NoRawEnumerationProvider(cwd=str(tmp_path))
+    await fs.write_file("a.txt", "x")
+
+    raw_result = await fs.list_dir_raw(".")
+    assert isinstance(raw_result, Err)
+    assert raw_result.error.code == FsErrorCode.NOT_SUPPORTED
+
+    probe_result = await fs.probe_dir_entry("a.txt")
+    assert isinstance(probe_result, Err)
+    assert probe_result.error.code == FsErrorCode.NOT_SUPPORTED
+
+    # list_dir's own, unrelated behavior is untouched by the override above -- a caller observing
+    # not_supported from either new operation must not interpret it as "the directory doesn't
+    # support listing" (list_dir's own, different failure mode).
+    list_dir_result = await fs.list_dir(".")
+    assert isinstance(list_dir_result, Ok)
+
+
+async def test_existing_list_dir_and_file_info_behavior_is_unchanged_by_this_extension(
+    tmp_path: Path,
+) -> None:
+    """section 11.6 EXISTING `list_dir`/`file_info` BEHAVIOR IS UNCHANGED BY THIS EXTENSION
+    (mandatory regression witness): `list_dir`/`file_info` on a directory that ALSO exercises the
+    new operations produce identical outcomes to the pre-WP-12.E1 contract -- a plain file, a
+    plain directory, and a symlink, matching the pre-existing `FileKind`-based classification and
+    `list_dir`'s own whole-call, kind-filtered shape, unaffected by `list_dir_raw`/
+    `probe_dir_entry` also having been exercised against the very same directory."""
+    fs = LocalFileSystem(cwd=str(tmp_path))
+    await fs.write_file("plain.txt", "x")
+    await fs.create_dir("plain_dir")
+    os.symlink(tmp_path / "plain.txt", tmp_path / "a_link")
+
+    # Exercise the new operations first, against the same directory/paths.
+    raw_result = await fs.list_dir_raw(".")
+    assert isinstance(raw_result, Ok)
+    for name in raw_result.value:
+        await fs.probe_dir_entry(name)
+
+    # `file_info`'s own, pre-existing, lstat-based (non-following) classification is unchanged.
+    file_info_result = await fs.file_info("plain.txt")
+    assert isinstance(file_info_result, Ok)
+    assert file_info_result.value.kind == FileKind.FILE
+
+    dir_info_result = await fs.file_info("plain_dir")
+    assert isinstance(dir_info_result, Ok)
+    assert dir_info_result.value.kind == FileKind.DIRECTORY
+
+    link_info_result = await fs.file_info("a_link")
+    assert isinstance(link_info_result, Ok)
+    assert link_info_result.value.kind == FileKind.SYMLINK  # still non-following, unlike probe
+
+    # `list_dir`'s own, pre-existing whole-call, kind-filtered shape is unchanged.
+    list_dir_result = await fs.list_dir(".")
+    assert isinstance(list_dir_result, Ok)
+    kinds_by_name = {info.name: info.kind for info in list_dir_result.value}
+    assert kinds_by_name == {
+        "plain.txt": FileKind.FILE,
+        "plain_dir": FileKind.DIRECTORY,
+        "a_link": FileKind.SYMLINK,
+    }

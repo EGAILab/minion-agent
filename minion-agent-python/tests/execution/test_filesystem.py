@@ -1412,23 +1412,45 @@ async def test_list_dir_raw_returns_raw_provider_order_unsorted(
 async def test_list_dir_raw_performs_zero_per_entry_probing(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """section 11.6 LIST_DIR_RAW PERFORMS ZERO PROBES: no lstat/stat of any per-entry kind occurs
-    as a side effect of `list_dir_raw` alone."""
+    """section 11.6 LIST_DIR_RAW PERFORMS ZERO PROBES: no lstat/stat of any per-entry kind, and no
+    invocation of `probe_dir_entry`'s own classification seam, occurs as a side effect of
+    `list_dir_raw` alone. `WP12E1-I001` (independent review, minion-agent#53): counting only
+    `os.lstat` left an eager-`os.stat`-per-entry regression undetected by mutation -- a deliberately
+    wrong implementation calling `os.stat` per returned name still passed the earlier, narrower
+    version of this witness. All three surfaces a per-entry probe could go through are now
+    guarded."""
     fs = LocalFileSystem(cwd=str(tmp_path))
     await fs.write_file("a.txt", "x")
     await fs.write_file("b.txt", "y")
-    calls = 0
+    lstat_calls = 0
+    stat_calls = 0
+    probe_calls = 0
     real_lstat = os.lstat
+    real_stat = os.stat
 
     def _counting_lstat(path: str, *args: object, **kwargs: object) -> object:
-        nonlocal calls
-        calls += 1
+        nonlocal lstat_calls
+        lstat_calls += 1
         return real_lstat(path, *args, **kwargs)  # type: ignore[arg-type]
 
+    def _counting_stat(path: str, *args: object, **kwargs: object) -> object:
+        nonlocal stat_calls
+        stat_calls += 1
+        return real_stat(path, *args, **kwargs)  # type: ignore[arg-type]
+
+    def _counting_probe(path: str) -> DirEntryProbe:
+        nonlocal probe_calls
+        probe_calls += 1
+        raise AssertionError("probe_dir_entry must not be invoked by list_dir_raw")
+
     monkeypatch.setattr(os, "lstat", _counting_lstat)
+    monkeypatch.setattr(os, "stat", _counting_stat)
+    monkeypatch.setattr(filesystem_module, "_probe_dir_entry_sync", _counting_probe)
     result = await fs.list_dir_raw(".")
     assert isinstance(result, Ok)
-    assert calls == 0
+    assert lstat_calls == 0
+    assert stat_calls == 0
+    assert probe_calls == 0
 
 
 async def test_lazy_cap_boundary_never_probes_beyond_the_cap(
@@ -1632,15 +1654,32 @@ async def test_list_dir_raw_not_found(tmp_path: Path) -> None:
     assert result.error.code == FsErrorCode.NOT_FOUND
 
 
-async def test_list_dir_raw_pre_aborted(tmp_path: Path) -> None:
+async def test_list_dir_raw_pre_aborted(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """section 11.6 DIRECT-OPERATION CANCELLATION RULES, setup A: `list_dir_raw`'s own single
-    pre-aborted checkpoint fires."""
+    pre-aborted checkpoint fires BEFORE the underlying directory read, not merely alongside it.
+    `WP12E1-I002` (independent review, minion-agent#53): asserting only the final `Err(aborted)`
+    left a check-after-the-read regression undetected by mutation -- an implementation that read
+    the directory FIRST and checked the signal afterward still produced the same `Err(aborted)`
+    result and passed the earlier, narrower version of this witness. `os.listdir` is now proven
+    never invoked at all when the signal is already aborted."""
     fs = LocalFileSystem(cwd=str(tmp_path))
+    listdir_calls = 0
+    real_listdir = os.listdir
+
+    def _counting_listdir(path: str, *args: object, **kwargs: object) -> object:
+        nonlocal listdir_calls
+        listdir_calls += 1
+        return real_listdir(path, *args, **kwargs)
+
+    monkeypatch.setattr(os, "listdir", _counting_listdir)
     controller = RunAbortController()
     controller.abort()
     result = await fs.list_dir_raw(".", signal=controller.signal)
     assert isinstance(result, Err)
     assert result.error.code == FsErrorCode.ABORTED
+    assert listdir_calls == 0
 
 
 async def test_probe_dir_entry_does_not_inspect_a_pre_aborted_signal(tmp_path: Path) -> None:

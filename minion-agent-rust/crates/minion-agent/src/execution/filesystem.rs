@@ -65,7 +65,7 @@ trait DirectoryProbeOperations: Debug + Send + Sync {
     async fn metadata(&self, path: &Path) -> io::Result<std::fs::Metadata>;
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 struct TokioDirectoryProbeOperations;
 
 #[async_trait]
@@ -844,6 +844,42 @@ mod tests {
         metadata_calls: AtomicUsize,
     }
 
+    #[derive(Debug, Default)]
+    struct CountingTokioDirectoryProbeOperations {
+        inner: TokioDirectoryProbeOperations,
+        read_dir_calls: AtomicUsize,
+        symlink_metadata_calls: AtomicUsize,
+        metadata_calls: AtomicUsize,
+    }
+
+    #[async_trait]
+    impl DirectoryProbeOperations for CountingTokioDirectoryProbeOperations {
+        async fn read_dir_names(&self, path: &Path) -> io::Result<Vec<String>> {
+            self.read_dir_calls.fetch_add(1, Ordering::SeqCst);
+            self.inner.read_dir_names(path).await
+        }
+
+        async fn symlink_metadata(&self, path: &Path) -> io::Result<std::fs::Metadata> {
+            self.symlink_metadata_calls.fetch_add(1, Ordering::SeqCst);
+            self.inner.symlink_metadata(path).await
+        }
+
+        async fn metadata(&self, path: &Path) -> io::Result<std::fs::Metadata> {
+            self.metadata_calls.fetch_add(1, Ordering::SeqCst);
+            self.inner.metadata(path).await
+        }
+    }
+
+    #[cfg(unix)]
+    fn broken_symlink(target: &str, link: &Path) {
+        std::os::unix::fs::symlink(target, link).unwrap();
+    }
+
+    #[cfg(windows)]
+    fn broken_symlink(target: &str, link: &Path) {
+        std::os::windows::fs::symlink_file(target, link).unwrap();
+    }
+
     #[async_trait]
     impl DirectoryProbeOperations for CountingDirectoryProbeOperations {
         async fn read_dir_names(&self, _path: &Path) -> io::Result<Vec<String>> {
@@ -930,5 +966,49 @@ mod tests {
         assert_eq!(operations.read_dir_calls.load(Ordering::SeqCst), 1);
         assert_eq!(operations.symlink_metadata_calls.load(Ordering::SeqCst), 0);
         assert_eq!(operations.metadata_calls.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn real_tokio_raw_listing_invokes_zero_probe_operations() {
+        let root = env::temp_dir().join(format!("minion-raw-list-test-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join("ordinary"), "content").unwrap();
+        broken_symlink("missing-target", &root.join("broken-link"));
+
+        let operations = Arc::new(CountingTokioDirectoryProbeOperations::default());
+        let filesystem = LocalFileSystem {
+            cwd: root.clone(),
+            provider_id: Uuid::new_v4(),
+            world: ExecutionWorldIdentity::local(),
+            directory_probe_operations: operations.clone(),
+        };
+
+        let names = filesystem.list_dir_raw(".", None).await.unwrap();
+        assert!(names.iter().any(|name| name == "ordinary"));
+        assert!(names.iter().any(|name| name == "broken-link"));
+        assert_eq!(operations.read_dir_calls.load(Ordering::SeqCst), 1);
+        assert_eq!(operations.symlink_metadata_calls.load(Ordering::SeqCst), 0);
+        assert_eq!(operations.metadata_calls.load(Ordering::SeqCst), 0);
+
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn concrete_tokio_raw_enumerator_has_no_direct_metadata_probe() {
+        let source = include_str!("filesystem.rs");
+        let implementation = source
+            .split_once("impl DirectoryProbeOperations for TokioDirectoryProbeOperations {")
+            .unwrap()
+            .1;
+        let raw_enumerator = implementation
+            .split_once("async fn read_dir_names")
+            .unwrap()
+            .1
+            .split_once("async fn symlink_metadata")
+            .unwrap()
+            .0;
+
+        assert!(!raw_enumerator.contains("symlink_metadata("));
+        assert!(!raw_enumerator.contains("metadata("));
     }
 }

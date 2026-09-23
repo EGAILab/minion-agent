@@ -6404,3 +6404,62 @@ rows:
   rust: 'minion-agent-rust/crates/minion-agent/src/execution/world.rs and service.rs; integration
     evidence in minion-agent-rust/crates/minion-agent/tests/execution_world.rs'
   disposition: intentional divergence
+- id: EXEC-007
+  phase: 6
+  pi: 'no single direct Pi operation -- the BEHAVIOR is modeled on pinned Pi''s coding-agent `ls`
+    TOOL''s own inline enumeration loop, packages/coding-agent/src/core/tools/ls.ts:145-176
+    (readdir -> sort -> lazy per-entry symlink-following stat, cap checked before each probe),
+    which is distinct from the harness FileSystem.listDir() that EXEC-002''s own list_dir already
+    mirrors (packages/agent/src/harness/env/nodejs.ts:611-633)'
+  surface: Layer 12, WP-12.E1 -- an additive extension to ctx.fs (list_dir_raw, probe_dir_entry)
+  rule: 'CONTRACT_DRAFT (owner-approved as `R007-b`, minion-agent#48, governance record
+    issuecomment-5771291305; coordinated as its own isolated work package, minion-agent#53;
+    independent review round 1, minion-agent-docs#148, WP12E1-R001 through R005, all CHANGES
+    REQUIRED, remediated in spec/execution.md section 11 pending a second independent review).
+    Two new operations, additive to EXEC-002''s existing ctx.fs inventory, with EVERY existing
+    operation in that inventory (list_dir, file_info, and the rest) unchanged in both wording and
+    semantics: `list_dir_raw(path, signal?) -> Result[list[str], FsError]` returns raw,
+    provider-order, unclassified entry names (no per-entry work at all); `probe_dir_entry(path,
+    signal?) -> Result[DirEntryProbe, FsError]` performs its own symlink-FOLLOWING single-entry
+    classification (kind in file|directory|symlink_to_file|symlink_to_directory|other), returning
+    a per-CALL Result error (never a whole-call abort) for any per-entry failure including a
+    broken symlink''s target-resolution failure. `DirEntryProbe.name`/`.path` describe the
+    ADDRESSED entry (the link itself, when applicable), matching FileInfo''s own established
+    convention -- never silently substituted with a resolved target''s identity. Both operations
+    reuse EXEC-001''s existing FsErrorCode taxonomy; no new error type. This extension exists
+    because EXEC-002''s `list_dir` mirrors Pi''s HARNESS listDir (see `pi:` above), not the `ls`
+    TOOL''s own separate loop that WP-13.1''s `ls` implementation must reproduce -- five
+    independently live-verified divergences (kind-inclusion, whole-call-failure-vs-per-entry-skip,
+    cap-boundary content, directory-symlink classification, broken-symlink inclusion) are detailed
+    in minion-agent-docs/assurance/layers/13-wp131-ce-l13-wp131-01-r007-ls-enumeration.md. The
+    required Layer-13 consumption pattern (spec/execution.md section 11.5) is itself normative:
+    the caller sorts list_dir_raw''s output, then calls probe_dir_entry lazily, one sorted name at
+    a time, checking its own cap BEFORE each call -- never probing an entry beyond the cap
+    boundary, matching Pi''s own lazy structure exactly, not merely its final content.
+
+    MINION_ARCHITECTURAL_MAPPING, not DIRECT_PI_PARITY: neither operation is a literal Pi
+    interface method (Pi has no `list_dir_raw`/`probe_dir_entry`-named operations), matching this
+    manifest''s own established precedent for a real behavioral mapping derived from genuine
+    pinned Pi source that does not correspond 1:1 to any single existing Pi FileSystem interface
+    method (`EXEC-003`''s own FsTarget/target_key row cites the identical reasoning for an
+    analogous case). No implementation exists yet at either language; `python`/`rust` below are
+    forward references, not evidence of completed work. Cancellation, error mapping, and the
+    complete discriminating-evidence plan are specified in spec/execution.md sections 11.3-11.6.'
+  tests:
+  - list_dir_raw_returns_raw_unsorted_provider_order_zero_probes (planned canonical scenario)
+  - probe_dir_entry_lazy_cap_boundary_never_probes_beyond_limit (planned canonical scenario)
+  - probe_dir_entry_plain_file_and_directory_classification (planned canonical scenario)
+  - probe_dir_entry_symlink_to_file_and_symlink_to_directory_classification (planned canonical scenario)
+  - probe_dir_entry_symlink_to_other_collapses_to_other (planned canonical scenario)
+  - probe_dir_entry_kind_unsupported_entry_is_success_not_error (planned canonical scenario)
+  - probe_dir_entry_broken_symlink_is_per_call_error_not_whole_call_abort (planned canonical scenario)
+  - probe_dir_entry_name_path_identity_is_addressed_entry_not_target (planned canonical scenario)
+  - list_dir_raw_and_probe_dir_entry_cancellation_rules (planned canonical scenario)
+  - not_supported_provider_distinguishable_from_list_dir_failure (planned canonical scenario)
+  - existing_list_dir_and_file_info_behavior_unchanged_by_extension (planned canonical scenario)
+  python: 'planned; not yet implemented (WP-12.E1 CONTRACT_DRAFT, minion-agent#53) -- intended
+    location minion_agent/execution/filesystem.py, additive to the existing FileSystem Protocol'
+  rust: 'planned; not yet implemented (WP-12.E1 CONTRACT_DRAFT, minion-agent#53) -- intended
+    location minion-agent-rust/crates/minion-agent/src/execution/filesystem.rs, additive to the
+    existing FileSystem trait'
+  disposition: intentional divergence

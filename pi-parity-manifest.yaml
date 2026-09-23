@@ -6422,8 +6422,9 @@ rows:
     `bf4eacdafbf9f66cb3ec80befb657575813dd46c` (PR #147) and this manifest row merged to
     minion-agent/main @ `1465953717d7a0ad1c96c417453ae0b5fe963e52` (PR #54), per owner merge
     authorization ("WP-12.E1 Owner Authorization", this session, 2026-09-23). Python implementation
-    AUTHORIZED and now exists (same authorization); Rust implementation remains NOT_IMPLEMENTED /
-    BLOCKED -- not authorized by this update.
+    is merged at minion-agent/main `a7a5ca723f73730957141553b2502dfa91a108a9` (PR #55).
+    A later explicit owner authorization recorded in minion-agent#53 authorized the separate Rust
+    implementation after that merge was verified; the Rust certification candidate now exists.
 
     Two new operations, additive to EXEC-002''s existing ctx.fs inventory, with EVERY existing
     operation in that inventory (list_dir, file_info, and the rest) unchanged in both wording and
@@ -6451,7 +6452,8 @@ rows:
     manifest''s own established precedent for a real behavioral mapping derived from genuine
     pinned Pi source that does not correspond 1:1 to any single existing Pi FileSystem interface
     method (`EXEC-003`''s own FsTarget/target_key row cites the identical reasoning for an
-    analogous case). Python implementation exists (below); Rust remains not yet implemented.
+    analogous case). Python and Rust implementations now exist (below), with Rust pending
+    independent closure verification.
     Cancellation, error mapping, and the complete discriminating-evidence plan are specified in
     spec/execution.md sections 11.3-11.6.'
   tests:
@@ -6471,6 +6473,16 @@ rows:
   - minion-agent-python/tests/execution/test_filesystem.py::test_probe_dir_entry_does_not_inspect_a_pre_aborted_signal
   - minion-agent-python/tests/execution/test_filesystem.py::test_not_supported_is_distinguishable_from_list_dirs_own_failure_modes
   - minion-agent-python/tests/execution/test_filesystem.py::test_existing_list_dir_and_file_info_behavior_is_unchanged_by_this_extension
+  - minion-agent-rust/crates/minion-agent/tests/execution_filesystem.rs::raw_directory_listing_preserves_provider_order_and_does_not_follow_entries
+  - minion-agent-rust/crates/minion-agent/tests/execution_filesystem.rs::layer13_consumption_shape_checks_the_cap_before_the_next_probe
+  - minion-agent-rust/crates/minion-agent/tests/execution_filesystem.rs::entry_probe_classifies_plain_and_symlinked_files_and_directories
+  - minion-agent-rust/crates/minion-agent/tests/execution_filesystem.rs::entry_probe_collapses_plain_and_symlinked_special_kinds_to_other
+  - minion-agent-rust/crates/minion-agent/tests/execution_filesystem.rs::broken_symlink_is_a_per_probe_error_and_a_caller_can_continue
+  - minion-agent-rust/crates/minion-agent/tests/execution_filesystem.rs::probe_identity_uses_the_resolved_addressed_path_not_raw_input_or_target
+  - minion-agent-rust/crates/minion-agent/tests/execution_filesystem.rs::extension_cancellation_rules_are_deliberately_asymmetric
+  - minion-agent-rust/crates/minion-agent/tests/execution_filesystem.rs::providers_without_the_extension_report_not_supported
+  - minion-agent-rust/crates/minion-agent/tests/execution_filesystem.rs::entry_probe_kind_serializes_with_the_exact_shared_vocabulary
+  - minion-agent-rust/crates/minion-agent/tests/execution_filesystem.rs::existing_listing_and_metadata_behavior_remains_unchanged
   python: 'minion-agent-python/src/minion_agent/execution/filesystem.py (DirEntryProbeKind,
     DirEntryProbe, _list_dir_raw_sync, _probe_dir_entry_sync, LocalFileSystem.list_dir_raw,
     LocalFileSystem.probe_dir_entry), additive to the existing FileSystem Protocol -- every
@@ -6480,8 +6492,12 @@ rows:
     1740 passed, 4 skipped (platform-specific), 19 xfailed; 100% coverage; ruff and mypy clean for
     this row''s own files. Independent implementation review pending (NEXT_OWNER = Codex,
     minion-agent#53).'
-  rust: 'planned; not yet implemented (WP-12.E1, minion-agent#53) -- intended location
-    minion-agent-rust/crates/minion-agent/src/execution/filesystem.rs, additive to the existing
-    FileSystem trait. NOT authorized by the owner''s Python-implementation authorization above --
-    remains BLOCKED pending a separate Rust authorization decision.'
+  rust: 'minion-agent-rust/crates/minion-agent/src/execution/filesystem.rs (DirEntryProbeKind,
+    DirEntryProbe, FileSystem.list_dir_raw, FileSystem.probe_dir_entry, and LocalFileSystem
+    implementations), exported through execution/mod.rs. The extension is additive: default trait
+    methods return the existing FsErrorCode::NotSupported for incapable providers; existing
+    list_dir/file_info/FileInfo/FileKind behavior is unchanged. Integration evidence is in
+    minion-agent-rust/crates/minion-agent/tests/execution_filesystem.rs. Implemented after the
+    explicit Rust authorization and verified Python merge recorded in minion-agent#53; independent
+    cross-language closure review remains pending.'
   disposition: intentional divergence

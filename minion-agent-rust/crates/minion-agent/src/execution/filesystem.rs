@@ -10,6 +10,7 @@ use std::{
 
 use ada_url::{HostType, Idna, Url as AdaUrl};
 use async_trait::async_trait;
+use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use uuid::Uuid;
 
@@ -29,6 +30,31 @@ pub struct FileInfo {
     pub kind: FileKind,
     pub size: u64,
     pub mtime_ms: u64,
+}
+
+/// The resolved kind of one addressed directory entry (`EXEC-007`).
+///
+/// Unlike [`FileKind`], this preserves whether a file or directory was reached through a
+/// symlink. Symlinks to every other kind deliberately collapse to [`Self::Other`].
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DirEntryProbeKind {
+    File,
+    Directory,
+    SymlinkToFile,
+    SymlinkToDirectory,
+    Other,
+}
+
+/// The classification of one resolved, addressed directory entry (`EXEC-007`).
+///
+/// `name` and `path` identify the addressed entry itself, including when it is a symlink; they
+/// never substitute the followed target's identity.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct DirEntryProbe {
+    pub name: String,
+    pub path: String,
+    pub kind: DirEntryProbeKind,
 }
 
 #[derive(Clone, Eq, Hash, PartialEq)]
@@ -121,6 +147,26 @@ pub trait FileSystem: Send + Sync {
         path: &str,
         signal: Option<&dyn AbortSignal>,
     ) -> Result<Vec<FileInfo>, FsError>;
+    async fn list_dir_raw(
+        &self,
+        _path: &str,
+        _signal: Option<&dyn AbortSignal>,
+    ) -> Result<Vec<String>, FsError> {
+        Err(FsError::new(
+            FsErrorCode::NotSupported,
+            "list_dir_raw is not supported by this filesystem provider",
+        ))
+    }
+    async fn probe_dir_entry(
+        &self,
+        _path: &str,
+        _signal: Option<&dyn AbortSignal>,
+    ) -> Result<DirEntryProbe, FsError> {
+        Err(FsError::new(
+            FsErrorCode::NotSupported,
+            "probe_dir_entry is not supported by this filesystem provider",
+        ))
+    }
     async fn canonical_path(
         &self,
         path: &str,
@@ -401,6 +447,57 @@ impl FileSystem for LocalFileSystem {
             entries.push(self.info_for(entry.path()).await?);
         }
         Ok(entries)
+    }
+
+    async fn list_dir_raw(
+        &self,
+        path: &str,
+        signal: Option<&dyn AbortSignal>,
+    ) -> Result<Vec<String>, FsError> {
+        Self::aborted(signal)?;
+        let mut directory = tokio::fs::read_dir(self.resolved(path))
+            .await
+            .map_err(map_fs_error)?;
+        let mut names = Vec::new();
+        while let Some(entry) = directory.next_entry().await.map_err(map_fs_error)? {
+            names.push(entry.file_name().to_string_lossy().into_owned());
+        }
+        Ok(names)
+    }
+
+    async fn probe_dir_entry(
+        &self,
+        path: &str,
+        _signal: Option<&dyn AbortSignal>,
+    ) -> Result<DirEntryProbe, FsError> {
+        let path = self.resolved(path);
+        let addressed = tokio::fs::symlink_metadata(&path)
+            .await
+            .map_err(map_fs_error)?;
+        let file_type = addressed.file_type();
+        let kind = if file_type.is_symlink() {
+            let target = tokio::fs::metadata(&path).await.map_err(map_fs_error)?;
+            if target.is_file() {
+                DirEntryProbeKind::SymlinkToFile
+            } else if target.is_dir() {
+                DirEntryProbeKind::SymlinkToDirectory
+            } else {
+                DirEntryProbeKind::Other
+            }
+        } else if file_type.is_file() {
+            DirEntryProbeKind::File
+        } else if file_type.is_dir() {
+            DirEntryProbeKind::Directory
+        } else {
+            DirEntryProbeKind::Other
+        };
+        Ok(DirEntryProbe {
+            name: path
+                .file_name()
+                .map_or_else(String::new, |name| name.to_string_lossy().into_owned()),
+            path: path.to_string_lossy().into_owned(),
+            kind,
+        })
     }
 
     async fn canonical_path(

@@ -9,7 +9,10 @@ mod world;
 pub use error::{
     FsError, FsErrorCode, ShellError, ShellErrorCode, SubprocessError, SubprocessErrorCode,
 };
-pub use filesystem::{FileInfo, FileKind, FileSystem, FsTarget, LocalFileSystem, TargetKey};
+pub use filesystem::{
+    DirEntryProbe, DirEntryProbeKind, FileInfo, FileKind, FileSystem, FsTarget, LocalFileSystem,
+    TargetKey,
+};
 pub use service::{FileSystemService, LocalExecutionProviders, ShellService, SubprocessService};
 pub use shell::{LocalShell, Shell, ShellExecOptions, ShellOutput, StreamCallback};
 pub use signal::{AbortSignal, CancellationController, CancellationSignal};

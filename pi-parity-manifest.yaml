@@ -6569,40 +6569,52 @@ rows:
   phase: 6
   pi: 'no single Pi-authored template for this vocabulary itself -- pinned Pi''s own error TEXT at
     each site is characterized in assurance/layers/13-wp131-ce-l13-wp131-01-r010-error-projection.md
-    (packages/coding-agent/src/core/tools/read.ts:243-249, ls.ts:132-152): four stable hand-authored
-    templates PRESERVED VERBATIM by this row (unchanged Pi behavior, not part of this row''s own
-    divergence), plus a genuine mix of raw OS/provider text and one hybrid wrapper on every OTHER
-    site, which this row''s own deterministic vocabulary REPLACES on the raw/hybrid sites only'
+    (packages/coding-agent/src/core/tools/read.ts:243-249, ls.ts:132-152): Pi authors FOUR stable
+    hand-authored templates in total, but only ONE (`"Operation aborted"`, shared by both tools) is
+    part of the surface currently integrated by this row -- the other three
+    (`"Path not found: <path>"`, `"Not a directory: <path>"`, `"Cannot read directory: <underlying
+    message>"`) are `ls`/`TOOL-028`-specific and OUT OF SCOPE for this row entirely while `TOOL-028`
+    remains frozen (see `rule:` below). Every OTHER distinguishable failure site is a genuine mix of
+    raw OS/provider text and one hybrid wrapper, which this row''s own deterministic vocabulary
+    REPLACES on the raw/hybrid sites only'
   surface: Layer 13, WP-13.1 -- the closed, deterministic Layer-13 error-message vocabulary for
     raw/hybrid ctx.fs failure sites (currently applied by TOOL-025 and TOOL-026 only)
   rule: 'CONTRACT_INTEGRATED (minion-agent#48; shared contract in spec/tools.md, TOOL-025''s "Error
-    text (`R010-B`)" subsection). Owner-decided `R010-B` (CE-L13-WP131-01 Lane E,
-    governance source https://github.com/EGAILab/minion-agent/issues/48#issuecomment-5785874487):
-    Pi''s own tool-level error text is a genuine mix -- FOUR stable, hand-authored templates
-    ("Path not found: <path>", "Not a directory: <path>", "Cannot read directory: <underlying
-    message>", "Operation aborted"), preserved VERBATIM (unchanged, DIRECT_PI_PARITY, covered by
-    TOOL-025/TOOL-026''s own `adopted` disposition, NOT this row) -- versus every OTHER
-    distinguishable failure, which is a raw or hybrid site whose exact wording is Pi''s own raw,
-    platform-dependent OS/provider text. THIS row governs ONLY those raw/hybrid sites: a closed,
-    deterministic, Layer-13-authored cause-phrase vocabulary is selected from the certified
-    `FsErrorCode` (`EXEC-001`) as an INTERNAL dispatch key -- never Pi''s own raw text, and never
-    exposed as a separate structured result field (generated-error `details` stays `{}`,
-    unconditionally, per spec/tools.md:512''s certified generated-error shape). Cause-phrase table
-    and the two message-template shapes ("Cannot access <path>: <cause phrase>" /
-    "Cannot read <path>: <cause phrase>") are normative in spec/tools.md, TOOL-025''s own
-    subsection. Current scope: applied by TOOL-025 (`read`) and TOOL-026 (the shared pipeline''s
-    own `R002-A` step-4 rejection) ONLY -- TOOL-028 (`ls`) does NOT yet apply this vocabulary to its
-    own raw/hybrid sites (its `readdir`/`stat` wrapper text, `list_dir_raw`/`probe_dir_entry`
-    outcomes); that remains TOOL-028''s own, separate, not-yet-integrated decision, deferred with
-    TOOL-028 pending L13-WP131-R006-C''s resolution. This is an explicit,
-    owner-recorded, model-visible `MINION_ARCHITECTURAL_MAPPING` -- the raw/hybrid text a caller
-    observes is Minion-authored, not a reproduction of Pi''s own platform-dependent wording,
-    disclosed and governed as such rather than silently varying. No implementation exists yet at
-    either language.'
+    text (`R010-B`)" subsection); scope narrowed this revision, independent re-review
+    minion-agent-docs#156 round 2, L13-WP131-INT-R003 (partially resolved)/INT-R004 (narrow
+    regression) -- an earlier revision of this row claimed all four of Pi''s stable hand-authored
+    templates were "covered by TOOL-025/TOOL-026''s own adopted disposition," but three of those
+    four are `ls`/`TOOL-028`-specific and TOOL-028 is not integrated by anything in this episode;
+    that claim normatively leaked TOOL-028 semantics through this row and is removed. Owner-decided
+    `R010-B` (CE-L13-WP131-01 Lane E, governance source
+    https://github.com/EGAILab/minion-agent/issues/48#issuecomment-5785874487): Pi''s own tool-level
+    error text is a genuine mix. THIS row''s governed semantics cover ONLY the surface currently
+    integrated: (1) `read`''s (`TOOL-025`) own `"Operation aborted"` template -- the SOLE stable
+    hand-authored template presently in scope, preserved VERBATIM (unchanged, DIRECT_PI_PARITY,
+    covered by `TOOL-025`''s own `adopted` disposition, NOT this row''s `intentional divergence`);
+    and (2) every raw/hybrid distinguishable failure reachable through `TOOL-025`/`TOOL-026`''s
+    currently-integrated operations, whose exact wording is Pi''s own raw, platform-dependent
+    OS/provider text -- a closed, deterministic, Layer-13-authored cause-phrase vocabulary is
+    selected from the certified `FsErrorCode` (`EXEC-001`) as an INTERNAL dispatch key for these
+    sites ONLY, never Pi''s own raw text, and never exposed as a separate structured result field
+    (generated-error `details` stays `{}`, unconditionally, per spec/tools.md:512''s certified
+    generated-error shape). Cause-phrase table and the two message-template shapes ("Cannot access
+    <path>: <cause phrase>" / "Cannot read <path>: <cause phrase>") are normative in spec/tools.md,
+    TOOL-025''s own subsection. Pi''s OTHER three stable hand-authored templates ("Path not found:
+    <path>", "Not a directory: <path>", "Cannot read directory: <underlying message>") are
+    `ls`/`TOOL-028`-specific and EXPLICITLY OUT OF SCOPE for this row -- neither adopted nor
+    governed by anything integrated in this episode; `TOOL-028`''s own, separate, not-yet-integrated
+    decision, deferred with `TOOL-028` pending L13-WP131-R006-C''s resolution, decides their
+    eventual disposition (whether R010-B''s vocabulary applies to `ls`''s own raw/hybrid sites at
+    all is likewise `TOOL-028`''s own open question, not decided here). This row''s own scope is an
+    explicit, owner-recorded, model-visible `MINION_ARCHITECTURAL_MAPPING` -- the raw/hybrid text a
+    caller observes through `TOOL-025`/`TOOL-026` is Minion-authored, not a reproduction of Pi''s own
+    platform-dependent wording, disclosed and governed as such rather than silently varying. No
+    implementation exists yet at either language.'
   tests:
   - read_error_text_matches_r010b_closed_vocabulary_per_fserrorcode (planned canonical scenario)
   - malformed_file_url_rejected_before_ctx_fs_access_as_invalid (planned canonical scenario)
-  - read_stable_hand_authored_templates_unaffected_by_r010b (planned canonical scenario)
+  - read_operation_aborted_template_unaffected_by_r010b (planned canonical scenario)
   python: 'planned; not yet implemented (WP-13.1 CONTRACT_INTEGRATED, minion-agent#48) -- intended
     location minion_agent/tools/builtin/_errors.py, shared by TOOL-025/TOOL-026 (and, once its own
     integration completes, TOOL-028)'

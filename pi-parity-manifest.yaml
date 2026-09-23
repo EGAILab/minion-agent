@@ -6424,7 +6424,11 @@ rows:
     authorization ("WP-12.E1 Owner Authorization", this session, 2026-09-23). Python implementation
     is merged at minion-agent/main `a7a5ca723f73730957141553b2502dfa91a108a9` (PR #55).
     A later explicit owner authorization recorded in minion-agent#53 authorized the separate Rust
-    implementation after that merge was verified; the Rust certification candidate now exists.
+    implementation after that merge was verified. Rust implementation is merged at minion-agent/main
+    `0b1dd8a870c11087f8414e831a5f86003c8c489a` (PR #56), with its assurance record at
+    minion-agent-docs/master `6c807fd92d9876610b14f2a523715069a43bb004` (PR #157). Both were
+    independently reviewed at their exact SHAs before merge; cross-language closure is recorded in
+    minion-agent#53.
 
     Two new operations, additive to EXEC-002''s existing ctx.fs inventory, with EVERY existing
     operation in that inventory (list_dir, file_info, and the rest) unchanged in both wording and
@@ -6452,8 +6456,8 @@ rows:
     manifest''s own established precedent for a real behavioral mapping derived from genuine
     pinned Pi source that does not correspond 1:1 to any single existing Pi FileSystem interface
     method (`EXEC-003`''s own FsTarget/target_key row cites the identical reasoning for an
-    analogous case). Python and Rust implementations now exist (below), with Rust pending
-    independent closure verification.
+    analogous case). Python and Rust implementations are both accepted on minion-agent/main
+    (below).
     Cancellation, error mapping, and the complete discriminating-evidence plan are specified in
     spec/execution.md sections 11.3-11.6.'
   tests:
@@ -6493,14 +6497,15 @@ rows:
     ("WP-12.E1 Owner Authorization", this session, 2026-09-23) against the merged contract
     (minion-agent-docs/master @ bf4eacdafbf9f66cb3ec80befb657575813dd46c). Full pytest suite:
     1740 passed, 4 skipped (platform-specific), 19 xfailed; 100% coverage; ruff and mypy clean for
-    this row''s own files. Independent implementation review pending (NEXT_OWNER = Codex,
-    minion-agent#53).'
+    this row''s own files. Independently reviewed (WP12E1-I001/I002 remediated and closed) and
+    merged at minion-agent/main a7a5ca723f73730957141553b2502dfa91a108a9 (PR #55).'
   rust: 'minion-agent-rust/crates/minion-agent/src/execution/filesystem.rs (DirEntryProbeKind,
     DirEntryProbe, FileSystem.list_dir_raw, FileSystem.probe_dir_entry, and LocalFileSystem
     implementations), exported through execution/mod.rs. The extension is additive: default trait
     methods return the existing FsErrorCode::NotSupported for incapable providers; existing
     list_dir/file_info/FileInfo/FileKind behavior is unchanged. Integration evidence is in
     minion-agent-rust/crates/minion-agent/tests/execution_filesystem.rs. Implemented after the
-    explicit Rust authorization and verified Python merge recorded in minion-agent#53; independent
-    cross-language closure review remains pending.'
+    explicit Rust authorization and verified Python merge recorded in minion-agent#53;
+    independently reviewed (WP12E1-I003 remediated and closed) and merged at minion-agent/main
+    0b1dd8a870c11087f8414e831a5f86003c8c489a (PR #56).'
   disposition: intentional divergence

@@ -6414,24 +6414,36 @@ rows:
     (CHANGES REQUIRED, findings L13-WP131-R001/R003/R004/R005/R008 against this requirement),
     remediated in spec/tools.md; R005 and R010 (both requiring owner governance) are now
     OWNER-DECIDED (`R005-A`, `R010-B`, CE-L13-WP131-01, minion-agent#48) and integrated into the
-    shared contract below -- integration itself not yet independently re-reviewed. `offset`/`limit`
-    are Pi''s own unconstrained `number` domain, not integer/minimum-narrowed (`DIRECT_PI_PARITY`).
-    Two distinct line-count meanings (whole-file `totalFileLines` used only in continuation-notice
-    text, vs. `details.truncation.total_lines` scoped to the already offset/limit-selected range)
-    are kept separate, not conflated. `details.truncation` is present for automatic truncation and
-    the first-line-byte-overflow case, but explicitly ABSENT when a caller-supplied `limit` alone
-    stopped the selection early. A successfully processed image is always returned to the model,
-    regardless of the requesting model''s own vision support -- a non-vision note is appended
-    text, never a substitution. Image `data` is base64-encoded text, not raw bytes; the exact
-    resize/re-encode pixel algorithm is `MINION_EXTENSION`/implementation-delegated, not required
-    for byte-identical parity (`R005-A`). Cancellation follows the Layer 09/06 signal contract with
-    explicit post-resolution/post-access-check checkpoints. Error text (`R010-B`): `read` authors
-    zero Pi hand-authored error strings -- every distinguishable failure is a raw/hybrid site using
-    a deterministic, closed Layer-13 vocabulary selected from the certified `FsErrorCode` (`EXEC-001`)
-    as an internal dispatch key, never Pi''s own raw platform-dependent OS/provider text and never a
-    separate structured field (generated-error `details` stays `{}`); exact templates in
-    spec/tools.md. No implementation exists yet at either language; `python`/`rust` below are
-    forward references, not evidence of completed work.'
+    shared contract below. First integration review (minion-agent-docs#156) found the stale
+    pre-decision image-handling text left in place instead of R005-A (L13-WP131-INT-R001) and
+    R010-B''s intentional-divergence status not distinguished from this row''s own `adopted`
+    disposition (L13-WP131-INT-R003); both corrected here; integration re-review pending.
+    `offset`/`limit` are Pi''s own unconstrained `number` domain, not integer/minimum-narrowed
+    (`DIRECT_PI_PARITY`). Two distinct line-count meanings (whole-file `totalFileLines` used only in
+    continuation-notice text, vs. `details.truncation.total_lines` scoped to the already
+    offset/limit-selected range) are kept separate, not conflated. `details.truncation` is present
+    for automatic truncation and the first-line-byte-overflow case, but explicitly ABSENT when a
+    caller-supplied `limit` alone stopped the selection early. A successfully processed image is
+    always returned to the model, regardless of the requesting model''s own vision support -- a
+    non-vision note is appended text, never a substitution. Image `data` is base64-encoded text, not
+    raw bytes. Image processing semantic authority (`R005-A`, corrected -- was wrongly stated as
+    implementation-delegated): PINNED_PHOTON_COMPATIBLE, pinned `@silvia-odwyer/photon-node 0.3.4`
+    and its `photon_rs_bg.wasm` artifact are AUTHORITATIVE for the complete Photon-dependent
+    observable surface (decode accept/reject, EXIF, BMP conversion, resize re-decode, fast-path
+    boundary, candidate search, success/failure, MIME, dimensions, `wasResized`, encoded data) --
+    mere visual equivalence is EXPRESSLY insufficient; differential-corpus checkpoint evidence
+    required before implementation authorization; STOP and return to owner if either language
+    cannot reproduce pinned Photon semantics maintainably (no silent fallback). Cancellation follows
+    the Layer 09/06 signal contract with explicit post-resolution/post-access-check checkpoints.
+    Error text (`R010-B`): `read` authors zero Pi hand-authored error strings -- every
+    distinguishable failure is a raw/hybrid site using a deterministic, closed Layer-13 vocabulary
+    selected from the certified `FsErrorCode` (`EXEC-001`) as an internal dispatch key, never Pi''s
+    own raw platform-dependent OS/provider text and never a separate structured field
+    (generated-error `details` stays `{}`); exact templates in spec/tools.md. **This error-text
+    normalization is its own explicit `intentional divergence`, NOT covered by this row''s own
+    `adopted` disposition below**, which describes `read`''s core Pi-mirroring behavior (schema,
+    truncation, R005-A image handling, cancellation) only. No implementation exists yet at either
+    language; `python`/`rust` below are forward references, not evidence of completed work.'
   tests:
   - read_offset_limit_then_truncation_ordering (planned canonical scenario)
   - read_first_line_exceeds_byte_limit (planned canonical scenario)
@@ -6440,6 +6452,7 @@ rows:
   - read_image_success_includes_image_for_non_vision_model (planned canonical scenario)
   - read_image_bmp_converts_and_resizes (planned canonical scenario)
   - read_image_processing_failure_is_text_only_success (planned canonical scenario)
+  - read_image_differential_corpus_matches_pinned_photon_0_3_4 (planned canonical scenario)
   - read_error_text_matches_r010b_closed_vocabulary_per_fserrorcode (planned canonical scenario)
   python: 'planned; not yet implemented (WP-13.1 CONTRACT_INTEGRATED, minion-agent#48) -- intended
     location minion_agent/tools/builtin/read.py'
@@ -6457,26 +6470,36 @@ rows:
     pipeline (`TOOL-026`)"), independent review round 1 minion-agent-docs#133 (CHANGES REQUIRED,
     findings L13-WP131-R001/R002 against this requirement), remediated in spec/tools.md; R002 and
     R010 (both requiring owner governance) are now OWNER-DECIDED (`R002-A`, `R010-B`,
-    CE-L13-WP131-01, minion-agent#48) and integrated into the shared contract below -- integration
-    itself not yet independently re-reviewed. Pipeline: normalize the closed Unicode-space set
-    (U+00A0, U+2000..U+200A, U+202F, U+205F, U+3000) to ASCII space; strip one leading "@";
-    Windows-only Git-Bash/MSYS/Cygwin/WSL drive-path rewrite; then pass the result DIRECTLY to the
-    relevant read-only ctx.fs operation (read_text_file/read_binary_file/file_info/list_dir), never
-    through ctx.fs.resolve()/FsTarget (that bridge is WP-13.2''s mutation-queue-key mechanism, not a
-    lexical path resolver) -- corrected from an earlier draft that named the wrong seam. No trim
-    step (Pi''s own tool call sites never set `trim: true`; ordinary ASCII whitespace is preserved,
-    corrected from an earlier draft that trimmed unconditionally). Malformed `file://` handling
-    (`R002-A`): reuses the already-certified `_file_url_to_path` conversion directly, unwrapped (a
-    visibility change only, no new parsing logic) -- confirmed platform-dependent result, not a
-    single uniform outcome: Windows `EINVAL -> FsErrorCode.INVALID` (verified directly); POSIX
-    `ENOENT -> FsErrorCode.NOT_FOUND` (independently verified on Linux/WSL). Final error-message
-    TEXT for both outcomes follows `TOOL-025`''s `R010-B` closed Layer-13 vocabulary, not raw
-    provider/URL-parsing text. No implementation exists yet at either language.'
+    CE-L13-WP131-01, minion-agent#48) and integrated into the shared contract below. First
+    integration review (minion-agent-docs#156) found R002-A conflated with the REJECTED R002-B
+    alternative''s own platform-dependent outcome, and a contradiction with the pipeline''s own
+    provider-internal-resolution step (L13-WP131-INT-R002); corrected here; integration re-review
+    pending. Pipeline: normalize the closed Unicode-space set (U+00A0, U+2000..U+200A, U+202F,
+    U+205F, U+3000) to ASCII space; strip one leading "@"; Windows-only Git-Bash/MSYS/Cygwin/WSL
+    drive-path rewrite; if the result starts with "file://", call the already-certified
+    `_file_url_to_path` conversion DIRECTLY, UNWRAPPED -- a conversion failure REJECTS THE CALL
+    IMMEDIATELY, before any ctx.fs/provider access, it does NOT fall through to an ordinary
+    filesystem lookup; then pass the (possibly file://-converted) result DIRECTLY to the relevant
+    read-only ctx.fs operation (read_text_file/read_binary_file/file_info/list_dir), never through
+    ctx.fs.resolve()/FsTarget (that bridge is WP-13.2''s mutation-queue-key mechanism, not a lexical
+    path resolver) -- corrected from an earlier draft that named the wrong seam. No trim step (Pi''s
+    own tool call sites never set `trim: true`; ordinary ASCII whitespace is preserved, corrected
+    from an earlier draft that trimmed unconditionally). Malformed `file://` handling (`R002-A`,
+    corrected -- owner text: "reject malformed file:// input through the already-certified strict
+    conversion boundary BEFORE ctx.fs filesystem access"): the direct, unwrapped
+    `_file_url_to_path` failure (a ValueError/OSError from URL parsing, never an OS errno, since no
+    filesystem call has occurred yet) maps to `FsErrorCode.INVALID` UNIFORMLY on every platform --
+    NOT the platform-dependent Windows-INVALID/POSIX-NOT_FOUND split, which is R002-B''s own
+    disclosed consequence (the NOT-selected fall-through alternative), not R002-A''s. Final
+    error-message TEXT follows `TOOL-025`''s `R010-B` closed Layer-13 vocabulary (`"Cannot access
+    <path>: invalid path"`), not raw provider/URL-parsing text. **This error-text normalization is
+    its own explicit `intentional divergence`, NOT covered by this row''s own `adopted` disposition
+    below**, which describes the pipeline''s core preprocessing/routing behavior only. No
+    implementation exists yet at either language.'
   tests:
   - read_leading_ascii_space_not_trimmed (planned canonical scenario)
   - read_unicode_space_normalized (planned canonical scenario)
-  - malformed_file_url_windows_maps_to_invalid (planned canonical scenario)
-  - malformed_file_url_posix_maps_to_not_found (planned canonical scenario)
+  - malformed_file_url_rejected_before_ctx_fs_access_as_invalid (planned canonical scenario)
   python: 'planned; not yet implemented (WP-13.1 CONTRACT_INTEGRATED, minion-agent#48) -- intended
     location minion_agent/tools/builtin/_paths.py, shared by TOOL-025/TOOL-028'
   rust: 'planned; not yet implemented (WP-13.1 CONTRACT_INTEGRATED, minion-agent#48) -- intended

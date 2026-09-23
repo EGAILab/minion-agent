@@ -6474,6 +6474,7 @@ rows:
   - minion-agent-python/tests/execution/test_filesystem.py::test_not_supported_is_distinguishable_from_list_dirs_own_failure_modes
   - minion-agent-python/tests/execution/test_filesystem.py::test_existing_list_dir_and_file_info_behavior_is_unchanged_by_this_extension
   - minion-agent-rust/crates/minion-agent/tests/execution_filesystem.rs::raw_directory_listing_preserves_provider_order_and_does_not_follow_entries
+  - minion-agent-rust/crates/minion-agent/src/execution/filesystem.rs::tests::raw_listing_invokes_only_enumeration_and_zero_per_entry_probes
   - minion-agent-rust/crates/minion-agent/tests/execution_filesystem.rs::layer13_consumption_shape_checks_the_cap_before_the_next_probe
   - minion-agent-rust/crates/minion-agent/tests/execution_filesystem.rs::entry_probe_classifies_plain_and_symlinked_files_and_directories
   - minion-agent-rust/crates/minion-agent/tests/execution_filesystem.rs::entry_probe_collapses_plain_and_symlinked_special_kinds_to_other

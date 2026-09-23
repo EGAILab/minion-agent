@@ -6435,15 +6435,13 @@ rows:
     required before implementation authorization; STOP and return to owner if either language
     cannot reproduce pinned Photon semantics maintainably (no silent fallback). Cancellation follows
     the Layer 09/06 signal contract with explicit post-resolution/post-access-check checkpoints.
-    Error text (`R010-B`): `read` authors zero Pi hand-authored error strings -- every
-    distinguishable failure is a raw/hybrid site using a deterministic, closed Layer-13 vocabulary
-    selected from the certified `FsErrorCode` (`EXEC-001`) as an internal dispatch key, never Pi''s
-    own raw platform-dependent OS/provider text and never a separate structured field
-    (generated-error `details` stays `{}`); exact templates in spec/tools.md. **This error-text
-    normalization is its own explicit `intentional divergence`, NOT covered by this row''s own
-    `adopted` disposition below**, which describes `read`''s core Pi-mirroring behavior (schema,
-    truncation, R005-A image handling, cancellation) only. No implementation exists yet at either
-    language; `python`/`rust` below are forward references, not evidence of completed work.'
+    Error text (`R010-B`): governed by its OWN separate manifest row, `TOOL-029`, with
+    `disposition: intentional divergence` -- NOT by this row''s own `adopted` disposition, which
+    describes `read`''s core Pi-mirroring behavior (schema, truncation, R005-A image handling,
+    cancellation) only. `TOOL-029` carries the full R010-B rule text, the closed cause-phrase
+    vocabulary, and the message-template shapes; this row does not duplicate them. No
+    implementation exists yet at either language; `python`/`rust` below are forward references, not
+    evidence of completed work.'
   tests:
   - read_offset_limit_then_truncation_ordering (planned canonical scenario)
   - read_first_line_exceeds_byte_limit (planned canonical scenario)
@@ -6453,7 +6451,6 @@ rows:
   - read_image_bmp_converts_and_resizes (planned canonical scenario)
   - read_image_processing_failure_is_text_only_success (planned canonical scenario)
   - read_image_differential_corpus_matches_pinned_photon_0_3_4 (planned canonical scenario)
-  - read_error_text_matches_r010b_closed_vocabulary_per_fserrorcode (planned canonical scenario)
   python: 'planned; not yet implemented (WP-13.1 CONTRACT_INTEGRATED, minion-agent#48) -- intended
     location minion_agent/tools/builtin/read.py'
   rust: 'planned; not yet implemented (WP-13.1 CONTRACT_INTEGRATED, minion-agent#48) -- intended
@@ -6491,15 +6488,18 @@ rows:
     filesystem call has occurred yet) maps to `FsErrorCode.INVALID` UNIFORMLY on every platform --
     NOT the platform-dependent Windows-INVALID/POSIX-NOT_FOUND split, which is R002-B''s own
     disclosed consequence (the NOT-selected fall-through alternative), not R002-A''s. Final
-    error-message TEXT follows `TOOL-025`''s `R010-B` closed Layer-13 vocabulary (`"Cannot access
-    <path>: invalid path"`), not raw provider/URL-parsing text. **This error-text normalization is
-    its own explicit `intentional divergence`, NOT covered by this row''s own `adopted` disposition
-    below**, which describes the pipeline''s core preprocessing/routing behavior only. No
-    implementation exists yet at either language.'
+    error-message TEXT follows `TOOL-029`''s `R010-B` closed Layer-13 vocabulary (`"Cannot access
+    <path>: invalid path"`), not raw provider/URL-parsing text. That error-text normalization is
+    governed by `TOOL-029`''s OWN separate manifest row (`disposition: intentional divergence`),
+    NOT by this row''s own `adopted` disposition, which describes the pipeline''s core
+    preprocessing/routing behavior only. No implementation exists yet at either language.'
   tests:
   - read_leading_ascii_space_not_trimmed (planned canonical scenario)
   - read_unicode_space_normalized (planned canonical scenario)
-  - malformed_file_url_rejected_before_ctx_fs_access_as_invalid (planned canonical scenario)
+  - malformed_file_url_rejected_before_ctx_fs_access_as_invalid (planned canonical scenario, this
+    row asserts the REJECTION-BEFORE-ctx.fs mechanism and its INVALID classification; TOOL-029''s
+    own test of the same name asserts the resulting MESSAGE TEXT specifically -- two distinct
+    assertions sharing one canonical scenario name deliberately, not an accidental duplicate)
   python: 'planned; not yet implemented (WP-13.1 CONTRACT_INTEGRATED, minion-agent#48) -- intended
     location minion_agent/tools/builtin/_paths.py, shared by TOOL-025/TOOL-028'
   rust: 'planned; not yet implemented (WP-13.1 CONTRACT_INTEGRATED, minion-agent#48) -- intended
@@ -6565,3 +6565,48 @@ rows:
     location minion-agent-rust/crates/minion-agent/src/tools/builtin/ls.rs; BLOCKED on the open
     L13-WP131-R006 collation governance question before implementation can begin'
   disposition: adopted
+- id: TOOL-029
+  phase: 6
+  pi: 'no single Pi-authored template for this vocabulary itself -- pinned Pi''s own error TEXT at
+    each site is characterized in assurance/layers/13-wp131-ce-l13-wp131-01-r010-error-projection.md
+    (packages/coding-agent/src/core/tools/read.ts:243-249, ls.ts:132-152): four stable hand-authored
+    templates PRESERVED VERBATIM by this row (unchanged Pi behavior, not part of this row''s own
+    divergence), plus a genuine mix of raw OS/provider text and one hybrid wrapper on every OTHER
+    site, which this row''s own deterministic vocabulary REPLACES on the raw/hybrid sites only'
+  surface: Layer 13, WP-13.1 -- the closed, deterministic Layer-13 error-message vocabulary for
+    raw/hybrid ctx.fs failure sites (currently applied by TOOL-025 and TOOL-026 only)
+  rule: 'CONTRACT_INTEGRATED (minion-agent#48; shared contract in spec/tools.md, TOOL-025''s "Error
+    text (`R010-B`)" subsection). Owner-decided `R010-B` (CE-L13-WP131-01 Lane E,
+    governance source https://github.com/EGAILab/minion-agent/issues/48#issuecomment-5785874487):
+    Pi''s own tool-level error text is a genuine mix -- FOUR stable, hand-authored templates
+    ("Path not found: <path>", "Not a directory: <path>", "Cannot read directory: <underlying
+    message>", "Operation aborted"), preserved VERBATIM (unchanged, DIRECT_PI_PARITY, covered by
+    TOOL-025/TOOL-026''s own `adopted` disposition, NOT this row) -- versus every OTHER
+    distinguishable failure, which is a raw or hybrid site whose exact wording is Pi''s own raw,
+    platform-dependent OS/provider text. THIS row governs ONLY those raw/hybrid sites: a closed,
+    deterministic, Layer-13-authored cause-phrase vocabulary is selected from the certified
+    `FsErrorCode` (`EXEC-001`) as an INTERNAL dispatch key -- never Pi''s own raw text, and never
+    exposed as a separate structured result field (generated-error `details` stays `{}`,
+    unconditionally, per spec/tools.md:512''s certified generated-error shape). Cause-phrase table
+    and the two message-template shapes ("Cannot access <path>: <cause phrase>" /
+    "Cannot read <path>: <cause phrase>") are normative in spec/tools.md, TOOL-025''s own
+    subsection. Current scope: applied by TOOL-025 (`read`) and TOOL-026 (the shared pipeline''s
+    own `R002-A` step-4 rejection) ONLY -- TOOL-028 (`ls`) does NOT yet apply this vocabulary to its
+    own raw/hybrid sites (its `readdir`/`stat` wrapper text, `list_dir_raw`/`probe_dir_entry`
+    outcomes); that remains TOOL-028''s own, separate, not-yet-integrated decision, deferred with
+    TOOL-028 pending L13-WP131-R006-C''s resolution. This is an explicit,
+    owner-recorded, model-visible `MINION_ARCHITECTURAL_MAPPING` -- the raw/hybrid text a caller
+    observes is Minion-authored, not a reproduction of Pi''s own platform-dependent wording,
+    disclosed and governed as such rather than silently varying. No implementation exists yet at
+    either language.'
+  tests:
+  - read_error_text_matches_r010b_closed_vocabulary_per_fserrorcode (planned canonical scenario)
+  - malformed_file_url_rejected_before_ctx_fs_access_as_invalid (planned canonical scenario)
+  - read_stable_hand_authored_templates_unaffected_by_r010b (planned canonical scenario)
+  python: 'planned; not yet implemented (WP-13.1 CONTRACT_INTEGRATED, minion-agent#48) -- intended
+    location minion_agent/tools/builtin/_errors.py, shared by TOOL-025/TOOL-026 (and, once its own
+    integration completes, TOOL-028)'
+  rust: 'planned; not yet implemented (WP-13.1 CONTRACT_INTEGRATED, minion-agent#48) -- intended
+    location minion-agent-rust/crates/minion-agent/src/tools/builtin/errors.rs, shared by
+    TOOL-025/TOOL-026 (and, once its own integration completes, TOOL-028)'
+  disposition: intentional divergence

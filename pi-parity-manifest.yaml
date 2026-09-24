@@ -6509,3 +6509,267 @@ rows:
     independently reviewed (WP12E1-I003 remediated and closed) and merged at minion-agent/main
     0b1dd8a870c11087f8414e831a5f86003c8c489a (PR #56).'
   disposition: intentional divergence
+- id: TOOL-025
+  phase: 6
+  pi: 'packages/coding-agent/src/core/tools/read.ts (schema lines 21-25; execute lines 223-334);
+    packages/coding-agent/src/core/tools/truncate.ts (truncateHead, DEFAULT_MAX_LINES/BYTES)'
+  surface: Layer 13, WP-13.1 -- the `read` built-in tool
+  rule: 'CONTRACT_INTEGRATED (minion-agent#48; shared contract in spec/tools.md ("Layer 13 -- Built-in
+    tools" / "WP-13.1" / "`read` (`TOOL-025`)"), independent review round 1 minion-agent-docs#133
+    (CHANGES REQUIRED, findings L13-WP131-R001/R003/R004/R005/R008 against this requirement),
+    remediated in spec/tools.md; R005 and R010 (both requiring owner governance) are now
+    OWNER-DECIDED (`R005-A`, `R010-B`, CE-L13-WP131-01, minion-agent#48) and integrated into the
+    shared contract below. First integration review (minion-agent-docs#156) found the stale
+    pre-decision image-handling text left in place instead of R005-A (L13-WP131-INT-R001) and
+    R010-B''s intentional-divergence status not distinguished from this row''s own `adopted`
+    disposition (L13-WP131-INT-R003); both corrected here; integration re-review pending.
+    `offset`/`limit` are Pi''s own unconstrained `number` domain, not integer/minimum-narrowed
+    (`DIRECT_PI_PARITY`). Two distinct line-count meanings (whole-file `totalFileLines` used only in
+    continuation-notice text, vs. `details.truncation.total_lines` scoped to the already
+    offset/limit-selected range) are kept separate, not conflated. `details.truncation` is present
+    for automatic truncation and the first-line-byte-overflow case, but explicitly ABSENT when a
+    caller-supplied `limit` alone stopped the selection early. A successfully processed image is
+    always returned to the model, regardless of the requesting model''s own vision support -- a
+    non-vision note is appended text, never a substitution. Image `data` is base64-encoded text, not
+    raw bytes. Image processing semantic authority (`R005-A`, corrected -- was wrongly stated as
+    implementation-delegated): PINNED_PHOTON_COMPATIBLE, pinned `@silvia-odwyer/photon-node 0.3.4`
+    and its `photon_rs_bg.wasm` artifact are AUTHORITATIVE for the complete Photon-dependent
+    observable surface (decode accept/reject, EXIF, BMP conversion, resize re-decode, fast-path
+    boundary, candidate search, success/failure, MIME, dimensions, `wasResized`, encoded data) --
+    mere visual equivalence is EXPRESSLY insufficient; differential-corpus checkpoint evidence
+    required before implementation authorization; STOP and return to owner if either language
+    cannot reproduce pinned Photon semantics maintainably (no silent fallback). Cancellation follows
+    the Layer 09/06 signal contract with explicit post-resolution/post-access-check checkpoints.
+    Error text (`R010-B`): governed by its OWN separate manifest row, `TOOL-039`, with
+    `disposition: intentional divergence` -- NOT by this row''s own `adopted` disposition, which
+    describes `read`''s core Pi-mirroring behavior (schema, truncation, R005-A image handling,
+    cancellation) only. `TOOL-039` carries the full R010-B rule text, the closed cause-phrase
+    vocabulary, and the message-template shapes; this row does not duplicate them. No
+    implementation exists yet at either language; `python`/`rust` below are forward references, not
+    evidence of completed work.'
+  tests:
+  - read_offset_limit_then_truncation_ordering (planned canonical scenario)
+  - read_first_line_exceeds_byte_limit (planned canonical scenario)
+  - read_offset_out_of_bounds (planned canonical scenario)
+  - read_fractional_and_negative_numeric_inputs (planned canonical scenario)
+  - read_image_success_includes_image_for_non_vision_model (planned canonical scenario)
+  - read_image_bmp_converts_and_resizes (planned canonical scenario)
+  - read_image_processing_failure_is_text_only_success (planned canonical scenario)
+  - read_image_differential_corpus_matches_pinned_photon_0_3_4 (planned canonical scenario)
+  - read_operation_aborted_template_preserved_verbatim (planned canonical scenario)
+  python: 'planned; not yet implemented (WP-13.1 CONTRACT_INTEGRATED, minion-agent#48) -- intended
+    location minion_agent/tools/builtin/read.py'
+  rust: 'planned; not yet implemented (WP-13.1 CONTRACT_INTEGRATED, minion-agent#48) -- intended
+    location minion-agent-rust/crates/minion-agent/src/tools/builtin/read.rs'
+  disposition: adopted
+- id: TOOL-026
+  phase: 6
+  pi: 'packages/coding-agent/src/core/tools/path-utils.ts:40-49 (resolveToCwd); packages/
+    coding-agent/src/utils/paths.ts:75-106 (normalizePath/resolvePath); packages/agent/src/
+    harness/env/nodejs.ts:51-65 (resolvePath, the function Layer 12''s resolve_local_path already
+    mirrors)'
+  surface: Layer 13, WP-13.1 -- the shared `read`/`ls` path-argument preprocessing pipeline
+  rule: 'CONTRACT_INTEGRATED (minion-agent#48; shared contract in spec/tools.md, "Shared path-argument
+    pipeline (`TOOL-026`)"), independent review round 1 minion-agent-docs#133 (CHANGES REQUIRED,
+    findings L13-WP131-R001/R002 against this requirement), remediated in spec/tools.md; R002 and
+    R010 (both requiring owner governance) are now OWNER-DECIDED (`R002-A`, `R010-B`,
+    CE-L13-WP131-01, minion-agent#48) and integrated into the shared contract below. First
+    integration review (minion-agent-docs#156) found R002-A conflated with the REJECTED R002-B
+    alternative''s own platform-dependent outcome, and a contradiction with the pipeline''s own
+    provider-internal-resolution step (L13-WP131-INT-R002); corrected here; integration re-review
+    pending. Pipeline: normalize the closed Unicode-space set (U+00A0, U+2000..U+200A, U+202F,
+    U+205F, U+3000) to ASCII space; strip one leading "@"; Windows-only Git-Bash/MSYS/Cygwin/WSL
+    drive-path rewrite; if the result starts with "file://", call the already-certified
+    `_file_url_to_path` conversion DIRECTLY, UNWRAPPED -- a conversion failure REJECTS THE CALL
+    IMMEDIATELY, before any ctx.fs/provider access, it does NOT fall through to an ordinary
+    filesystem lookup; then pass the (possibly file://-converted) result DIRECTLY to the relevant
+    read-only ctx.fs operation (read_text_file/read_binary_file/file_info/list_dir), never through
+    ctx.fs.resolve()/FsTarget (that bridge is WP-13.2''s mutation-queue-key mechanism, not a lexical
+    path resolver) -- corrected from an earlier draft that named the wrong seam. No trim step (Pi''s
+    own tool call sites never set `trim: true`; ordinary ASCII whitespace is preserved, corrected
+    from an earlier draft that trimmed unconditionally). Malformed `file://` handling (`R002-A`,
+    corrected -- owner text: "reject malformed file:// input through the already-certified strict
+    conversion boundary BEFORE ctx.fs filesystem access"): the direct, unwrapped
+    `_file_url_to_path` failure (a ValueError/OSError from URL parsing, never an OS errno, since no
+    filesystem call has occurred yet) maps to `FsErrorCode.INVALID` UNIFORMLY on every platform --
+    NOT the platform-dependent Windows-INVALID/POSIX-NOT_FOUND split, which is R002-B''s own
+    disclosed consequence (the NOT-selected fall-through alternative), not R002-A''s. Final
+    error-message TEXT follows `TOOL-039`''s `R010-B` closed Layer-13 vocabulary (`"Cannot access
+    <path>: invalid path"`), not raw provider/URL-parsing text. That error-text normalization is
+    governed by `TOOL-039`''s OWN separate manifest row (`disposition: intentional divergence`),
+    NOT by this row''s own `adopted` disposition, which describes the pipeline''s core
+    preprocessing/routing behavior only. No implementation exists yet at either language.'
+  tests:
+  - read_leading_ascii_space_not_trimmed (planned canonical scenario)
+  - read_unicode_space_normalized (planned canonical scenario)
+  - malformed_file_url_rejected_before_ctx_fs_access_as_invalid (planned canonical scenario, this
+    row asserts the REJECTION-BEFORE-ctx.fs mechanism and its INVALID classification; TOOL-039''s
+    own test of the same name asserts the resulting MESSAGE TEXT specifically -- two distinct
+    assertions sharing one canonical scenario name deliberately, not an accidental duplicate)
+  python: 'planned; not yet implemented (WP-13.1 CONTRACT_INTEGRATED, minion-agent#48) -- intended
+    location minion_agent/tools/builtin/_paths.py, shared by TOOL-025/TOOL-028'
+  rust: 'planned; not yet implemented (WP-13.1 CONTRACT_INTEGRATED, minion-agent#48) -- intended
+    location minion-agent-rust/crates/minion-agent/src/tools/builtin/paths.rs, shared by
+    TOOL-025/TOOL-028'
+  disposition: adopted
+- id: TOOL-027
+  phase: 6
+  pi: 'packages/coding-agent/src/core/tools/path-utils.ts:52-84 (resolveReadPath/
+    resolveReadPathAsync -- tryMacOSScreenshotPath, tryNFDVariant, tryCurlyQuoteVariant, and their
+    combination, tried in that order only when the initially resolved path does not exist)'
+  surface: Layer 13, WP-13.1 -- `read`''s macOS-specific filename-fallback heuristics
+  rule: 'OWNER-DISPOSITIONED, NOT adopted into the certified contract (owner governance decision,
+    this session, 2026-09-21; recorded in minion-agent#47/minion-agent#48 as owner disposition
+    "NOT_ADOPTED_CORE," mapped here onto the manifest''s own closed disposition taxonomy as
+    `intentional divergence` per independent review finding L13-WP131-R009 -- "NOT_ADOPTED_CORE"
+    itself is not a valid manifest disposition value). Pi''s AM/PM narrow-no-break-space
+    substitution, NFD normalization, straight-to-curly-apostrophe substitution, and their
+    combination are platform-specific (macOS screenshot filename) convenience heuristics, not
+    fundamental filesystem/read semantics, and were judged unfit for a universal ctx.fs contract
+    given Minion''s local/remote/virtual/swappable provider model. This identifier is reserved for
+    traceability, not implemented as part of TOOL-025''s core behavior; a future optional
+    local-macOS provider extension may reference it without an ID collision.'
+  tests:
+  - governance decision recorded in minion-agent#47 and minion-agent#48 (no discriminating test
+    exists or is required -- this row documents an explicit non-adoption, not a behavior to
+    reproduce)
+  python: 'not implemented; not planned as part of the certified WP-13.1 contract (see rule above)'
+  rust: 'not implemented; not planned as part of the certified WP-13.1 contract (see rule above)'
+  disposition: intentional divergence
+- id: TOOL-028
+  phase: 6
+  pi: 'packages/coding-agent/src/core/tools/ls.ts (schema 14-17; execute 111-213: directory check 132-143,
+    readdir 145-152, sort 155, entry loop 158-176, empty result 180-183, truncation and notices 185-202);
+    path-utils.ts:31-38 (pathExists)'
+  surface: Layer 13, WP-13.1 -- the `ls` built-in tool
+  rule: 'CONTRACT_INTEGRATED (minion-agent#48; shared contract in spec/tools.md, "`ls` (`TOOL-028`)"),
+    pending the complete WP-13.1 final contract-convergence review. Integrates the owner-settled R007-b
+    (certified and merged as WP-12.E1/EXEC-007), R006-C (collation; its divergence is governed by TOOL-040)
+    and R010-B (raw/hybrid error text; governed by TOOL-039), plus the frozen R003 and R008 rules. Replaces
+    the pre-convergence draft, which consumed ctx.fs.list_dir and disclosed two per-entry divergences
+    (broken symlinks listed as kind=symlink; one failing entry failing the whole call); both divergences
+    are removed.
+
+
+    Adopted behavior this row owns: the input schema (path defaults to cwd and "" is equivalent; limit
+    defaults to 500 by nullish coalescing, in R003''s unconstrained number domain); the directory check
+    by ONE symlink-following probe_dir_entry (directory or symlink_to_directory proceeds; any other
+    kind gives "Not a directory: <path>"; every Pi-reachable probe failure gives "Path not found: <path>",
+    matching Pi''s pathExists, which turns every access failure into false); enumeration by list_dir_raw;
+    a STABLE sort whose ties keep enumeration order (the ordering itself is TOOL-040''s); the lazy entry
+    loop from spec/execution.md section 11.5, checking the cap BEFORE each probe and never probing beyond
+    it, suffixing "/" for directory and symlink_to_directory, silently skipping any entry whose probe
+    fails (Pi parity for broken symlinks and loops), and listing raw names; "(empty directory)" with
+    details ABSENT for zero results, including limit <= 0 on a non-empty directory; head byte truncation
+    at DEFAULT_MAX_BYTES with no line ceiling; the notices "<L> entries limit reached. Use limit=<2L>
+    for more" then "50.0KB limit reached", joined by ". " inside "\n\n[...]" after truncation, with
+    L rendered by ECMAScript Number::toString and stored verbatim, possibly fractional, in details.entry_limit_reached;
+    Pi''s three ls-specific templates and "Operation aborted" verbatim; and R008 cancellation (pre-abort,
+    plus live abort through the entry loop).
+
+
+    MINION_ARCHITECTURAL_MAPPING points, disclosed in the contract: the ctx.fs seam instead of node:fs;
+    and Pi''s race-only raw stat(dirPath) site has no counterpart, because existence and kind come from
+    one probe. No implementation exists yet at either language.'
+  tests:
+  - ls_lazy_cap_never_probes_beyond_limit (planned canonical scenario)
+  - ls_entry_limit_checked_before_next_probe (planned canonical scenario)
+  - ls_zero_limit_on_nonempty_dir_no_details (planned canonical scenario)
+  - ls_fractional_limit_verbatim (planned canonical scenario)
+  - ls_broken_symlink_entry_skipped (planned canonical scenario)
+  - ls_symlinked_entries_follow_target_kind (planned canonical scenario)
+  - ls_special_entry_listed_without_slash (planned canonical scenario)
+  - ls_path_symlink_to_directory_is_listed (planned canonical scenario)
+  - ls_missing_path_and_broken_link_path_not_found (planned canonical scenario)
+  - ls_file_path_not_a_directory (planned canonical scenario)
+  - ls_byte_truncation_then_notice (planned canonical scenario)
+  - ls_both_notices_in_order (planned canonical scenario)
+  - ls_pre_aborted_signal (planned canonical scenario)
+  - ls_collation_case_ties_keep_enumeration_order (planned canonical scenario)
+  python: planned; not yet implemented (WP-13.1 CONTRACT_INTEGRATED, minion-agent#48) -- intended location
+    minion_agent/tools/builtin/ls.py; implementation not authorized
+  rust: planned; not yet implemented (WP-13.1 CONTRACT_INTEGRATED, minion-agent#48) -- intended location
+    minion-agent-rust/crates/minion-agent/src/tools/builtin/ls.rs; implementation not authorized
+  disposition: adopted
+- id: TOOL-039
+  phase: 6
+  pi: 'no single Pi-authored template for this vocabulary itself -- pinned Pi''s own error TEXT at each
+    site is characterized in assurance/layers/13-wp131-ce-l13-wp131-01-r010-error-projection.md (packages/coding-agent/src/core/tools/read.ts:243-249,
+    ls.ts:132-152): Pi authors FOUR stable hand-authored templates in total. This row does not govern,
+    test, or otherwise claim jurisdiction over ANY of them -- all four are ADOPTED, DIRECT_PI_PARITY
+    behavior owned entirely by TOOL-025 (`"Operation aborted"`, the one currently relevant to the integrated
+    `read` surface) and TOOL-028 (the other three, `ls`-specific). This row''s OWN scope is strictly
+    the raw/hybrid sites: every distinguishable failure site that is NOT one of Pi''s four stable templates
+    is a genuine mix of raw OS/provider text and one hybrid wrapper, which this row''s own deterministic
+    vocabulary REPLACES'
+  surface: Layer 13, WP-13.1 -- the closed, deterministic Layer-13 error-message vocabulary for raw/hybrid
+    ctx.fs failure sites (applied by TOOL-025, TOOL-026, and TOOL-028)
+  rule: 'CONTRACT_INTEGRATED (minion-agent#48; normative text in spec/tools.md: TOOL-025''s "Error text
+    (`R010-B`)" subsection, TOOL-026''s R002-A step-4 rejection, and TOOL-028''s "Error text (`R010-B`)"
+    subsection), pending the fresh WP-13.1 final re-review. Owner decision R010-B (governance https://github.com/EGAILab/minion-agent/issues/48#issuecomment-5785874487):
+    preserve Pi''s four stable hand-authored templates verbatim; replace raw/hybrid OS/provider wording
+    with a closed, deterministic Layer-13 vocabulary; keep generated-error details {}. Renumbered from
+    TOOL-029, which the Layer 13 scoping allocates to WP-13.2''s `write` (INT-F3, closed by the independent
+    final review); ID correction only.
+
+
+    Ownership, current and exhaustive: TOOL-025 (adopted) owns read''s "Operation aborted". TOOL-026
+    (adopted) owns path preprocessing and R002-A''s strict pre-ctx.fs rejection with its INVALID classification.
+    TOOL-028 (adopted) owns ls''s three stable templates ("Path not found: <path>", "Not a directory:
+    <path>", the "Cannot read directory: " wrapper prefix) and ls''s "Operation aborted". THIS row owns
+    only the raw/hybrid replacements: read''s "Cannot access <path>: <cause phrase>" and "Cannot read
+    <path>: <cause phrase>"; TOOL-026''s step-4 rejection text "Cannot access <path>: invalid path";
+    and ls''s "Cannot read directory: <cause phrase>" (the embedded raw text in Pi''s hybrid wrapper)
+    and "Cannot access <path>: not supported by this provider" (the directory check on a provider lacking
+    EXEC-007).
+
+
+    Mechanism: the certified FsErrorCode (EXEC-001) is an INTERNAL dispatch key selecting the cause
+    phrase from the closed table in spec/tools.md; Pi''s raw, platform-dependent text is never reproduced,
+    and the code is never exposed as a structured result field (details stays {} per the certified generated-error
+    shape). This is an owner-recorded, model-visible MINION_ARCHITECTURAL_MAPPING, hence intentional
+    divergence. Review history lives in minion-agent-docs#156 and minion-agent#48#issuecomment-5809922479,
+    not in this rule. No implementation exists yet at either language.'
+  tests:
+  - read_error_text_matches_r010b_closed_vocabulary_per_fserrorcode (planned canonical scenario)
+  - malformed_file_url_rejected_before_ctx_fs_access_as_invalid (planned canonical scenario)
+  - ls_enumeration_failure_cannot_read_directory (planned canonical scenario)
+  - ls_provider_without_extension_not_supported (planned canonical scenario)
+  python: planned; not yet implemented (WP-13.1 CONTRACT_INTEGRATED, minion-agent#48) -- intended location
+    minion_agent/tools/builtin/_errors.py, shared by TOOL-025/TOOL-026, and TOOL-028
+  rust: planned; not yet implemented (WP-13.1 CONTRACT_INTEGRATED, minion-agent#48) -- intended location
+    minion-agent-rust/crates/minion-agent/src/tools/builtin/errors.rs, shared by TOOL-025/TOOL-026,
+    and TOOL-028
+  disposition: intentional divergence
+- id: TOOL-040
+  phase: 6
+  pi: packages/coding-agent/src/core/tools/ls.ts:155 -- entries.sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()));
+    no locale argument, so Pi's order follows the host Node/ICU default locale
+  surface: Layer 13, WP-13.1 -- ls entry ordering (pinned collation, R006-C)
+  rule: 'OWNER_SELECTED R006-C (governance https://github.com/EGAILab/minion-agent/issues/48#issuecomment-5808308811;
+    parity clarification #issuecomment-5808334046), CONTRACT_INTEGRATED in spec/tools.md, TOOL-028''s
+    "Collation (`R006-C`)" subsection, pending the complete WP-13.1 final review. Minion pins Pi''s
+    host-locale-dependent comparator: PyICU 2.16.2 (Python) and rust_icu_ucol 5.8.0 with every rust_icu_*
+    crate at 5.8.0 (Rust), both linked to ONE build of icu4c-78.3-sources.tgz whose SHA-512 matches
+    the release''s SHASUM512.txt (linking or loading any other ICU must fail); locale en-001 with STRENGTH
+    TERTIARY, NUMERIC_COLLATION OFF, CASE_FIRST OFF and NORMALIZATION_MODE ON; sort keys are the pinned
+    ICU root-locale lowercase; the sort is stable.
+
+
+    Intended to match Pi on hosts whose effective default locale is en-001. Pi itself orders differently
+    under other default locales and Minion deliberately does not follow: a deterministic MINION_ARCHITECTURAL_MAPPING,
+    hence intentional divergence. Evidence: minion-agent-docs#159 (accepted, independently replayed)
+    and the supplementary v2 differential (assurance/layers/data/13-wp131-ce-l13-wp131-01/r006-c-differential-v2).
+    NORMALIZATION_MODE ON is an owner-ratified correction to R006-C (governance https://github.com/EGAILab/minion-agent/issues/48#issuecomment-5810098437;
+    it supersedes only the normalization bit of #159''s evidence): without it, non-FCD canonically-equivalent
+    names compare unequal on ICU 78.3 while Pi on en-001 compares them equal. The ICU root-locale lowercase
+    was accepted by the independent final review (INT-F2). No implementation exists yet at either language.'
+  tests:
+  - ls_collation_r006c_corpus_order (planned canonical scenario)
+  - ls_collation_canonical_equivalents_tie (planned canonical scenario)
+  - ls_lowercase_key_uses_pinned_icu_root_mapping (planned canonical scenario)
+  python: planned; not yet implemented (WP-13.1 CONTRACT_INTEGRATED, minion-agent#48) -- intended location
+    minion_agent/tools/builtin/_collation.py; implementation not authorized
+  rust: planned; not yet implemented (WP-13.1 CONTRACT_INTEGRATED, minion-agent#48) -- intended location
+    minion-agent-rust/crates/minion-agent/src/tools/builtin/collation.rs; implementation not authorized
+  disposition: intentional divergence

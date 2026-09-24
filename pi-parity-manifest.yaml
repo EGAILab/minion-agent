@@ -6404,6 +6404,111 @@ rows:
   rust: 'minion-agent-rust/crates/minion-agent/src/execution/world.rs and service.rs; integration
     evidence in minion-agent-rust/crates/minion-agent/tests/execution_world.rs'
   disposition: intentional divergence
+- id: EXEC-007
+  phase: 6
+  pi: 'no single direct Pi operation -- the BEHAVIOR is modeled on pinned Pi''s coding-agent `ls`
+    TOOL''s own inline enumeration loop, packages/coding-agent/src/core/tools/ls.ts:145-176
+    (readdir -> sort -> lazy per-entry symlink-following stat, cap checked before each probe),
+    which is distinct from the harness FileSystem.listDir() that EXEC-002''s own list_dir already
+    mirrors (packages/agent/src/harness/env/nodejs.ts:611-633)'
+  surface: Layer 12, WP-12.E1 -- an additive extension to ctx.fs (list_dir_raw, probe_dir_entry)
+  rule: 'CONTRACT_APPROVED and MERGED (owner-approved as `R007-b`, minion-agent#48, governance
+    record issuecomment-5771291305; coordinated as its own isolated work package, minion-agent#53).
+    Independent review history: round 1 (minion-agent-docs#148, WP12E1-R001 through R005, all
+    CHANGES REQUIRED, fixed in revision 2); round 2 (minion-agent-docs#149, refined WP12E1-R003 --
+    `DirEntryProbe.path` identity, fixed in revision 3); round 3 (minion-agent-docs#150, narrow
+    documentary WP12E1-R006, fixed in revision 4); round 4 (minion-agent-docs#151, revision 4
+    APPROVED, WP12E1-R001 through R006 all CLOSED). Merged to minion-agent-docs/master @
+    `bf4eacdafbf9f66cb3ec80befb657575813dd46c` (PR #147) and this manifest row merged to
+    minion-agent/main @ `1465953717d7a0ad1c96c417453ae0b5fe963e52` (PR #54), per owner merge
+    authorization ("WP-12.E1 Owner Authorization", this session, 2026-09-23). Python implementation
+    is merged at minion-agent/main `a7a5ca723f73730957141553b2502dfa91a108a9` (PR #55).
+    A later explicit owner authorization recorded in minion-agent#53 authorized the separate Rust
+    implementation after that merge was verified. Rust implementation is merged at minion-agent/main
+    `0b1dd8a870c11087f8414e831a5f86003c8c489a` (PR #56), with its assurance record at
+    minion-agent-docs/master `6c807fd92d9876610b14f2a523715069a43bb004` (PR #157). Both were
+    independently reviewed at their exact SHAs before merge; cross-language closure is recorded in
+    minion-agent#53.
+
+    Two new operations, additive to EXEC-002''s existing ctx.fs inventory, with EVERY existing
+    operation in that inventory (list_dir, file_info, and the rest) unchanged in both wording and
+    semantics: `list_dir_raw(path, signal?) -> Result[list[str], FsError]` returns raw,
+    provider-order, unclassified entry names (no per-entry work at all); `probe_dir_entry(path,
+    signal?) -> Result[DirEntryProbe, FsError]` performs its own symlink-FOLLOWING single-entry
+    classification (kind in file|directory|symlink_to_file|symlink_to_directory|other), returning
+    a per-CALL Result error (never a whole-call abort) for any per-entry failure including a
+    broken symlink''s target-resolution failure. `DirEntryProbe.name`/`.path` describe the
+    ADDRESSED entry (the link itself, when applicable), matching FileInfo''s own established
+    convention -- never silently substituted with a resolved target''s identity. Both operations
+    reuse EXEC-001''s existing FsErrorCode taxonomy; no new error type. This extension exists
+    because EXEC-002''s `list_dir` mirrors Pi''s HARNESS listDir (see `pi:` above), not the `ls`
+    TOOL''s own separate loop that WP-13.1''s `ls` implementation must reproduce -- five
+    independently live-verified divergences (kind-inclusion, whole-call-failure-vs-per-entry-skip,
+    cap-boundary content, directory-symlink classification, broken-symlink inclusion) are detailed
+    in minion-agent-docs/assurance/layers/13-wp131-ce-l13-wp131-01-r007-ls-enumeration.md. The
+    required Layer-13 consumption pattern (spec/execution.md section 11.5) is itself normative:
+    the caller sorts list_dir_raw''s output, then calls probe_dir_entry lazily, one sorted name at
+    a time, checking its own cap BEFORE each call -- never probing an entry beyond the cap
+    boundary, matching Pi''s own lazy structure exactly, not merely its final content.
+
+    MINION_ARCHITECTURAL_MAPPING, not DIRECT_PI_PARITY: neither operation is a literal Pi
+    interface method (Pi has no `list_dir_raw`/`probe_dir_entry`-named operations), matching this
+    manifest''s own established precedent for a real behavioral mapping derived from genuine
+    pinned Pi source that does not correspond 1:1 to any single existing Pi FileSystem interface
+    method (`EXEC-003`''s own FsTarget/target_key row cites the identical reasoning for an
+    analogous case). Python and Rust implementations are both accepted on minion-agent/main
+    (below).
+    Cancellation, error mapping, and the complete discriminating-evidence plan are specified in
+    spec/execution.md sections 11.3-11.6.'
+  tests:
+  - minion-agent-python/tests/execution/test_filesystem.py::test_list_dir_raw_returns_raw_provider_order_unsorted
+  - minion-agent-python/tests/execution/test_filesystem.py::test_list_dir_raw_performs_zero_per_entry_probing
+  - minion-agent-python/tests/execution/test_filesystem.py::test_lazy_cap_boundary_never_probes_beyond_the_cap
+  - minion-agent-python/tests/execution/test_filesystem.py::test_probe_dir_entry_plain_file_and_directory_classification
+  - minion-agent-python/tests/execution/test_filesystem.py::test_probe_dir_entry_symlink_to_file_and_directory
+  - minion-agent-python/tests/execution/test_filesystem.py::test_probe_dir_entry_unsupported_kind_classifies_as_other
+  - minion-agent-python/tests/execution/test_filesystem.py::test_probe_dir_entry_symlink_to_other_collapses_without_dedicated_value
+  - minion-agent-python/tests/execution/test_filesystem.py::test_probe_dir_entry_broken_symlink_is_a_per_call_error
+  - minion-agent-python/tests/execution/test_filesystem.py::test_probe_dir_entry_within_the_section_11_5_loop_skips_broken_entry_and_continues
+  - minion-agent-python/tests/execution/test_filesystem.py::test_probe_dir_entry_name_is_the_resolved_paths_basename
+  - minion-agent-python/tests/execution/test_filesystem.py::test_probe_dir_entry_path_is_resolved_not_the_raw_caller_string
+  - minion-agent-python/tests/execution/test_filesystem.py::test_list_dir_raw_not_found
+  - minion-agent-python/tests/execution/test_filesystem.py::test_list_dir_raw_pre_aborted
+  - minion-agent-python/tests/execution/test_filesystem.py::test_probe_dir_entry_does_not_inspect_a_pre_aborted_signal
+  - minion-agent-python/tests/execution/test_filesystem.py::test_not_supported_is_distinguishable_from_list_dirs_own_failure_modes
+  - minion-agent-python/tests/execution/test_filesystem.py::test_existing_list_dir_and_file_info_behavior_is_unchanged_by_this_extension
+  - minion-agent-rust/crates/minion-agent/tests/execution_filesystem.rs::raw_directory_listing_preserves_provider_order_and_does_not_follow_entries
+  - minion-agent-rust/crates/minion-agent/src/execution/filesystem.rs::tests::raw_listing_invokes_only_enumeration_and_zero_per_entry_probes
+  - minion-agent-rust/crates/minion-agent/src/execution/filesystem.rs::tests::real_tokio_raw_listing_invokes_zero_probe_operations
+  - minion-agent-rust/crates/minion-agent/src/execution/filesystem.rs::tests::concrete_tokio_raw_enumerator_has_no_direct_metadata_probe
+  - minion-agent-rust/crates/minion-agent/tests/execution_filesystem.rs::layer13_consumption_shape_checks_the_cap_before_the_next_probe
+  - minion-agent-rust/crates/minion-agent/tests/execution_filesystem.rs::entry_probe_classifies_plain_and_symlinked_files_and_directories
+  - minion-agent-rust/crates/minion-agent/tests/execution_filesystem.rs::entry_probe_collapses_plain_and_symlinked_special_kinds_to_other
+  - minion-agent-rust/crates/minion-agent/tests/execution_filesystem.rs::broken_symlink_is_a_per_probe_error_and_a_caller_can_continue
+  - minion-agent-rust/crates/minion-agent/tests/execution_filesystem.rs::probe_identity_uses_the_resolved_addressed_path_not_raw_input_or_target
+  - minion-agent-rust/crates/minion-agent/tests/execution_filesystem.rs::extension_cancellation_rules_are_deliberately_asymmetric
+  - minion-agent-rust/crates/minion-agent/tests/execution_filesystem.rs::providers_without_the_extension_report_not_supported
+  - minion-agent-rust/crates/minion-agent/tests/execution_filesystem.rs::entry_probe_kind_serializes_with_the_exact_shared_vocabulary
+  - minion-agent-rust/crates/minion-agent/tests/execution_filesystem.rs::existing_listing_and_metadata_behavior_remains_unchanged
+  python: 'minion-agent-python/src/minion_agent/execution/filesystem.py (DirEntryProbeKind,
+    DirEntryProbe, _list_dir_raw_sync, _probe_dir_entry_sync, LocalFileSystem.list_dir_raw,
+    LocalFileSystem.probe_dir_entry), additive to the existing FileSystem Protocol -- every
+    existing operation/type in that Protocol unchanged. Implemented per owner authorization
+    ("WP-12.E1 Owner Authorization", this session, 2026-09-23) against the merged contract
+    (minion-agent-docs/master @ bf4eacdafbf9f66cb3ec80befb657575813dd46c). Full pytest suite:
+    1740 passed, 4 skipped (platform-specific), 19 xfailed; 100% coverage; ruff and mypy clean for
+    this row''s own files. Independently reviewed (WP12E1-I001/I002 remediated and closed) and
+    merged at minion-agent/main a7a5ca723f73730957141553b2502dfa91a108a9 (PR #55).'
+  rust: 'minion-agent-rust/crates/minion-agent/src/execution/filesystem.rs (DirEntryProbeKind,
+    DirEntryProbe, FileSystem.list_dir_raw, FileSystem.probe_dir_entry, and LocalFileSystem
+    implementations), exported through execution/mod.rs. The extension is additive: default trait
+    methods return the existing FsErrorCode::NotSupported for incapable providers; existing
+    list_dir/file_info/FileInfo/FileKind behavior is unchanged. Integration evidence is in
+    minion-agent-rust/crates/minion-agent/tests/execution_filesystem.rs. Implemented after the
+    explicit Rust authorization and verified Python merge recorded in minion-agent#53;
+    independently reviewed (WP12E1-I003 remediated and closed) and merged at minion-agent/main
+    0b1dd8a870c11087f8414e831a5f86003c8c489a (PR #56).'
+  disposition: intentional divergence
 - id: TOOL-025
   phase: 6
   pi: 'packages/coding-agent/src/core/tools/read.ts (schema lines 21-25; execute lines 223-334);

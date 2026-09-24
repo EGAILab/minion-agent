@@ -9,9 +9,12 @@ gets a THIRD checkpoint, immediately after its own parent-mkdir, before the writ
 `read_text_lines` checks pre-aborted, at each loop iteration, AND once more after the loop
 completes (four checkpoints); `list_dir` checks pre-aborted (including for an EMPTY directory,
 independent of loop-entry count -- `L12-PY-R001`) and at each loop iteration only, with
-deliberately NO post-loop check (fewer than `read_text_lines`, not a bug); `rename_file` checks
-pre-aborted only; every other operation accepts `signal` but never reads it at all, matching
-pinned Pi's own reference implementation exactly, not a gap.
+deliberately NO post-loop check (fewer than `read_text_lines`, not a bug); `rename_file` and
+`list_dir_raw` (`EXEC-007`, spec section 11.3, additive Layer-12 extension) each check
+pre-aborted only, no per-entry checkpoint; every other operation, including `probe_dir_entry`
+(`EXEC-007`, spec section 11.4 -- its own explicit `MINION_ARCHITECTURAL_MAPPING`, not a reuse of
+`file_info`'s or `list_dir`'s cancellation precedent by analogy), accepts `signal` but never reads
+it at all, matching pinned Pi's own reference implementation exactly, not a gap.
 
 Prompt mid-operation settlement (`L12-PY-R001`): Python's blocking `open().read()`/`.write()` run
 as one `asyncio.to_thread` call with no native mid-syscall interruption point the way Node's
@@ -69,6 +72,32 @@ class FileInfo:
     kind: FileKind
     size: int
     mtime_ms: float
+
+
+class DirEntryProbeKind(StrEnum):
+    """`EXEC-007`, spec/execution.md section 11.4, `MINION_ARCHITECTURAL_MAPPING`. Richer than
+    `FileKind`'s three-way split: distinguishes a symlink from what it resolves to, except for the
+    disclosed `other` catch-all -- a symlink to an unclassifiable target (e.g. a FIFO) collapses to
+    plain `other`, without a dedicated `symlink_to_other` value, mirroring a genuine limit in
+    pinned Pi's own `ls.ts` (section 11.4's disclosed asymmetry)."""
+
+    FILE = "file"
+    DIRECTORY = "directory"
+    SYMLINK_TO_FILE = "symlink_to_file"
+    SYMLINK_TO_DIRECTORY = "symlink_to_directory"
+    OTHER = "other"
+
+
+@dataclass(frozen=True, slots=True)
+class DirEntryProbe:
+    """`EXEC-007`, spec/execution.md section 11.4. Describes the ADDRESSED entry -- the link
+    itself, when the entry is a symlink -- never the resolved target. `path` is the RESOLVED path
+    (the same section-3.2 rules `FileInfo.path` applies, via `resolve_local_path`); `name` is that
+    resolved path's basename."""
+
+    name: str
+    path: str
+    kind: DirEntryProbeKind
 
 
 class _AbortedSignal(Exception):
@@ -461,6 +490,49 @@ def _list_dir_sync(path: str, signal: RunSignal | None) -> list[FileInfo]:
     return infos
 
 
+def _list_dir_raw_sync(path: str, signal: RunSignal | None) -> list[str]:
+    """`EXEC-007`, spec section 11.3. Analogous in shape to `_list_dir_sync` minus its own
+    per-entry classification loop: ONE pre-aborted checkpoint, no per-entry checkpoint (there is
+    no per-entry loop to checkpoint within). Returns raw provider/OS enumeration order,
+    deliberately unsorted -- ordering is Layer 13's own responsibility (section 11.5), not this
+    operation's."""
+    if signal is not None and signal.aborted:
+        raise _AbortedSignal
+    return os.listdir(path)
+
+
+def _probe_dir_entry_sync(path: str) -> DirEntryProbe:
+    """`EXEC-007`, spec section 11.4. `path` is already the RESOLVED path (the caller applies
+    `resolve_local_path` before invoking this). Reuses `_file_kind_from_stat` for both the
+    non-following classification (mirroring `file_info`'s own `lstat`-based check) and, only when
+    the addressed entry is itself a symlink, a SECOND following `stat` of its target -- rather than
+    duplicating the stat-bit logic `_file_kind_from_stat` already owns. A target kind
+    `_file_kind_from_stat` does not recognize (FIFO, socket, device, ...) collapses to `other` in
+    both branches: directly for a non-symlink entry, and via the disclosed symlink-to-other
+    asymmetry (no `symlink_to_other` value) when the entry is a symlink to such a target. A broken
+    symlink's following `stat` raises `FileNotFoundError` (an `OSError`), left to the caller to
+    convert via `to_fs_error` -- this is this call's OWN `Result` error, never a raised exception
+    escaping the seam."""
+    st = os.lstat(path)
+    if _stat.S_ISLNK(st.st_mode):
+        target_kind = _file_kind_from_stat(os.stat(path))
+        if target_kind is FileKind.FILE:
+            kind = DirEntryProbeKind.SYMLINK_TO_FILE
+        elif target_kind is FileKind.DIRECTORY:
+            kind = DirEntryProbeKind.SYMLINK_TO_DIRECTORY
+        else:
+            kind = DirEntryProbeKind.OTHER
+    else:
+        direct_kind = _file_kind_from_stat(st)
+        if direct_kind is FileKind.FILE:
+            kind = DirEntryProbeKind.FILE
+        elif direct_kind is FileKind.DIRECTORY:
+            kind = DirEntryProbeKind.DIRECTORY
+        else:
+            kind = DirEntryProbeKind.OTHER
+    return DirEntryProbe(name=os.path.basename(path), path=path, kind=kind)
+
+
 def _remove_sync(path: str, recursive: bool, force: bool) -> None:
     try:
         st = os.lstat(path)
@@ -526,6 +598,12 @@ class FileSystem(Protocol):
     async def list_dir(
         self, path: str, signal: RunSignal | None = None
     ) -> Result[list[FileInfo], FsError]: ...
+    async def list_dir_raw(
+        self, path: str, signal: RunSignal | None = None
+    ) -> Result[list[str], FsError]: ...
+    async def probe_dir_entry(
+        self, path: str, signal: RunSignal | None = None
+    ) -> Result[DirEntryProbe, FsError]: ...
     async def canonical_path(
         self, path: str, signal: RunSignal | None = None
     ) -> Result[str, FsError]: ...
@@ -720,6 +798,34 @@ class LocalFileSystem:
         except OSError as exc:
             return Err(to_fs_error(exc, resolved))
         return Ok(infos)
+
+    async def list_dir_raw(
+        self, path: str, signal: RunSignal | None = None
+    ) -> Result[list[str], FsError]:
+        """`EXEC-007`, spec section 11.3. Additive Layer-12 extension -- `list_dir` above is
+        UNCHANGED by this method's addition."""
+        resolved = resolve_local_path(self.cwd, path)
+        try:
+            names = await asyncio.to_thread(_list_dir_raw_sync, resolved, signal)
+        except _AbortedSignal:
+            return Err(_aborted(resolved))
+        except OSError as exc:
+            return Err(to_fs_error(exc, resolved))
+        return Ok(names)
+
+    async def probe_dir_entry(
+        self, path: str, signal: RunSignal | None = None
+    ) -> Result[DirEntryProbe, FsError]:
+        """`EXEC-007`, spec section 11.4. Additive Layer-12 extension -- `file_info` above is
+        UNCHANGED by this method's addition. `signal` is accepted (uniform typed API shape) but
+        deliberately never inspected, matching `file_info`'s own established behavior and this
+        operation's own explicit `MINION_ARCHITECTURAL_MAPPING` cancellation classification."""
+        resolved = resolve_local_path(self.cwd, path)
+        try:
+            probe = await asyncio.to_thread(_probe_dir_entry_sync, resolved)
+        except OSError as exc:
+            return Err(to_fs_error(exc, resolved))
+        return Ok(probe)
 
     async def canonical_path(
         self, path: str, signal: RunSignal | None = None

@@ -6533,13 +6533,20 @@ rows:
     to let Layer 13 read (TOOL-025) preserve the provenance of Pi''s access stage: the operation that
     failed owns the error site, whatever the code (spec/execution.md section 12.5); providers without
     it use an explicitly disclosed G2 fallback. Semantics and the witness matrix: spec/execution.md
-    section 12.'
+    section 12.
+
+    Disposition (WP12E2-R001, independent contract review of minion-agent-docs#163 / minion-agent#61):
+    the row is classified `intentional divergence` because its Windows rule deliberately departs from
+    pinned Pi/Node (libuv''s attribute-only access) by owner decision; its POSIX rule is retained
+    explicitly as DIRECT_PI_PARITY with access(path, R_OK). Neither the owner-selected G1 behavior nor
+    any rule above is changed by this classification. Same shape as EXEC-007 (an additive mapping
+    classified as a whole).'
   tests:
   - spec/execution.md section 12.6 witness matrix (planned Python/Rust tests; no implementation yet)
   python: 'planned; not yet implemented (WP-12.E2 CONTRACT_DRAFT) -- intended location
     minion_agent/execution/filesystem.py (LocalFileSystem.check_readable, FileSystem protocol)'
   rust: 'planned; not yet implemented (WP-12.E2 CONTRACT_DRAFT)'
-  disposition: adopted
+  disposition: intentional divergence
 - id: TOOL-025
   phase: 6
   pi: 'packages/coding-agent/src/core/tools/read.ts (schema lines 21-25; execute lines 223-334);

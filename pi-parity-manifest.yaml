@@ -6693,70 +6693,53 @@ rows:
   disposition: adopted
 - id: TOOL-039
   phase: 6
-  pi: 'no single Pi-authored template for this vocabulary itself -- pinned Pi''s own error TEXT at
-    each site is characterized in assurance/layers/13-wp131-ce-l13-wp131-01-r010-error-projection.md
-    (packages/coding-agent/src/core/tools/read.ts:243-249, ls.ts:132-152): Pi authors FOUR stable
-    hand-authored templates in total. This row does not govern, test, or otherwise claim
-    jurisdiction over ANY of them -- all four are ADOPTED, DIRECT_PI_PARITY behavior owned entirely
-    by TOOL-025 (`"Operation aborted"`, the one currently relevant to the integrated `read` surface)
-    and TOOL-028 (the other three, `ls`-specific). This row''s
-    OWN scope is strictly the raw/hybrid sites: every distinguishable failure site that is NOT one
-    of Pi''s four stable templates is a genuine mix of raw OS/provider text and one hybrid wrapper,
-    which this row''s own deterministic vocabulary REPLACES'
-  surface: Layer 13, WP-13.1 -- the closed, deterministic Layer-13 error-message vocabulary for
-    raw/hybrid ctx.fs failure sites (applied by TOOL-025, TOOL-026, and TOOL-028)
-  rule: 'RENUMBERED from TOOL-029 (ID correction only: TOOL-029 is allocated to WP-13.2''s `write` by the
-    Layer 13 scoping and claimed by minion-agent#49). SCOPE EXTENDED to TOOL-028 by its integration: ls''s
-    two raw/hybrid replacements are governed here -- "Cannot read directory: <cause phrase>" (Pi''s hybrid
-    wrapper kept, its embedded raw text replaced) and "Cannot access <path>: not supported by this
-    provider" (the directory check on a provider lacking EXEC-007). ls''s three stable templates stay
-    TOOL-028''s own adopted content. The text below is the approved TOOL-025/TOOL-026 integration record;
-    where it describes TOOL-028 as pending or its R010-B integration as deferred, this paragraph supersedes
-    it.
+  pi: 'no single Pi-authored template for this vocabulary itself -- pinned Pi''s own error TEXT at each
+    site is characterized in assurance/layers/13-wp131-ce-l13-wp131-01-r010-error-projection.md (packages/coding-agent/src/core/tools/read.ts:243-249,
+    ls.ts:132-152): Pi authors FOUR stable hand-authored templates in total. This row does not govern,
+    test, or otherwise claim jurisdiction over ANY of them -- all four are ADOPTED, DIRECT_PI_PARITY
+    behavior owned entirely by TOOL-025 (`"Operation aborted"`, the one currently relevant to the integrated
+    `read` surface) and TOOL-028 (the other three, `ls`-specific). This row''s OWN scope is strictly
+    the raw/hybrid sites: every distinguishable failure site that is NOT one of Pi''s four stable templates
+    is a genuine mix of raw OS/provider text and one hybrid wrapper, which this row''s own deterministic
+    vocabulary REPLACES'
+  surface: Layer 13, WP-13.1 -- the closed, deterministic Layer-13 error-message vocabulary for raw/hybrid
+    ctx.fs failure sites (applied by TOOL-025, TOOL-026, and TOOL-028)
+  rule: 'CONTRACT_INTEGRATED (minion-agent#48; normative text in spec/tools.md: TOOL-025''s "Error text
+    (`R010-B`)" subsection, TOOL-026''s R002-A step-4 rejection, and TOOL-028''s "Error text (`R010-B`)"
+    subsection), pending the fresh WP-13.1 final re-review. Owner decision R010-B (governance https://github.com/EGAILab/minion-agent/issues/48#issuecomment-5785874487):
+    preserve Pi''s four stable hand-authored templates verbatim; replace raw/hybrid OS/provider wording
+    with a closed, deterministic Layer-13 vocabulary; keep generated-error details {}. Renumbered from
+    TOOL-029, which the Layer 13 scoping allocates to WP-13.2''s `write` (INT-F3, closed by the independent
+    final review); ID correction only.
 
-    CONTRACT_INTEGRATED (minion-agent#48; shared contract in spec/tools.md, TOOL-025''s "Error
-    text (`R010-B`)" subsection); scope corrected this revision, independent re-review
-    minion-agent-docs#156 round 3, L13-WP131-INT-R003 (fully resolved)/INT-R004 -- two residual
-    defects from the prior revision: (1) this row still described/tested `read`''s `"Operation
-    aborted"` preservation, when that is ADOPTED behavior TOOL-025 owns entirely, not something an
-    `intentional divergence` row should govern or test at all; (2) this row incorrectly called
-    whether `R010-B` applies to `ls`''s own raw/hybrid sites an "open question" -- it is NOT: the
-    owner''s `R010-B` decision (CE-L13-WP131-01 Lane E, governance source
-    https://github.com/EGAILab/minion-agent/issues/48#issuecomment-5785874487) already settled that
-    raw/hybrid sites across BOTH tools use the deterministic vocabulary; only the NORMATIVE
-    INTEGRATION of that already-settled decision into `TOOL-028`''s own contract text is deferred
-    (with `TOOL-028` itself, pending `L13-WP131-R006-C`), not the decision. Both corrected below.
 
-    Binding ownership matrix (this row''s own scope, precisely): `TOOL-025` (`adopted`) owns
-    `read`''s `"Operation aborted"` preservation and its own witness -- entirely outside this row.
-    `TOOL-026` (`adopted`) owns path preprocessing and `R002-A`''s strict-rejection classification
-    -- entirely outside this row. `TOOL-028` (`PENDING_R006`) owns the other three `ls`-specific
-    stable templates (unchanged, deferred with `TOOL-028`) AND the eventual NORMATIVE INTEGRATION of
-    `R010-B`''s vocabulary into its own raw/hybrid sites (the DECISION is already settled; only the
-    write-up is deferred). THIS row (`TOOL-039`, `intentional divergence`) owns ONLY: every
-    raw/hybrid distinguishable failure currently reachable through `TOOL-025`/`TOOL-026`''s
-    integrated operations, whose exact wording is Pi''s own raw, platform-dependent OS/provider
-    text -- a closed, deterministic, Layer-13-authored cause-phrase vocabulary selected from the
-    certified `FsErrorCode` (`EXEC-001`) as an INTERNAL dispatch key for these sites ONLY, never
-    Pi''s own raw text, and never exposed as a separate structured result field (generated-error
-    `details` stays `{}`, unconditionally, per spec/tools.md:512''s certified generated-error
-    shape). Cause-phrase table and the two message-template shapes ("Cannot access <path>: <cause
-    phrase>" / "Cannot read <path>: <cause phrase>") are normative in spec/tools.md, TOOL-025''s own
-    subsection. This row''s own scope is an explicit, owner-recorded, model-visible
-    `MINION_ARCHITECTURAL_MAPPING` -- the raw/hybrid text a caller observes through
-    `TOOL-025`/`TOOL-026` is Minion-authored, not a reproduction of Pi''s own platform-dependent
-    wording, disclosed and governed as such rather than silently varying. No
-    implementation exists yet at either language.'
+    Ownership, current and exhaustive: TOOL-025 (adopted) owns read''s "Operation aborted". TOOL-026
+    (adopted) owns path preprocessing and R002-A''s strict pre-ctx.fs rejection with its INVALID classification.
+    TOOL-028 (adopted) owns ls''s three stable templates ("Path not found: <path>", "Not a directory:
+    <path>", the "Cannot read directory: " wrapper prefix) and ls''s "Operation aborted". THIS row owns
+    only the raw/hybrid replacements: read''s "Cannot access <path>: <cause phrase>" and "Cannot read
+    <path>: <cause phrase>"; TOOL-026''s step-4 rejection text "Cannot access <path>: invalid path";
+    and ls''s "Cannot read directory: <cause phrase>" (the embedded raw text in Pi''s hybrid wrapper)
+    and "Cannot access <path>: not supported by this provider" (the directory check on a provider lacking
+    EXEC-007).
+
+
+    Mechanism: the certified FsErrorCode (EXEC-001) is an INTERNAL dispatch key selecting the cause
+    phrase from the closed table in spec/tools.md; Pi''s raw, platform-dependent text is never reproduced,
+    and the code is never exposed as a structured result field (details stays {} per the certified generated-error
+    shape). This is an owner-recorded, model-visible MINION_ARCHITECTURAL_MAPPING, hence intentional
+    divergence. Review history lives in minion-agent-docs#156 and minion-agent#48#issuecomment-5809922479,
+    not in this rule. No implementation exists yet at either language.'
   tests:
   - read_error_text_matches_r010b_closed_vocabulary_per_fserrorcode (planned canonical scenario)
   - malformed_file_url_rejected_before_ctx_fs_access_as_invalid (planned canonical scenario)
   - ls_enumeration_failure_cannot_read_directory (planned canonical scenario)
   - ls_provider_without_extension_not_supported (planned canonical scenario)
-  python: 'planned; not yet implemented (WP-13.1 CONTRACT_INTEGRATED, minion-agent#48) -- intended
-    location minion_agent/tools/builtin/_errors.py, shared by TOOL-025/TOOL-026, and TOOL-028'
-  rust: 'planned; not yet implemented (WP-13.1 CONTRACT_INTEGRATED, minion-agent#48) -- intended
-    location minion-agent-rust/crates/minion-agent/src/tools/builtin/errors.rs, shared by
-    TOOL-025/TOOL-026, and TOOL-028'
+  python: planned; not yet implemented (WP-13.1 CONTRACT_INTEGRATED, minion-agent#48) -- intended location
+    minion_agent/tools/builtin/_errors.py, shared by TOOL-025/TOOL-026, and TOOL-028
+  rust: planned; not yet implemented (WP-13.1 CONTRACT_INTEGRATED, minion-agent#48) -- intended location
+    minion-agent-rust/crates/minion-agent/src/tools/builtin/errors.rs, shared by TOOL-025/TOOL-026,
+    and TOOL-028
   disposition: intentional divergence
 - id: TOOL-040
   phase: 6
@@ -6777,9 +6760,10 @@ rows:
     under other default locales and Minion deliberately does not follow: a deterministic MINION_ARCHITECTURAL_MAPPING,
     hence intentional divergence. Evidence: minion-agent-docs#159 (accepted, independently replayed)
     and the supplementary v2 differential (assurance/layers/data/13-wp131-ce-l13-wp131-01/r006-c-differential-v2).
-    NORMALIZATION_MODE ON and the ICU root-locale lowercase go beyond the owner-selected option list
-    and are flagged for review: without ON, non-FCD canonically-equivalent names compare unequal on
-    ICU 78.3, while Pi on en-001 compares them equal. No implementation exists yet at either language.'
+    NORMALIZATION_MODE ON is an owner-ratified correction to R006-C (governance https://github.com/EGAILab/minion-agent/issues/48#issuecomment-5810098437;
+    it supersedes only the normalization bit of #159''s evidence): without it, non-FCD canonically-equivalent
+    names compare unequal on ICU 78.3 while Pi on en-001 compares them equal. The ICU root-locale lowercase
+    was accepted by the independent final review (INT-F2). No implementation exists yet at either language.'
   tests:
   - ls_collation_r006c_corpus_order (planned canonical scenario)
   - ls_collation_canonical_equivalents_tie (planned canonical scenario)

@@ -30,14 +30,13 @@ unretrieved-exception warning).
 from __future__ import annotations
 
 import asyncio
-import errno as _errno
 import os
 import re
 import shutil
 import stat as _stat
 import tempfile
 import uuid
-from collections.abc import Coroutine, Sequence
+from collections.abc import Callable, Coroutine, Sequence
 from contextlib import suppress
 from dataclasses import dataclass
 from enum import StrEnum
@@ -534,16 +533,29 @@ def _probe_dir_entry_sync(path: str) -> DirEntryProbe:
     return DirEntryProbe(name=os.path.basename(path), path=path, kind=kind)
 
 
+def _libc_access() -> Callable[[bytes, int], int]:  # pragma: no cover -- POSIX-only (libc)
+    """The host C library's own `access(2)`, called with `use_errno` so its failure errno survives.
+    `os.access` makes the same call but reports only a boolean, discarding why it failed."""
+    import ctypes
+
+    access = ctypes.CDLL(None, use_errno=True).access
+    access.argtypes = [ctypes.c_char_p, ctypes.c_int]
+    access.restype = ctypes.c_int
+    return access
+
+
 def _check_readable_posix(path: str) -> None:
-    """`EXEC-008` on POSIX, spec section 12.4: `access(path, R_OK)` -- the call Node's `fs.access`
-    makes -- with the process's real user/group IDs. `os.access` is exactly that call but reports
-    only a boolean, so a symlink-following `os.stat` first supplies the path-resolution failure
-    (`ENOENT`, `ENOTDIR`, `ELOOP`, an unsearchable parent's `EACCES`) with its own errno; a target
-    that resolves but fails `access(R_OK)` is `EACCES`. Neither call opens the target, so no content
-    is consumed and a FIFO without a writer cannot block."""
-    os.stat(path)
-    if not os.access(path, os.R_OK):
-        raise PermissionError(_errno.EACCES, os.strerror(_errno.EACCES), path)
+    """`EXEC-008` on POSIX, spec section 12.4: exactly one `access(path, R_OK)` -- the call Node's
+    `fs.access` makes -- evaluated with the process's real user/group IDs and following symlinks.
+    Its own errno is kept (`ENOENT`, `ENOTDIR`, `EACCES`, `ELOOP`, `EIO`, ...) and classified by
+    `to_fs_error`, never replaced by a fabricated one, so there is no second call whose failure
+    could be misattributed. `access` does not open the target: no content is consumed and a FIFO
+    without a writer cannot block."""
+    import ctypes
+
+    if _libc_access()(os.fsencode(path), os.R_OK) != 0:
+        code = ctypes.get_errno()
+        raise OSError(code, os.strerror(code), path)
 
 
 # Win32: FILE_READ_DATA is also FILE_LIST_DIRECTORY; backup semantics lets CreateFileW open a

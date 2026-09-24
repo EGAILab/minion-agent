@@ -6564,21 +6564,23 @@ rows:
   - minion-agent-python/tests/execution/test_filesystem_check_readable.py::test_provider_without_exec008_answers_not_supported
   - minion-agent-python/tests/execution/test_filesystem_check_readable.py::test_local_filesystem_never_answers_not_supported
   - minion-agent-python/tests/execution/test_filesystem_check_readable.py::test_check_readable_leaves_content_and_existing_operations_unchanged
-  - minion-agent-python/tests/execution/test_filesystem_check_readable.py::test_posix_branch_ok_for_readable_target
-  - minion-agent-python/tests/execution/test_filesystem_check_readable.py::test_posix_branch_path_resolution_failure_keeps_its_own_errno
-  - minion-agent-python/tests/execution/test_filesystem_check_readable.py::test_posix_branch_access_r_ok_failure_is_permission_denied
+  - minion-agent-python/tests/execution/test_filesystem_check_readable.py::test_target_vanishing_before_the_readability_query_is_not_found
+  - minion-agent-python/tests/execution/test_filesystem_check_readable.py::test_posix_branch_ok_is_one_access_r_ok_on_the_resolved_path
+  - minion-agent-python/tests/execution/test_filesystem_check_readable.py::test_posix_branch_keeps_the_access_calls_own_errno
   - minion-agent-python/tests/execution/test_filesystem_check_readable.py::test_negative_control_is_rejected_by_its_witness
-  python: 'minion-agent-python/src/minion_agent/execution/filesystem.py (_check_readable_posix,
-    _check_readable_windows, _check_readable_sync, LocalFileSystem.check_readable), additive to the
-    existing FileSystem Protocol (one new check_readable member) -- every existing operation
-    unchanged. POSIX: a symlink-following os.stat (supplies the path-resolution errno) then
-    os.access(path, R_OK) (EACCES -> permission_denied). Windows: one CreateFileW for FILE_READ_DATA
+  python: 'minion-agent-python/src/minion_agent/execution/filesystem.py (_libc_access,
+    _check_readable_posix, _check_readable_windows, _check_readable_sync,
+    LocalFileSystem.check_readable), additive to the existing FileSystem Protocol (one new
+    check_readable member) -- every existing operation unchanged. POSIX: exactly one libc
+    access(path, R_OK) keeping its own errno (ENOENT/ENOTDIR/EACCES/ELOOP/EIO ... classified by
+    section 2.1; WP12E2-I001 remediation -- no preliminary stat, no fabricated EACCES). Windows: one
+    CreateFileW for FILE_READ_DATA
     (read a file / list a directory), following symlinks, handle closed at once, nothing read. Neither
     host opens content, so a writerless FIFO cannot block. Evidence: every section 12.6 witness plus
     the owner-required negative controls (file_info/lstat existence, canonical_path existence,
     Node-style Windows attribute-only access, open-and-read-one-byte, final-symlink non-following,
-    pre-abort rejection, silent success / exists fallback without EXEC-008), each shown to fail its
-    discriminating witness. Status: IMPLEMENTATION_REVIEW (minion-agent#62); not merged.'
+    pre-abort rejection, silent success / exists fallback without EXEC-008) plus the WP12E2-I001
+    stat-then-boolean-access mutant, each shown to fail its discriminating witness. Status: IMPLEMENTATION_REVIEW (minion-agent#62); not merged.'
   rust: 'not yet implemented; Rust EXEC-008 not yet authorized (minion-agent#62)'
   disposition: intentional divergence
 - id: TOOL-025

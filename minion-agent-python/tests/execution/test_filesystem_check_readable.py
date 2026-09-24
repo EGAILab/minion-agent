@@ -10,11 +10,13 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import errno
 import os
 import stat as _stat
 import subprocess
 from collections.abc import Awaitable, Callable, Iterator
 from pathlib import Path
+from unittest import mock
 
 import pytest
 
@@ -220,6 +222,48 @@ async def _witness_relative_path_resolution(fs_cls: Provider, tmp: Path) -> None
     assert missing.error.path == resolve_local_path(str(workspace), "sub/g")
 
 
+async def _witness_target_vanishes_before_the_readability_query(
+    fs_cls: Provider, tmp: Path
+) -> None:
+    """WP12E2-I001 (POSIX): the target disappears after any preliminary metadata query has
+    succeeded and before the readability query runs. The answer is the readability query's own
+    `ENOENT -> not_found` (pinned Node `fs.access(R_OK)` on an absent target is `ENOENT`), never a
+    `permission_denied` inferred from a boolean. Both hooks remove the target at most once: a
+    successful `os.stat` of it removes it afterwards; the `access(2)` query removes it first."""
+    target = tmp / "f"
+    target.write_text("x")
+    real_stat = os.stat
+    real_libc_access = filesystem_module._libc_access
+
+    def remove_target() -> None:
+        with contextlib.suppress(FileNotFoundError):
+            target.unlink()
+
+    def stat_then_remove(path: object, *args: object, **kwargs: object) -> os.stat_result:
+        result = real_stat(path, *args, **kwargs)  # type: ignore[arg-type]
+        if os.fspath(path) == str(target):  # type: ignore[arg-type]
+            remove_target()
+        return result
+
+    def libc_access() -> Callable[[bytes, int], int]:
+        access = real_libc_access()
+
+        def remove_then_access(path: bytes, mode: int) -> int:
+            remove_target()
+            return access(path, mode)
+
+        return remove_then_access
+
+    fs = fs_cls(cwd=str(tmp))
+    with (
+        mock.patch.object(os, "stat", stat_then_remove),
+        mock.patch.object(filesystem_module, "_libc_access", libc_access),
+    ):
+        result = await fs.check_readable("f")
+    assert not target.exists()
+    _assert_err(result, FsErrorCode.NOT_FOUND)
+
+
 async def _witness_pre_aborted_signal_not_inspected(fs_cls: Provider, tmp: Path) -> None:
     """SIGNAL ACCEPTED, NOT INSPECTED: a pre-aborted signal on a readable file -> `Ok(None)`."""
     (tmp / "f").write_text("x")
@@ -331,6 +375,11 @@ async def test_relative_path_resolution(tmp_path: Path) -> None:
     await _witness_relative_path_resolution(LocalFileSystem, tmp_path)
 
 
+@posix_only
+async def test_target_vanishing_before_the_readability_query_is_not_found(tmp_path: Path) -> None:
+    await _witness_target_vanishes_before_the_readability_query(LocalFileSystem, tmp_path)
+
+
 async def test_pre_aborted_signal_is_accepted_but_not_inspected(tmp_path: Path) -> None:
     await _witness_pre_aborted_signal_not_inspected(LocalFileSystem, tmp_path)
 
@@ -387,40 +436,65 @@ async def test_check_readable_leaves_content_and_existing_operations_unchanged(
 # ---------------------------------------------------------------------------
 
 
-async def test_posix_branch_ok_for_readable_target(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    (tmp_path / "f").write_text("x")
-    monkeypatch.setattr(os, "name", "posix")
-    _assert_ok(await LocalFileSystem(cwd=str(tmp_path)).check_readable(str(tmp_path / "f")))
+def _fake_libc_access(
+    monkeypatch: pytest.MonkeyPatch, errno_value: int | None
+) -> list[tuple[bytes, int]]:
+    """Route the POSIX branch on any host through a stand-in for libc `access(2)`: success when
+    `errno_value` is None, else `-1` with that errno set exactly as `use_errno` would."""
+    import ctypes
 
+    calls: list[tuple[bytes, int]] = []
 
-async def test_posix_branch_path_resolution_failure_keeps_its_own_errno(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setattr(os, "name", "posix")
-    result = await LocalFileSystem(cwd=str(tmp_path)).check_readable(str(tmp_path / "missing"))
-    _assert_err(result, FsErrorCode.NOT_FOUND)
-
-
-async def test_posix_branch_access_r_ok_failure_is_permission_denied(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """A target that resolves but fails `access(R_OK)` is `EACCES -> permission_denied`, and
-    the check is `access(path, R_OK)` on the resolved path itself (symlinks followed)."""
-    (tmp_path / "f").write_text("x")
-    calls: list[tuple[str, int]] = []
-
-    def fake_access(path: str, mode: int, **kwargs: object) -> bool:
+    def access(path: bytes, mode: int) -> int:
         calls.append((path, mode))
-        assert not kwargs, "access must follow symlinks (no follow_symlinks=False)"
-        return False
+        if errno_value is None:
+            return 0
+        ctypes.set_errno(errno_value)
+        return -1
 
     monkeypatch.setattr(os, "name", "posix")
-    monkeypatch.setattr(filesystem_module.os, "access", fake_access)
+    monkeypatch.setattr(filesystem_module, "_libc_access", lambda: access)
+    return calls
+
+
+async def test_posix_branch_ok_is_one_access_r_ok_on_the_resolved_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The POSIX check is exactly one `access(resolved, R_OK)` -- no preliminary metadata call."""
+    calls = _fake_libc_access(monkeypatch, None)
+    stat_calls: list[object] = []
+    real_stat = os.stat
+    monkeypatch.setattr(
+        filesystem_module.os, "stat", lambda *a, **k: stat_calls.append(a) or real_stat(*a, **k)
+    )
+    _assert_ok(await LocalFileSystem(cwd=str(tmp_path)).check_readable("sub/f"))
+    assert calls == [(os.fsencode(str(tmp_path / "sub" / "f")), os.R_OK)]
+    assert stat_calls == []
+
+
+@pytest.mark.parametrize(
+    ("errno_value", "code"),
+    [
+        (errno.ENOENT, FsErrorCode.NOT_FOUND),
+        (errno.ENOTDIR, FsErrorCode.NOT_DIRECTORY),
+        (errno.EACCES, FsErrorCode.PERMISSION_DENIED),
+        (errno.ELOOP, FsErrorCode.UNKNOWN),
+        (errno.EIO, FsErrorCode.UNKNOWN),
+        (errno.EINVAL, FsErrorCode.INVALID),
+    ],
+)
+async def test_posix_branch_keeps_the_access_calls_own_errno(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, errno_value: int, code: FsErrorCode
+) -> None:
+    """WP12E2-I001: the failure reason is `access(2)`'s own errno, classified by section 2.1 --
+    never a fabricated `EACCES` for whatever made the check fail."""
+    _fake_libc_access(monkeypatch, errno_value)
     result = await LocalFileSystem(cwd=str(tmp_path)).check_readable("f")
-    _assert_err(result, FsErrorCode.PERMISSION_DENIED)
-    assert calls == [(str(tmp_path / "f"), os.R_OK)]
+    _assert_err(result, code)
+    assert isinstance(result, Err)
+    assert isinstance(result.error.cause, OSError)
+    assert result.error.cause.errno == errno_value
+    assert result.error.path == str(tmp_path / "f")
 
 
 # ---------------------------------------------------------------------------
@@ -501,6 +575,27 @@ class _FinalSymlinkNotFollowed(LocalFileSystem):
         return await super().check_readable(path, signal)
 
 
+class _StatThenBooleanAccess(LocalFileSystem):
+    """Mutant (the WP12E2-I001 candidate): a symlink-following `os.stat`, then boolean
+    `os.access(R_OK)`, fabricating `EACCES` for every false answer."""
+
+    async def check_readable(
+        self, path: str, signal: RunSignal | None = None
+    ) -> Result[None, FsError]:
+        resolved = resolve_local_path(self.cwd, path)
+
+        def stat_then_access() -> None:
+            os.stat(resolved)
+            if not os.access(resolved, os.R_OK):
+                raise PermissionError(errno.EACCES, os.strerror(errno.EACCES), resolved)
+
+        try:
+            await asyncio.to_thread(stat_then_access)
+        except OSError as exc:
+            return Err(filesystem_module.to_fs_error(exc, resolved))
+        return Ok(None)
+
+
 class _PreAbortRejecting(LocalFileSystem):
     """Mutant: inspects the signal and rejects a pre-aborted one."""
 
@@ -558,6 +653,8 @@ _NEGATIVE_CONTROLS: list[tuple[str, Provider, Witness, list[pytest.MarkDecorator
      _witness_dangling_symlink, []),
     ("final-symlink-not-followed/unreadable-through-link", _FinalSymlinkNotFollowed,
      _witness_unreadable_file_direct_and_through_symlink, [unprivileged]),
+    ("stat-then-boolean-access/target-vanishes-before-query", _StatThenBooleanAccess,
+     _witness_target_vanishes_before_the_readability_query, [posix_only]),
     ("pre-abort-rejection/signal-not-inspected", _PreAbortRejecting,
      _witness_pre_aborted_signal_not_inspected, []),
     ("silent-success-without-exec008/provider-capability", _SilentSuccessWithoutExec008,

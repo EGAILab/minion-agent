@@ -6516,9 +6516,14 @@ rows:
     read.ts:248 before the MIME sniff and readFile; Node 22.15.1 / libuv 1.49.2 src/unix/fs.c:1713
     (access(2)) and src/win/fs.c:2272 (GetFileAttributesW)'
   surface: Layer 12, WP-12.E2 -- an additive extension to ctx.fs (check_readable)
-  rule: 'CONTRACT_DRAFT (owner-selected G1, minion-agent#48 governance record issuecomment-5822609576,
-    resolving L13-WP131-C012; coordinated as its own isolated work package WP-12.E2). No Python or Rust
-    implementation performed or authorized yet.
+  rule: 'CONTRACT_APPROVED and MERGED (owner-selected G1, minion-agent#48 governance record
+    issuecomment-5822609576, resolving L13-WP131-C012; coordinated as its own isolated work package
+    WP-12.E2, minion-agent#62). Contract merged to minion-agent-docs/master @
+    `7007732a26965facff73ccdaf82b4ee856d3683e` (PR #163) and this row to minion-agent/main @
+    `343741db76b02ef46024487a25857136f3bf15a9` (PR #61), per the owner''s "WP-12.E2 / EXEC-008 -- Owner
+    Authorization" (minion-agent#62 issuecomment-5823982461), which also authorized the Python
+    implementation below. Python: IMPLEMENTATION_REVIEW (independent review pending; merge not yet
+    authorized). Rust: not yet authorized.
 
     One new operation, additive to EXEC-002''s ctx.fs inventory, with every existing operation
     unchanged: `check_readable(path, signal?) -> Result[None, FsError]` resolves the path (EXEC-002
@@ -6542,10 +6547,39 @@ rows:
     any rule above is changed by this classification. Same shape as EXEC-007 (an additive mapping
     classified as a whole).'
   tests:
-  - spec/execution.md section 12.6 witness matrix (planned Python/Rust tests; no implementation yet)
-  python: 'planned; not yet implemented (WP-12.E2 CONTRACT_DRAFT) -- intended location
-    minion_agent/execution/filesystem.py (LocalFileSystem.check_readable, FileSystem protocol)'
-  rust: 'planned; not yet implemented (WP-12.E2 CONTRACT_DRAFT)'
+  - minion-agent-python/tests/execution/test_filesystem_check_readable.py::test_readable_regular_file_directly_and_through_symlink
+  - minion-agent-python/tests/execution/test_filesystem_check_readable.py::test_unreadable_regular_file_directly_and_through_symlink
+  - minion-agent-python/tests/execution/test_filesystem_check_readable.py::test_dangling_symlink_is_not_found
+  - minion-agent-python/tests/execution/test_filesystem_check_readable.py::test_missing_path_and_non_directory_component
+  - minion-agent-python/tests/execution/test_filesystem_check_readable.py::test_readable_directory_is_ok
+  - minion-agent-python/tests/execution/test_filesystem_check_readable.py::test_posix_read_but_not_search_directory_is_ok
+  - minion-agent-python/tests/execution/test_filesystem_check_readable.py::test_unreadable_directory_posix_000_or_windows_deny_list
+  - minion-agent-python/tests/execution/test_filesystem_check_readable.py::test_posix_search_only_directory_is_permission_denied
+  - minion-agent-python/tests/execution/test_filesystem_check_readable.py::test_posix_unsearchable_parent_is_permission_denied
+  - minion-agent-python/tests/execution/test_filesystem_check_readable.py::test_symlink_loop_uses_the_host_error_mapping
+  - minion-agent-python/tests/execution/test_filesystem_check_readable.py::test_windows_symlink_loop_matches_the_unchanged_layer12_operations
+  - minion-agent-python/tests/execution/test_filesystem_check_readable.py::test_fifo_without_writer_is_ok_and_does_not_block
+  - minion-agent-python/tests/execution/test_filesystem_check_readable.py::test_relative_path_resolution
+  - minion-agent-python/tests/execution/test_filesystem_check_readable.py::test_pre_aborted_signal_is_accepted_but_not_inspected
+  - minion-agent-python/tests/execution/test_filesystem_check_readable.py::test_provider_without_exec008_answers_not_supported
+  - minion-agent-python/tests/execution/test_filesystem_check_readable.py::test_local_filesystem_never_answers_not_supported
+  - minion-agent-python/tests/execution/test_filesystem_check_readable.py::test_check_readable_leaves_content_and_existing_operations_unchanged
+  - minion-agent-python/tests/execution/test_filesystem_check_readable.py::test_posix_branch_ok_for_readable_target
+  - minion-agent-python/tests/execution/test_filesystem_check_readable.py::test_posix_branch_path_resolution_failure_keeps_its_own_errno
+  - minion-agent-python/tests/execution/test_filesystem_check_readable.py::test_posix_branch_access_r_ok_failure_is_permission_denied
+  - minion-agent-python/tests/execution/test_filesystem_check_readable.py::test_negative_control_is_rejected_by_its_witness
+  python: 'minion-agent-python/src/minion_agent/execution/filesystem.py (_check_readable_posix,
+    _check_readable_windows, _check_readable_sync, LocalFileSystem.check_readable), additive to the
+    existing FileSystem Protocol (one new check_readable member) -- every existing operation
+    unchanged. POSIX: a symlink-following os.stat (supplies the path-resolution errno) then
+    os.access(path, R_OK) (EACCES -> permission_denied). Windows: one CreateFileW for FILE_READ_DATA
+    (read a file / list a directory), following symlinks, handle closed at once, nothing read. Neither
+    host opens content, so a writerless FIFO cannot block. Evidence: every section 12.6 witness plus
+    the owner-required negative controls (file_info/lstat existence, canonical_path existence,
+    Node-style Windows attribute-only access, open-and-read-one-byte, final-symlink non-following,
+    pre-abort rejection, silent success / exists fallback without EXEC-008), each shown to fail its
+    discriminating witness. Status: IMPLEMENTATION_REVIEW (minion-agent#62); not merged.'
+  rust: 'not yet implemented; Rust EXEC-008 not yet authorized (minion-agent#62)'
   disposition: intentional divergence
 - id: TOOL-025
   phase: 6

@@ -30,6 +30,7 @@ unretrieved-exception warning).
 from __future__ import annotations
 
 import asyncio
+import errno as _errno
 import os
 import re
 import shutil
@@ -533,6 +534,72 @@ def _probe_dir_entry_sync(path: str) -> DirEntryProbe:
     return DirEntryProbe(name=os.path.basename(path), path=path, kind=kind)
 
 
+def _check_readable_posix(path: str) -> None:
+    """`EXEC-008` on POSIX, spec section 12.4: `access(path, R_OK)` -- the call Node's `fs.access`
+    makes -- with the process's real user/group IDs. `os.access` is exactly that call but reports
+    only a boolean, so a symlink-following `os.stat` first supplies the path-resolution failure
+    (`ENOENT`, `ENOTDIR`, `ELOOP`, an unsearchable parent's `EACCES`) with its own errno; a target
+    that resolves but fails `access(R_OK)` is `EACCES`. Neither call opens the target, so no content
+    is consumed and a FIFO without a writer cannot block."""
+    os.stat(path)
+    if not os.access(path, os.R_OK):
+        raise PermissionError(_errno.EACCES, os.strerror(_errno.EACCES), path)
+
+
+# Win32: FILE_READ_DATA is also FILE_LIST_DIRECTORY; backup semantics lets CreateFileW open a
+# directory at all (it does not bypass the ACL check unless the backup privilege is enabled).
+_FILE_READ_DATA = 0x0001
+_FILE_SHARE_ALL = 0x0001 | 0x0002 | 0x0004
+_OPEN_EXISTING = 3
+_FILE_FLAG_BACKUP_SEMANTICS = 0x02000000
+
+
+def _check_readable_windows(path: str) -> None:
+    """`EXEC-008` on Windows, spec section 12.4 (owner decision, `MINION_ARCHITECTURAL_MAPPING`):
+    the target's actual readability, not libuv's attribute-only `access`. One `CreateFileW` asking
+    for `FILE_READ_DATA` -- read access to a file, list access to a directory -- following
+    symlinks (no `FILE_FLAG_OPEN_REPARSE_POINT`); the handle is closed at once and nothing is
+    read. A failure is raised as the matching `OSError` (built from the Win32 code, which Python
+    maps to an errno and `OSError` subclass), which `to_fs_error` classifies like every other
+    operation's."""
+    import ctypes
+    from ctypes import wintypes
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.CreateFileW.restype = wintypes.HANDLE
+    kernel32.CreateFileW.argtypes = [
+        wintypes.LPCWSTR,
+        wintypes.DWORD,
+        wintypes.DWORD,
+        wintypes.LPVOID,
+        wintypes.DWORD,
+        wintypes.DWORD,
+        wintypes.HANDLE,
+    ]
+    kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+    handle = kernel32.CreateFileW(
+        path,
+        _FILE_READ_DATA,
+        _FILE_SHARE_ALL,
+        None,
+        _OPEN_EXISTING,
+        _FILE_FLAG_BACKUP_SEMANTICS,
+        None,
+    )
+    if handle == wintypes.HANDLE(-1).value:
+        code = ctypes.get_last_error()
+        raise OSError(None, ctypes.FormatError(code), path, code)
+    kernel32.CloseHandle(handle)
+
+
+def _check_readable_sync(path: str) -> None:
+    """`EXEC-008`, spec section 12.3. `path` is already the RESOLVED path."""
+    if os.name == "nt":
+        _check_readable_windows(path)
+    else:
+        _check_readable_posix(path)
+
+
 def _remove_sync(path: str, recursive: bool, force: bool) -> None:
     try:
         st = os.lstat(path)
@@ -604,6 +671,11 @@ class FileSystem(Protocol):
     async def probe_dir_entry(
         self, path: str, signal: RunSignal | None = None
     ) -> Result[DirEntryProbe, FsError]: ...
+    # `EXEC-008` (spec section 12), additive. A provider that cannot supply it returns
+    # `Err(not_supported)` for every call -- a capability answer, never a target failure.
+    async def check_readable(
+        self, path: str, signal: RunSignal | None = None
+    ) -> Result[None, FsError]: ...
     async def canonical_path(
         self, path: str, signal: RunSignal | None = None
     ) -> Result[str, FsError]: ...
@@ -826,6 +898,20 @@ class LocalFileSystem:
         except OSError as exc:
             return Err(to_fs_error(exc, resolved))
         return Ok(probe)
+
+    async def check_readable(
+        self, path: str, signal: RunSignal | None = None
+    ) -> Result[None, FsError]:
+        """`EXEC-008`, spec section 12. Additive Layer-12 extension -- no existing operation
+        changes. Resolves with section 3.2's rules, follows symlinks, and answers whether the
+        target exists and is readable without consuming content. `signal` is accepted but never
+        inspected (section 12.3), like `file_info`/`probe_dir_entry`."""
+        resolved = resolve_local_path(self.cwd, path)
+        try:
+            await asyncio.to_thread(_check_readable_sync, resolved)
+        except OSError as exc:
+            return Err(to_fs_error(exc, resolved))
+        return Ok(None)
 
     async def canonical_path(
         self, path: str, signal: RunSignal | None = None

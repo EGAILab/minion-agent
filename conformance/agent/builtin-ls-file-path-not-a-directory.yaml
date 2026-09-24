@@ -1,0 +1,23 @@
+name: builtin-ls-file-path-not-a-directory
+family: agent
+authority: minion-agent-docs spec/tools.md WP-13.1 (master f46051fb)
+pi_revision: b7bb00b936dbe21b8e160b3e89efdec361846699
+requirements:
+- TOOL-028
+witnesses:
+- ls_file_path_not_a_directory
+notes: 'A regular file path reports Pi''s ''Not a directory: <path>''.'
+builtin_tool:
+  tool: ls
+  fixture:
+  - path: f
+    file:
+      text: x
+  cases:
+  - id: file
+    arguments:
+      path: f
+    expect:
+      is_error: true
+      text: 'Not a directory: {abs:f}'
+      details: {}

@@ -1,0 +1,410 @@
+name: builtin-read-offset-limit-then-truncation-ordering
+family: agent
+authority: minion-agent-docs spec/tools.md WP-13.1 (master f46051fb)
+pi_revision: b7bb00b936dbe21b8e160b3e89efdec361846699
+requirements:
+- TOOL-025
+witnesses:
+- read_offset_limit_then_truncation_ordering
+notes: 'offset/limit select BEFORE head truncation. A caller limit that stops early appends Pi''s ''more
+  lines'' notice with NO details.truncation; automatic truncation (lines, then bytes) appends the ''Showing
+  lines'' notice and details.truncation, whose total_lines is the SELECTED range (2500), not the file
+  (3000). Expected values: pinned Pi read.ts + truncate.ts.'
+builtin_tool:
+  tool: read
+  fixture:
+  - path: data100.txt
+    file:
+      lines:
+        count: 100
+        template: line {n}
+  - path: data3000.txt
+    file:
+      lines:
+        count: 3000
+        template: row {n}
+  - path: wide.txt
+    file:
+      lines:
+        count: 1000
+        template: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+  cases:
+  - id: caller-limit-stops-early
+    arguments:
+      path: data100.txt
+      offset: 41
+      limit: 20
+    expect:
+      is_error: false
+      text: 'line 41
+
+        line 42
+
+        line 43
+
+        line 44
+
+        line 45
+
+        line 46
+
+        line 47
+
+        line 48
+
+        line 49
+
+        line 50
+
+        line 51
+
+        line 52
+
+        line 53
+
+        line 54
+
+        line 55
+
+        line 56
+
+        line 57
+
+        line 58
+
+        line 59
+
+        line 60
+
+
+        [40 more lines in file. Use offset=61 to continue.]'
+      image: null
+      details: {}
+  - id: limit-reaches-eof-no-notice
+    arguments:
+      path: data100.txt
+      offset: 91
+      limit: 20
+    expect:
+      is_error: false
+      text: 'line 91
+
+        line 92
+
+        line 93
+
+        line 94
+
+        line 95
+
+        line 96
+
+        line 97
+
+        line 98
+
+        line 99
+
+        line 100'
+      image: null
+      details: {}
+  - id: whole-file-no-notice
+    arguments:
+      path: data100.txt
+    expect:
+      is_error: false
+      text: 'line 1
+
+        line 2
+
+        line 3
+
+        line 4
+
+        line 5
+
+        line 6
+
+        line 7
+
+        line 8
+
+        line 9
+
+        line 10
+
+        line 11
+
+        line 12
+
+        line 13
+
+        line 14
+
+        line 15
+
+        line 16
+
+        line 17
+
+        line 18
+
+        line 19
+
+        line 20
+
+        line 21
+
+        line 22
+
+        line 23
+
+        line 24
+
+        line 25
+
+        line 26
+
+        line 27
+
+        line 28
+
+        line 29
+
+        line 30
+
+        line 31
+
+        line 32
+
+        line 33
+
+        line 34
+
+        line 35
+
+        line 36
+
+        line 37
+
+        line 38
+
+        line 39
+
+        line 40
+
+        line 41
+
+        line 42
+
+        line 43
+
+        line 44
+
+        line 45
+
+        line 46
+
+        line 47
+
+        line 48
+
+        line 49
+
+        line 50
+
+        line 51
+
+        line 52
+
+        line 53
+
+        line 54
+
+        line 55
+
+        line 56
+
+        line 57
+
+        line 58
+
+        line 59
+
+        line 60
+
+        line 61
+
+        line 62
+
+        line 63
+
+        line 64
+
+        line 65
+
+        line 66
+
+        line 67
+
+        line 68
+
+        line 69
+
+        line 70
+
+        line 71
+
+        line 72
+
+        line 73
+
+        line 74
+
+        line 75
+
+        line 76
+
+        line 77
+
+        line 78
+
+        line 79
+
+        line 80
+
+        line 81
+
+        line 82
+
+        line 83
+
+        line 84
+
+        line 85
+
+        line 86
+
+        line 87
+
+        line 88
+
+        line 89
+
+        line 90
+
+        line 91
+
+        line 92
+
+        line 93
+
+        line 94
+
+        line 95
+
+        line 96
+
+        line 97
+
+        line 98
+
+        line 99
+
+        line 100'
+      image: null
+      details: {}
+  - id: selected-range-then-line-truncation
+    arguments:
+      path: data3000.txt
+      offset: 41
+      limit: 2500
+    expect:
+      is_error: false
+      text_sha256: 1ed787d84effc1099fd460586e81eb2af8da5fa54260cb5d3b73482cdf023cd9
+      text_tail: '014
+
+        row 2015
+
+        row 2016
+
+        row 2017
+
+        row 2018
+
+        row 2019
+
+        row 2020
+
+        row 2021
+
+        row 2022
+
+        row 2023
+
+        row 2024
+
+        row 2025
+
+        row 2026
+
+        row 2027
+
+        row 2028
+
+        row 2029
+
+        row 2030
+
+        row 2031
+
+        row 2032
+
+        row 2033
+
+        row 2034
+
+        row 2035
+
+        row 2036
+
+        row 2037
+
+        row 2038
+
+        row 2039
+
+        row 2040
+
+
+        [Showing lines 41-2040 of 3000. Use offset=2041 to continue.]'
+      image: null
+      details:
+        truncation:
+          truncated: true
+          truncated_by: lines
+          total_lines: 2500
+          total_bytes: 21481
+          first_line_exceeds_limit: false
+  - id: byte-truncation
+    arguments:
+      path: wide.txt
+    expect:
+      is_error: false
+      text_sha256: c78c6cf35ffcbe6fc06926894786e591dbfa65f4df8654ac6007dfb913a7c9b9
+      text_tail: 'xxxxxxxxxxxxxxxxxxxxxxx
+
+        xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+
+        xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+
+
+        [Showing lines 1-506 of 1000 (50.0KB limit). Use offset=507 to continue.]'
+      image: null
+      details:
+        truncation:
+          truncated: true
+          truncated_by: bytes
+          total_lines: 1000
+          total_bytes: 100999
+          first_line_exceeds_limit: false

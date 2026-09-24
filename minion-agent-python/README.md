@@ -22,6 +22,10 @@ uv run pytest                 # 286 tests, 100% coverage gate
 uv run ruff check . && uv run mypy
 ```
 
+The `ls` built-in tool needs PyICU built against one pinned ICU 78.3 (spec `TOOL-028`/`R006-C`):
+build it once with `scripts/pinned-icu/build.sh` and `eval` its `--env` output before `uv sync`
+(see `scripts/pinned-icu/README.md`).
+
 `uv.lock` is committed, so `uv sync` reproduces the exact environment. Prefer
 `uv run <tool>` over activating the venv — it resolves the interpreter without
 depending on `PATH`.

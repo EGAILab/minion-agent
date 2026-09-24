@@ -16,7 +16,10 @@ loop at all, and are executed by test_llm_service_conformance.py. Also excludes 
 auth-device-code scenarios (top-level `auth_device_code` key,
 auth-device-code-scenario.schema.json): those exercise the real poll_device_code_flow state
 machine directly, with no Agent loop at all, and are executed by
-test_auth_device_code_conformance.py.
+test_auth_device_code_conformance.py. Also excludes Layer-13 built-in tool scenarios (top-level
+`builtin_tool` key, builtin-tool-scenario.schema.json): those run a real `read`/`ls` over the real
+`ctx.fs` through the Layer 06 pipeline, with no Agent loop, and are executed by
+test_builtin_tool_conformance.py.
 """
 
 from pathlib import Path
@@ -41,6 +44,7 @@ def _is_full_loop_scenario(path: Path) -> bool:
             or "agent_inbox" in document
             or "llm_service" in document
             or "auth_device_code" in document
+            or "builtin_tool" in document
         )
     )
 

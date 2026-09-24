@@ -1,0 +1,32 @@
+name: builtin-ls-special-entry-listed-without-slash
+family: agent
+authority: minion-agent-docs spec/tools.md WP-13.1 (master f46051fb)
+pi_revision: b7bb00b936dbe21b8e160b3e89efdec361846699
+requirements:
+- TOOL-028
+witnesses:
+- ls_special_entry_listed_without_slash
+notes: An entry whose probe kind is `other` (a FIFO or other special file; a provider stand-in here) is
+  listed without '/'.
+builtin_tool:
+  tool: ls
+  fixture:
+  - path: a
+    file:
+      text: x
+  - path: fifo
+    file:
+      text: x
+  provider:
+    probe_dir_entry:
+    - path: fifo
+      kind: other
+  cases:
+  - id: other
+    arguments: {}
+    expect:
+      is_error: false
+      text: 'a
+
+        fifo'
+      details: {}

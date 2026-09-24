@@ -1,0 +1,10 @@
+photon_rs_bg.wasm -- vendored, unmodified, from @silvia-odwyer/photon-node 0.3.4 (Apache-2.0,
+LICENSE-photon-node.md), the exact artifact pinned Pi b7bb00b936dbe21b8e160b3e89efdec361846699
+depends on (spec/tools.md TOOL-025 R005-A).
+
+package tarball integrity  sha512-bnly4BKB3KDTFxrUIcgCLbaeVVS8lrAkri1pEzskpmxu9MdfGQTy8b8EgcD83ywD3RPMsIulY8xJH5Awa+t9fA==
+                           (== pinned Pi package-lock.json)
+photon_rs_bg.wasm sha256   10468181565c56004c867f3a4af96f89a0ef5a63a72f2b5fb12c1f1992a3615c
+                           (checked on every load; any other bytes are refused)
+evidence                   minion-agent-docs assurance/layers/data/13-wp131-ce-l13-wp131-01/
+                           r005-a-photon-differential/ (merged f46051fb)

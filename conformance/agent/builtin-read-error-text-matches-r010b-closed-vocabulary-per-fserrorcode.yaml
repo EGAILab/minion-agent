@@ -1,0 +1,189 @@
+name: builtin-read-error-text-matches-r010b-closed-vocabulary-per-fserrorcode
+family: agent
+authority: minion-agent-docs spec/tools.md WP-13.1 (master f46051fb)
+pi_revision: b7bb00b936dbe21b8e160b3e89efdec361846699
+requirements:
+- TOOL-039
+- TOOL-025
+witnesses:
+- read_error_text_matches_r010b_closed_vocabulary_per_fserrorcode
+notes: 'R010-B: each FsErrorCode maps to its closed cause phrase. The existence check (probe_dir_entry,
+  following symlinks) is the ''Cannot access'' site; the content read is the ''Cannot read'' site, except
+  permission_denied, which is where Pi''s access(R_OK) fails (IMPL-C002); a directory is ''Cannot read
+  <path>: is a directory''. <path> is the resolved absolute path (IMPL-C003). details stays {}.'
+builtin_tool:
+  tool: read
+  fixture:
+  - path: acc_not_found.txt
+    file:
+      text: x
+  - path: acc_permission_denied.txt
+    file:
+      text: x
+  - path: acc_not_directory.txt
+    file:
+      text: x
+  - path: acc_invalid.txt
+    file:
+      text: x
+  - path: acc_not_supported.txt
+    file:
+      text: x
+  - path: acc_unknown.txt
+    file:
+      text: x
+  - path: rd_not_found.txt
+    file:
+      text: x
+  - path: rd_not_directory.txt
+    file:
+      text: x
+  - path: rd_invalid.txt
+    file:
+      text: x
+  - path: rd_not_supported.txt
+    file:
+      text: x
+  - path: rd_unknown.txt
+    file:
+      text: x
+  - path: rd_permission_denied.txt
+    file:
+      text: x
+  - path: sub
+    dir: true
+  - path: dangling
+    symlink: missing-target
+  provider:
+    probe_dir_entry:
+    - path: acc_not_found.txt
+      error: not_found
+    - path: acc_permission_denied.txt
+      error: permission_denied
+    - path: acc_not_directory.txt
+      error: not_directory
+    - path: acc_invalid.txt
+      error: invalid
+    - path: acc_not_supported.txt
+      error: not_supported
+    - path: acc_unknown.txt
+      error: unknown
+    read_binary_file:
+    - path: rd_not_found.txt
+      error: not_found
+    - path: rd_not_directory.txt
+      error: not_directory
+    - path: rd_invalid.txt
+      error: invalid
+    - path: rd_not_supported.txt
+      error: not_supported
+    - path: rd_unknown.txt
+      error: unknown
+    - path: rd_permission_denied.txt
+      error: permission_denied
+  cases:
+  - id: access-not_found
+    arguments:
+      path: acc_not_found.txt
+    expect:
+      is_error: true
+      text: 'Cannot access {abs:acc_not_found.txt}: no such file or directory'
+      details: {}
+  - id: access-permission_denied
+    arguments:
+      path: acc_permission_denied.txt
+    expect:
+      is_error: true
+      text: 'Cannot access {abs:acc_permission_denied.txt}: permission denied'
+      details: {}
+  - id: access-not_directory
+    arguments:
+      path: acc_not_directory.txt
+    expect:
+      is_error: true
+      text: 'Cannot access {abs:acc_not_directory.txt}: not a directory'
+      details: {}
+  - id: access-invalid
+    arguments:
+      path: acc_invalid.txt
+    expect:
+      is_error: true
+      text: 'Cannot access {abs:acc_invalid.txt}: invalid path'
+      details: {}
+  - id: access-not_supported
+    arguments:
+      path: acc_not_supported.txt
+    expect:
+      is_error: true
+      text: 'Cannot access {abs:acc_not_supported.txt}: not supported by this provider'
+      details: {}
+  - id: access-unknown
+    arguments:
+      path: acc_unknown.txt
+    expect:
+      is_error: true
+      text: 'Cannot access {abs:acc_unknown.txt}: unknown filesystem error'
+      details: {}
+  - id: read-not_found
+    arguments:
+      path: rd_not_found.txt
+    expect:
+      is_error: true
+      text: 'Cannot read {abs:rd_not_found.txt}: no such file or directory'
+      details: {}
+  - id: read-not_directory
+    arguments:
+      path: rd_not_directory.txt
+    expect:
+      is_error: true
+      text: 'Cannot read {abs:rd_not_directory.txt}: not a directory'
+      details: {}
+  - id: read-invalid
+    arguments:
+      path: rd_invalid.txt
+    expect:
+      is_error: true
+      text: 'Cannot read {abs:rd_invalid.txt}: invalid path'
+      details: {}
+  - id: read-not_supported
+    arguments:
+      path: rd_not_supported.txt
+    expect:
+      is_error: true
+      text: 'Cannot read {abs:rd_not_supported.txt}: not supported by this provider'
+      details: {}
+  - id: read-unknown
+    arguments:
+      path: rd_unknown.txt
+    expect:
+      is_error: true
+      text: 'Cannot read {abs:rd_unknown.txt}: unknown filesystem error'
+      details: {}
+  - id: read-permission-denied-reported-at-access-site
+    arguments:
+      path: rd_permission_denied.txt
+    expect:
+      is_error: true
+      text: 'Cannot access {abs:rd_permission_denied.txt}: permission denied'
+      details: {}
+  - id: directory-is-directory
+    arguments:
+      path: sub
+    expect:
+      is_error: true
+      text: 'Cannot read {abs:sub}: is a directory'
+      details: {}
+  - id: real-missing-file
+    arguments:
+      path: missing.txt
+    expect:
+      is_error: true
+      text: 'Cannot access {abs:missing.txt}: no such file or directory'
+      details: {}
+  - id: dangling-symlink-fails-the-access-check
+    arguments:
+      path: dangling
+    expect:
+      is_error: true
+      text: 'Cannot access {abs:dangling}: no such file or directory'
+      details: {}

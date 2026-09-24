@@ -14,8 +14,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
-from ...execution import Err, FileSystem, FsError, FsErrorCode
-from ...execution.filesystem import DirEntryProbeKind
+from ...execution import Err, FileKind, FileSystem, FsError, FsErrorCode
 from ...llm import ImageBlock, TextBlock
 from ...runtime.signal import RunSignal
 from ..definition import ToolDefinition
@@ -77,6 +76,18 @@ class ReadToolOptions:
     model_supports_images: ModelSupportsImages | None = None
 
 
+def _read_failure_site(code: FsErrorCode) -> str:
+    """Which of Pi's two sites a failed content read belongs to (`L13-WP131-C012`). The access step
+    is `file_info`, which does not follow a final symlink or check readability, so a read that fails
+    for those reasons -- a dangling link, an unreadable target, a missing or non-directory component
+    -- is where Pi's symlink-following `access(R_OK)` would already have failed. `is_directory` (a
+    symlink to a directory) and `not_supported` (a provider that can check the path but cannot read
+    content) are genuine read failures, as R010-B places them."""
+    if code in (FsErrorCode.IS_DIRECTORY, FsErrorCode.NOT_SUPPORTED):
+        return "Cannot read"
+    return "Cannot access"
+
+
 def _fs_failure(site: str, absolute: str, error: FsError) -> BuiltinToolError:
     if error.code == FsErrorCode.ABORTED:
         return aborted()
@@ -94,27 +105,28 @@ class _Read:
 
     async def run(
         self, path: str, offset: float | None, limit: float | None, signal: RunSignal | None
-    ) -> _Output:
+    ) -> _Output | None:
+        """`None` means the work stopped at one of Pi's abort checkpoints (`read.ts:246`, `:249`);
+        the caller has already been answered `"Operation aborted"` by then. No `ctx.fs` call is
+        given the signal: Pi passes none to `access`/`readFile` (`L13-WP131-I001`)."""
         working = preprocess_path(path)
-        probe = await self._fs.probe_dir_entry(working)
-        if isinstance(probe, Err):
-            raise _fs_failure("Cannot access", await self._absolute(working), probe.error)
-        if probe.value.kind in (
-            DirEntryProbeKind.DIRECTORY,
-            DirEntryProbeKind.SYMLINK_TO_DIRECTORY,
-        ):
+        if signal is not None and signal.aborted:
+            return None
+        # Pi's `access(absolutePath, R_OK)`, from core operations only (`L13-WP131-C012`).
+        info = await self._fs.file_info(working)
+        if isinstance(info, Err):
+            raise _fs_failure("Cannot access", await self._absolute(working), info.error)
+        if signal is not None and signal.aborted:
+            return None
+        if info.value.kind == FileKind.DIRECTORY:
             raise BuiltinToolError(
                 f"Cannot read {await self._absolute(working)}: {cause(FsErrorCode.IS_DIRECTORY)}"
             )
-        read = await self._fs.read_binary_file(working, signal)
+        read = await self._fs.read_binary_file(working)
         if isinstance(read, Err):
-            # A readability failure is where Pi's `access(R_OK)` fails (IMPL-C002).
-            site = (
-                "Cannot access"
-                if read.error.code == FsErrorCode.PERMISSION_DENIED
-                else "Cannot read"
+            raise _fs_failure(
+                _read_failure_site(read.error.code), await self._absolute(working), read.error
             )
-            raise _fs_failure(site, await self._absolute(working), read.error)
         data = read.value
         mime_type = detect_supported_image_mime_type(data)
         if mime_type is not None:
@@ -215,7 +227,7 @@ def create_read_tool(fs: FileSystem, options: ReadToolOptions | None = None) -> 
             raise aborted()
         offset = arguments.get("offset")
         limit = arguments.get("limit")
-        content, details = await race_abort(
+        output = await race_abort(
             reader.run(
                 arguments["path"],
                 None if offset is None else to_number(offset),
@@ -224,6 +236,10 @@ def create_read_tool(fs: FileSystem, options: ReadToolOptions | None = None) -> 
             ),
             signal,
         )
+        if output is None:
+            # Stopped at a checkpoint after an abort the race did not observe first.
+            raise aborted()
+        content, details = output
         return ToolResult(
             tool_call_id=tool_call_id, content=content, tool_name="read", details=details
         )

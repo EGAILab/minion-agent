@@ -6557,6 +6557,7 @@ rows:
   - read_operation_aborted_template_preserved_verbatim (canonical scenario conformance/agent/builtin-read-operation-aborted-template-preserved-verbatim.yaml)
   - read_text_decoding_matches_node_utf8 (canonical scenario conformance/agent/builtin-read-text-decoding-matches-node-utf8.yaml)
   - read_image_auto_resize_disabled (canonical scenario conformance/agent/builtin-read-image-auto-resize-disabled.yaml)
+  - read_does_not_require_exec_007 (canonical scenario conformance/agent/builtin-read-provider-without-exec-007-reads-normally.yaml; L13-WP131-C012)
   python: 'minion_agent/tools/builtin/read.py (create_read_tool, ReadToolOptions), image.py + photon/ (pinned photon_rs_bg.wasm via wasmtime 49.0.0), mime.py, truncate.py, _js.py; tests/tools/builtin/; canonical builtin_tool scenarios below'
   rust: 'planned; not yet implemented (WP-13.1 CONTRACT_INTEGRATED, minion-agent#48) -- intended
     location minion-agent-rust/crates/minion-agent/src/tools/builtin/read.rs'

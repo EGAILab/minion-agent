@@ -45,7 +45,10 @@ LS_PARAMETERS: dict[str, Any] = {
 type _Output = tuple[str, dict[str, Any]]
 
 
-async def _list(fs: FileSystem, path: str, limit: float | int, signal: RunSignal | None) -> _Output:
+async def _list(fs: FileSystem, path: str, limit: float | int) -> _Output:
+    """Pi's `ls` has no abort checkpoints: once started, its work runs to completion even after
+    the caller was answered `"Operation aborted"`, and no `ctx.fs` call is given the signal
+    (`ls.ts:116-178`, `L13-WP131-I001`)."""
     working = preprocess_path(path)
     resolved = await fs.absolute_path(working)
     directory = working if isinstance(resolved, Err) else resolved.value
@@ -56,7 +59,7 @@ async def _list(fs: FileSystem, path: str, limit: float | int, signal: RunSignal
         raise BuiltinToolError(f"Path not found: {directory}")
     if probe.value.kind not in _DIRECTORY_KINDS:
         raise BuiltinToolError(f"Not a directory: {directory}")
-    listing = await fs.list_dir_raw(working, signal)
+    listing = await fs.list_dir_raw(working)
     if isinstance(listing, Err):
         if listing.error.code == FsErrorCode.ABORTED:
             raise aborted()
@@ -107,7 +110,7 @@ def create_ls_tool(fs: FileSystem) -> ToolDefinition:
         path = arguments.get("path") or "."
         limit = arguments.get("limit")
         text, details = await race_abort(
-            _list(fs, path, DEFAULT_LIMIT if limit is None else limit, signal), signal
+            _list(fs, path, DEFAULT_LIMIT if limit is None else limit), signal
         )
         return ToolResult(
             tool_call_id=tool_call_id,

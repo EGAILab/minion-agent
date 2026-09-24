@@ -7,10 +7,12 @@ requirements:
 - TOOL-025
 witnesses:
 - read_error_text_matches_r010b_closed_vocabulary_per_fserrorcode
-notes: 'R010-B: each FsErrorCode maps to its closed cause phrase. The existence check (probe_dir_entry,
-  following symlinks) is the ''Cannot access'' site; the content read is the ''Cannot read'' site, except
-  permission_denied, which is where Pi''s access(R_OK) fails (IMPL-C002); a directory is ''Cannot read
-  <path>: is a directory''. <path> is the resolved absolute path (IMPL-C003). details stays {}.'
+notes: 'R010-B: each FsErrorCode maps to its closed cause phrase. The access step (file_info) is the ''Cannot
+  access'' site. A failed content read is ''Cannot read'' only for is_directory and not_supported; any
+  other code is reported at the access site, because Pi''s symlink-following access(R_OK) would have failed
+  first (L13-WP131-C012). A directory is ''Cannot read <path>: is a directory''; a dangling symlink is
+  ''Cannot access ... no such file or directory''. <path> is the resolved absolute path (IMPL-C003). details
+  stays {}.'
 builtin_tool:
   tool: read
   fixture:
@@ -50,12 +52,15 @@ builtin_tool:
   - path: rd_permission_denied.txt
     file:
       text: x
+  - path: rd_is_directory.txt
+    file:
+      text: x
   - path: sub
     dir: true
   - path: dangling
     symlink: missing-target
   provider:
-    probe_dir_entry:
+    file_info:
     - path: acc_not_found.txt
       error: not_found
     - path: acc_permission_denied.txt
@@ -81,6 +86,8 @@ builtin_tool:
       error: unknown
     - path: rd_permission_denied.txt
       error: permission_denied
+    - path: rd_is_directory.txt
+      error: is_directory
   cases:
   - id: access-not_found
     arguments:
@@ -129,21 +136,21 @@ builtin_tool:
       path: rd_not_found.txt
     expect:
       is_error: true
-      text: 'Cannot read {abs:rd_not_found.txt}: no such file or directory'
+      text: 'Cannot access {abs:rd_not_found.txt}: no such file or directory'
       details: {}
   - id: read-not_directory
     arguments:
       path: rd_not_directory.txt
     expect:
       is_error: true
-      text: 'Cannot read {abs:rd_not_directory.txt}: not a directory'
+      text: 'Cannot access {abs:rd_not_directory.txt}: not a directory'
       details: {}
   - id: read-invalid
     arguments:
       path: rd_invalid.txt
     expect:
       is_error: true
-      text: 'Cannot read {abs:rd_invalid.txt}: invalid path'
+      text: 'Cannot access {abs:rd_invalid.txt}: invalid path'
       details: {}
   - id: read-not_supported
     arguments:
@@ -157,14 +164,21 @@ builtin_tool:
       path: rd_unknown.txt
     expect:
       is_error: true
-      text: 'Cannot read {abs:rd_unknown.txt}: unknown filesystem error'
+      text: 'Cannot access {abs:rd_unknown.txt}: unknown filesystem error'
       details: {}
-  - id: read-permission-denied-reported-at-access-site
+  - id: read-permission_denied
     arguments:
       path: rd_permission_denied.txt
     expect:
       is_error: true
       text: 'Cannot access {abs:rd_permission_denied.txt}: permission denied'
+      details: {}
+  - id: read-is_directory
+    arguments:
+      path: rd_is_directory.txt
+    expect:
+      is_error: true
+      text: 'Cannot read {abs:rd_is_directory.txt}: is a directory'
       details: {}
   - id: directory-is-directory
     arguments:

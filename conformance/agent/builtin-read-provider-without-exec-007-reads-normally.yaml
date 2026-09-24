@@ -1,0 +1,44 @@
+name: builtin-read-provider-without-exec-007-reads-normally
+family: agent
+authority: minion-agent-docs spec/tools.md WP-13.1 (master f46051fb)
+pi_revision: b7bb00b936dbe21b8e160b3e89efdec361846699
+requirements:
+- TOOL-025
+witnesses:
+- read_does_not_require_exec_007
+notes: 'L13-WP131-C012: read uses only core ctx.fs operations (file_info, read_binary_file), so a provider
+  that reports not_supported for the additive EXEC-007 extension still reads text and images normally;
+  ls, which needs EXEC-007, reports its own not_supported text.'
+builtin_tool:
+  tool: read
+  fixture:
+  - path: a.txt
+    file:
+      text: hello
+  - path: png_small_rgb.png
+    file:
+      fixture_file: r005a-photon/png_small_rgb.png
+  provider:
+    without_exec_007: true
+  cases:
+  - id: text
+    arguments:
+      path: a.txt
+    expect:
+      is_error: false
+      text: hello
+      details: {}
+      fs_calls:
+      - file_info a.txt
+      - read_binary_file a.txt
+  - id: png_small_rgb.png
+    arguments:
+      path: png_small_rgb.png
+    expect:
+      is_error: false
+      text: Read image file [image/png]
+      image:
+        mime_type: image/png
+        sha256: dd2696b1dbbdce326b193f9d75d876482718f32fbd7f6b66de0b3cd3a2568f05
+        bytes: 83
+      details: {}

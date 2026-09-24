@@ -79,7 +79,8 @@
         "without_exec_007": { "const": true, "$comment": "probe_dir_entry and list_dir_raw return not_supported (a provider lacking EXEC-007)" },
         "probe_dir_entry": { "type": "array", "items": { "$ref": "#/$defs/scriptedProbe" } },
         "list_dir_raw": { "type": "array", "items": { "$ref": "#/$defs/scriptedList" } },
-        "read_binary_file": { "type": "array", "items": { "$ref": "#/$defs/scriptedError" } }
+        "read_binary_file": { "type": "array", "items": { "$ref": "#/$defs/scriptedError" } },
+        "file_info": { "type": "array", "items": { "$ref": "#/$defs/scriptedError" } }
       }
     },
     "fsErrorCode": { "enum": ["aborted", "not_found", "permission_denied", "not_directory", "is_directory", "invalid", "not_supported", "unknown"] },

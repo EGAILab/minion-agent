@@ -192,28 +192,41 @@ async def test_race_abort_pre_aborted_never_starts_the_work() -> None:
     assert started == []
 
 
-async def test_race_abort_rejects_promptly_and_cancels_the_work() -> None:
+async def test_race_abort_rejects_promptly_and_leaves_the_work_running() -> None:
+    """L13-WP131-I001: the rejection is immediate, but the work is NOT cancelled -- it finishes
+    on its own and its late result (or late failure) is discarded."""
     controller = RunAbortController()
-    cancelled: list[bool] = []
+    release = asyncio.Event()
+    events: list[str] = []
 
-    async def work() -> int:
+    async def work(fail: bool) -> int:
         try:
-            await asyncio.sleep(30)
+            await release.wait()
         except asyncio.CancelledError:
-            cancelled.append(True)
+            events.append("cancelled")
             raise
+        events.append("finished")
+        if fail:
+            raise RuntimeError("late failure is discarded")
         return 1
 
     async def abort_soon() -> None:
         await asyncio.sleep(0.05)
         controller.abort()
 
-    aborter = asyncio.ensure_future(abort_soon())
-    with pytest.raises(BuiltinToolError, match=r"^Operation aborted$"):
-        await asyncio.wait_for(race_abort(work(), controller.signal), timeout=5)
-    await aborter
-    await asyncio.sleep(0)
-    assert cancelled == [True]
+    for fail in (False, True):
+        release.clear()
+        aborter = asyncio.ensure_future(abort_soon())
+        with pytest.raises(BuiltinToolError, match=r"^Operation aborted$"):
+            await asyncio.wait_for(race_abort(work(fail), controller.signal), timeout=5)
+        await aborter
+        release.set()
+        for _ in range(100):
+            if events.count("finished") == (2 if fail else 1):
+                break
+            await asyncio.sleep(0.01)
+        controller = RunAbortController()
+    assert events == ["finished", "finished"]
 
 
 async def test_race_abort_after_completion_keeps_the_result() -> None:

@@ -112,6 +112,13 @@ class ScriptedFileSystem:
             return Err(FsError(FsErrorCode(scripted["error"]), "scripted", path))
         return Ok(list(scripted["names"]))
 
+    async def file_info(self, path: str, signal: Any = None) -> Any:
+        self.calls.append(f"file_info {self.relative(path)}")
+        scripted = self._scripted("file_info", path)
+        if scripted is None:
+            return await self._local.file_info(path, signal)
+        return Err(FsError(FsErrorCode(scripted["error"]), "scripted", path))
+
     async def read_binary_file(self, path: str, signal: Any = None) -> Any:
         self.calls.append(f"read_binary_file {self.relative(path)}")
         scripted = self._scripted("read_binary_file", path)

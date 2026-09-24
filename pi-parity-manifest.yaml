@@ -6509,6 +6509,37 @@ rows:
     independently reviewed (WP12E1-I003 remediated and closed) and merged at minion-agent/main
     0b1dd8a870c11087f8414e831a5f86003c8c489a (PR #56).'
   disposition: intentional divergence
+- id: EXEC-008
+  phase: 6
+  pi: 'packages/coding-agent/src/core/tools/read.ts:47-61 (ReadOperations.access, independently
+    supplied) and 58-62 (defaultReadOperations.access = fs.promises.access(path, R_OK)), awaited at
+    read.ts:248 before the MIME sniff and readFile; Node 22.15.1 / libuv 1.49.2 src/unix/fs.c:1713
+    (access(2)) and src/win/fs.c:2272 (GetFileAttributesW)'
+  surface: Layer 12, WP-12.E2 -- an additive extension to ctx.fs (check_readable)
+  rule: 'CONTRACT_DRAFT (owner-selected G1, minion-agent#48 governance record issuecomment-5822609576,
+    resolving L13-WP131-C012; coordinated as its own isolated work package WP-12.E2). No Python or Rust
+    implementation performed or authorized yet.
+
+    One new operation, additive to EXEC-002''s ctx.fs inventory, with every existing operation
+    unchanged: `check_readable(path, signal?) -> Result[None, FsError]` resolves the path (EXEC-002
+    section 3.2), follows symlinks, and answers whether the target exists and is readable (a file may
+    be opened for reading; a directory may be listed) without consuming content. A readable directory
+    is Ok, not an error. Errors use EXEC-001''s FsErrorCode taxonomy; a provider without the operation
+    answers not_supported for every call. Signal accepted, not inspected.
+
+    POSIX: DIRECT_PI_PARITY with access(path, R_OK). Windows: MINION_ARCHITECTURAL_MAPPING by owner
+    decision -- the same readability meaning (a deny-read ACL fails permission_denied, a dangling link
+    fails not_found), deliberately not copying libuv''s attribute-only Windows access. Its purpose is
+    to let Layer 13 read (TOOL-025) preserve the provenance of Pi''s access stage: the operation that
+    failed owns the error site, whatever the code (spec/execution.md section 12.5); providers without
+    it use an explicitly disclosed G2 fallback. Semantics and the witness matrix: spec/execution.md
+    section 12.'
+  tests:
+  - spec/execution.md section 12.6 witness matrix (planned Python/Rust tests; no implementation yet)
+  python: 'planned; not yet implemented (WP-12.E2 CONTRACT_DRAFT) -- intended location
+    minion_agent/execution/filesystem.py (LocalFileSystem.check_readable, FileSystem protocol)'
+  rust: 'planned; not yet implemented (WP-12.E2 CONTRACT_DRAFT)'
+  disposition: adopted
 - id: TOOL-025
   phase: 6
   pi: 'packages/coding-agent/src/core/tools/read.ts (schema lines 21-25; execute lines 223-334);

@@ -6,9 +6,10 @@ requirements:
 - TOOL-025
 witnesses:
 - read_does_not_require_exec_007
-notes: 'L13-WP131-C012: read uses only core ctx.fs operations (file_info, read_binary_file), so a provider
-  that reports not_supported for the additive EXEC-007 extension still reads text and images normally;
-  ls, which needs EXEC-007, reports its own not_supported text.'
+- W-G13
+notes: read's filesystem access is exactly check_readable (EXEC-008) then read_binary_file (L13-WP131-C012,
+  G1), so a provider that reports not_supported for the additive EXEC-007 extension still reads text and
+  images normally; ls, which needs EXEC-007, reports its own not_supported text.
 builtin_tool:
   tool: read
   fixture:
@@ -29,7 +30,7 @@ builtin_tool:
       text: hello
       details: {}
       fs_calls:
-      - file_info a.txt
+      - check_readable a.txt
       - read_binary_file a.txt
   - id: png_small_rgb.png
     arguments:

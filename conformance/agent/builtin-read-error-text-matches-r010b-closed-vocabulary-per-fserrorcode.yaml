@@ -7,12 +7,25 @@ requirements:
 - TOOL-025
 witnesses:
 - read_error_text_matches_r010b_closed_vocabulary_per_fserrorcode
-notes: 'R010-B: each FsErrorCode maps to its closed cause phrase. The access step (file_info) is the ''Cannot
-  access'' site. A failed content read is ''Cannot read'' only for is_directory and not_supported; any
-  other code is reported at the access site, because Pi''s symlink-following access(R_OK) would have failed
-  first (L13-WP131-C012). A directory is ''Cannot read <path>: is a directory''; a dangling symlink is
-  ''Cannot access ... no such file or directory''. <path> is the resolved absolute path (IMPL-C003). details
-  stays {}.'
+- W-G1
+- W-G2
+- W-G3
+- W-G4
+- W-G5
+- W-G6
+- W-G7
+- W-G8
+- W-G9
+- W-G12
+- W-G13
+notes: 'R010-B closed cause phrases, with the site decided by WHICH operation failed (L13-WP131-C012,
+  owner G1; CE-L13-WP131-02 revision 6). check_readable (EXEC-008, Pi''s access stage) failing with any
+  code except not_supported is ''Cannot access <path>: <phrase>'' and no content read follows. After a
+  successful check_readable, the one read_binary_file failing with ANY code is ''Cannot read <path>: <phrase>''
+  -- including not_found (removed after the access check), permission_denied (made unreadable after it)
+  and unknown (a stable I/O error after it, CE13-C004). A real missing file and a real dangling symlink
+  fail the access check; a real symlink to a readable file reads its target. <path> is the resolved absolute
+  path (IMPL-C003). details stays {}.'
 builtin_tool:
   tool: read
   fixture:
@@ -25,10 +38,10 @@ builtin_tool:
   - path: acc_not_directory.txt
     file:
       text: x
-  - path: acc_invalid.txt
+  - path: acc_is_directory.txt
     file:
       text: x
-  - path: acc_not_supported.txt
+  - path: acc_invalid.txt
     file:
       text: x
   - path: acc_unknown.txt
@@ -37,7 +50,13 @@ builtin_tool:
   - path: rd_not_found.txt
     file:
       text: x
+  - path: rd_permission_denied.txt
+    file:
+      text: x
   - path: rd_not_directory.txt
+    file:
+      text: x
+  - path: rd_is_directory.txt
     file:
       text: x
   - path: rd_invalid.txt
@@ -49,45 +68,46 @@ builtin_tool:
   - path: rd_unknown.txt
     file:
       text: x
-  - path: rd_permission_denied.txt
-    file:
-      text: x
-  - path: rd_is_directory.txt
-    file:
-      text: x
-  - path: sub
+  - path: locked_dir
     dir: true
+  - path: target.txt
+    file:
+      text: target
+  - path: link.txt
+    symlink: target.txt
   - path: dangling
     symlink: missing-target
   provider:
-    file_info:
+    check_readable:
     - path: acc_not_found.txt
       error: not_found
     - path: acc_permission_denied.txt
       error: permission_denied
     - path: acc_not_directory.txt
       error: not_directory
+    - path: acc_is_directory.txt
+      error: is_directory
     - path: acc_invalid.txt
       error: invalid
-    - path: acc_not_supported.txt
-      error: not_supported
     - path: acc_unknown.txt
       error: unknown
+    - path: locked_dir
+      error: permission_denied
     read_binary_file:
     - path: rd_not_found.txt
       error: not_found
+    - path: rd_permission_denied.txt
+      error: permission_denied
     - path: rd_not_directory.txt
       error: not_directory
+    - path: rd_is_directory.txt
+      error: is_directory
     - path: rd_invalid.txt
       error: invalid
     - path: rd_not_supported.txt
       error: not_supported
     - path: rd_unknown.txt
       error: unknown
-    - path: rd_permission_denied.txt
-      error: permission_denied
-    - path: rd_is_directory.txt
-      error: is_directory
   cases:
   - id: access-not_found
     arguments:
@@ -96,6 +116,9 @@ builtin_tool:
       is_error: true
       text: 'Cannot access {abs:acc_not_found.txt}: no such file or directory'
       details: {}
+      fs_calls:
+      - check_readable acc_not_found.txt
+      - absolute_path acc_not_found.txt
   - id: access-permission_denied
     arguments:
       path: acc_permission_denied.txt
@@ -103,6 +126,9 @@ builtin_tool:
       is_error: true
       text: 'Cannot access {abs:acc_permission_denied.txt}: permission denied'
       details: {}
+      fs_calls:
+      - check_readable acc_permission_denied.txt
+      - absolute_path acc_permission_denied.txt
   - id: access-not_directory
     arguments:
       path: acc_not_directory.txt
@@ -110,6 +136,19 @@ builtin_tool:
       is_error: true
       text: 'Cannot access {abs:acc_not_directory.txt}: not a directory'
       details: {}
+      fs_calls:
+      - check_readable acc_not_directory.txt
+      - absolute_path acc_not_directory.txt
+  - id: access-is_directory
+    arguments:
+      path: acc_is_directory.txt
+    expect:
+      is_error: true
+      text: 'Cannot access {abs:acc_is_directory.txt}: is a directory'
+      details: {}
+      fs_calls:
+      - check_readable acc_is_directory.txt
+      - absolute_path acc_is_directory.txt
   - id: access-invalid
     arguments:
       path: acc_invalid.txt
@@ -117,13 +156,9 @@ builtin_tool:
       is_error: true
       text: 'Cannot access {abs:acc_invalid.txt}: invalid path'
       details: {}
-  - id: access-not_supported
-    arguments:
-      path: acc_not_supported.txt
-    expect:
-      is_error: true
-      text: 'Cannot access {abs:acc_not_supported.txt}: not supported by this provider'
-      details: {}
+      fs_calls:
+      - check_readable acc_invalid.txt
+      - absolute_path acc_invalid.txt
   - id: access-unknown
     arguments:
       path: acc_unknown.txt
@@ -131,73 +166,123 @@ builtin_tool:
       is_error: true
       text: 'Cannot access {abs:acc_unknown.txt}: unknown filesystem error'
       details: {}
-  - id: read-not_found
+      fs_calls:
+      - check_readable acc_unknown.txt
+      - absolute_path acc_unknown.txt
+  - id: read-after-access-not_found
     arguments:
       path: rd_not_found.txt
     expect:
       is_error: true
-      text: 'Cannot access {abs:rd_not_found.txt}: no such file or directory'
+      text: 'Cannot read {abs:rd_not_found.txt}: no such file or directory'
       details: {}
-  - id: read-not_directory
-    arguments:
-      path: rd_not_directory.txt
-    expect:
-      is_error: true
-      text: 'Cannot access {abs:rd_not_directory.txt}: not a directory'
-      details: {}
-  - id: read-invalid
-    arguments:
-      path: rd_invalid.txt
-    expect:
-      is_error: true
-      text: 'Cannot access {abs:rd_invalid.txt}: invalid path'
-      details: {}
-  - id: read-not_supported
-    arguments:
-      path: rd_not_supported.txt
-    expect:
-      is_error: true
-      text: 'Cannot read {abs:rd_not_supported.txt}: not supported by this provider'
-      details: {}
-  - id: read-unknown
-    arguments:
-      path: rd_unknown.txt
-    expect:
-      is_error: true
-      text: 'Cannot access {abs:rd_unknown.txt}: unknown filesystem error'
-      details: {}
-  - id: read-permission_denied
+      fs_calls:
+      - check_readable rd_not_found.txt
+      - read_binary_file rd_not_found.txt
+      - absolute_path rd_not_found.txt
+  - id: read-after-access-permission_denied
     arguments:
       path: rd_permission_denied.txt
     expect:
       is_error: true
-      text: 'Cannot access {abs:rd_permission_denied.txt}: permission denied'
+      text: 'Cannot read {abs:rd_permission_denied.txt}: permission denied'
       details: {}
-  - id: read-is_directory
+      fs_calls:
+      - check_readable rd_permission_denied.txt
+      - read_binary_file rd_permission_denied.txt
+      - absolute_path rd_permission_denied.txt
+  - id: read-after-access-not_directory
+    arguments:
+      path: rd_not_directory.txt
+    expect:
+      is_error: true
+      text: 'Cannot read {abs:rd_not_directory.txt}: not a directory'
+      details: {}
+      fs_calls:
+      - check_readable rd_not_directory.txt
+      - read_binary_file rd_not_directory.txt
+      - absolute_path rd_not_directory.txt
+  - id: read-after-access-is_directory
     arguments:
       path: rd_is_directory.txt
     expect:
       is_error: true
       text: 'Cannot read {abs:rd_is_directory.txt}: is a directory'
       details: {}
-  - id: directory-is-directory
+      fs_calls:
+      - check_readable rd_is_directory.txt
+      - read_binary_file rd_is_directory.txt
+      - absolute_path rd_is_directory.txt
+  - id: read-after-access-invalid
     arguments:
-      path: sub
+      path: rd_invalid.txt
     expect:
       is_error: true
-      text: 'Cannot read {abs:sub}: is a directory'
+      text: 'Cannot read {abs:rd_invalid.txt}: invalid path'
       details: {}
-  - id: real-missing-file
+      fs_calls:
+      - check_readable rd_invalid.txt
+      - read_binary_file rd_invalid.txt
+      - absolute_path rd_invalid.txt
+  - id: read-after-access-not_supported
+    arguments:
+      path: rd_not_supported.txt
+    expect:
+      is_error: true
+      text: 'Cannot read {abs:rd_not_supported.txt}: not supported by this provider'
+      details: {}
+      fs_calls:
+      - check_readable rd_not_supported.txt
+      - read_binary_file rd_not_supported.txt
+      - absolute_path rd_not_supported.txt
+  - id: read-after-access-unknown
+    arguments:
+      path: rd_unknown.txt
+    expect:
+      is_error: true
+      text: 'Cannot read {abs:rd_unknown.txt}: unknown filesystem error'
+      details: {}
+      fs_calls:
+      - check_readable rd_unknown.txt
+      - read_binary_file rd_unknown.txt
+      - absolute_path rd_unknown.txt
+  - id: unreadable-directory-fails-access
+    arguments:
+      path: locked_dir
+    expect:
+      is_error: true
+      text: 'Cannot access {abs:locked_dir}: permission denied'
+      details: {}
+      fs_calls:
+      - check_readable locked_dir
+      - absolute_path locked_dir
+  - id: real-missing-file-fails-access
     arguments:
       path: missing.txt
     expect:
       is_error: true
       text: 'Cannot access {abs:missing.txt}: no such file or directory'
       details: {}
-  - id: dangling-symlink-fails-the-access-check
+      fs_calls:
+      - check_readable missing.txt
+      - absolute_path missing.txt
+  - id: real-dangling-symlink-fails-access
     arguments:
       path: dangling
     expect:
       is_error: true
       text: 'Cannot access {abs:dangling}: no such file or directory'
       details: {}
+      fs_calls:
+      - check_readable dangling
+      - absolute_path dangling
+  - id: real-symlink-to-readable-file-reads-the-target
+    arguments:
+      path: link.txt
+    expect:
+      is_error: false
+      text: target
+      details: {}
+      fs_calls:
+      - check_readable link.txt
+      - read_binary_file link.txt

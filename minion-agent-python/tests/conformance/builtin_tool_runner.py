@@ -59,11 +59,32 @@ class ScriptedFileSystem:
     """The real local `ctx.fs`, with the scenario's scripted answers for named paths and a log of
     every call. Unscripted calls go to the real provider unchanged."""
 
-    def __init__(self, root: Path, provider: dict[str, Any]) -> None:
+    def __init__(
+        self,
+        root: Path,
+        provider: dict[str, Any],
+        abort_after: str | None = None,
+        controller: RunAbortController | None = None,
+    ) -> None:
         self._root = root
         self._local = LocalFileSystem(str(root))
         self._provider = provider
+        self._abort_after = abort_after
+        self._controller = controller
         self.calls: list[str] = []
+
+    def _answered(self, operation: str) -> None:
+        """The case's `abort_after` point: abort as this operation hands back its answer."""
+        if operation == self._abort_after and self._controller is not None:
+            self._controller.abort()
+
+    def _scripted_error(self, operation: str, path: str) -> Any:
+        scripted = self._scripted(operation, path)
+        return (
+            None
+            if scripted is None
+            else Err(FsError(FsErrorCode(scripted["error"]), "scripted", path))
+        )
 
     def relative(self, path: str) -> str:
         absolute = Path(path) if os.path.isabs(path) else self._root / path
@@ -112,6 +133,22 @@ class ScriptedFileSystem:
             return Err(FsError(FsErrorCode(scripted["error"]), "scripted", path))
         return Ok(list(scripted["names"]))
 
+    async def check_readable(self, path: str, signal: Any = None) -> Any:
+        self.calls.append(f"check_readable {self.relative(path)}")
+        if self._provider.get("without_exec_008"):
+            answer: Any = Err(FsError(FsErrorCode.NOT_SUPPORTED, "not supported", path))
+        else:
+            answer = self._scripted_error("check_readable", path)
+            if answer is None:
+                answer = await self._local.check_readable(path, signal)
+        self._answered("check_readable")
+        return answer
+
+    async def canonical_path(self, path: str, signal: Any = None) -> Any:
+        self.calls.append(f"canonical_path {self.relative(path)}")
+        answer = self._scripted_error("canonical_path", path)
+        return answer if answer is not None else await self._local.canonical_path(path, signal)
+
     async def file_info(self, path: str, signal: Any = None) -> Any:
         self.calls.append(f"file_info {self.relative(path)}")
         scripted = self._scripted("file_info", path)
@@ -147,7 +184,10 @@ async def run_builtin_tool_scenario(document: dict[str, Any]) -> list[dict[str, 
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp).resolve()
             build_fixture(root, spec.get("fixture", []))
-            fs = ScriptedFileSystem(root, spec.get("provider", {}))
+            controller = RunAbortController()
+            fs = ScriptedFileSystem(
+                root, spec.get("provider", {}), case.get("abort_after"), controller
+            )
             options = spec.get("options", {})
             supports = options.get("model_supports_images")
             read_options = ReadToolOptions(
@@ -163,7 +203,6 @@ async def run_builtin_tool_scenario(document: dict[str, Any]) -> list[dict[str, 
             registry.register(tool)
             ctx = Context()
             declare_tools_events(ctx.events)
-            controller = RunAbortController()
             if case.get("signal") == "pre_aborted":
                 controller.abort()
             result = await execute_call(

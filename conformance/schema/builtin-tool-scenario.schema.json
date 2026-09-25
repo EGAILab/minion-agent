@@ -77,6 +77,9 @@
       "additionalProperties": false,
       "properties": {
         "without_exec_007": { "const": true, "$comment": "probe_dir_entry and list_dir_raw return not_supported (a provider lacking EXEC-007)" },
+        "without_exec_008": { "const": true, "$comment": "check_readable returns not_supported for every path (a provider lacking EXEC-008, spec/execution.md section 12.5 FALLBACK)" },
+        "check_readable": { "type": "array", "items": { "$ref": "#/$defs/scriptedError" }, "$comment": "EXEC-008 answers for named paths; unscripted paths go to the real provider" },
+        "canonical_path": { "type": "array", "items": { "$ref": "#/$defs/scriptedError" } },
         "probe_dir_entry": { "type": "array", "items": { "$ref": "#/$defs/scriptedProbe" } },
         "list_dir_raw": { "type": "array", "items": { "$ref": "#/$defs/scriptedList" } },
         "read_binary_file": { "type": "array", "items": { "$ref": "#/$defs/scriptedError" } },
@@ -113,6 +116,10 @@
       "properties": {
         "id": { "type": "string" },
         "signal": { "const": "pre_aborted" },
+        "abort_after": {
+          "enum": ["check_readable"],
+          "$comment": "the runner aborts the call's signal as the named ctx.fs operation returns its (real or scripted) answer -- before the tool resumes; the runner performs no tool logic"
+        },
         "arguments": { "type": "object" },
         "expect": { "$ref": "#/$defs/expectation" }
       }

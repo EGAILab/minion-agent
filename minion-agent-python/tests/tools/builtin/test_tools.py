@@ -10,8 +10,6 @@ import pytest
 
 from minion_agent.execution import (
     Err,
-    FileInfo,
-    FileKind,
     FsError,
     FsErrorCode,
     LocalFileSystem,
@@ -173,14 +171,15 @@ async def test_read_abort_answers_at_once_leaves_the_access_check_running_then_s
 ) -> None:
     """L13-WP131-I001: Pi rejects the moment the signal fires but does not cancel the pending
     `access` (read.ts:237-248); when it completes, the `if (aborted) return` checkpoint stops the
-    work, so the file is never read. No ctx.fs call is given the signal."""
+    work, so the file is never read. No ctx.fs call is given the signal. The access stage is
+    `check_readable` (EXEC-008, CE-L13-WP131-02 revision 6; W-I5 / W-G14)."""
     (tmp_path / "a.txt").write_text("x")
-    provider = _Recording(tmp_path, blocked="file_info")
+    provider = _Recording(tmp_path, blocked="check_readable")
     result = await _abort_while_blocked("read", provider)
     assert (result.is_error, result.content) == (True, (TextBlock(text="Operation aborted"),))
-    await _settle(provider, "done file_info")
+    await _settle(provider, "done check_readable")
     await asyncio.sleep(0.05)
-    assert provider.log == ["start file_info signal=None", "done file_info"]
+    assert provider.log == ["start check_readable signal=None", "done check_readable"]
 
 
 async def test_ls_abort_answers_at_once_and_the_listing_work_runs_to_completion(
@@ -215,22 +214,23 @@ async def test_read_stops_at_the_path_checkpoint_when_aborted_before_access(tmp_
     controller = RunAbortController()
     reader = read_module._Read(LocalFileSystem(str(tmp_path)), read_module.ReadToolOptions())
     controller.abort()
-    assert await reader.run("a.txt", None, None, controller.signal) is None
+    with pytest.raises(BuiltinToolError, match=r"^Operation aborted$"):
+        await reader.run("a.txt", None, None, controller.signal)
 
 
 async def test_execute_reports_abort_when_the_work_stopped_at_a_checkpoint(tmp_path: Path) -> None:
-    """If the work reaches a checkpoint before the race observes the abort, the stopped work's
-    `None` still becomes Pi's rejection."""
+    """If the work reaches a checkpoint before the race observes the abort, the checkpoint's own
+    stop is Pi's rejection."""
     (tmp_path / "a.txt").write_text("x")
     controller = RunAbortController()
 
-    async def aborting_file_info(path: str, signal: Any = None) -> Any:
+    async def aborting_check_readable(path: str, signal: Any = None) -> Any:
         # Aborts and answers without suspending, so the work reaches its checkpoint before the
         # race's poll can observe the abort.
         controller.abort()
-        return Ok(FileInfo(name="a.txt", path=path, kind=FileKind.FILE, size=1, mtime_ms=0.0))
+        return Ok(None)
 
-    tool = create_read_tool(_Provider(tmp_path, file_info=aborting_file_info))  # type: ignore[arg-type]
+    tool = create_read_tool(_Provider(tmp_path, check_readable=aborting_check_readable))  # type: ignore[arg-type]
     with pytest.raises(BuiltinToolError, match=r"^Operation aborted$"):
         await tool.execute("id", {"path": "a.txt"}, controller.signal)
 

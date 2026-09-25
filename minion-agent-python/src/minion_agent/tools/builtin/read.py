@@ -1,8 +1,8 @@
 """The `read` built-in tool (`TOOL-025`; pinned Pi `core/tools/read.ts`), over `ctx.fs`.
 
-Flow (spec/tools.md `TOOL-025`): path pipeline (`TOOL-026`) -> existence check ->
-`read_binary_file` -> image sniff -> image processing, or UTF-8 text with offset/limit, then head
-truncation. Every filesystem access is a read-only `ctx.fs` operation.
+Flow (spec/tools.md `TOOL-025`): path pipeline (`TOOL-026`) -> `check_readable` (`EXEC-008`, Pi's
+`access`) -> `read_binary_file` -> image sniff -> image processing, or UTF-8 text with offset/limit,
+then head truncation. Every filesystem access is a read-only `ctx.fs` operation.
 """
 
 from __future__ import annotations
@@ -14,7 +14,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
-from ...execution import Err, FileKind, FileSystem, FsError, FsErrorCode
+from ...execution import Err, FileSystem, FsError, FsErrorCode
 from ...llm import ImageBlock, TextBlock
 from ...runtime.signal import RunSignal
 from ..definition import ToolDefinition
@@ -76,16 +76,19 @@ class ReadToolOptions:
     model_supports_images: ModelSupportsImages | None = None
 
 
-def _read_failure_site(code: FsErrorCode) -> str:
-    """Which of Pi's two sites a failed content read belongs to (`L13-WP131-C012`). The access step
-    is `file_info`, which does not follow a final symlink or check readability, so a read that fails
-    for those reasons -- a dangling link, an unreadable target, a missing or non-directory component
-    -- is where Pi's symlink-following `access(R_OK)` would already have failed. `is_directory` (a
-    symlink to a directory) and `not_supported` (a provider that can check the path but cannot read
-    content) are genuine read failures, as R010-B places them."""
+_ACCESS_SITE = "Cannot access"
+_READ_SITE = "Cannot read"
+
+
+def _fallback_read_site(code: FsErrorCode) -> str:
+    """The site of a failed content read on a provider WITHOUT `EXEC-008` (`L13-WP131-C012`, R-G3;
+    spec/execution.md §12.5 FALLBACK): the provider-capability fallback, an intentional
+    approximation and never Pi-equivalent. Without Pi's access stage, a read failing for a reason
+    `access(R_OK)` would have caught is reported at the access site; `is_directory` and
+    `not_supported` are genuine read failures."""
     if code in (FsErrorCode.IS_DIRECTORY, FsErrorCode.NOT_SUPPORTED):
-        return "Cannot read"
-    return "Cannot access"
+        return _READ_SITE
+    return _ACCESS_SITE
 
 
 def _fs_failure(site: str, absolute: str, error: FsError) -> BuiltinToolError:
@@ -105,28 +108,32 @@ class _Read:
 
     async def run(
         self, path: str, offset: float | None, limit: float | None, signal: RunSignal | None
-    ) -> _Output | None:
-        """`None` means the work stopped at one of Pi's abort checkpoints (`read.ts:246`, `:249`);
-        the caller has already been answered `"Operation aborted"` by then. No `ctx.fs` call is
-        given the signal: Pi passes none to `access`/`readFile` (`L13-WP131-I001`)."""
+    ) -> _Output:
+        """Pi's abort checkpoints (`read.ts:246`, `:249`) stop the work with `"Operation aborted"`;
+        the caller may already have been answered by the race by then. No `ctx.fs` call is
+        given the signal: Pi passes none to `access`/`readFile` (`L13-WP131-I001`).
+
+        The operation that failed owns the error site, whatever its code (`L13-WP131-C012`, G1):
+        `check_readable` is Pi's `access` stage (`read.ts:248`), so its failure is `Cannot
+        access`; the one content read is Pi's sniff + `readFile`, so its failure is `Cannot read`.
+        A provider without `EXEC-008` answers `not_supported` and is read in the disclosed
+        FALLBACK mode (spec/execution.md §12.5)."""
         working = preprocess_path(path)
         if signal is not None and signal.aborted:
-            return None
-        # Pi's `access(absolutePath, R_OK)`, from core operations only (`L13-WP131-C012`).
-        info = await self._fs.file_info(working)
-        if isinstance(info, Err):
-            raise _fs_failure("Cannot access", await self._absolute(working), info.error)
+            raise aborted()
+        access = await self._fs.check_readable(working)
+        fallback = False
+        if isinstance(access, Err):
+            if access.error.code != FsErrorCode.NOT_SUPPORTED:
+                raise _fs_failure(_ACCESS_SITE, await self._absolute(working), access.error)
+            fallback = True
+        # read.ts:249 -- one checkpoint once the access stage has completed, in both modes.
         if signal is not None and signal.aborted:
-            return None
-        if info.value.kind == FileKind.DIRECTORY:
-            raise BuiltinToolError(
-                f"Cannot read {await self._absolute(working)}: {cause(FsErrorCode.IS_DIRECTORY)}"
-            )
+            raise aborted()
         read = await self._fs.read_binary_file(working)
         if isinstance(read, Err):
-            raise _fs_failure(
-                _read_failure_site(read.error.code), await self._absolute(working), read.error
-            )
+            site = _fallback_read_site(read.error.code) if fallback else _READ_SITE
+            raise _fs_failure(site, await self._absolute(working), read.error)
         data = read.value
         mime_type = detect_supported_image_mime_type(data)
         if mime_type is not None:
@@ -236,9 +243,6 @@ def create_read_tool(fs: FileSystem, options: ReadToolOptions | None = None) -> 
             ),
             signal,
         )
-        if output is None:
-            # Stopped at a checkpoint after an abort the race did not observe first.
-            raise aborted()
         content, details = output
         return ToolResult(
             tool_call_id=tool_call_id, content=content, tool_name="read", details=details

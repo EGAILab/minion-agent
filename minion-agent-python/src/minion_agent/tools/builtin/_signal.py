@@ -28,16 +28,36 @@ def _discard(task: asyncio.Future[Any]) -> None:
         task.exception()  # retrieved: a late failure of discarded work is not an error
 
 
+async def _settle[T](work: Coroutine[Any, Any, T], signal: RunSignal) -> T:
+    """The work's settle point (`L13-WP131-I001`, R-I1): the outcome is decided by ORDER. Pi's
+    abort listener rejects the tool's promise synchronously, so an abort that happened before the
+    work settles wins -- including over a failure the work throws after the abort (read:
+    `if (!aborted) reject(error)`; ls: the promise is already rejected). The check below is the
+    last synchronous step before the result or failure leaves the work, so the poll interval can
+    delay the answer but never change it."""
+    try:
+        result = await work
+    except BaseException:
+        if signal.aborted:
+            raise aborted() from None
+        raise
+    if signal.aborted:
+        raise aborted()
+    return result
+
+
 async def race_abort[T](work: Coroutine[Any, Any, T], signal: RunSignal | None) -> T:
     """Run `work`; if `signal` aborts first, raise `"Operation aborted"` immediately and leave
-    `work` running. An abort after `work` has settled changes nothing -- Pi's result is already
+    `work` running. The race only decides how SOON the abort is answered; WHICH outcome stands is
+    decided at the work's settle point (`_settle`). A result that settled before the abort is
+    returned even if the abort lands before this coroutine resumes -- Pi's promise is already
     resolved by then."""
     if signal is None:
         return await work
     if signal.aborted:
         work.close()
         raise aborted()
-    task = asyncio.ensure_future(work)
+    task = asyncio.ensure_future(_settle(work, signal))
 
     async def watch() -> None:
         while not signal.aborted:

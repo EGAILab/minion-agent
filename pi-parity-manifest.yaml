@@ -6649,7 +6649,21 @@ rows:
     `disposition: intentional divergence` -- NOT by this row''s own `adopted` disposition, which
     describes `read`''s core Pi-mirroring behavior (schema, truncation, R005-A image handling,
     cancellation) only. `TOOL-039` carries the full R010-B rule text, the closed cause-phrase
-    vocabulary, and the message-template shapes; this row does not duplicate them. Python -- implemented in the WP-13.1 Python implementation candidate (minion-agent#48), pending independent review. Rust -- not implemented.'
+    vocabulary, and the message-template shapes; this row does not duplicate them.
+
+
+    Filesystem access and abort ordering (CE-L13-WP131-02 revision 6, agreed at minion-agent-docs#162
+    @ 8dff4138; owner G1, minion-agent#48 comment 5822609576): read''s filesystem access is exactly
+    ctx.fs.check_readable (EXEC-008, Pi''s access stage, read.ts:248) then ONE read_binary_file, neither
+    given the signal. check_readable''s failure is the access site and the content read''s failure the
+    read site, whatever the code (TOOL-039); check_readable -> not_supported (a provider without
+    EXEC-008) continues in the disclosed FALLBACK mode (spec/execution.md section 12.5). The read.ts:249
+    abort checkpoint follows check_readable in both modes (CE13-C005); no file_info / canonical_path /
+    EXEC-007 dependency (CE13-C006). L13-WP131-I001: the outcome is decided by order at the work''s
+    settle point -- an abort before the work settles (including before a failure it throws) is
+    "Operation aborted", a result settled first stands; in-flight ctx.fs work is never cancelled.
+    Python -- implemented in the WP-13.1 Python implementation candidate (minion-agent#48), pending
+    independent review. Rust -- not implemented.'
   tests:
   - read_offset_limit_then_truncation_ordering (canonical scenario conformance/agent/builtin-read-offset-limit-then-truncation-ordering.yaml)
   - read_first_line_exceeds_byte_limit (canonical scenario conformance/agent/builtin-read-first-line-exceeds-byte-limit.yaml)
@@ -6663,6 +6677,13 @@ rows:
   - read_text_decoding_matches_node_utf8 (canonical scenario conformance/agent/builtin-read-text-decoding-matches-node-utf8.yaml)
   - read_image_auto_resize_disabled (canonical scenario conformance/agent/builtin-read-image-auto-resize-disabled.yaml)
   - read_does_not_require_exec_007 (canonical scenario conformance/agent/builtin-read-provider-without-exec-007-reads-normally.yaml; L13-WP131-C012)
+  - W-G1..W-G9, W-G12, W-G13 read access/read sites by provenance (canonical scenario conformance/agent/builtin-read-error-text-matches-r010b-closed-vocabulary-per-fserrorcode.yaml; CE-L13-WP131-02 revision 6)
+  - W-G10 provider without EXEC-008 uses the disclosed fallback (canonical scenario conformance/agent/builtin-read-provider-without-exec-008-uses-disclosed-fallback.yaml)
+  - W-G14 abort at the access checkpoint, normal mode (canonical scenario conformance/agent/builtin-read-abort-at-the-access-checkpoint-normal-mode.yaml)
+  - W-G15 abort at the access checkpoint, fallback mode (canonical scenario conformance/agent/builtin-read-abort-at-the-access-checkpoint-fallback-mode.yaml; CE13-C005)
+  - W-G16 no file_info / canonical_path dependency (canonical scenario conformance/agent/builtin-read-does-not-depend-on-file-info-or-canonical-path.yaml; CE13-C006)
+  - W-G6, W-G11, W-G12 real host rows; W-I1..W-I4 abort ordering (minion-agent-python/tests/tools/builtin/test_read_access_and_abort_order.py; L13-WP131-I001)
+  - W-I5 abort while check_readable is blocked (minion-agent-python/tests/tools/builtin/test_tools.py::test_read_abort_answers_at_once_leaves_the_access_check_running_then_stops)
   python: 'minion_agent/tools/builtin/read.py (create_read_tool, ReadToolOptions), image.py + photon/ (pinned photon_rs_bg.wasm via wasmtime 49.0.0), mime.py, truncate.py, _js.py; tests/tools/builtin/; canonical builtin_tool scenarios below'
   rust: 'planned; not yet implemented (WP-13.1 CONTRACT_INTEGRATED, minion-agent#48) -- intended
     location minion-agent-rust/crates/minion-agent/src/tools/builtin/read.rs'
@@ -6832,9 +6853,21 @@ rows:
     and the code is never exposed as a structured result field (details stays {} per the certified generated-error
     shape). This is an owner-recorded, model-visible MINION_ARCHITECTURAL_MAPPING, hence intentional
     divergence. Review history lives in minion-agent-docs#156 and minion-agent#48#issuecomment-5809922479,
-    not in this rule. Python -- implemented in the WP-13.1 Python implementation candidate (minion-agent#48), pending independent review. Rust -- not implemented.'
+    not in this rule.
+
+
+    read''s site rule (L13-WP131-C012, owner G1; CE-L13-WP131-02 revision 6): the operation that failed
+    owns the site, whatever the code -- check_readable (EXEC-008) failure -> "Cannot access", a failure of
+    the content read after it -> "Cannot read". Disclosed divergences: W-1 on Windows the access site
+    follows EXEC-008''s certified readability disposition where Pi''s attribute-only access would pass;
+    W-2 the Windows symlink-loop code is the Layer-12 mapper''s (minion-agent#69); W-3 a Windows directory
+    read reports "permission denied" (minion-agent#67); F-1 a provider without EXEC-008 gets the G2
+    fallback (is_directory / not_supported -> "Cannot read", every other code -> "Cannot access"), a
+    provider-capability approximation, never Pi-equivalent. Python -- implemented in the WP-13.1 Python
+    implementation candidate (minion-agent#48), pending independent review. Rust -- not implemented.'
   tests:
   - read_error_text_matches_r010b_closed_vocabulary_per_fserrorcode (canonical scenario conformance/agent/builtin-read-error-text-matches-r010b-closed-vocabulary-per-fserrorcode.yaml)
+  - W-G10 fallback site mapping (canonical scenario conformance/agent/builtin-read-provider-without-exec-008-uses-disclosed-fallback.yaml)
   - malformed_file_url_rejected_before_ctx_fs_access_as_invalid (canonical scenario conformance/agent/builtin-ls-malformed-file-url-rejected-before-ctx-fs-access-as-invalid.yaml + conformance/agent/builtin-read-malformed-file-url-rejected-before-ctx-fs-access-as-invalid.yaml)
   - ls_enumeration_failure_cannot_read_directory (canonical scenario conformance/agent/builtin-ls-enumeration-failure-cannot-read-directory.yaml)
   - ls_provider_without_extension_not_supported (canonical scenario conformance/agent/builtin-ls-provider-without-extension-not-supported.yaml)

@@ -1,0 +1,29 @@
+name: builtin-read-abort-at-the-access-checkpoint-normal-mode
+family: agent
+authority: minion-agent-docs spec/tools.md WP-13.1 (master f46051fb)
+pi_revision: b7bb00b936dbe21b8e160b3e89efdec361846699
+requirements:
+- TOOL-025
+witnesses:
+- W-G14
+notes: 'read.ts:249: once the access stage has completed -- check_readable answered Ok (NORMAL mode) or
+  not_supported (FALLBACK mode) -- read checks the signal before any content work. An abort that lands
+  as check_readable returns is ''Operation aborted'', and read_binary_file is never called (CE-L13-WP131-02
+  revision 6, CE13-C005).'
+builtin_tool:
+  tool: read
+  fixture:
+  - path: a.txt
+    file:
+      text: hello
+  cases:
+  - id: normal-mode
+    abort_after: check_readable
+    arguments:
+      path: a.txt
+    expect:
+      is_error: true
+      text: Operation aborted
+      details: {}
+      fs_calls:
+      - check_readable a.txt

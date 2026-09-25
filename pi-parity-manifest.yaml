@@ -6524,8 +6524,11 @@ rows:
     Authorization" (minion-agent#62 issuecomment-5823982461), which also authorized the Python
     implementation below. Python: implemented and merged at
     `9987bd8112168792e41d8da5b474c8c7f330b1d1` after exact-SHA final review and owner
-    authorization (minion-agent#62). Rust: implementation candidate pending independent closure
-    review.
+    authorization (minion-agent#62). Rust: implemented and merged at
+    `689db685f4d586c9b3dc97965e1e096771c8f87e` (PR #64; assurance minion-agent-docs#164 @
+    `b0c511665b458710186143ca57b07d3f56b505fa`) after exact-SHA final review. Cross-language
+    closure: CERTIFIED_CLOSED per the owner closure decision (minion-agent#62
+    issuecomment-5827959957).
 
     One new operation, additive to EXEC-002''s ctx.fs inventory, with every existing operation
     unchanged: `check_readable(path, signal?) -> Result[None, FsError]` resolves the path (EXEC-002
@@ -6595,8 +6598,8 @@ rows:
     pre-abort rejection, silent success / exists fallback without EXEC-008) plus the WP12E2-I001
     stat-then-boolean-access mutant and the WP12E2-I002 unguarded-native-call mutant, each shown to
     fail its discriminating witness. Status: merged on main @
-    `9987bd8112168792e41d8da5b474c8c7f330b1d1` (minion-agent#62).'
-  rust: 'Implementation candidate: minion-agent-rust/crates/minion-agent/src/execution/filesystem.rs
+    `9987bd8112168792e41d8da5b474c8c7f330b1d1`; cross-language CERTIFIED_CLOSED (minion-agent#62).'
+  rust: 'minion-agent-rust/crates/minion-agent/src/execution/filesystem.rs
     (additive FileSystem::check_readable default and LocalFileSystem override); typed FsErrorCode
     reused. POSIX uses one safe nix::unistd::access(R_OK) call, no preliminary stat; Windows uses
     safe OpenOptionsExt with FILE_READ_DATA/FILE_LIST_DIRECTORY plus backup semantics and symlink
@@ -6604,8 +6607,12 @@ rows:
     is mapped to unknown only at this readability boundary, reserving not_supported for absent
     provider capability; general map_fs_error remains unchanged. A syscall-boundary race witness
     rejects a preliminary-stat/boolean-access mechanism. Signal accepted but not inspected.
-    Evidence: execution_readability.rs, execution_filesystem.rs, and filesystem.rs unit witnesses;
-    cross-language closure re-review pending (minion-agent#62).'
+    Evidence: execution_readability.rs, execution_filesystem.rs, and filesystem.rs unit witnesses.
+    Accepted evidence limitation (owner, minion-agent#62): the race witness exercises the internal
+    POSIX access seam, so a mutant bypassing that seam entirely is not dynamically rejected;
+    production wiring is a single delegation into the seam, inspected and strace-confirmed. Merged
+    at `689db685f4d586c9b3dc97965e1e096771c8f87e` (PR #64); cross-language CERTIFIED_CLOSED
+    (minion-agent#62).'
   disposition: intentional divergence
 - id: TOOL-025
   phase: 6

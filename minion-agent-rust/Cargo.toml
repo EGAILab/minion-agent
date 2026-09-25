@@ -17,6 +17,7 @@ futures = "0.3"
 getrandom = "0.4"
 indexmap = "2"
 jsonschema = "0.33"
+nix = { version = "0.30", features = ["fs", "user"] }
 parking_lot = "0.12"
 proptest = "1"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
@@ -31,3 +32,4 @@ tokio = { version = "1", features = ["fs", "io-util", "macros", "net", "process"
 tokio-util = "0.7"
 url = "2"
 uuid = { version = "1", features = ["v4"] }
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Storage_FileSystem"] }

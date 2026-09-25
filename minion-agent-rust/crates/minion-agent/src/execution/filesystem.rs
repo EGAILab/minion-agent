@@ -198,6 +198,18 @@ pub trait FileSystem: Send + Sync {
             "probe_dir_entry is not supported by this filesystem provider",
         ))
     }
+    /// Readability capability used by the Layer-13 read tool (`EXEC-008`).
+    /// Providers without it answer `not_supported`, never a fabricated success.
+    async fn check_readable(
+        &self,
+        _path: &str,
+        _signal: Option<&dyn AbortSignal>,
+    ) -> Result<(), FsError> {
+        Err(FsError::new(
+            FsErrorCode::NotSupported,
+            "check_readable is not supported by this filesystem provider",
+        ))
+    }
     async fn canonical_path(
         &self,
         path: &str,
@@ -535,6 +547,17 @@ impl FileSystem for LocalFileSystem {
         })
     }
 
+    async fn check_readable(
+        &self,
+        path: &str,
+        _signal: Option<&dyn AbortSignal>,
+    ) -> Result<(), FsError> {
+        let path = self.resolved(path);
+        tokio::task::spawn_blocking(move || check_local_readable(&path))
+            .await
+            .map_err(|error| FsError::new(FsErrorCode::Unknown, error.to_string()))?
+    }
+
     async fn canonical_path(
         &self,
         path: &str,
@@ -809,6 +832,46 @@ fn map_fs_error(error: io::Error) -> FsError {
         _ => FsErrorCode::Unknown,
     };
     FsError::new(code, error.to_string())
+}
+
+#[cfg(unix)]
+fn check_local_readable(path: &Path) -> Result<(), FsError> {
+    use nix::unistd::{AccessFlags, access};
+
+    if path.as_os_str().as_encoded_bytes().contains(&0) {
+        return Err(FsError::new(
+            FsErrorCode::Unknown,
+            "path contains an embedded NUL byte",
+        ));
+    }
+    // Exactly one access(R_OK): no preliminary stat or content open may change the error site.
+    access(path, AccessFlags::R_OK)
+        .map_err(|errno| map_fs_error(io::Error::from_raw_os_error(errno as i32)))
+}
+
+#[cfg(windows)]
+fn check_local_readable(path: &Path) -> Result<(), FsError> {
+    use std::os::windows::{ffi::OsStrExt, fs::OpenOptionsExt};
+    use windows_sys::Win32::Storage::FileSystem::{
+        FILE_FLAG_BACKUP_SEMANTICS, FILE_READ_DATA, FILE_SHARE_DELETE, FILE_SHARE_READ,
+        FILE_SHARE_WRITE,
+    };
+
+    if path.as_os_str().encode_wide().any(|unit| unit == 0) {
+        return Err(FsError::new(
+            FsErrorCode::Unknown,
+            "path contains an embedded NUL byte",
+        ));
+    }
+    // FILE_READ_DATA and FILE_LIST_DIRECTORY share the same access bit. Backup semantics
+    // permits directory handles; neither content nor directory entries are consumed.
+    std::fs::OpenOptions::new()
+        .access_mode(FILE_READ_DATA)
+        .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE)
+        .custom_flags(FILE_FLAG_BACKUP_SEMANTICS)
+        .open(path)
+        .map(|_| ())
+        .map_err(map_fs_error)
 }
 
 async fn abortable_io<T>(

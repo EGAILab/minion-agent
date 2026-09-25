@@ -264,6 +264,28 @@ async def _witness_target_vanishes_before_the_readability_query(
     _assert_err(result, FsErrorCode.NOT_FOUND)
 
 
+_NUL = chr(0)
+
+
+async def _witness_embedded_nul_path_is_rejected(fs_cls: Provider, tmp: Path) -> None:
+    """WP12E2-I002: with a readable file `prefix`, a path that CONTAINS a NUL after `prefix` does
+    not address that file. A native C-string API would see only `prefix` and answer `Ok`; pinned
+    Node's `fs.access` rejects the argument (`ERR_INVALID_ARG_VALUE`), which section 2.1 (Pi's
+    `toFileError`: none of its listed codes) maps to `unknown`. Relative and absolute forms."""
+    (tmp / "prefix").write_text("x")
+    fs = fs_cls(cwd=str(tmp))
+    for path in (
+        "prefix" + _NUL + "missing",
+        "prefix" + _NUL,
+        str(tmp / "prefix") + _NUL + "missing",
+    ):
+        result = await fs.check_readable(path)
+        _assert_err(result, FsErrorCode.UNKNOWN)
+        assert isinstance(result, Err)
+        assert result.error.path == resolve_local_path(str(tmp), path)
+    _assert_ok(await fs.check_readable("prefix"))
+
+
 async def _witness_pre_aborted_signal_not_inspected(fs_cls: Provider, tmp: Path) -> None:
     """SIGNAL ACCEPTED, NOT INSPECTED: a pre-aborted signal on a readable file -> `Ok(None)`."""
     (tmp / "f").write_text("x")
@@ -378,6 +400,28 @@ async def test_relative_path_resolution(tmp_path: Path) -> None:
 @posix_only
 async def test_target_vanishing_before_the_readability_query_is_not_found(tmp_path: Path) -> None:
     await _witness_target_vanishes_before_the_readability_query(LocalFileSystem, tmp_path)
+
+
+async def test_embedded_nul_path_is_rejected_as_unknown(tmp_path: Path) -> None:
+    await _witness_embedded_nul_path_is_rejected(LocalFileSystem, tmp_path)
+
+
+@pytest.mark.parametrize("host", ["nt", "posix"])
+def test_embedded_nul_is_rejected_before_either_native_call(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, host: str
+) -> None:
+    """Direct witness on the sync helper, for both host branches on any host: the NUL guard runs
+    before the Windows `CreateFileW` path and before libc `access(2)` -- neither is ever called."""
+    (tmp_path / "prefix").write_text("x")
+    native_calls: list[str] = []
+    monkeypatch.setattr(os, "name", host)
+    monkeypatch.setattr(filesystem_module, "_check_readable_windows", native_calls.append)
+    monkeypatch.setattr(filesystem_module, "_check_readable_posix", native_calls.append)
+    with pytest.raises(ValueError, match="embedded null character"):
+        filesystem_module._check_readable_sync(str(tmp_path / "prefix") + _NUL + "missing")
+    assert native_calls == []
+    filesystem_module._check_readable_sync(str(tmp_path / "prefix"))
+    assert native_calls == [str(tmp_path / "prefix")]
 
 
 async def test_pre_aborted_signal_is_accepted_but_not_inspected(tmp_path: Path) -> None:
@@ -596,6 +640,26 @@ class _StatThenBooleanAccess(LocalFileSystem):
         return Ok(None)
 
 
+class _NativeCallWithoutNulGuard(LocalFileSystem):
+    """Mutant (the WP12E2-I002 candidate): the real per-host native check, reached without the
+    embedded-NUL guard, so the C-string boundary truncates the path to its prefix."""
+
+    async def check_readable(
+        self, path: str, signal: RunSignal | None = None
+    ) -> Result[None, FsError]:
+        resolved = resolve_local_path(self.cwd, path)
+        native = (
+            filesystem_module._check_readable_windows
+            if _WINDOWS
+            else filesystem_module._check_readable_posix
+        )
+        try:
+            await asyncio.to_thread(native, resolved)
+        except OSError as exc:
+            return Err(filesystem_module.to_fs_error(exc, resolved))
+        return Ok(None)
+
+
 class _PreAbortRejecting(LocalFileSystem):
     """Mutant: inspects the signal and rejects a pre-aborted one."""
 
@@ -653,6 +717,8 @@ _NEGATIVE_CONTROLS: list[tuple[str, Provider, Witness, list[pytest.MarkDecorator
      _witness_dangling_symlink, []),
     ("final-symlink-not-followed/unreadable-through-link", _FinalSymlinkNotFollowed,
      _witness_unreadable_file_direct_and_through_symlink, [unprivileged]),
+    ("native-call-without-nul-guard/embedded-nul", _NativeCallWithoutNulGuard,
+     _witness_embedded_nul_path_is_rejected, []),
     ("stat-then-boolean-access/target-vanishes-before-query", _StatThenBooleanAccess,
      _witness_target_vanishes_before_the_readability_query, [posix_only]),
     ("pre-abort-rejection/signal-not-inspected", _PreAbortRejecting,

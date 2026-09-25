@@ -6560,6 +6560,8 @@ rows:
   - minion-agent-python/tests/execution/test_filesystem_check_readable.py::test_windows_symlink_loop_matches_the_unchanged_layer12_operations
   - minion-agent-python/tests/execution/test_filesystem_check_readable.py::test_fifo_without_writer_is_ok_and_does_not_block
   - minion-agent-python/tests/execution/test_filesystem_check_readable.py::test_relative_path_resolution
+  - minion-agent-python/tests/execution/test_filesystem_check_readable.py::test_embedded_nul_path_is_rejected_as_unknown
+  - minion-agent-python/tests/execution/test_filesystem_check_readable.py::test_embedded_nul_is_rejected_before_either_native_call
   - minion-agent-python/tests/execution/test_filesystem_check_readable.py::test_pre_aborted_signal_is_accepted_but_not_inspected
   - minion-agent-python/tests/execution/test_filesystem_check_readable.py::test_provider_without_exec008_answers_not_supported
   - minion-agent-python/tests/execution/test_filesystem_check_readable.py::test_local_filesystem_never_answers_not_supported
@@ -6573,14 +6575,18 @@ rows:
     LocalFileSystem.check_readable), additive to the existing FileSystem Protocol (one new
     check_readable member) -- every existing operation unchanged. POSIX: exactly one libc
     access(path, R_OK) keeping its own errno (ENOENT/ENOTDIR/EACCES/ELOOP/EIO ... classified by
-    section 2.1; WP12E2-I001 remediation -- no preliminary stat, no fabricated EACCES). Windows: one
+    section 2.1; WP12E2-I001 remediation -- no preliminary stat, no fabricated EACCES). A path with an
+    embedded NUL is rejected before either native C-string call (WP12E2-I002) as unknown -- section
+    2.1''s mapping of Node''s ERR_INVALID_ARG_VALUE, which is none of toFileError''s listed codes.
+    Windows: one
     CreateFileW for FILE_READ_DATA
     (read a file / list a directory), following symlinks, handle closed at once, nothing read. Neither
     host opens content, so a writerless FIFO cannot block. Evidence: every section 12.6 witness plus
     the owner-required negative controls (file_info/lstat existence, canonical_path existence,
     Node-style Windows attribute-only access, open-and-read-one-byte, final-symlink non-following,
     pre-abort rejection, silent success / exists fallback without EXEC-008) plus the WP12E2-I001
-    stat-then-boolean-access mutant, each shown to fail its discriminating witness. Status: IMPLEMENTATION_REVIEW (minion-agent#62); not merged.'
+    stat-then-boolean-access mutant and the WP12E2-I002 unguarded-native-call mutant, each shown to
+    fail its discriminating witness. Status: IMPLEMENTATION_REVIEW (minion-agent#62); not merged.'
   rust: 'not yet implemented; Rust EXEC-008 not yet authorized (minion-agent#62)'
   disposition: intentional divergence
 - id: TOOL-025

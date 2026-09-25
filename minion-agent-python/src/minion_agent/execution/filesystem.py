@@ -604,8 +604,17 @@ def _check_readable_windows(path: str) -> None:
     kernel32.CloseHandle(handle)
 
 
+class _EmbeddedNulPath(ValueError):
+    """A path containing NUL cannot be passed to a native C-string API: the host would see only the
+    prefix before the NUL and answer for a DIFFERENT target."""
+
+
 def _check_readable_sync(path: str) -> None:
-    """`EXEC-008`, spec section 12.3. `path` is already the RESOLVED path."""
+    """`EXEC-008`, spec section 12.3. `path` is already the RESOLVED path. An embedded NUL is
+    rejected before either native call (`WP12E2-I002`), as pinned Node's `fs.access` rejects it
+    (`ERR_INVALID_ARG_VALUE`) before reaching the host."""
+    if "\x00" in path:
+        raise _EmbeddedNulPath("embedded null character in path")
     if os.name == "nt":
         _check_readable_windows(path)
     else:
@@ -923,6 +932,10 @@ class LocalFileSystem:
             await asyncio.to_thread(_check_readable_sync, resolved)
         except OSError as exc:
             return Err(to_fs_error(exc, resolved))
+        except _EmbeddedNulPath as exc:
+            # Section 2.1's mapping of that rejection: Node's `ERR_INVALID_ARG_VALUE` is none of
+            # `toFileError`'s listed codes (in particular not the `EINVAL` errno), so `unknown`.
+            return Err(FsError(FsErrorCode.UNKNOWN, str(exc), resolved, exc))
         return Ok(None)
 
     async def canonical_path(

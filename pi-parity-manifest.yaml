@@ -6574,6 +6574,10 @@ rows:
   - minion-agent-python/tests/execution/test_filesystem_check_readable.py::test_negative_control_is_rejected_by_its_witness
   - minion-agent-rust/crates/minion-agent/tests/execution_readability.rs
   - minion-agent-rust/crates/minion-agent/tests/execution_filesystem.rs::providers_without_the_extension_report_not_supported
+  - minion-agent-rust/crates/minion-agent/src/execution/filesystem.rs::tests::host_readability_errors_never_report_missing_provider_capability
+  - minion-agent-rust/crates/minion-agent/src/execution/filesystem.rs::tests::posix_native_errno_classification_keeps_enosys_out_of_not_supported
+  - minion-agent-rust/crates/minion-agent/src/execution/filesystem.rs::tests::windows_call_not_implemented_is_unknown_not_missing_capability
+  - minion-agent-rust/crates/minion-agent/src/execution/filesystem.rs::tests::target_removed_at_access_boundary_preserves_not_found_and_one_query
   python: 'minion-agent-python/src/minion_agent/execution/filesystem.py (_libc_access,
     _check_readable_posix, _check_readable_windows, _check_readable_sync,
     LocalFileSystem.check_readable), additive to the existing FileSystem Protocol (one new
@@ -6596,9 +6600,12 @@ rows:
     (additive FileSystem::check_readable default and LocalFileSystem override); typed FsErrorCode
     reused. POSIX uses one safe nix::unistd::access(R_OK) call, no preliminary stat; Windows uses
     safe OpenOptionsExt with FILE_READ_DATA/FILE_LIST_DIRECTORY plus backup semantics and symlink
-    following; embedded NUL is unknown before native call. Signal accepted but not inspected.
-    Evidence: execution_readability.rs and execution_filesystem.rs; cross-language closure review
-    pending (minion-agent#62).'
+    following; embedded NUL is unknown before native call. Host Unsupported/ENOSYS/Windows-120
+    is mapped to unknown only at this readability boundary, reserving not_supported for absent
+    provider capability; general map_fs_error remains unchanged. A syscall-boundary race witness
+    rejects a preliminary-stat/boolean-access mechanism. Signal accepted but not inspected.
+    Evidence: execution_readability.rs, execution_filesystem.rs, and filesystem.rs unit witnesses;
+    cross-language closure re-review pending (minion-agent#62).'
   disposition: intentional divergence
 - id: TOOL-025
   phase: 6

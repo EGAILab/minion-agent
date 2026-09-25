@@ -28,6 +28,30 @@ fn symlink(target: &str, path: &std::path::Path) {
     std::os::unix::fs::symlink(target, path).unwrap();
 }
 
+#[cfg(unix)]
+struct RestoreMode {
+    path: PathBuf,
+    original: u32,
+}
+
+#[cfg(unix)]
+impl RestoreMode {
+    fn new(path: PathBuf) -> Self {
+        use std::os::unix::fs::PermissionsExt;
+        let original = std::fs::metadata(&path).unwrap().permissions().mode();
+        Self { path, original }
+    }
+}
+
+#[cfg(unix)]
+impl Drop for RestoreMode {
+    fn drop(&mut self) {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&self.path, std::fs::Permissions::from_mode(self.original))
+            .unwrap();
+    }
+}
+
 #[cfg(windows)]
 fn symlink(target: &str, path: &std::path::Path) {
     std::os::windows::fs::symlink_file(target, path).unwrap();
@@ -220,6 +244,8 @@ async fn posix_mode_bits_and_parent_search_are_checked_by_access() {
     symlink("denied", &fixture.root.join("denied_alias"));
     std::fs::create_dir(&directory).unwrap();
     std::fs::write(directory.join("child"), b"x").unwrap();
+    let _file_restore = RestoreMode::new(file.clone());
+    let _directory_restore = RestoreMode::new(directory.clone());
     std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o000)).unwrap();
     assert_eq!(
         fixture

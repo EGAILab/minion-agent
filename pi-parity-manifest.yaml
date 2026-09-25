@@ -6522,8 +6522,10 @@ rows:
     `7007732a26965facff73ccdaf82b4ee856d3683e` (PR #163) and this row to minion-agent/main @
     `343741db76b02ef46024487a25857136f3bf15a9` (PR #61), per the owner''s "WP-12.E2 / EXEC-008 -- Owner
     Authorization" (minion-agent#62 issuecomment-5823982461), which also authorized the Python
-    implementation below. Python: IMPLEMENTATION_REVIEW (independent review pending; merge not yet
-    authorized). Rust: not yet authorized.
+    implementation below. Python: implemented and merged at
+    `9987bd8112168792e41d8da5b474c8c7f330b1d1` after exact-SHA final review and owner
+    authorization (minion-agent#62). Rust: implementation candidate pending independent closure
+    review.
 
     One new operation, additive to EXEC-002''s ctx.fs inventory, with every existing operation
     unchanged: `check_readable(path, signal?) -> Result[None, FsError]` resolves the path (EXEC-002
@@ -6570,6 +6572,12 @@ rows:
   - minion-agent-python/tests/execution/test_filesystem_check_readable.py::test_posix_branch_ok_is_one_access_r_ok_on_the_resolved_path
   - minion-agent-python/tests/execution/test_filesystem_check_readable.py::test_posix_branch_keeps_the_access_calls_own_errno
   - minion-agent-python/tests/execution/test_filesystem_check_readable.py::test_negative_control_is_rejected_by_its_witness
+  - minion-agent-rust/crates/minion-agent/tests/execution_readability.rs
+  - minion-agent-rust/crates/minion-agent/tests/execution_filesystem.rs::providers_without_the_extension_report_not_supported
+  - minion-agent-rust/crates/minion-agent/src/execution/filesystem.rs::tests::host_readability_errors_never_report_missing_provider_capability
+  - minion-agent-rust/crates/minion-agent/src/execution/filesystem.rs::tests::posix_native_errno_classification_keeps_enosys_out_of_not_supported
+  - minion-agent-rust/crates/minion-agent/src/execution/filesystem.rs::tests::windows_call_not_implemented_is_unknown_not_missing_capability
+  - minion-agent-rust/crates/minion-agent/src/execution/filesystem.rs::tests::target_removed_at_access_boundary_preserves_not_found_and_one_query
   python: 'minion-agent-python/src/minion_agent/execution/filesystem.py (_libc_access,
     _check_readable_posix, _check_readable_windows, _check_readable_sync,
     LocalFileSystem.check_readable), additive to the existing FileSystem Protocol (one new
@@ -6586,8 +6594,18 @@ rows:
     Node-style Windows attribute-only access, open-and-read-one-byte, final-symlink non-following,
     pre-abort rejection, silent success / exists fallback without EXEC-008) plus the WP12E2-I001
     stat-then-boolean-access mutant and the WP12E2-I002 unguarded-native-call mutant, each shown to
-    fail its discriminating witness. Status: IMPLEMENTATION_REVIEW (minion-agent#62); not merged.'
-  rust: 'not yet implemented; Rust EXEC-008 not yet authorized (minion-agent#62)'
+    fail its discriminating witness. Status: merged on main @
+    `9987bd8112168792e41d8da5b474c8c7f330b1d1` (minion-agent#62).'
+  rust: 'Implementation candidate: minion-agent-rust/crates/minion-agent/src/execution/filesystem.rs
+    (additive FileSystem::check_readable default and LocalFileSystem override); typed FsErrorCode
+    reused. POSIX uses one safe nix::unistd::access(R_OK) call, no preliminary stat; Windows uses
+    safe OpenOptionsExt with FILE_READ_DATA/FILE_LIST_DIRECTORY plus backup semantics and symlink
+    following; embedded NUL is unknown before native call. Host Unsupported/ENOSYS/Windows-120
+    is mapped to unknown only at this readability boundary, reserving not_supported for absent
+    provider capability; general map_fs_error remains unchanged. A syscall-boundary race witness
+    rejects a preliminary-stat/boolean-access mechanism. Signal accepted but not inspected.
+    Evidence: execution_readability.rs, execution_filesystem.rs, and filesystem.rs unit witnesses;
+    cross-language closure re-review pending (minion-agent#62).'
   disposition: intentional divergence
 - id: TOOL-025
   phase: 6

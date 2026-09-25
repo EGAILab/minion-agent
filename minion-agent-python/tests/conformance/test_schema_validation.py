@@ -1,24 +1,27 @@
 """Every conformance scenario validates against its shape's JSON Schema.
 
-Seven scenario shapes currently coexist during the Pi-fidelity realignment (see
+Eight scenario shapes currently coexist during the Pi-fidelity realignment (see
 `minion-agent-docs/process/implementation-conformance-workflow.md` section 8.1): the legacy
 per-family shape (`provider_script`/`steps`/`expect_*`, one schema file per family), the unified
 shape (`family`/`status`/`authority`/`pi_revision`/`given`/`when`/`expect`, one shared schema), the
 transform (XFORM) shape (`transform`/`expect`, `agent-transform-scenario.schema.json`), the
 tool-registry (Layer 05) shape (`tool_registry`/`expect`, `tool-registry-scenario.schema.json`),
 the agent-inbox (Layer 07) shape (`agent_inbox`/`expect`, `agent-inbox-scenario.schema.json`), the
-llm-service (Layer 10) shape (`llm_service`/`expect`, `llm-service-scenario.schema.json`), and the
+llm-service (Layer 10) shape (`llm_service`/`expect`, `llm-service-scenario.schema.json`), the
 auth-device-code (Layer 11 Pass 1) shape (`auth_device_code`/`expect`,
-`auth-device-code-scenario.schema.json`) -- the second through sixth are all extra schemas for
-`conformance/agent/`'s own directory, not additional canonical families, since XFORM/tool-registry/
-agent-inbox/llm-service/auth-device-code scenarios each exercise a pure library seam
-(`transform_messages()`, the real `ToolRegistry`/`Context`/scope seam, the real `Inbox` primitive,
-the real `LlmService`/`Adapter` registration/resolution seam, the real `poll_device_code_flow`
-state machine) rather than a full agent-loop turn. A scenario's own top-level `tool_registry` key
-routes to the tool-registry schema; `transform` routes to the transform schema; `agent_inbox`
-routes to the agent-inbox schema; `llm_service` routes to the llm-service schema;
-`auth_device_code` routes to the auth-device-code schema; `family` routes to the unified schema;
-otherwise the legacy per-family schema governs.
+`auth-device-code-scenario.schema.json`), and the built-in tool (Layer 13, WP-13.1) shape
+(`builtin_tool`/`cases`, `builtin-tool-scenario.schema.json`) -- the second through eighth are all
+extra schemas for `conformance/agent/`'s own directory, not additional canonical families, since
+XFORM/tool-registry/agent-inbox/llm-service/auth-device-code/built-in-tool scenarios each exercise
+a pure library seam (`transform_messages()`, the real `ToolRegistry`/`Context`/scope seam, the
+real `Inbox` primitive, the real `LlmService`/`Adapter` registration/resolution seam, the real
+`poll_device_code_flow` state machine, a real built-in tool over the real `ctx.fs` through the
+real Layer 06 pipeline) rather than a full agent-loop turn. A scenario's own top-level
+`tool_registry` key routes to the tool-registry schema; `transform` routes to the transform
+schema; `agent_inbox` routes to the agent-inbox schema; `llm_service` routes to the llm-service
+schema; `auth_device_code` routes to the auth-device-code schema; `builtin_tool` routes to the
+built-in tool schema; `family` routes to the unified schema; otherwise the legacy per-family
+schema governs.
 """
 
 import json
@@ -43,6 +46,7 @@ TOOL_REGISTRY_SCHEMA = CONFORMANCE / "schema" / "tool-registry-scenario.schema.j
 AGENT_INBOX_SCHEMA = CONFORMANCE / "schema" / "agent-inbox-scenario.schema.json"
 LLM_SERVICE_SCHEMA = CONFORMANCE / "schema" / "llm-service-scenario.schema.json"
 AUTH_DEVICE_CODE_SCHEMA = CONFORMANCE / "schema" / "auth-device-code-scenario.schema.json"
+BUILTIN_TOOL_SCHEMA = CONFORMANCE / "schema" / "builtin-tool-scenario.schema.json"
 
 # Families whose scenarios arrive in a later plan. Their schema must still exist
 # and must still be a valid JSON Schema. Empty now that every family is
@@ -59,6 +63,8 @@ def _schema_path_for(document: dict[str, Any], family: str) -> Path:
     tool-registry shape's own `tool_registry` key, the agent-inbox shape's own `agent_inbox` key,
     the llm-service shape's own `llm_service` key, and the auth-device-code shape's own
     `auth_device_code` key are the discriminators (see module docstring)."""
+    if "builtin_tool" in document:
+        return BUILTIN_TOOL_SCHEMA
     if "tool_registry" in document:
         return TOOL_REGISTRY_SCHEMA
     if "agent_inbox" in document:
@@ -91,6 +97,7 @@ def test_family_has_scenarios(family: str) -> None:
         AGENT_INBOX_SCHEMA,
         LLM_SERVICE_SCHEMA,
         AUTH_DEVICE_CODE_SCHEMA,
+        BUILTIN_TOOL_SCHEMA,
     ],
     ids=lambda p: p.stem,
 )

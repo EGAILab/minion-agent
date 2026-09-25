@@ -1,0 +1,3 @@
+Copied unmodified from minion-agent-docs assurance/layers/data/13-wp131-ce-l13-wp131-01/
+r005-a-photon-differential/corpus/ (merged f46051fb; sha256 in its SHA256SUMS). The three
+files over 1 MiB are not committed there and are not used here.

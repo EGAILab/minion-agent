@@ -19,6 +19,7 @@ from .filesystem import (
     FileSystem,
     FsTarget,
     LocalFileSystem,
+    file_url_to_path,
     resolve_local_path,
 )
 from .plugin import fs_plugin, shell_plugin, subprocess_plugin
@@ -72,6 +73,7 @@ __all__ = [
     "SubprocessErrorCode",
     "WritableStream",
     "compatible",
+    "file_url_to_path",
     "fs_plugin",
     "is_err",
     "is_ok",

@@ -1,0 +1,34 @@
+name: builtin-read-text-decoding-matches-node-utf8
+family: agent
+authority: minion-agent-docs spec/tools.md WP-13.1 (master f46051fb)
+pi_revision: b7bb00b936dbe21b8e160b3e89efdec361846699
+requirements:
+- TOOL-025
+witnesses:
+- read_text_decoding_matches_node_utf8
+notes: 'Text is Node''s Buffer.toString(''utf-8''): every maximal invalid subpart becomes one U+FFFD,
+  a BOM is kept, and CR/CRLF are NOT translated (IMPL-C005). Line splitting is on ''\n'' only.'
+builtin_tool:
+  tool: read
+  fixture:
+  - path: mixed.bin
+    file:
+      base64: 77u/b25lDQp0d28NdGhyZWUK4oIg8ICAQSDtoIAgw6n/
+  cases:
+  - id: decode
+    arguments:
+      path: mixed.bin
+    expect:
+      is_error: false
+      text: "\uFEFFone\r\ntwo\rthree\n\uFFFD \uFFFD\uFFFD\uFFFDA \uFFFD\uFFFD\uFFFD \xE9\uFFFD"
+      image: null
+      details: {}
+  - id: decode-offset
+    arguments:
+      path: mixed.bin
+      offset: 2
+    expect:
+      is_error: false
+      text: "two\rthree\n\uFFFD \uFFFD\uFFFD\uFFFDA \uFFFD\uFFFD\uFFFD \xE9\uFFFD"
+      image: null
+      details: {}

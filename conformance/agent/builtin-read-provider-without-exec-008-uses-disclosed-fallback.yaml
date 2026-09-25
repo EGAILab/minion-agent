@@ -1,0 +1,117 @@
+name: builtin-read-provider-without-exec-008-uses-disclosed-fallback
+family: agent
+authority: minion-agent-docs spec/tools.md WP-13.1 (master f46051fb)
+pi_revision: b7bb00b936dbe21b8e160b3e89efdec361846699
+requirements:
+- TOOL-025
+- TOOL-039
+witnesses:
+- W-G10
+notes: 'A provider WITHOUT EXEC-008 answers check_readable -> not_supported for every path; read continues
+  in the disclosed FALLBACK mode (spec/execution.md section 12.5; owner G2 as a provider-capability fallback,
+  an intentional approximation, never Pi-equivalent): a readable file reads normally, and a failed content
+  read is ''Cannot read'' for is_directory and not_supported, ''Cannot access'' for every other code.'
+builtin_tool:
+  tool: read
+  fixture:
+  - path: a.txt
+    file:
+      text: hello
+  - path: fb_not_found.txt
+    file:
+      text: x
+  - path: fb_permission_denied.txt
+    file:
+      text: x
+  - path: fb_not_directory.txt
+    file:
+      text: x
+  - path: fb_is_directory.txt
+    file:
+      text: x
+  - path: fb_invalid.txt
+    file:
+      text: x
+  - path: fb_not_supported.txt
+    file:
+      text: x
+  - path: fb_unknown.txt
+    file:
+      text: x
+  provider:
+    without_exec_008: true
+    read_binary_file:
+    - path: fb_not_found.txt
+      error: not_found
+    - path: fb_permission_denied.txt
+      error: permission_denied
+    - path: fb_not_directory.txt
+      error: not_directory
+    - path: fb_is_directory.txt
+      error: is_directory
+    - path: fb_invalid.txt
+      error: invalid
+    - path: fb_not_supported.txt
+      error: not_supported
+    - path: fb_unknown.txt
+      error: unknown
+  cases:
+  - id: reads-normally
+    arguments:
+      path: a.txt
+    expect:
+      is_error: false
+      text: hello
+      details: {}
+      fs_calls:
+      - check_readable a.txt
+      - read_binary_file a.txt
+  - id: fallback-not_found
+    arguments:
+      path: fb_not_found.txt
+    expect:
+      is_error: true
+      text: 'Cannot access {abs:fb_not_found.txt}: no such file or directory'
+      details: {}
+  - id: fallback-permission_denied
+    arguments:
+      path: fb_permission_denied.txt
+    expect:
+      is_error: true
+      text: 'Cannot access {abs:fb_permission_denied.txt}: permission denied'
+      details: {}
+  - id: fallback-not_directory
+    arguments:
+      path: fb_not_directory.txt
+    expect:
+      is_error: true
+      text: 'Cannot access {abs:fb_not_directory.txt}: not a directory'
+      details: {}
+  - id: fallback-is_directory
+    arguments:
+      path: fb_is_directory.txt
+    expect:
+      is_error: true
+      text: 'Cannot read {abs:fb_is_directory.txt}: is a directory'
+      details: {}
+  - id: fallback-invalid
+    arguments:
+      path: fb_invalid.txt
+    expect:
+      is_error: true
+      text: 'Cannot access {abs:fb_invalid.txt}: invalid path'
+      details: {}
+  - id: fallback-not_supported
+    arguments:
+      path: fb_not_supported.txt
+    expect:
+      is_error: true
+      text: 'Cannot read {abs:fb_not_supported.txt}: not supported by this provider'
+      details: {}
+  - id: fallback-unknown
+    arguments:
+      path: fb_unknown.txt
+    expect:
+      is_error: true
+      text: 'Cannot access {abs:fb_unknown.txt}: unknown filesystem error'
+      details: {}

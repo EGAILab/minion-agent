@@ -1,0 +1,26 @@
+name: builtin-ls-provider-without-extension-not-supported
+family: agent
+authority: minion-agent-docs spec/tools.md WP-13.1 (master f46051fb)
+pi_revision: b7bb00b936dbe21b8e160b3e89efdec361846699
+requirements:
+- TOOL-028
+- TOOL-039
+witnesses:
+- ls_provider_without_extension_not_supported
+notes: A provider lacking EXEC-007 is reported with the R010-B vocabulary, not disguised as a missing
+  path.
+builtin_tool:
+  tool: ls
+  fixture:
+  - path: a
+    file:
+      text: x
+  provider:
+    without_exec_007: true
+  cases:
+  - id: no-ext
+    arguments: {}
+    expect:
+      is_error: true
+      text: 'Cannot access {abs:.}: not supported by this provider'
+      details: {}

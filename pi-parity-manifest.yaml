@@ -6649,21 +6649,42 @@ rows:
     `disposition: intentional divergence` -- NOT by this row''s own `adopted` disposition, which
     describes `read`''s core Pi-mirroring behavior (schema, truncation, R005-A image handling,
     cancellation) only. `TOOL-039` carries the full R010-B rule text, the closed cause-phrase
-    vocabulary, and the message-template shapes; this row does not duplicate them. No
-    implementation exists yet at either language; `python`/`rust` below are forward references, not
-    evidence of completed work.'
+    vocabulary, and the message-template shapes; this row does not duplicate them.
+
+
+    Filesystem access and abort ordering (CE-L13-WP131-02 revision 6, agreed at minion-agent-docs#162
+    @ 8dff4138; owner G1, minion-agent#48 comment 5822609576): read''s filesystem access is exactly
+    ctx.fs.check_readable (EXEC-008, Pi''s access stage, read.ts:248) then ONE read_binary_file, neither
+    given the signal. check_readable''s failure is the access site and the content read''s failure the
+    read site, whatever the code (TOOL-039); check_readable -> not_supported (a provider without
+    EXEC-008) continues in the disclosed FALLBACK mode (spec/execution.md section 12.5). The read.ts:249
+    abort checkpoint follows check_readable in both modes (CE13-C005); no file_info / canonical_path /
+    EXEC-007 dependency (CE13-C006). L13-WP131-I001: the outcome is decided by order at the work''s
+    settle point -- an abort before the work settles (including before a failure it throws) is
+    "Operation aborted", a result settled first stands; in-flight ctx.fs work is never cancelled.
+    Python -- implemented in the WP-13.1 Python implementation candidate (minion-agent#48), pending
+    independent review. Rust -- not implemented.'
   tests:
-  - read_offset_limit_then_truncation_ordering (planned canonical scenario)
-  - read_first_line_exceeds_byte_limit (planned canonical scenario)
-  - read_offset_out_of_bounds (planned canonical scenario)
-  - read_fractional_and_negative_numeric_inputs (planned canonical scenario)
-  - read_image_success_includes_image_for_non_vision_model (planned canonical scenario)
-  - read_image_bmp_converts_and_resizes (planned canonical scenario)
-  - read_image_processing_failure_is_text_only_success (planned canonical scenario)
-  - read_image_differential_corpus_matches_pinned_photon_0_3_4 (planned canonical scenario)
-  - read_operation_aborted_template_preserved_verbatim (planned canonical scenario)
-  python: 'planned; not yet implemented (WP-13.1 CONTRACT_INTEGRATED, minion-agent#48) -- intended
-    location minion_agent/tools/builtin/read.py'
+  - read_offset_limit_then_truncation_ordering (canonical scenario conformance/agent/builtin-read-offset-limit-then-truncation-ordering.yaml)
+  - read_first_line_exceeds_byte_limit (canonical scenario conformance/agent/builtin-read-first-line-exceeds-byte-limit.yaml)
+  - read_offset_out_of_bounds (canonical scenario conformance/agent/builtin-read-offset-out-of-bounds.yaml)
+  - read_fractional_and_negative_numeric_inputs (canonical scenario conformance/agent/builtin-read-fractional-and-negative-numeric-inputs.yaml)
+  - read_image_success_includes_image_for_non_vision_model (canonical scenario conformance/agent/builtin-read-image-success-includes-image-for-non-vision-model.yaml + conformance/agent/builtin-read-image-unknown-model-no-note.yaml + conformance/agent/builtin-read-image-vision-or-unknown-model-no-note.yaml)
+  - read_image_bmp_converts_and_resizes (canonical scenario conformance/agent/builtin-read-image-bmp-converts-and-resizes.yaml)
+  - read_image_processing_failure_is_text_only_success (canonical scenario conformance/agent/builtin-read-image-processing-failure-is-text-only-success.yaml)
+  - read_image_differential_corpus_matches_pinned_photon_0_3_4 (canonical scenario conformance/agent/builtin-read-image-differential-corpus-matches-pinned-photon-0-3-4.yaml)
+  - read_operation_aborted_template_preserved_verbatim (canonical scenario conformance/agent/builtin-read-operation-aborted-template-preserved-verbatim.yaml)
+  - read_text_decoding_matches_node_utf8 (canonical scenario conformance/agent/builtin-read-text-decoding-matches-node-utf8.yaml)
+  - read_image_auto_resize_disabled (canonical scenario conformance/agent/builtin-read-image-auto-resize-disabled.yaml)
+  - read_does_not_require_exec_007 (canonical scenario conformance/agent/builtin-read-provider-without-exec-007-reads-normally.yaml; L13-WP131-C012)
+  - W-G1..W-G9, W-G12, W-G13 read access/read sites by provenance (canonical scenario conformance/agent/builtin-read-error-text-matches-r010b-closed-vocabulary-per-fserrorcode.yaml; CE-L13-WP131-02 revision 6)
+  - W-G10 provider without EXEC-008 uses the disclosed fallback (canonical scenario conformance/agent/builtin-read-provider-without-exec-008-uses-disclosed-fallback.yaml)
+  - W-G14 abort at the access checkpoint, normal mode (canonical scenario conformance/agent/builtin-read-abort-at-the-access-checkpoint-normal-mode.yaml)
+  - W-G15 abort at the access checkpoint, fallback mode (canonical scenario conformance/agent/builtin-read-abort-at-the-access-checkpoint-fallback-mode.yaml; CE13-C005)
+  - W-G16 no file_info / canonical_path dependency (canonical scenario conformance/agent/builtin-read-does-not-depend-on-file-info-or-canonical-path.yaml; CE13-C006)
+  - W-G6, W-G11, W-G12 real host rows; W-I1..W-I4 abort ordering (minion-agent-python/tests/tools/builtin/test_read_access_and_abort_order.py; L13-WP131-I001)
+  - W-I5 abort while check_readable is blocked (minion-agent-python/tests/tools/builtin/test_tools.py::test_read_abort_answers_at_once_leaves_the_access_check_running_then_stops)
+  python: 'minion_agent/tools/builtin/read.py (create_read_tool, ReadToolOptions), image.py + photon/ (pinned photon_rs_bg.wasm via wasmtime 49.0.0), mime.py, truncate.py, _js.py; tests/tools/builtin/; canonical builtin_tool scenarios below'
   rust: 'planned; not yet implemented (WP-13.1 CONTRACT_INTEGRATED, minion-agent#48) -- intended
     location minion-agent-rust/crates/minion-agent/src/tools/builtin/read.rs'
   disposition: adopted
@@ -6703,16 +6724,15 @@ rows:
     <path>: invalid path"`), not raw provider/URL-parsing text. That error-text normalization is
     governed by `TOOL-039`''s OWN separate manifest row (`disposition: intentional divergence`),
     NOT by this row''s own `adopted` disposition, which describes the pipeline''s core
-    preprocessing/routing behavior only. No implementation exists yet at either language.'
+    preprocessing/routing behavior only. Python -- implemented in the WP-13.1 Python implementation candidate (minion-agent#48), pending independent review. Rust -- not implemented.'
   tests:
-  - read_leading_ascii_space_not_trimmed (planned canonical scenario)
-  - read_unicode_space_normalized (planned canonical scenario)
-  - malformed_file_url_rejected_before_ctx_fs_access_as_invalid (planned canonical scenario, this
+  - read_leading_ascii_space_not_trimmed (canonical scenario conformance/agent/builtin-read-leading-ascii-space-not-trimmed.yaml)
+  - read_unicode_space_normalized (canonical scenario conformance/agent/builtin-read-unicode-space-normalized.yaml)
+  - malformed_file_url_rejected_before_ctx_fs_access_as_invalid (canonical scenario conformance/agent/builtin-ls-malformed-file-url-rejected-before-ctx-fs-access-as-invalid.yaml + conformance/agent/builtin-read-malformed-file-url-rejected-before-ctx-fs-access-as-invalid.yaml, this
     row asserts the REJECTION-BEFORE-ctx.fs mechanism and its INVALID classification; TOOL-039''s
     own test of the same name asserts the resulting MESSAGE TEXT specifically -- two distinct
     assertions sharing one canonical scenario name deliberately, not an accidental duplicate)
-  python: 'planned; not yet implemented (WP-13.1 CONTRACT_INTEGRATED, minion-agent#48) -- intended
-    location minion_agent/tools/builtin/_paths.py, shared by TOOL-025/TOOL-028'
+  python: 'minion_agent/tools/builtin/paths.py::preprocess_path (steps 1-4; step 4 calls execution.filesystem.file_url_to_path, the certified conversion under a public name); canonical builtin_tool scenarios below'
   rust: 'planned; not yet implemented (WP-13.1 CONTRACT_INTEGRATED, minion-agent#48) -- intended
     location minion-agent-rust/crates/minion-agent/src/tools/builtin/paths.rs, shared by
     TOOL-025/TOOL-028'
@@ -6775,24 +6795,23 @@ rows:
 
     MINION_ARCHITECTURAL_MAPPING points, disclosed in the contract: the ctx.fs seam instead of node:fs;
     and Pi''s race-only raw stat(dirPath) site has no counterpart, because existence and kind come from
-    one probe. No implementation exists yet at either language.'
+    one probe. Python -- implemented in the WP-13.1 Python implementation candidate (minion-agent#48), pending independent review. Rust -- not implemented.'
   tests:
-  - ls_lazy_cap_never_probes_beyond_limit (planned canonical scenario)
-  - ls_entry_limit_checked_before_next_probe (planned canonical scenario)
-  - ls_zero_limit_on_nonempty_dir_no_details (planned canonical scenario)
-  - ls_fractional_limit_verbatim (planned canonical scenario)
-  - ls_broken_symlink_entry_skipped (planned canonical scenario)
-  - ls_symlinked_entries_follow_target_kind (planned canonical scenario)
-  - ls_special_entry_listed_without_slash (planned canonical scenario)
-  - ls_path_symlink_to_directory_is_listed (planned canonical scenario)
-  - ls_missing_path_and_broken_link_path_not_found (planned canonical scenario)
-  - ls_file_path_not_a_directory (planned canonical scenario)
-  - ls_byte_truncation_then_notice (planned canonical scenario)
-  - ls_both_notices_in_order (planned canonical scenario)
-  - ls_pre_aborted_signal (planned canonical scenario)
-  - ls_collation_case_ties_keep_enumeration_order (planned canonical scenario)
-  python: planned; not yet implemented (WP-13.1 CONTRACT_INTEGRATED, minion-agent#48) -- intended location
-    minion_agent/tools/builtin/ls.py; implementation not authorized
+  - ls_lazy_cap_never_probes_beyond_limit (canonical scenario conformance/agent/builtin-ls-lazy-cap-never-probes-beyond-limit.yaml)
+  - ls_entry_limit_checked_before_next_probe (canonical scenario conformance/agent/builtin-ls-entry-limit-checked-before-next-probe.yaml)
+  - ls_zero_limit_on_nonempty_dir_no_details (canonical scenario conformance/agent/builtin-ls-zero-limit-on-nonempty-dir-no-details.yaml)
+  - ls_fractional_limit_verbatim (canonical scenario conformance/agent/builtin-ls-fractional-limit-verbatim.yaml)
+  - ls_broken_symlink_entry_skipped (canonical scenario conformance/agent/builtin-ls-broken-symlink-entry-skipped.yaml)
+  - ls_symlinked_entries_follow_target_kind (canonical scenario conformance/agent/builtin-ls-symlinked-entries-follow-target-kind.yaml)
+  - ls_special_entry_listed_without_slash (canonical scenario conformance/agent/builtin-ls-special-entry-listed-without-slash.yaml)
+  - ls_path_symlink_to_directory_is_listed (canonical scenario conformance/agent/builtin-ls-path-symlink-to-directory-is-listed.yaml)
+  - ls_missing_path_and_broken_link_path_not_found (canonical scenario conformance/agent/builtin-ls-missing-path-and-broken-link-path-not-found.yaml)
+  - ls_file_path_not_a_directory (canonical scenario conformance/agent/builtin-ls-file-path-not-a-directory.yaml)
+  - ls_byte_truncation_then_notice (canonical scenario conformance/agent/builtin-ls-byte-truncation-then-notice.yaml)
+  - ls_both_notices_in_order (canonical scenario conformance/agent/builtin-ls-both-notices-in-order.yaml)
+  - ls_pre_aborted_signal (canonical scenario conformance/agent/builtin-ls-pre-aborted-signal.yaml)
+  - ls_collation_case_ties_keep_enumeration_order (canonical scenario conformance/agent/builtin-ls-collation-case-ties-keep-enumeration-order-order-a.yaml + conformance/agent/builtin-ls-collation-case-ties-keep-enumeration-order-order-b.yaml)
+  python: 'minion_agent/tools/builtin/ls.py (create_ls_tool); tests/tools/builtin/; canonical builtin_tool scenarios below'
   rust: planned; not yet implemented (WP-13.1 CONTRACT_INTEGRATED, minion-agent#48) -- intended location
     minion-agent-rust/crates/minion-agent/src/tools/builtin/ls.rs; implementation not authorized
   disposition: adopted
@@ -6834,14 +6853,25 @@ rows:
     and the code is never exposed as a structured result field (details stays {} per the certified generated-error
     shape). This is an owner-recorded, model-visible MINION_ARCHITECTURAL_MAPPING, hence intentional
     divergence. Review history lives in minion-agent-docs#156 and minion-agent#48#issuecomment-5809922479,
-    not in this rule. No implementation exists yet at either language.'
+    not in this rule.
+
+
+    read''s site rule (L13-WP131-C012, owner G1; CE-L13-WP131-02 revision 6): the operation that failed
+    owns the site, whatever the code -- check_readable (EXEC-008) failure -> "Cannot access", a failure of
+    the content read after it -> "Cannot read". Disclosed divergences: W-1 on Windows the access site
+    follows EXEC-008''s certified readability disposition where Pi''s attribute-only access would pass;
+    W-2 the Windows symlink-loop code is the Layer-12 mapper''s (minion-agent#69); W-3 a Windows directory
+    read reports "permission denied" (minion-agent#67); F-1 a provider without EXEC-008 gets the G2
+    fallback (is_directory / not_supported -> "Cannot read", every other code -> "Cannot access"), a
+    provider-capability approximation, never Pi-equivalent. Python -- implemented in the WP-13.1 Python
+    implementation candidate (minion-agent#48), pending independent review. Rust -- not implemented.'
   tests:
-  - read_error_text_matches_r010b_closed_vocabulary_per_fserrorcode (planned canonical scenario)
-  - malformed_file_url_rejected_before_ctx_fs_access_as_invalid (planned canonical scenario)
-  - ls_enumeration_failure_cannot_read_directory (planned canonical scenario)
-  - ls_provider_without_extension_not_supported (planned canonical scenario)
-  python: planned; not yet implemented (WP-13.1 CONTRACT_INTEGRATED, minion-agent#48) -- intended location
-    minion_agent/tools/builtin/_errors.py, shared by TOOL-025/TOOL-026, and TOOL-028
+  - read_error_text_matches_r010b_closed_vocabulary_per_fserrorcode (canonical scenario conformance/agent/builtin-read-error-text-matches-r010b-closed-vocabulary-per-fserrorcode.yaml)
+  - W-G10 fallback site mapping (canonical scenario conformance/agent/builtin-read-provider-without-exec-008-uses-disclosed-fallback.yaml)
+  - malformed_file_url_rejected_before_ctx_fs_access_as_invalid (canonical scenario conformance/agent/builtin-ls-malformed-file-url-rejected-before-ctx-fs-access-as-invalid.yaml + conformance/agent/builtin-read-malformed-file-url-rejected-before-ctx-fs-access-as-invalid.yaml)
+  - ls_enumeration_failure_cannot_read_directory (canonical scenario conformance/agent/builtin-ls-enumeration-failure-cannot-read-directory.yaml)
+  - ls_provider_without_extension_not_supported (canonical scenario conformance/agent/builtin-ls-provider-without-extension-not-supported.yaml)
+  python: 'minion_agent/tools/builtin/paths.py (CAUSE_PHRASES, BuiltinToolError); read.py/ls.py error sites; canonical builtin_tool scenarios below'
   rust: planned; not yet implemented (WP-13.1 CONTRACT_INTEGRATED, minion-agent#48) -- intended location
     minion-agent-rust/crates/minion-agent/src/tools/builtin/errors.rs, shared by TOOL-025/TOOL-026,
     and TOOL-028
@@ -6868,13 +6898,12 @@ rows:
     NORMALIZATION_MODE ON is an owner-ratified correction to R006-C (governance https://github.com/EGAILab/minion-agent/issues/48#issuecomment-5810098437;
     it supersedes only the normalization bit of #159''s evidence): without it, non-FCD canonically-equivalent
     names compare unequal on ICU 78.3 while Pi on en-001 compares them equal. The ICU root-locale lowercase
-    was accepted by the independent final review (INT-F2). No implementation exists yet at either language.'
+    was accepted by the independent final review (INT-F2). Python -- implemented in the WP-13.1 Python implementation candidate (minion-agent#48), pending independent review. Rust -- not implemented.'
   tests:
-  - ls_collation_r006c_corpus_order (planned canonical scenario)
-  - ls_collation_canonical_equivalents_tie (planned canonical scenario)
-  - ls_lowercase_key_uses_pinned_icu_root_mapping (planned canonical scenario)
-  python: planned; not yet implemented (WP-13.1 CONTRACT_INTEGRATED, minion-agent#48) -- intended location
-    minion_agent/tools/builtin/_collation.py; implementation not authorized
+  - ls_collation_r006c_corpus_order (canonical scenario conformance/agent/builtin-ls-collation-r006c-corpus-order.yaml)
+  - ls_collation_canonical_equivalents_tie (canonical scenario conformance/agent/builtin-ls-collation-canonical-equivalents-tie-order-a.yaml + conformance/agent/builtin-ls-collation-canonical-equivalents-tie-order-b.yaml)
+  - ls_lowercase_key_uses_pinned_icu_root_mapping (canonical scenario conformance/agent/builtin-ls-lowercase-key-post-unicode-15-mappings.yaml + conformance/agent/builtin-ls-lowercase-key-uses-pinned-icu-root-mapping.yaml)
+  python: 'minion_agent/tools/builtin/collation.py (pinned_collation over PyICU 2.16.2 / ICU 78.3, runtime u_getVersion check, fails closed); scripts/pinned-icu/; canonical builtin_tool scenarios below'
   rust: planned; not yet implemented (WP-13.1 CONTRACT_INTEGRATED, minion-agent#48) -- intended location
     minion-agent-rust/crates/minion-agent/src/tools/builtin/collation.rs; implementation not authorized
   disposition: intentional divergence

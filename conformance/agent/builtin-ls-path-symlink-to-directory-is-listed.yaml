@@ -1,0 +1,32 @@
+name: builtin-ls-path-symlink-to-directory-is-listed
+family: agent
+authority: minion-agent-docs spec/tools.md WP-13.1 (master f46051fb)
+pi_revision: b7bb00b936dbe21b8e160b3e89efdec361846699
+requirements:
+- TOOL-028
+witnesses:
+- ls_path_symlink_to_directory_is_listed
+notes: '`path` naming a symlink to a directory lists the target''s entries.'
+builtin_tool:
+  tool: ls
+  fixture:
+  - path: real
+    dir: true
+  - path: real/x
+    file:
+      text: '1'
+  - path: real/y
+    file:
+      text: '2'
+  - path: alias
+    symlink: real
+  cases:
+  - id: alias
+    arguments:
+      path: alias
+    expect:
+      is_error: false
+      text: 'x
+
+        y'
+      details: {}

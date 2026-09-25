@@ -1,0 +1,57 @@
+name: builtin-ls-lowercase-key-uses-pinned-icu-root-mapping
+family: agent
+authority: minion-agent-docs spec/tools.md WP-13.1 (master f46051fb)
+pi_revision: b7bb00b936dbe21b8e160b3e89efdec361846699
+requirements:
+- TOOL-028
+- TOOL-040
+witnesses:
+- ls_lowercase_key_uses_pinned_icu_root_mapping
+notes: Case-mapping witnesses (final sigma in two positions, U+0130, U+1E9E, U+01C5, U+01C4) among ASCII
+  neighbours sort by the pinned ICU root lowercase keys (R006-C v2).
+builtin_tool:
+  tool: ls
+  fixture:
+  - path: d
+    dir: true
+  provider:
+    list_dir_raw:
+    - path: d
+      names:
+      - "\u039F\u0394\u039F\u03A3"
+      - "\u03A3\u0391\u03A3"
+      - "\u0130"
+      - "\u1E9E"
+      - "\u01C5"
+      - "\u01C4"
+      - strasse
+      - file1
+      - apple
+    probe_dir_entry:
+    - path: d/apple
+      kind: file
+    - path: d/file1
+      kind: file
+    - path: d/strasse
+      kind: file
+    - path: "d/\u0130"
+      kind: file
+    - path: "d/\u01C4"
+      kind: file
+    - path: "d/\u01C5"
+      kind: file
+    - path: "d/\u039F\u0394\u039F\u03A3"
+      kind: file
+    - path: "d/\u03A3\u0391\u03A3"
+      kind: file
+    - path: "d/\u1E9E"
+      kind: file
+  cases:
+  - id: case-mapping
+    arguments:
+      path: d
+    expect:
+      is_error: false
+      text: "apple\n\u01C5\n\u01C4\nfile1\n\u0130\n\u1E9E\nstrasse\n\u039F\u0394\u039F\u03A3\n\u03A3\u0391\
+        \u03A3"
+      details: {}

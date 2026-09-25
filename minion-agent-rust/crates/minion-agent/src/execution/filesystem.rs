@@ -198,6 +198,18 @@ pub trait FileSystem: Send + Sync {
             "probe_dir_entry is not supported by this filesystem provider",
         ))
     }
+    /// Readability capability used by the Layer-13 read tool (`EXEC-008`).
+    /// Providers without it answer `not_supported`, never a fabricated success.
+    async fn check_readable(
+        &self,
+        _path: &str,
+        _signal: Option<&dyn AbortSignal>,
+    ) -> Result<(), FsError> {
+        Err(FsError::new(
+            FsErrorCode::NotSupported,
+            "check_readable is not supported by this filesystem provider",
+        ))
+    }
     async fn canonical_path(
         &self,
         path: &str,
@@ -535,6 +547,17 @@ impl FileSystem for LocalFileSystem {
         })
     }
 
+    async fn check_readable(
+        &self,
+        path: &str,
+        _signal: Option<&dyn AbortSignal>,
+    ) -> Result<(), FsError> {
+        let path = self.resolved(path);
+        tokio::task::spawn_blocking(move || check_local_readable(&path))
+            .await
+            .map_err(|error| FsError::new(FsErrorCode::Unknown, error.to_string()))?
+    }
+
     async fn canonical_path(
         &self,
         path: &str,
@@ -811,6 +834,67 @@ fn map_fs_error(error: io::Error) -> FsError {
     FsError::new(code, error.to_string())
 }
 
+/// `NotSupported` is reserved for a provider missing EXEC-008, not a host syscall failure.
+/// Keep the certified general filesystem error mapping unchanged for every other operation.
+fn map_readability_error(error: io::Error) -> FsError {
+    if error.kind() == io::ErrorKind::Unsupported {
+        FsError::new(FsErrorCode::Unknown, error.to_string())
+    } else {
+        map_fs_error(error)
+    }
+}
+
+#[cfg(unix)]
+fn check_local_readable(path: &Path) -> Result<(), FsError> {
+    use nix::unistd::{AccessFlags, access};
+
+    check_posix_readable_with(path, |path| {
+        access(path, AccessFlags::R_OK).map_err(|errno| io::Error::from_raw_os_error(errno as i32))
+    })
+}
+
+/// The injected syscall boundary lets a race witness remove the target immediately before the
+/// one authoritative access query, without changing production behavior.
+#[cfg(unix)]
+fn check_posix_readable_with(
+    path: &Path,
+    query: impl FnOnce(&Path) -> io::Result<()>,
+) -> Result<(), FsError> {
+    if path.as_os_str().as_encoded_bytes().contains(&0) {
+        return Err(FsError::new(
+            FsErrorCode::Unknown,
+            "path contains an embedded NUL byte",
+        ));
+    }
+    // Exactly one access(R_OK): no preliminary stat or content open may change the error site.
+    query(path).map_err(map_readability_error)
+}
+
+#[cfg(windows)]
+fn check_local_readable(path: &Path) -> Result<(), FsError> {
+    use std::os::windows::{ffi::OsStrExt, fs::OpenOptionsExt};
+    use windows_sys::Win32::Storage::FileSystem::{
+        FILE_FLAG_BACKUP_SEMANTICS, FILE_READ_DATA, FILE_SHARE_DELETE, FILE_SHARE_READ,
+        FILE_SHARE_WRITE,
+    };
+
+    if path.as_os_str().encode_wide().any(|unit| unit == 0) {
+        return Err(FsError::new(
+            FsErrorCode::Unknown,
+            "path contains an embedded NUL byte",
+        ));
+    }
+    // FILE_READ_DATA and FILE_LIST_DIRECTORY share the same access bit. Backup semantics
+    // permits directory handles; neither content nor directory entries are consumed.
+    std::fs::OpenOptions::new()
+        .access_mode(FILE_READ_DATA)
+        .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE)
+        .custom_flags(FILE_FLAG_BACKUP_SEMANTICS)
+        .open(path)
+        .map(|_| ())
+        .map_err(map_readability_error)
+}
+
 async fn abortable_io<T>(
     signal: Option<&dyn AbortSignal>,
     future: impl Future<Output = io::Result<T>>,
@@ -836,6 +920,76 @@ mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     use super::*;
+
+    #[test]
+    fn host_readability_errors_never_report_missing_provider_capability() {
+        let cases = [
+            (io::ErrorKind::NotFound, FsErrorCode::NotFound),
+            (io::ErrorKind::NotADirectory, FsErrorCode::NotDirectory),
+            (
+                io::ErrorKind::PermissionDenied,
+                FsErrorCode::PermissionDenied,
+            ),
+            (io::ErrorKind::InvalidInput, FsErrorCode::Invalid),
+            (io::ErrorKind::Other, FsErrorCode::Unknown),
+            (io::ErrorKind::Unsupported, FsErrorCode::Unknown),
+        ];
+        for (kind, expected) in cases {
+            assert_eq!(map_readability_error(io::Error::from(kind)).code, expected);
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn posix_native_errno_classification_keeps_enosys_out_of_not_supported() {
+        use nix::errno::Errno;
+        let cases = [
+            (Errno::ENOENT, FsErrorCode::NotFound),
+            (Errno::ENOTDIR, FsErrorCode::NotDirectory),
+            (Errno::EACCES, FsErrorCode::PermissionDenied),
+            (Errno::ELOOP, FsErrorCode::Unknown),
+            (Errno::EIO, FsErrorCode::Unknown),
+            (Errno::EINVAL, FsErrorCode::Invalid),
+            (Errno::ENOSYS, FsErrorCode::Unknown),
+        ];
+        for (errno, expected) in cases {
+            assert_eq!(
+                map_readability_error(io::Error::from_raw_os_error(errno as i32)).code,
+                expected,
+                "{errno}"
+            );
+        }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_call_not_implemented_is_unknown_not_missing_capability() {
+        assert_eq!(
+            map_readability_error(io::Error::from_raw_os_error(120)).code,
+            FsErrorCode::Unknown
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn target_removed_at_access_boundary_preserves_not_found_and_one_query() {
+        use std::cell::Cell;
+
+        let root = env::temp_dir().join(format!("minion-access-race-{}", Uuid::new_v4()));
+        std::fs::create_dir(&root).unwrap();
+        let target = root.join("target");
+        std::fs::write(&target, b"content").unwrap();
+        let calls = Cell::new(0);
+        let result = check_posix_readable_with(&target, |path| {
+            calls.set(calls.get() + 1);
+            std::fs::remove_file(path).unwrap();
+            nix::unistd::access(path, nix::unistd::AccessFlags::R_OK)
+                .map_err(|errno| io::Error::from_raw_os_error(errno as i32))
+        });
+        assert_eq!(calls.get(), 1);
+        assert_eq!(result.unwrap_err().code, FsErrorCode::NotFound);
+        std::fs::remove_dir(root).unwrap();
+    }
 
     #[derive(Debug, Default)]
     struct CountingDirectoryProbeOperations {

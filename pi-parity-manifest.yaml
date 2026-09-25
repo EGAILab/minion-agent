@@ -6509,6 +6509,111 @@ rows:
     independently reviewed (WP12E1-I003 remediated and closed) and merged at minion-agent/main
     0b1dd8a870c11087f8414e831a5f86003c8c489a (PR #56).'
   disposition: intentional divergence
+- id: EXEC-008
+  phase: 6
+  pi: 'packages/coding-agent/src/core/tools/read.ts:47-61 (ReadOperations.access, independently
+    supplied) and 58-62 (defaultReadOperations.access = fs.promises.access(path, R_OK)), awaited at
+    read.ts:248 before the MIME sniff and readFile; Node 22.15.1 / libuv 1.49.2 src/unix/fs.c:1713
+    (access(2)) and src/win/fs.c:2272 (GetFileAttributesW)'
+  surface: Layer 12, WP-12.E2 -- an additive extension to ctx.fs (check_readable)
+  rule: 'CONTRACT_APPROVED and MERGED (owner-selected G1, minion-agent#48 governance record
+    issuecomment-5822609576, resolving L13-WP131-C012; coordinated as its own isolated work package
+    WP-12.E2, minion-agent#62). Contract merged to minion-agent-docs/master @
+    `7007732a26965facff73ccdaf82b4ee856d3683e` (PR #163) and this row to minion-agent/main @
+    `343741db76b02ef46024487a25857136f3bf15a9` (PR #61), per the owner''s "WP-12.E2 / EXEC-008 -- Owner
+    Authorization" (minion-agent#62 issuecomment-5823982461), which also authorized the Python
+    implementation below. Python: implemented and merged at
+    `9987bd8112168792e41d8da5b474c8c7f330b1d1` after exact-SHA final review and owner
+    authorization (minion-agent#62). Rust: implemented and merged at
+    `689db685f4d586c9b3dc97965e1e096771c8f87e` (PR #64; assurance minion-agent-docs#164 @
+    `b0c511665b458710186143ca57b07d3f56b505fa`) after exact-SHA final review. Cross-language
+    closure: CERTIFIED_CLOSED per the owner closure decision (minion-agent#62
+    issuecomment-5827959957).
+
+    One new operation, additive to EXEC-002''s ctx.fs inventory, with every existing operation
+    unchanged: `check_readable(path, signal?) -> Result[None, FsError]` resolves the path (EXEC-002
+    section 3.2), follows symlinks, and answers whether the target exists and is readable (a file may
+    be opened for reading; a directory may be listed) without consuming content. A readable directory
+    is Ok, not an error. Errors use EXEC-001''s FsErrorCode taxonomy; a provider without the operation
+    answers not_supported for every call. Signal accepted, not inspected.
+
+    POSIX: DIRECT_PI_PARITY with access(path, R_OK). Windows: MINION_ARCHITECTURAL_MAPPING by owner
+    decision -- the same readability meaning (a deny-read ACL fails permission_denied, a dangling link
+    fails not_found), deliberately not copying libuv''s attribute-only Windows access. Its purpose is
+    to let Layer 13 read (TOOL-025) preserve the provenance of Pi''s access stage: the operation that
+    failed owns the error site, whatever the code (spec/execution.md section 12.5); providers without
+    it use an explicitly disclosed G2 fallback. Semantics and the witness matrix: spec/execution.md
+    section 12.
+
+    Disposition (WP12E2-R001, independent contract review of minion-agent-docs#163 / minion-agent#61):
+    the row is classified `intentional divergence` because its Windows rule deliberately departs from
+    pinned Pi/Node (libuv''s attribute-only access) by owner decision; its POSIX rule is retained
+    explicitly as DIRECT_PI_PARITY with access(path, R_OK). Neither the owner-selected G1 behavior nor
+    any rule above is changed by this classification. Same shape as EXEC-007 (an additive mapping
+    classified as a whole).'
+  tests:
+  - minion-agent-python/tests/execution/test_filesystem_check_readable.py::test_readable_regular_file_directly_and_through_symlink
+  - minion-agent-python/tests/execution/test_filesystem_check_readable.py::test_unreadable_regular_file_directly_and_through_symlink
+  - minion-agent-python/tests/execution/test_filesystem_check_readable.py::test_dangling_symlink_is_not_found
+  - minion-agent-python/tests/execution/test_filesystem_check_readable.py::test_missing_path_and_non_directory_component
+  - minion-agent-python/tests/execution/test_filesystem_check_readable.py::test_readable_directory_is_ok
+  - minion-agent-python/tests/execution/test_filesystem_check_readable.py::test_posix_read_but_not_search_directory_is_ok
+  - minion-agent-python/tests/execution/test_filesystem_check_readable.py::test_unreadable_directory_posix_000_or_windows_deny_list
+  - minion-agent-python/tests/execution/test_filesystem_check_readable.py::test_posix_search_only_directory_is_permission_denied
+  - minion-agent-python/tests/execution/test_filesystem_check_readable.py::test_posix_unsearchable_parent_is_permission_denied
+  - minion-agent-python/tests/execution/test_filesystem_check_readable.py::test_symlink_loop_uses_the_host_error_mapping
+  - minion-agent-python/tests/execution/test_filesystem_check_readable.py::test_windows_symlink_loop_matches_the_unchanged_layer12_operations
+  - minion-agent-python/tests/execution/test_filesystem_check_readable.py::test_fifo_without_writer_is_ok_and_does_not_block
+  - minion-agent-python/tests/execution/test_filesystem_check_readable.py::test_relative_path_resolution
+  - minion-agent-python/tests/execution/test_filesystem_check_readable.py::test_embedded_nul_path_is_rejected_as_unknown
+  - minion-agent-python/tests/execution/test_filesystem_check_readable.py::test_embedded_nul_is_rejected_before_either_native_call
+  - minion-agent-python/tests/execution/test_filesystem_check_readable.py::test_pre_aborted_signal_is_accepted_but_not_inspected
+  - minion-agent-python/tests/execution/test_filesystem_check_readable.py::test_provider_without_exec008_answers_not_supported
+  - minion-agent-python/tests/execution/test_filesystem_check_readable.py::test_local_filesystem_never_answers_not_supported
+  - minion-agent-python/tests/execution/test_filesystem_check_readable.py::test_check_readable_leaves_content_and_existing_operations_unchanged
+  - minion-agent-python/tests/execution/test_filesystem_check_readable.py::test_target_vanishing_before_the_readability_query_is_not_found
+  - minion-agent-python/tests/execution/test_filesystem_check_readable.py::test_posix_branch_ok_is_one_access_r_ok_on_the_resolved_path
+  - minion-agent-python/tests/execution/test_filesystem_check_readable.py::test_posix_branch_keeps_the_access_calls_own_errno
+  - minion-agent-python/tests/execution/test_filesystem_check_readable.py::test_negative_control_is_rejected_by_its_witness
+  - minion-agent-rust/crates/minion-agent/tests/execution_readability.rs
+  - minion-agent-rust/crates/minion-agent/tests/execution_filesystem.rs::providers_without_the_extension_report_not_supported
+  - minion-agent-rust/crates/minion-agent/src/execution/filesystem.rs::tests::host_readability_errors_never_report_missing_provider_capability
+  - minion-agent-rust/crates/minion-agent/src/execution/filesystem.rs::tests::posix_native_errno_classification_keeps_enosys_out_of_not_supported
+  - minion-agent-rust/crates/minion-agent/src/execution/filesystem.rs::tests::windows_call_not_implemented_is_unknown_not_missing_capability
+  - minion-agent-rust/crates/minion-agent/src/execution/filesystem.rs::tests::target_removed_at_access_boundary_preserves_not_found_and_one_query
+  python: 'minion-agent-python/src/minion_agent/execution/filesystem.py (_libc_access,
+    _check_readable_posix, _check_readable_windows, _check_readable_sync,
+    LocalFileSystem.check_readable), additive to the existing FileSystem Protocol (one new
+    check_readable member) -- every existing operation unchanged. POSIX: exactly one libc
+    access(path, R_OK) keeping its own errno (ENOENT/ENOTDIR/EACCES/ELOOP/EIO ... classified by
+    section 2.1; WP12E2-I001 remediation -- no preliminary stat, no fabricated EACCES). A path with an
+    embedded NUL is rejected before either native C-string call (WP12E2-I002) as unknown -- section
+    2.1''s mapping of Node''s ERR_INVALID_ARG_VALUE, which is none of toFileError''s listed codes.
+    Windows: one
+    CreateFileW for FILE_READ_DATA
+    (read a file / list a directory), following symlinks, handle closed at once, nothing read. Neither
+    host opens content, so a writerless FIFO cannot block. Evidence: every section 12.6 witness plus
+    the owner-required negative controls (file_info/lstat existence, canonical_path existence,
+    Node-style Windows attribute-only access, open-and-read-one-byte, final-symlink non-following,
+    pre-abort rejection, silent success / exists fallback without EXEC-008) plus the WP12E2-I001
+    stat-then-boolean-access mutant and the WP12E2-I002 unguarded-native-call mutant, each shown to
+    fail its discriminating witness. Status: merged on main @
+    `9987bd8112168792e41d8da5b474c8c7f330b1d1`; cross-language CERTIFIED_CLOSED (minion-agent#62).'
+  rust: 'minion-agent-rust/crates/minion-agent/src/execution/filesystem.rs
+    (additive FileSystem::check_readable default and LocalFileSystem override); typed FsErrorCode
+    reused. POSIX uses one safe nix::unistd::access(R_OK) call, no preliminary stat; Windows uses
+    safe OpenOptionsExt with FILE_READ_DATA/FILE_LIST_DIRECTORY plus backup semantics and symlink
+    following; embedded NUL is unknown before native call. Host Unsupported/ENOSYS/Windows-120
+    is mapped to unknown only at this readability boundary, reserving not_supported for absent
+    provider capability; general map_fs_error remains unchanged. A syscall-boundary race witness
+    rejects a preliminary-stat/boolean-access mechanism. Signal accepted but not inspected.
+    Evidence: execution_readability.rs, execution_filesystem.rs, and filesystem.rs unit witnesses.
+    Accepted evidence limitation (owner, minion-agent#62): the race witness exercises the internal
+    POSIX access seam, so a mutant bypassing that seam entirely is not dynamically rejected;
+    production wiring is a single delegation into the seam, inspected and strace-confirmed. Merged
+    at `689db685f4d586c9b3dc97965e1e096771c8f87e` (PR #64); cross-language CERTIFIED_CLOSED
+    (minion-agent#62).'
+  disposition: intentional divergence
 - id: TOOL-025
   phase: 6
   pi: 'packages/coding-agent/src/core/tools/read.ts (schema lines 21-25; execute lines 223-334);

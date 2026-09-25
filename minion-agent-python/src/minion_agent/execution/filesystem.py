@@ -36,7 +36,7 @@ import shutil
 import stat as _stat
 import tempfile
 import uuid
-from collections.abc import Coroutine, Sequence
+from collections.abc import Callable, Coroutine, Sequence
 from contextlib import suppress
 from dataclasses import dataclass
 from enum import StrEnum
@@ -540,6 +540,94 @@ def _probe_dir_entry_sync(path: str) -> DirEntryProbe:
     return DirEntryProbe(name=os.path.basename(path), path=path, kind=kind)
 
 
+def _libc_access() -> Callable[[bytes, int], int]:  # pragma: no cover -- POSIX-only (libc)
+    """The host C library's own `access(2)`, called with `use_errno` so its failure errno survives.
+    `os.access` makes the same call but reports only a boolean, discarding why it failed."""
+    import ctypes
+
+    access = ctypes.CDLL(None, use_errno=True).access
+    access.argtypes = [ctypes.c_char_p, ctypes.c_int]
+    access.restype = ctypes.c_int
+    return access
+
+
+def _check_readable_posix(path: str) -> None:
+    """`EXEC-008` on POSIX, spec section 12.4: exactly one `access(path, R_OK)` -- the call Node's
+    `fs.access` makes -- evaluated with the process's real user/group IDs and following symlinks.
+    Its own errno is kept (`ENOENT`, `ENOTDIR`, `EACCES`, `ELOOP`, `EIO`, ...) and classified by
+    `to_fs_error`, never replaced by a fabricated one, so there is no second call whose failure
+    could be misattributed. `access` does not open the target: no content is consumed and a FIFO
+    without a writer cannot block."""
+    import ctypes
+
+    if _libc_access()(os.fsencode(path), os.R_OK) != 0:
+        code = ctypes.get_errno()
+        raise OSError(code, os.strerror(code), path)
+
+
+# Win32: FILE_READ_DATA is also FILE_LIST_DIRECTORY; backup semantics lets CreateFileW open a
+# directory at all (it does not bypass the ACL check unless the backup privilege is enabled).
+_FILE_READ_DATA = 0x0001
+_FILE_SHARE_ALL = 0x0001 | 0x0002 | 0x0004
+_OPEN_EXISTING = 3
+_FILE_FLAG_BACKUP_SEMANTICS = 0x02000000
+
+
+def _check_readable_windows(path: str) -> None:
+    """`EXEC-008` on Windows, spec section 12.4 (owner decision, `MINION_ARCHITECTURAL_MAPPING`):
+    the target's actual readability, not libuv's attribute-only `access`. One `CreateFileW` asking
+    for `FILE_READ_DATA` -- read access to a file, list access to a directory -- following
+    symlinks (no `FILE_FLAG_OPEN_REPARSE_POINT`); the handle is closed at once and nothing is
+    read. A failure is raised as the matching `OSError` (built from the Win32 code, which Python
+    maps to an errno and `OSError` subclass), which `to_fs_error` classifies like every other
+    operation's."""
+    import ctypes
+    from ctypes import wintypes
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.CreateFileW.restype = wintypes.HANDLE
+    kernel32.CreateFileW.argtypes = [
+        wintypes.LPCWSTR,
+        wintypes.DWORD,
+        wintypes.DWORD,
+        wintypes.LPVOID,
+        wintypes.DWORD,
+        wintypes.DWORD,
+        wintypes.HANDLE,
+    ]
+    kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+    handle = kernel32.CreateFileW(
+        path,
+        _FILE_READ_DATA,
+        _FILE_SHARE_ALL,
+        None,
+        _OPEN_EXISTING,
+        _FILE_FLAG_BACKUP_SEMANTICS,
+        None,
+    )
+    if handle == wintypes.HANDLE(-1).value:
+        code = ctypes.get_last_error()
+        raise OSError(None, ctypes.FormatError(code), path, code)
+    kernel32.CloseHandle(handle)
+
+
+class _EmbeddedNulPath(ValueError):
+    """A path containing NUL cannot be passed to a native C-string API: the host would see only the
+    prefix before the NUL and answer for a DIFFERENT target."""
+
+
+def _check_readable_sync(path: str) -> None:
+    """`EXEC-008`, spec section 12.3. `path` is already the RESOLVED path. An embedded NUL is
+    rejected before either native call (`WP12E2-I002`), as pinned Node's `fs.access` rejects it
+    (`ERR_INVALID_ARG_VALUE`) before reaching the host."""
+    if "\x00" in path:
+        raise _EmbeddedNulPath("embedded null character in path")
+    if os.name == "nt":
+        _check_readable_windows(path)
+    else:
+        _check_readable_posix(path)
+
+
 def _remove_sync(path: str, recursive: bool, force: bool) -> None:
     try:
         st = os.lstat(path)
@@ -611,6 +699,11 @@ class FileSystem(Protocol):
     async def probe_dir_entry(
         self, path: str, signal: RunSignal | None = None
     ) -> Result[DirEntryProbe, FsError]: ...
+    # `EXEC-008` (spec section 12), additive. A provider that cannot supply it returns
+    # `Err(not_supported)` for every call -- a capability answer, never a target failure.
+    async def check_readable(
+        self, path: str, signal: RunSignal | None = None
+    ) -> Result[None, FsError]: ...
     async def canonical_path(
         self, path: str, signal: RunSignal | None = None
     ) -> Result[str, FsError]: ...
@@ -833,6 +926,24 @@ class LocalFileSystem:
         except OSError as exc:
             return Err(to_fs_error(exc, resolved))
         return Ok(probe)
+
+    async def check_readable(
+        self, path: str, signal: RunSignal | None = None
+    ) -> Result[None, FsError]:
+        """`EXEC-008`, spec section 12. Additive Layer-12 extension -- no existing operation
+        changes. Resolves with section 3.2's rules, follows symlinks, and answers whether the
+        target exists and is readable without consuming content. `signal` is accepted but never
+        inspected (section 12.3), like `file_info`/`probe_dir_entry`."""
+        resolved = resolve_local_path(self.cwd, path)
+        try:
+            await asyncio.to_thread(_check_readable_sync, resolved)
+        except OSError as exc:
+            return Err(to_fs_error(exc, resolved))
+        except _EmbeddedNulPath as exc:
+            # Section 2.1's mapping of that rejection: Node's `ERR_INVALID_ARG_VALUE` is none of
+            # `toFileError`'s listed codes (in particular not the `EINVAL` errno), so `unknown`.
+            return Err(FsError(FsErrorCode.UNKNOWN, str(exc), resolved, exc))
+        return Ok(None)
 
     async def canonical_path(
         self, path: str, signal: RunSignal | None = None

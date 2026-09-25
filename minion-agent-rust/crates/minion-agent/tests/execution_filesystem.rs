@@ -622,6 +622,14 @@ async fn providers_without_the_extension_report_not_supported() {
             .code,
         FsErrorCode::NotSupported
     );
+    assert_eq!(
+        provider
+            .check_readable("entry", None)
+            .await
+            .unwrap_err()
+            .code,
+        FsErrorCode::NotSupported
+    );
 }
 
 #[test]

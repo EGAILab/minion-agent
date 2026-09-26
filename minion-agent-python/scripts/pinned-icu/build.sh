@@ -4,6 +4,12 @@
 #
 #   bash scripts/pinned-icu/build.sh <prefix>        # e.g. ../.toolchain/icu-78.3
 #   eval "$(bash scripts/pinned-icu/build.sh <prefix> --env)"
+#   bash scripts/pinned-icu/build.sh <prefix> --identity   # (re)record an existing build's identity
+#
+# The build's IDENTITY file (<prefix>/pinned-icu-identity.txt) records the SHA-256 of the built
+# ICU runtime libraries, next to the verified source tarball's SHA-512. At runtime `ls` loads only
+# a build whose loaded libraries match it byte for byte (L13-WP131-FR003): a version check alone
+# cannot tell this build from another ICU that also reports 78.3.
 #
 # Windows: Git Bash + Visual Studio 2022 (MSBuild found via vswhere). Linux: a C/C++ toolchain.
 # Nothing is installed outside <prefix>.
@@ -37,13 +43,42 @@ print_env() {
     echo "export PYICU_LIBRARIES='icui18n:icuuc:icudata'"
     echo "export PYICU_CFLAGS='-std=c++17'"
   fi
+  if [ "$OS" = windows ]; then
+    echo "export MINION_AGENT_ICU_IDENTITY='$(cygpath -w "$PREFIX/pinned-icu-identity.txt")'"
+  else
+    echo "export MINION_AGENT_ICU_IDENTITY='$PREFIX/pinned-icu-identity.txt'"
+  fi
   echo "export ICU_VERSION=78.3"
   echo "export UV_NO_CACHE=1  # rebuild PyICU against this ICU rather than reuse a cached wheel"
+}
+
+write_identity() {
+  local uc i18n data
+  if [ "$OS" = windows ]; then
+    uc=icu/bin64/icuuc78.dll; i18n=icu/bin64/icuin78.dll; data=icu/bin64/icudt78.dll
+  else
+    uc=$(readlink -f install/lib/libicuuc.so.78); i18n=$(readlink -f install/lib/libicui18n.so.78)
+    data=$(readlink -f install/lib/libicudata.so.78)
+  fi
+  {
+    echo "# pinned ICU 78.3 build identity -- scripts/pinned-icu/build.sh (R006-C, L13-WP131-FR003)"
+    echo "source-sha512 $SHA512"
+    echo "icuuc $(sha256sum "$uc" | cut -d' ' -f1)"
+    echo "icui18n $(sha256sum "$i18n" | cut -d' ' -f1)"
+    echo "icudata $(sha256sum "$data" | cut -d' ' -f1)"
+  } > pinned-icu-identity.txt
+  echo "identity recorded in $PREFIX/pinned-icu-identity.txt" >&2
 }
 
 if [ "$MODE" = --env ]; then print_env; exit 0; fi
 
 cd "$PREFIX"
+if [ "$MODE" = --identity ]; then
+  # Only for a build this script made: the source tarball it was built from must still verify.
+  echo "$SHA512 *$TGZ" | sha512sum -c - >&2
+  write_identity
+  exit 0
+fi
 [ -f "$TGZ" ] || curl -fsSLO "$REL/$TGZ"
 echo "$SHA512 *$TGZ" | sha512sum -c -
 rm -rf icu && tar xzf "$TGZ"
@@ -59,5 +94,6 @@ else
     && make install > "$PREFIX/install.log" 2>&1)
   test -f install/lib/libicuuc.so.78
 fi
+write_identity
 echo "pinned ICU 78.3 built in $PREFIX"
 print_env

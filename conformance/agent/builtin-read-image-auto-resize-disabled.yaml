@@ -31,6 +31,8 @@ builtin_tool:
         mime_type: image/png
         sha256: b326cd1ec37bb035246cbd3bbad416a4ce178e1a35dcdb1ab491b4026ef017d5
         bytes: 1296
+        base64_len: 1728
+        canonical_base64: true
       details: {}
   - id: bmp-converted
     arguments:
@@ -44,4 +46,6 @@ builtin_tool:
         mime_type: image/png
         sha256: 54063b9f5c6cf330e48d6bb33d20986bf6257c0ef4a9187ebd16b8a56db8f15a
         bytes: 926
+        base64_len: 1236
+        canonical_base64: true
       details: {}

@@ -138,8 +138,15 @@
           "oneOf": [
             { "type": "null", "$comment": "no content_blocks[1]" },
             {
-              "type": "object", "required": ["mime_type", "sha256", "bytes"], "additionalProperties": false,
-              "properties": { "mime_type": { "type": "string" }, "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }, "bytes": { "type": "integer", "minimum": 0 } }
+              "type": "object", "required": ["mime_type", "sha256", "bytes", "base64_len", "canonical_base64"], "additionalProperties": false,
+              "$comment": "L13-WP131-RUST-I001: the image's semantic value is its MIME type plus the exact final bytes. A runner obtains the bytes by normalizing its binding's certified representation (representation normalization only) and obtains the serialized data from the binding's own canonical Layer-02 serialization.",
+              "properties": {
+                "mime_type": { "type": "string" },
+                "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$", "$comment": "sha256 of the exact final image bytes" },
+                "bytes": { "type": "integer", "minimum": 0 },
+                "base64_len": { "type": "integer", "minimum": 0, "$comment": "length of the binding's canonical serialized data string" },
+                "canonical_base64": { "const": true, "$comment": "the serialized data strictly decodes to those bytes and re-encoding them reproduces it character for character (standard alphabet, padded, no other characters)" }
+              }
             }
           ]
         },

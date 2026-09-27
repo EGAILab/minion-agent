@@ -6635,11 +6635,18 @@ rows:
     for automatic truncation and the first-line-byte-overflow case, but explicitly ABSENT when a
     caller-supplied `limit` alone stopped the selection early. A successfully processed image is
     always returned to the model, regardless of the requesting model''s own vision support -- a
-    non-vision note is appended text, never a substitution. Image data (L13-WP131-FR002, IMPL-C009):
-    Pi''s serialized `ImageContent.data` is a base64 STRING; Minion''s typed result is the certified
-    Layer-02 `ImageBlock`, whose `data` carries the decoded BYTES (the same image, one base64 decode
-    apart); a host that serializes it to a Pi-shaped wire form emits base64. An implementation MUST
-    NOT put base64 text in the typed `ImageBlock.data`. Image processing semantic authority (`R005-A`, corrected -- was wrongly stated as
+    non-vision note is appended text, never a substitution. Image representation
+    (L13-WP131-RUST-I001, owner Option A; supersedes the representation-specific part of
+    L13-WP131-FR002 / IMPL-C009, whose requirement that Pi''s base64 data and Minion''s image are
+    the exact same output remains): the image''s semantic value is the final MIME type plus the exact
+    final encoded byte sequence; implementations are equivalent when both are equal byte for byte
+    (a digest of those bytes may serve as evidence). Its canonical serialization is the standard
+    base64 of exactly those bytes (Pi''s `ImageContent.data`), deterministically. The in-memory form
+    is the Layer-02 binding''s own (Python `ImageBlock.data` bytes; Rust `ImageSource::Data` canonical
+    base64 `String`); no Layer-02 contract or implementation changes. A conformance runner may
+    normalize a binding''s representation to the bytes (representation normalization only, never
+    the tool''s work), and each binding''s evidence must also show its canonical serialization emits
+    exactly the canonical base64 of those bytes. Image processing semantic authority (`R005-A`, corrected -- was wrongly stated as
     implementation-delegated): PINNED_PHOTON_COMPATIBLE, pinned `@silvia-odwyer/photon-node 0.3.4`
     and its `photon_rs_bg.wasm` artifact are AUTHORITATIVE for the complete Photon-dependent
     observable surface (decode accept/reject, EXIF, BMP conversion, resize re-decode, fast-path

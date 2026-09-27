@@ -222,6 +222,8 @@ builtin_tool:
         mime_type: image/png
         sha256: 26d0520f76e95bd495ae5eed3c4fb33c7d4987dbd6cdc5f9f904807a523f3997
         bytes: 54868
+        base64_len: 73160
+        canonical_base64: true
       details: {}
   - id: bmp_24.bmp
     arguments:
@@ -235,6 +237,8 @@ builtin_tool:
         mime_type: image/png
         sha256: 54063b9f5c6cf330e48d6bb33d20986bf6257c0ef4a9187ebd16b8a56db8f15a
         bytes: 926
+        base64_len: 1236
+        canonical_base64: true
       details: {}
   - id: bmp_32.bmp
     arguments:
@@ -248,6 +252,8 @@ builtin_tool:
         mime_type: image/png
         sha256: 54063b9f5c6cf330e48d6bb33d20986bf6257c0ef4a9187ebd16b8a56db8f15a
         bytes: 926
+        base64_len: 1236
+        canonical_base64: true
       details: {}
   - id: bmp_8bit.bmp
     arguments:
@@ -261,6 +267,8 @@ builtin_tool:
         mime_type: image/png
         sha256: 69a4b2766f37670b18d2162280462a62ecd4d49c118fa1bb5bf74bcfee8cb3d8
         bytes: 1351
+        base64_len: 1804
+        canonical_base64: true
       details: {}
   - id: bmp_header_only.bmp
     arguments:
@@ -292,6 +300,8 @@ builtin_tool:
         mime_type: image/gif
         sha256: 82e75ff8a26e8aa18121db9a052df98f01551105cbfcbe8bef3f537d45124b4f
         bytes: 565
+        base64_len: 756
+        canonical_base64: true
       details: {}
   - id: gif_static.gif
     arguments:
@@ -303,6 +313,8 @@ builtin_tool:
         mime_type: image/gif
         sha256: a55861c649f764874deae54436ac4009dd6d8efd709e6d7afe80e61e66a1bdfa
         bytes: 628
+        base64_len: 840
+        canonical_base64: true
       details: {}
   - id: gif_transparent.gif
     arguments:
@@ -314,6 +326,8 @@ builtin_tool:
         mime_type: image/gif
         sha256: c87eaf6989f7ec32494fb8966860f053a33de8921aad2166529d5c95bf35a6ba
         bytes: 636
+        base64_len: 848
+        canonical_base64: true
       details: {}
   - id: jpeg_2600x40.jpg
     arguments:
@@ -328,6 +342,8 @@ builtin_tool:
         mime_type: image/png
         sha256: 5261d9fc3111c97afdd8593260ff829ca805c9c0e38d6bc4d94fbb940b2a4415
         bytes: 110041
+        base64_len: 146724
+        canonical_base64: true
       details: {}
   - id: jpeg_cmyk.jpg
     arguments:
@@ -339,6 +355,8 @@ builtin_tool:
         mime_type: image/jpeg
         sha256: 2f3672dda86212ff3cc4ec814f358b2cba205637481df564e25ccac590e03ba3
         bytes: 640
+        base64_len: 856
+        canonical_base64: true
       details: {}
   - id: jpeg_exif_o1.jpg
     arguments:
@@ -350,6 +368,8 @@ builtin_tool:
         mime_type: image/jpeg
         sha256: 1df03b3767f4a9f0386344fd0ae65ee5b2463213890cc8325bb68e777cb59677
         bytes: 684
+        base64_len: 912
+        canonical_base64: true
       details: {}
   - id: jpeg_exif_o2.jpg
     arguments:
@@ -361,6 +381,8 @@ builtin_tool:
         mime_type: image/jpeg
         sha256: 903290590c251718a055b21cca0736ad003cf04a84885d36e4f227667c38abbe
         bytes: 684
+        base64_len: 912
+        canonical_base64: true
       details: {}
   - id: jpeg_exif_o3.jpg
     arguments:
@@ -372,6 +394,8 @@ builtin_tool:
         mime_type: image/jpeg
         sha256: b39b017b49d1f71e688eebea99cf8149c05241396a2d65e37a948ae48b427d04
         bytes: 684
+        base64_len: 912
+        canonical_base64: true
       details: {}
   - id: jpeg_exif_o4.jpg
     arguments:
@@ -383,6 +407,8 @@ builtin_tool:
         mime_type: image/jpeg
         sha256: 386d6cf11c4b30615f340eedc2779096fa99b0e9d4755ff199b7315e9a2c7443
         bytes: 684
+        base64_len: 912
+        canonical_base64: true
       details: {}
   - id: jpeg_exif_o5.jpg
     arguments:
@@ -394,6 +420,8 @@ builtin_tool:
         mime_type: image/jpeg
         sha256: 6c747a561cd31bdaac86c058b3a2d088e261f7d4a402fea9acbf177a9f1b0610
         bytes: 684
+        base64_len: 912
+        canonical_base64: true
       details: {}
   - id: jpeg_exif_o6.jpg
     arguments:
@@ -405,6 +433,8 @@ builtin_tool:
         mime_type: image/jpeg
         sha256: cbae81f6470e37f6e1ba213348445ed0a8625f5c93030fe123b411b3dba25d0e
         bytes: 684
+        base64_len: 912
+        canonical_base64: true
       details: {}
   - id: jpeg_exif_o6_2600.jpg
     arguments:
@@ -419,6 +449,8 @@ builtin_tool:
         mime_type: image/png
         sha256: 5e2840c88821caaf638d3c34e3e1daf0df72f00185df285430dd23214f946c41
         bytes: 103935
+        base64_len: 138580
+        canonical_base64: true
       details: {}
   - id: jpeg_exif_o6_be.jpg
     arguments:
@@ -430,6 +462,8 @@ builtin_tool:
         mime_type: image/jpeg
         sha256: 1de9dcfafe3276061f9f312a4a7df585cb65d4df2885bf266dcb45a1ce223ae6
         bytes: 681
+        base64_len: 908
+        canonical_base64: true
       details: {}
   - id: jpeg_exif_o7.jpg
     arguments:
@@ -441,6 +475,8 @@ builtin_tool:
         mime_type: image/jpeg
         sha256: c8ef50bf8e5d8ae919e565e9c5400cbe190b855238be70418871446a8213bc8d
         bytes: 684
+        base64_len: 912
+        canonical_base64: true
       details: {}
   - id: jpeg_exif_o8.jpg
     arguments:
@@ -452,6 +488,8 @@ builtin_tool:
         mime_type: image/jpeg
         sha256: 6fabbe531602469f639c810e43fef700d5443302b67e5a04933aa15bb6f77dea
         bytes: 684
+        base64_len: 912
+        canonical_base64: true
       details: {}
   - id: jpeg_exif_o9.jpg
     arguments:
@@ -463,6 +501,8 @@ builtin_tool:
         mime_type: image/jpeg
         sha256: 94e4bec75a9afd08d8c521ce5b6551f79a2c782f5aa55693c7da142d8f09040f
         bytes: 684
+        base64_len: 912
+        canonical_base64: true
       details: {}
   - id: jpeg_gray.jpg
     arguments:
@@ -474,6 +514,8 @@ builtin_tool:
         mime_type: image/jpeg
         sha256: a6df9dad471f4308a902adf54f82708a5ab3615c46260442b7d129c7988301eb
         bytes: 415
+        base64_len: 556
+        canonical_base64: true
       details: {}
   - id: jpeg_progressive.jpg
     arguments:
@@ -485,6 +527,8 @@ builtin_tool:
         mime_type: image/jpeg
         sha256: 963fca85e44ab58cc10f28ea74de0b9da30bfbd5e817dd5bf101323e2de50b13
         bytes: 639
+        base64_len: 852
+        canonical_base64: true
       details: {}
   - id: jpeg_small.jpg
     arguments:
@@ -496,6 +540,8 @@ builtin_tool:
         mime_type: image/jpeg
         sha256: 3c63fd745284e19dd8af2cd46b108e4329109b8c43066aa5d3f44aa24173bf96
         bytes: 756
+        base64_len: 1008
+        canonical_base64: true
       details: {}
   - id: png_2000x2000.png
     arguments:
@@ -507,6 +553,8 @@ builtin_tool:
         mime_type: image/png
         sha256: 2081869e194956f8006a16023217b159b7c7a84e0854aa7a6dc241ae32b3a410
         bytes: 15149
+        base64_len: 20200
+        canonical_base64: true
       details: {}
   - id: png_2001x40.png
     arguments:
@@ -521,6 +569,8 @@ builtin_tool:
         mime_type: image/png
         sha256: a6f7f40b3dcf6e963d71be1a7f4cacec896974f5da0a39e75ef1149ae08a3315
         bytes: 113202
+        base64_len: 150936
+        canonical_base64: true
       details: {}
   - id: png_2250x100.png
     arguments:
@@ -535,6 +585,8 @@ builtin_tool:
         mime_type: image/png
         sha256: fa308508675f370fa6bb5f04b5d239420a216722827e795a6147ed78739b5539
         bytes: 251599
+        base64_len: 335468
+        canonical_base64: true
       details: {}
   - id: png_4000x1001.png
     arguments:
@@ -549,6 +601,8 @@ builtin_tool:
         mime_type: image/png
         sha256: b760b8816e70363fecf61d56b99f018c8ec8426507d35b2ecda3d48d913e898f
         bytes: 1582390
+        base64_len: 2109856
+        canonical_base64: true
       details: {}
   - id: png_40x2001.png
     arguments:
@@ -563,6 +617,8 @@ builtin_tool:
         mime_type: image/png
         sha256: 26649428ae81a280facf6a6ae280fbc6d9f61a6a742e8631076db313390dd82d
         bytes: 114194
+        base64_len: 152260
+        canonical_base64: true
       details: {}
   - id: png_8001x2.png
     arguments:
@@ -584,6 +640,8 @@ builtin_tool:
         mime_type: image/png
         sha256: b01c5d0124d8df3b32d6ef4c269b442b1a055dce03dd3d03ad16f60d36669c4c
         bytes: 201
+        base64_len: 268
+        canonical_base64: true
       details: {}
   - id: png_gray16.png
     arguments:
@@ -595,6 +653,8 @@ builtin_tool:
         mime_type: image/png
         sha256: 2836c674303e23b9a70edd46243fa4359f567418756eb2de78d2c8d84c99c147
         bytes: 240
+        base64_len: 320
+        canonical_base64: true
       details: {}
   - id: png_noise_256.png
     arguments:
@@ -606,6 +666,8 @@ builtin_tool:
         mime_type: image/png
         sha256: 45843bc75d9b04b1a7aef39a6055a3450434eedc8a108f2cd4b7ad3c9eed4ab6
         bytes: 197174
+        base64_len: 262900
+        canonical_base64: true
       details: {}
   - id: png_palette.png
     arguments:
@@ -617,6 +679,8 @@ builtin_tool:
         mime_type: image/png
         sha256: ee4cfd3f102bc6e6fe51b9ea742f99e837cadb071e4e24bc908a40effbf09f18
         bytes: 299
+        base64_len: 400
+        canonical_base64: true
       details: {}
   - id: png_rgba_alpha.png
     arguments:
@@ -628,6 +692,8 @@ builtin_tool:
         mime_type: image/png
         sha256: 969352bc377eb94a7fe480f24d0b198dd6b132dd8ebb1c6c7bf095d10f26476a
         bytes: 214
+        base64_len: 288
+        canonical_base64: true
       details: {}
   - id: png_small_rgb.png
     arguments:
@@ -639,6 +705,8 @@ builtin_tool:
         mime_type: image/png
         sha256: dd2696b1dbbdce326b193f9d75d876482718f32fbd7f6b66de0b3cd3a2568f05
         bytes: 83
+        base64_len: 112
+        canonical_base64: true
       details: {}
   - id: webp_2600x40.webp
     arguments:
@@ -653,6 +721,8 @@ builtin_tool:
         mime_type: image/png
         sha256: ef0c62e80894173bbf14e2a5d54fc4a748a418931087a20be7edfe488a9725f6
         bytes: 115785
+        base64_len: 154380
+        canonical_base64: true
       details: {}
   - id: webp_alpha.webp
     arguments:
@@ -664,6 +734,8 @@ builtin_tool:
         mime_type: image/webp
         sha256: e19cf8117875d573144bb0ee18b5c23bfbe086f9e78b571f692252034d5881ab
         bytes: 78
+        base64_len: 104
+        canonical_base64: true
       details: {}
   - id: webp_animated.webp
     arguments:
@@ -675,6 +747,8 @@ builtin_tool:
         mime_type: image/webp
         sha256: cec0408012ccc57b46070cd26677d372eae59c5d0531d46348d7dd5d7a6f7726
         bytes: 616
+        base64_len: 824
+        canonical_base64: true
       details: {}
   - id: webp_exif_o6.webp
     arguments:
@@ -686,6 +760,8 @@ builtin_tool:
         mime_type: image/webp
         sha256: 05614bfca0930e526fb993c67682d820282b36017031a13f8f4824a0b1b1dad5
         bytes: 110
+        base64_len: 148
+        canonical_base64: true
       details: {}
   - id: webp_lossless.webp
     arguments:
@@ -697,6 +773,8 @@ builtin_tool:
         mime_type: image/webp
         sha256: 4738ab3b8249b6595106c6d7593da3c1803c487557ca93d94ea43c21cbf5fb81
         bytes: 58
+        base64_len: 80
+        canonical_base64: true
       details: {}
   - id: webp_lossy.webp
     arguments:
@@ -708,4 +786,6 @@ builtin_tool:
         mime_type: image/webp
         sha256: 8b7cb12068ac7a14bc2306d7cdf3a2725b4c30aa4997513579ebc725768dc7ab
         bytes: 152
+        base64_len: 204
+        canonical_base64: true
       details: {}

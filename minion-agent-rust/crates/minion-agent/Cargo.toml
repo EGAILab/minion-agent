@@ -22,6 +22,8 @@ ryu-js.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
+wasmtime.workspace = true
+minion-agent-pinned-icu = { path = "../minion-agent-pinned-icu" }
 thiserror.workspace = true
 tokio.workspace = true
 url.workspace = true
@@ -35,3 +37,4 @@ windows-sys.workspace = true
 
 [dev-dependencies]
 serde_yaml.workspace = true
+tempfile = "3"

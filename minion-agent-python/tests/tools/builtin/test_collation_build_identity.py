@@ -202,6 +202,36 @@ def test_windows_inventory_grows_past_a_small_buffer() -> None:
 
 
 @windows_only
+@pytest.mark.parametrize(("result", "why"), [("zero", "failed"), ("full", "truncated")])
+def test_windows_module_path_lookup_failure_fails_closed(
+    monkeypatch: pytest.MonkeyPatch, result: str, why: str
+) -> None:
+    """FR003 targeted review (R-F1): a loaded module whose path cannot be read -- lookup failure
+    (0) or truncation (the buffer's size) -- makes the inventory incomplete, so loading fails
+    closed instead of silently leaving that module unverified."""
+    real = collation._module_file_name
+    calls = []
+
+    def lookup(kernel32: object, handle: object, buffer: object) -> int:
+        calls.append(handle)
+        if len(calls) == 2:  # one enumerated module among the others
+            return 0 if result == "zero" else len(buffer)  # type: ignore[arg-type]
+        return real(kernel32, handle, buffer)
+
+    monkeypatch.setattr(collation, "_module_file_name", lookup)
+    with pytest.raises(PinnedIcuError, match=f"GetModuleFileNameW {why}"):
+        collation._loaded_windows_modules()
+
+
+def test_an_unreadable_listed_instance_fails_closed(tmp_path: Path, build: dict[str, Path]) -> None:
+    """An instance that is listed but cannot be read (e.g. a deleted mapping) is not verified."""
+    identity = _identity(tmp_path / "id", build)
+    gone = str(tmp_path / "gone" / "icuin78.dll")
+    with pytest.raises(PinnedIcuError, match="cannot be read to verify"):
+        verify_build_identity([str(f) for f in build.values()] + [gone], identity)
+
+
+@windows_only
 def test_windows_inventory_failure_fails_closed(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(collation, "_enum_process_modules", lambda *args: False)
     with pytest.raises(PinnedIcuError, match="cannot enumerate the process's loaded modules"):

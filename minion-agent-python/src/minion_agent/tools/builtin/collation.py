@@ -79,6 +79,11 @@ def _enum_process_modules(psapi: Any, process: Any, handles: Any, needed: Any) -
     return bool(psapi.EnumProcessModules(process, handles, ctypes.sizeof(handles), needed))
 
 
+def _module_file_name(kernel32: Any, handle: Any, buffer: Any) -> int:
+    """`GetModuleFileNameW`: the path's length, 0 on failure, the buffer's size if truncated."""
+    return int(kernel32.GetModuleFileNameW(handle, buffer, len(buffer)))
+
+
 def _loaded_windows_modules(capacity: int = 1024) -> list[str]:
     """Every module loaded into this process (`EnumProcessModules`): a second module with the same
     base name loaded from another directory is a separate entry, unlike `GetModuleHandleW`."""
@@ -108,8 +113,16 @@ def _loaded_windows_modules(capacity: int = 1024) -> list[str]:
     modules: list[str] = []
     buffer = ctypes.create_unicode_buffer(32768)
     for index in range(needed.value // ctypes.sizeof(wintypes.HMODULE)):
-        if kernel32.GetModuleFileNameW(handles[index], buffer, len(buffer)):
-            modules.append(buffer.value)
+        # A module whose full path cannot be read cannot be classified or verified, so the
+        # inventory would no longer be complete (R-F1): fail closed rather than skip it.
+        length = _module_file_name(kernel32, handles[index], buffer)
+        if length == 0 or length >= len(buffer):
+            raise PinnedIcuError(
+                "cannot read the full path of a loaded module (GetModuleFileNameW "
+                f"{'failed' if length == 0 else 'truncated'}); the ICU inventory would be "
+                "incomplete"
+            )
+        modules.append(buffer.value)
     return modules
 
 
@@ -189,7 +202,13 @@ def verify_build_identity(instances: Sequence[str], identity_path: str | None) -
                 f"loaded ICU library {path} is not part of the verified ICU {PINNED_ICU} build"
             )
         role, expected = listed
-        actual = _sha256(path)
+        try:
+            actual = _sha256(path)
+        except OSError as exc:
+            # e.g. a mapping whose file was deleted or replaced: it cannot be verified.
+            raise PinnedIcuError(
+                f"loaded ICU library {path} cannot be read to verify: {exc}"
+            ) from exc
         if actual != expected:
             raise PinnedIcuError(
                 f"loaded ICU library {role} ({path}) is not the verified ICU {PINNED_ICU} build: "

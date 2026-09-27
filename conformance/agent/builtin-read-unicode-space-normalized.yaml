@@ -1,0 +1,66 @@
+name: builtin-read-unicode-space-normalized
+family: agent
+authority: minion-agent-docs spec/tools.md WP-13.1 (master f46051fb)
+pi_revision: b7bb00b936dbe21b8e160b3e89efdec361846699
+requirements:
+- TOOL-026
+witnesses:
+- read_unicode_space_normalized
+notes: The closed Unicode space set (U+00A0, U+2000-U+200A, U+202F, U+205F, U+3000) becomes an ASCII space
+  before resolution.
+builtin_tool:
+  tool: read
+  fixture:
+  - path: a b.txt
+    file:
+      text: ok
+  cases:
+  - id: U+00A0
+    arguments:
+      path: "a\_b.txt"
+    expect:
+      is_error: false
+      text: ok
+      details: {}
+  - id: U+2000
+    arguments:
+      path: "a\u2000b.txt"
+    expect:
+      is_error: false
+      text: ok
+      details: {}
+  - id: U+200A
+    arguments:
+      path: "a\u200Ab.txt"
+    expect:
+      is_error: false
+      text: ok
+      details: {}
+  - id: U+202F
+    arguments:
+      path: "a\u202Fb.txt"
+    expect:
+      is_error: false
+      text: ok
+      details: {}
+  - id: U+205F
+    arguments:
+      path: "a\u205Fb.txt"
+    expect:
+      is_error: false
+      text: ok
+      details: {}
+  - id: U+3000
+    arguments:
+      path: "a\u3000b.txt"
+    expect:
+      is_error: false
+      text: ok
+      details: {}
+  - id: U+200B-not-in-set
+    arguments:
+      path: "a\u200Bb.txt"
+    expect:
+      is_error: true
+      text: "Cannot access {abs:a\u200Bb.txt}: no such file or directory"
+      details: {}

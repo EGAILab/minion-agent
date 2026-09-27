@@ -1,0 +1,39 @@
+name: builtin-ls-lazy-cap-never-probes-beyond-limit
+family: agent
+authority: minion-agent-docs spec/tools.md WP-13.1 (master f46051fb)
+pi_revision: b7bb00b936dbe21b8e160b3e89efdec361846699
+requirements:
+- TOOL-028
+witnesses:
+- ls_lazy_cap_never_probes_beyond_limit
+notes: 'EXEC-007 lazy cap: sorted [a_ok, z_slow], limit=1 -> only a_ok is probed.'
+builtin_tool:
+  tool: ls
+  fixture:
+  - path: z_slow
+    file:
+      text: x
+  - path: a_ok
+    file:
+      text: x
+  provider:
+    list_dir_raw:
+    - path: .
+      names:
+      - z_slow
+      - a_ok
+  cases:
+  - id: cap
+    arguments:
+      limit: 1
+    expect:
+      is_error: false
+      text: 'a_ok
+
+
+        [1 entries limit reached. Use limit=2 for more]'
+      details:
+        entry_limit_reached: 1
+      probed_entries:
+      - .
+      - a_ok

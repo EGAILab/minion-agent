@@ -1,0 +1,33 @@
+name: builtin-read-image-bmp-converts-and-resizes
+family: agent
+authority: minion-agent-docs spec/tools.md WP-13.1 (master f46051fb)
+pi_revision: b7bb00b936dbe21b8e160b3e89efdec361846699
+requirements:
+- TOOL-025
+witnesses:
+- read_image_bmp_converts_and_resizes
+notes: 'A BMP wider than 2000 px converts to PNG, then resizes: the conversion hint (base MIME types,
+  IMPL-C011) precedes the dimension hint (toFixed(2) scale). Bytes from pinned Pi.'
+builtin_tool:
+  tool: read
+  fixture:
+  - path: bmp_2100x20.bmp
+    file:
+      fixture_file: r005a-photon/bmp_2100x20.bmp
+  cases:
+  - id: bmp_2100x20.bmp
+    arguments:
+      path: bmp_2100x20.bmp
+    expect:
+      is_error: false
+      text: 'Read image file [image/png]
+
+        [Image converted from image/bmp to image/png.]
+
+        [Image: original 2100x20, displayed at 2000x19. Multiply coordinates by 1.05 to map to original
+        image.]'
+      image:
+        mime_type: image/png
+        sha256: 26d0520f76e95bd495ae5eed3c4fb33c7d4987dbd6cdc5f9f904807a523f3997
+        bytes: 54868
+      details: {}

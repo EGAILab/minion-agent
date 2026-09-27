@@ -1,0 +1,42 @@
+name: builtin-ls-collation-case-ties-keep-enumeration-order-order-b
+family: agent
+authority: minion-agent-docs spec/tools.md WP-13.1 (master f46051fb)
+pi_revision: b7bb00b936dbe21b8e160b3e89efdec361846699
+requirements:
+- TOOL-028
+- TOOL-040
+witnesses:
+- ls_collation_case_ties_keep_enumeration_order
+notes: 'Keys that compare equal (apple/Apple/APPLE lowercase identically) keep list_dir_raw order: the
+  sort is stable.'
+builtin_tool:
+  tool: ls
+  fixture:
+  - path: d
+    dir: true
+  provider:
+    list_dir_raw:
+    - path: d
+      names:
+      - APPLE
+      - apple
+      - Apple
+    probe_dir_entry:
+    - path: d/APPLE
+      kind: file
+    - path: d/Apple
+      kind: file
+    - path: d/apple
+      kind: file
+  cases:
+  - id: order-b
+    arguments:
+      path: d
+    expect:
+      is_error: false
+      text: 'APPLE
+
+        apple
+
+        Apple'
+      details: {}

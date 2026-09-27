@@ -1,0 +1,56 @@
+name: builtin-read-offset-out-of-bounds
+family: agent
+authority: minion-agent-docs spec/tools.md WP-13.1 (master f46051fb)
+pi_revision: b7bb00b936dbe21b8e160b3e89efdec361846699
+requirements:
+- TOOL-025
+witnesses:
+- read_offset_out_of_bounds
+notes: 'An offset at or past the line count (after the Math.max(0, offset - 1) coercion) is the one rejected
+  offset: Pi''s ''Offset N is beyond end of file (M lines total)'' with N rendered by Number::toString.
+  A trailing newline makes an empty last line, which IS addressable.'
+builtin_tool:
+  tool: read
+  fixture:
+  - path: three.txt
+    file:
+      text: 'a
+
+        b
+
+        '
+  cases:
+  - id: last-empty-line-addressable
+    arguments:
+      path: three.txt
+      offset: 3
+    expect:
+      is_error: false
+      text: ''
+      image: null
+      details: {}
+  - id: past-end
+    arguments:
+      path: three.txt
+      offset: 4
+    expect:
+      is_error: true
+      text: Offset 4 is beyond end of file (3 lines total)
+      details: {}
+  - id: fractional-past-end
+    arguments:
+      path: three.txt
+      offset: 5.5
+    expect:
+      is_error: true
+      text: Offset 5.5 is beyond end of file (3 lines total)
+      details: {}
+  - id: fractional-inside
+    arguments:
+      path: three.txt
+      offset: 3.5
+    expect:
+      is_error: false
+      text: ''
+      image: null
+      details: {}

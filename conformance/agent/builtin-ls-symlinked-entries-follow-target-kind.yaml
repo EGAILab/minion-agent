@@ -1,0 +1,34 @@
+name: builtin-ls-symlinked-entries-follow-target-kind
+family: agent
+authority: minion-agent-docs spec/tools.md WP-13.1 (master f46051fb)
+pi_revision: b7bb00b936dbe21b8e160b3e89efdec361846699
+requirements:
+- TOOL-028
+witnesses:
+- ls_symlinked_entries_follow_target_kind
+notes: A symlink to a directory is listed 'name/'; a symlink to a file is listed 'name'.
+builtin_tool:
+  tool: ls
+  fixture:
+  - path: d
+    dir: true
+  - path: f
+    file:
+      text: x
+  - path: ld
+    symlink: d
+  - path: lf
+    symlink: f
+  cases:
+  - id: follow
+    arguments: {}
+    expect:
+      is_error: false
+      text: 'd/
+
+        f
+
+        ld/
+
+        lf'
+      details: {}

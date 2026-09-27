@@ -1,0 +1,153 @@
+name: builtin-read-fractional-and-negative-numeric-inputs
+family: agent
+authority: minion-agent-docs spec/tools.md WP-13.1 (master f46051fb)
+pi_revision: b7bb00b936dbe21b8e160b3e89efdec361846699
+requirements:
+- TOOL-025
+witnesses:
+- read_fractional_and_negative_numeric_inputs
+notes: 'offset/limit are unconstrained JSON numbers with JS arithmetic: a falsy offset (0) starts at line
+  1; a negative offset clamps to 0; Array.prototype.slice truncates fractions and counts a NEGATIVE end
+  from the end of the array (limit=-3 selects lines 1-7, IMPL-C008); notices render fractional values
+  with Number::toString.'
+builtin_tool:
+  tool: read
+  fixture:
+  - path: ten.txt
+    file:
+      lines:
+        count: 10
+        template: L{n}
+  cases:
+  - id: offset-2.5-limit--1
+    arguments:
+      path: ten.txt
+      offset: 2.5
+      limit: -1
+    expect:
+      is_error: false
+      text: '
+
+
+        [9.5 more lines in file. Use offset=1.5 to continue.]'
+      image: null
+      details: {}
+  - id: offset-None-limit--3
+    arguments:
+      path: ten.txt
+      limit: -3
+    expect:
+      is_error: false
+      text: 'L1
+
+        L2
+
+        L3
+
+        L4
+
+        L5
+
+        L6
+
+        L7
+
+
+        [13 more lines in file. Use offset=-2 to continue.]'
+      image: null
+      details: {}
+  - id: offset-2.5-limit--5
+    arguments:
+      path: ten.txt
+      offset: 2.5
+      limit: -5
+    expect:
+      is_error: false
+      text: 'L2
+
+        L3
+
+        L4
+
+        L5
+
+        L6
+
+        L7
+
+
+        [13.5 more lines in file. Use offset=-2.5 to continue.]'
+      image: null
+      details: {}
+  - id: offset-3-limit-2.5
+    arguments:
+      path: ten.txt
+      offset: 3
+      limit: 2.5
+    expect:
+      is_error: false
+      text: 'L3
+
+        L4
+
+
+        [5.5 more lines in file. Use offset=5.5 to continue.]'
+      image: null
+      details: {}
+  - id: offset-0-limit--100
+    arguments:
+      path: ten.txt
+      offset: 0
+      limit: -100
+    expect:
+      is_error: false
+      text: '
+
+
+        [110 more lines in file. Use offset=-99 to continue.]'
+      image: null
+      details: {}
+  - id: offset--5-limit-2
+    arguments:
+      path: ten.txt
+      offset: -5
+      limit: 2
+    expect:
+      is_error: false
+      text: 'L1
+
+        L2
+
+
+        [8 more lines in file. Use offset=3 to continue.]'
+      image: null
+      details: {}
+  - id: offset-0-limit-3
+    arguments:
+      path: ten.txt
+      offset: 0
+      limit: 3
+    expect:
+      is_error: false
+      text: 'L1
+
+        L2
+
+        L3
+
+
+        [7 more lines in file. Use offset=4 to continue.]'
+      image: null
+      details: {}
+  - id: offset-None-limit-0
+    arguments:
+      path: ten.txt
+      limit: 0
+    expect:
+      is_error: false
+      text: '
+
+
+        [10 more lines in file. Use offset=1 to continue.]'
+      image: null
+      details: {}

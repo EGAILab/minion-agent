@@ -1,0 +1,36 @@
+name: builtin-ls-fractional-limit-verbatim
+family: agent
+authority: minion-agent-docs spec/tools.md WP-13.1 (master f46051fb)
+pi_revision: b7bb00b936dbe21b8e160b3e89efdec361846699
+requirements:
+- TOOL-028
+witnesses:
+- ls_fractional_limit_verbatim
+notes: limit=1.5 lists 2 entries; entry_limit_reached and both notice numbers are rendered verbatim (1.5
+  and 3), never rounded, never the listed count.
+builtin_tool:
+  tool: ls
+  fixture:
+  - path: a
+    file:
+      text: x
+  - path: b
+    file:
+      text: x
+  - path: c
+    file:
+      text: x
+  cases:
+  - id: fractional
+    arguments:
+      limit: 1.5
+    expect:
+      is_error: false
+      text: 'a
+
+        b
+
+
+        [1.5 entries limit reached. Use limit=3 for more]'
+      details:
+        entry_limit_reached: 1.5

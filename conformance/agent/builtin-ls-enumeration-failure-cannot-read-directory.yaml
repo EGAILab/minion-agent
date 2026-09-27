@@ -1,0 +1,50 @@
+name: builtin-ls-enumeration-failure-cannot-read-directory
+family: agent
+authority: minion-agent-docs spec/tools.md WP-13.1 (master f46051fb)
+pi_revision: b7bb00b936dbe21b8e160b3e89efdec361846699
+requirements:
+- TOOL-028
+- TOOL-039
+witnesses:
+- ls_enumeration_failure_cannot_read_directory
+notes: 'A list_dir_raw failure is Pi''s ''Cannot read directory: '' wrapper with the R010-B cause phrase
+  in place of Node''s raw message.'
+builtin_tool:
+  tool: ls
+  fixture:
+  - path: d_permission_denied
+    dir: true
+  - path: d_not_found
+    dir: true
+  - path: d_unknown
+    dir: true
+  provider:
+    list_dir_raw:
+    - path: d_permission_denied
+      error: permission_denied
+    - path: d_not_found
+      error: not_found
+    - path: d_unknown
+      error: unknown
+  cases:
+  - id: permission_denied
+    arguments:
+      path: d_permission_denied
+    expect:
+      is_error: true
+      text: 'Cannot read directory: permission denied'
+      details: {}
+  - id: not_found
+    arguments:
+      path: d_not_found
+    expect:
+      is_error: true
+      text: 'Cannot read directory: no such file or directory'
+      details: {}
+  - id: unknown
+    arguments:
+      path: d_unknown
+    expect:
+      is_error: true
+      text: 'Cannot read directory: unknown filesystem error'
+      details: {}

@@ -1,0 +1,104 @@
+name: builtin-ls-collation-r006c-corpus-order
+family: agent
+authority: minion-agent-docs spec/tools.md WP-13.1 (master f46051fb)
+pi_revision: b7bb00b936dbe21b8e160b3e89efdec361846699
+requirements:
+- TOOL-028
+- TOOL-040
+witnesses:
+- ls_collation_r006c_corpus_order
+notes: The 24-name Part 6 corpus in its recorded enumeration order sorts to the R006-C order (pinned PyICU/ICU
+  78.3, en-001, TERTIARY, NUMERIC off, CASE_FIRST off, NORMALIZATION on, ICU root lowercase keys; r006-c-differential-v2
+  icu_lowercased).
+builtin_tool:
+  tool: ls
+  fixture:
+  - path: d
+    dir: true
+  provider:
+    list_dir_raw:
+    - path: d
+      names:
+      - apple
+      - Apple
+      - APPLE
+      - banana
+      - Banana
+      - "caf\xE9"
+      - cafe
+      - "Caf\xE9"
+      - "stra\xDFe"
+      - strasse
+      - STRASSE
+      - file1
+      - file10
+      - file2
+      - a-b
+      - a_b
+      - a.b
+      - a b
+      - "e\u0301"
+      - "\xE9"
+      - "\u65E5\u672C\u8A9E"
+      - "\u306B\u307B\u3093\u3054"
+      - "Stra\xDFe"
+      - strasse2
+    probe_dir_entry:
+    - path: d/APPLE
+      kind: file
+    - path: d/Apple
+      kind: file
+    - path: d/Banana
+      kind: file
+    - path: "d/Caf\xE9"
+      kind: file
+    - path: d/STRASSE
+      kind: file
+    - path: "d/Stra\xDFe"
+      kind: file
+    - path: d/a b
+      kind: file
+    - path: d/a-b
+      kind: file
+    - path: d/a.b
+      kind: file
+    - path: d/a_b
+      kind: file
+    - path: d/apple
+      kind: file
+    - path: d/banana
+      kind: file
+    - path: d/cafe
+      kind: file
+    - path: "d/caf\xE9"
+      kind: file
+    - path: "d/e\u0301"
+      kind: file
+    - path: d/file1
+      kind: file
+    - path: d/file10
+      kind: file
+    - path: d/file2
+      kind: file
+    - path: d/strasse
+      kind: file
+    - path: d/strasse2
+      kind: file
+    - path: "d/stra\xDFe"
+      kind: file
+    - path: "d/\xE9"
+      kind: file
+    - path: "d/\u306B\u307B\u3093\u3054"
+      kind: file
+    - path: "d/\u65E5\u672C\u8A9E"
+      kind: file
+  cases:
+  - id: corpus
+    arguments:
+      path: d
+    expect:
+      is_error: false
+      text: "a b\na_b\na-b\na.b\napple\nApple\nAPPLE\nbanana\nBanana\ncafe\ncaf\xE9\nCaf\xE9\ne\u0301\n\
+        \xE9\nfile1\nfile10\nfile2\nstrasse\nSTRASSE\nstra\xDFe\nStra\xDFe\nstrasse2\n\u306B\u307B\u3093\
+        \u3054\n\u65E5\u672C\u8A9E"
+      details: {}

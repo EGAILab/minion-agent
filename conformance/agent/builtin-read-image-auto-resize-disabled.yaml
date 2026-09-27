@@ -1,0 +1,47 @@
+name: builtin-read-image-auto-resize-disabled
+family: agent
+authority: minion-agent-docs spec/tools.md WP-13.1 (master f46051fb)
+pi_revision: b7bb00b936dbe21b8e160b3e89efdec361846699
+requirements:
+- TOOL-025
+witnesses:
+- read_image_auto_resize_disabled
+notes: 'autoResizeImages=false: no resize, no dimension hint; a BMP still converts (hint kept). png_2001x40
+  passes through unchanged (its own bytes); bmp_24''s PNG equals Pi''s conversion output (pinned Pi returned
+  it unresized).'
+builtin_tool:
+  tool: read
+  fixture:
+  - path: png_2001x40.png
+    file:
+      fixture_file: r005a-photon/png_2001x40.png
+  - path: bmp_24.bmp
+    file:
+      fixture_file: r005a-photon/bmp_24.bmp
+  options:
+    auto_resize_images: false
+  cases:
+  - id: png-unresized
+    arguments:
+      path: png_2001x40.png
+    expect:
+      is_error: false
+      text: Read image file [image/png]
+      image:
+        mime_type: image/png
+        sha256: b326cd1ec37bb035246cbd3bbad416a4ce178e1a35dcdb1ab491b4026ef017d5
+        bytes: 1296
+      details: {}
+  - id: bmp-converted
+    arguments:
+      path: bmp_24.bmp
+    expect:
+      is_error: false
+      text: 'Read image file [image/png]
+
+        [Image converted from image/bmp to image/png.]'
+      image:
+        mime_type: image/png
+        sha256: 54063b9f5c6cf330e48d6bb33d20986bf6257c0ef4a9187ebd16b8a56db8f15a
+        bytes: 926
+      details: {}

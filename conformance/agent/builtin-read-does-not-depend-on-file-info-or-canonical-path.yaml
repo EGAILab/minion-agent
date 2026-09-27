@@ -1,0 +1,36 @@
+name: builtin-read-does-not-depend-on-file-info-or-canonical-path
+family: agent
+authority: minion-agent-docs spec/tools.md WP-13.1 (master f46051fb)
+pi_revision: b7bb00b936dbe21b8e160b3e89efdec361846699
+requirements:
+- TOOL-025
+- TOOL-026
+witnesses:
+- W-G16
+notes: 'TOOL-026 step 5 (CE13-C006): read''s filesystem access is check_readable then read_binary_file
+  only. A conforming provider whose file_info and canonical_path answer not_supported still reads a readable
+  file, and neither operation is called.'
+builtin_tool:
+  tool: read
+  fixture:
+  - path: a.txt
+    file:
+      text: hello
+  provider:
+    file_info:
+    - path: a.txt
+      error: not_supported
+    canonical_path:
+    - path: a.txt
+      error: not_supported
+  cases:
+  - id: reads-without-file-info
+    arguments:
+      path: a.txt
+    expect:
+      is_error: false
+      text: hello
+      details: {}
+      fs_calls:
+      - check_readable a.txt
+      - read_binary_file a.txt

@@ -360,6 +360,13 @@ def _file_url_to_path(url: str) -> str:
     return pathname if pathname else "/"
 
 
+file_url_to_path = _file_url_to_path
+"""The same certified conversion under a public name, for callers that need its failure UNWRAPPED
+(spec/tools.md `TOOL-026` step 4, `R002-A`: a malformed `file://` path is rejected before any
+`ctx.fs` access). Visibility only -- no behavior change; `resolve_local_path` keeps its own
+suppress-and-fall-through wrapper. Raises `ValueError` (or `OSError`) on a malformed URL."""
+
+
 def _aborted(path: str | None = None) -> FsError:
     return FsError(FsErrorCode.ABORTED, "aborted", path)
 

@@ -1,0 +1,77 @@
+name: builtin-read-image-processing-failure-is-text-only-success
+family: agent
+authority: minion-agent-docs spec/tools.md WP-13.1 (master f46051fb)
+pi_revision: b7bb00b936dbe21b8e160b3e89efdec361846699
+requirements:
+- TOOL-025
+witnesses:
+- read_image_processing_failure_is_text_only_success
+notes: 'Sniff-positive inputs Photon cannot process are a TEXT-ONLY SUCCESS, not a tool error: a BMP conversion
+  failure, an undecodable PNG, and an 8001x2 PNG whose resize target is 2000x0 (Math.round(0.4999)) so
+  Photon''s encode traps. The sniffed MIME is quoted and the non-vision note still appends.'
+builtin_tool:
+  tool: read
+  fixture:
+  - path: bmp_truncated.bmp
+    file:
+      fixture_file: r005a-photon/bmp_truncated.bmp
+  - path: bad_png_truncated.png
+    file:
+      fixture_file: r005a-photon/bad_png_truncated.png
+  - path: png_8001x2.png
+    file:
+      fixture_file: r005a-photon/png_8001x2.png
+  - path: bad_jpeg_soi_garbage.jpg
+    file:
+      fixture_file: r005a-photon/bad_jpeg_soi_garbage.jpg
+  options:
+    model_supports_images: false
+  cases:
+  - id: bmp_truncated.bmp
+    arguments:
+      path: bmp_truncated.bmp
+    expect:
+      is_error: false
+      text: 'Read image file [image/bmp]
+
+        [Image omitted: could not be converted to a supported inline image format.]
+
+        [Current model does not support images. The image will be omitted from this request.]'
+      image: null
+      details: {}
+  - id: bad_png_truncated.png
+    arguments:
+      path: bad_png_truncated.png
+    expect:
+      is_error: false
+      text: 'Read image file [image/png]
+
+        [Image omitted: could not be resized below the inline image size limit.]
+
+        [Current model does not support images. The image will be omitted from this request.]'
+      image: null
+      details: {}
+  - id: png_8001x2.png
+    arguments:
+      path: png_8001x2.png
+    expect:
+      is_error: false
+      text: 'Read image file [image/png]
+
+        [Image omitted: could not be resized below the inline image size limit.]
+
+        [Current model does not support images. The image will be omitted from this request.]'
+      image: null
+      details: {}
+  - id: bad_jpeg_soi_garbage.jpg
+    arguments:
+      path: bad_jpeg_soi_garbage.jpg
+    expect:
+      is_error: false
+      text: 'Read image file [image/jpeg]
+
+        [Image omitted: could not be resized below the inline image size limit.]
+
+        [Current model does not support images. The image will be omitted from this request.]'
+      image: null
+      details: {}

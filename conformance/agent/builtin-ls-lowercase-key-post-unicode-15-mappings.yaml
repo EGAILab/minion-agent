@@ -1,0 +1,52 @@
+name: builtin-ls-lowercase-key-post-unicode-15-mappings
+family: agent
+authority: minion-agent-docs spec/tools.md WP-13.1 (master f46051fb)
+pi_revision: b7bb00b936dbe21b8e160b3e89efdec361846699
+requirements:
+- TOOL-028
+- TOOL-040
+witnesses:
+- ls_lowercase_key_uses_pinned_icu_root_mapping
+notes: 'Discriminating witness for the key function: case pairs added after Unicode 15.1 (U+A7CB/U+0264,
+  Garay U+10D50/U+10D70, U+1C89/U+1C8A) lowercase to the SAME key only with ICU 78.3 (Unicode 17), so
+  each pair ties and keeps enumeration order; a host-language lowercase that predates them sorts them
+  apart. Expected order computed by the pinned PyICU/ICU 78.3 engine itself.'
+builtin_tool:
+  tool: ls
+  fixture:
+  - path: d
+    dir: true
+  provider:
+    list_dir_raw:
+    - path: d
+      names:
+      - a
+      - "\uA7CB"
+      - "\u0264"
+      - "\U00010D50"
+      - "\U00010D70"
+      - "\u1C89"
+      - "\u1C8A"
+    probe_dir_entry:
+    - path: d/a
+      kind: file
+    - path: "d/\uA7CB"
+      kind: file
+    - path: "d/\u0264"
+      kind: file
+    - path: "d/\U00010D50"
+      kind: file
+    - path: "d/\U00010D70"
+      kind: file
+    - path: "d/\u1C89"
+      kind: file
+    - path: "d/\u1C8A"
+      kind: file
+  cases:
+  - id: post-15-pairs
+    arguments:
+      path: d
+    expect:
+      is_error: false
+      text: "a\n\uA7CB\n\u0264\n\u1C89\n\u1C8A\n\U00010D50\n\U00010D70"
+      details: {}

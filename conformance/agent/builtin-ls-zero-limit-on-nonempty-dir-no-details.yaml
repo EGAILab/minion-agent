@@ -1,0 +1,43 @@
+name: builtin-ls-zero-limit-on-nonempty-dir-no-details
+family: agent
+authority: minion-agent-docs spec/tools.md WP-13.1 (master f46051fb)
+pi_revision: b7bb00b936dbe21b8e160b3e89efdec361846699
+requirements:
+- TOOL-028
+witnesses:
+- ls_zero_limit_on_nonempty_dir_no_details
+notes: 'limit <= 0 on a non-empty directory: the cap fires before any entry, zero results -> ''(empty
+  directory)'' with no details (Pi returns before building details).'
+builtin_tool:
+  tool: ls
+  fixture:
+  - path: a
+    file:
+      text: x
+  - path: b
+    file:
+      text: x
+  - path: empty
+    dir: true
+  cases:
+  - id: limit-0
+    arguments:
+      limit: 0
+    expect:
+      is_error: false
+      text: (empty directory)
+      details: {}
+  - id: limit--1
+    arguments:
+      limit: -1
+    expect:
+      is_error: false
+      text: (empty directory)
+      details: {}
+  - id: empty-dir
+    arguments:
+      path: empty
+    expect:
+      is_error: false
+      text: (empty directory)
+      details: {}

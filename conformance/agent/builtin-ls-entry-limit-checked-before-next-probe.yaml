@@ -1,0 +1,38 @@
+name: builtin-ls-entry-limit-checked-before-next-probe
+family: agent
+authority: minion-agent-docs spec/tools.md WP-13.1 (master f46051fb)
+pi_revision: b7bb00b936dbe21b8e160b3e89efdec361846699
+requirements:
+- TOOL-028
+witnesses:
+- ls_entry_limit_checked_before_next_probe
+notes: 'The cap is checked BEFORE each probe: with limit=1 the cap is reported even though the next entry''s
+  own probe would have failed (it is never probed).'
+builtin_tool:
+  tool: ls
+  fixture:
+  - path: a
+    file:
+      text: x
+  - path: b
+    file:
+      text: x
+  provider:
+    probe_dir_entry:
+    - path: b
+      error: not_found
+  cases:
+  - id: cap-before-probe
+    arguments:
+      limit: 1
+    expect:
+      is_error: false
+      text: 'a
+
+
+        [1 entries limit reached. Use limit=2 for more]'
+      details:
+        entry_limit_reached: 1
+      probed_entries:
+      - .
+      - a

@@ -1,0 +1,35 @@
+name: builtin-ls-collation-canonical-equivalents-tie-order-a
+family: agent
+authority: minion-agent-docs spec/tools.md WP-13.1 (master f46051fb)
+pi_revision: b7bb00b936dbe21b8e160b3e89efdec361846699
+requirements:
+- TOOL-028
+- TOOL-040
+witnesses:
+- ls_collation_canonical_equivalents_tie
+notes: A non-FCD canonically-equivalent pair compares equal only with NORMALIZATION_MODE on, so it keeps
+  enumeration order.
+builtin_tool:
+  tool: ls
+  fixture:
+  - path: d
+    dir: true
+  provider:
+    list_dir_raw:
+    - path: d
+      names:
+      - "a\u0302\u0323"
+      - "a\u0323\u0302"
+    probe_dir_entry:
+    - path: "d/a\u0302\u0323"
+      kind: file
+    - path: "d/a\u0323\u0302"
+      kind: file
+  cases:
+  - id: order-a
+    arguments:
+      path: d
+    expect:
+      is_error: false
+      text: "a\u0302\u0323\na\u0323\u0302"
+      details: {}

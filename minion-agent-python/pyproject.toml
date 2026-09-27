@@ -14,6 +14,12 @@ dependencies = [
     "httpx>=0.27",
     "url-py>=2026.5.1",
     "ada-url==1.15.3",
+    # WP-13.1 `read` image processing (R005-A): executes the pinned photon-node 0.3.4
+    # photon_rs_bg.wasm, exactly the runtime the R005-A evidence proved against pinned Pi.
+    "wasmtime==49.0.0",
+    # WP-13.1 `ls` collation (R006-C): PyICU 2.16.2 linked against ONE pinned ICU 78.3 build.
+    # There is no usable wheel; see scripts/pinned-icu/README.md for building it.
+    "pyicu==2.16.2",
 ]
 
 [dependency-groups]
@@ -26,6 +32,13 @@ dev = [
     "mypy>=1.10",
     "types-jsonschema>=4.22",
 ]
+
+# PyICU is built from its sdist against the pinned ICU 78.3 (scripts/pinned-icu/). Static metadata
+# lets `uv lock` resolve it without building; the lock still pins the sdist's hash.
+[[tool.uv.dependency-metadata]]
+name = "pyicu"
+version = "2.16.2"
+requires-dist = []
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/minion_agent"]
@@ -46,6 +59,11 @@ select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
 python_version = "3.12"
 strict = true
 files = ["src/minion_agent"]
+
+[[tool.mypy.overrides]]
+# PyICU ships no type information (WP-13.1 `ls` collation).
+module = ["icu"]
+ignore_missing_imports = true
 
 [tool.coverage.run]
 source = [

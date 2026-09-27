@@ -1,0 +1,30 @@
+name: builtin-read-abort-at-the-access-checkpoint-fallback-mode
+family: agent
+authority: minion-agent-docs spec/tools.md WP-13.1 (master f46051fb)
+pi_revision: b7bb00b936dbe21b8e160b3e89efdec361846699
+requirements:
+- TOOL-025
+witnesses:
+- W-G15
+notes: 'The FALLBACK-mode half of the read.ts:249 checkpoint: a provider without EXEC-008 answers check_readable
+  -> not_supported, the signal aborts as it returns, and read stops before any content read (CE13-C005;
+  spec/execution.md section 12.5).'
+builtin_tool:
+  tool: read
+  fixture:
+  - path: a.txt
+    file:
+      text: hello
+  provider:
+    without_exec_008: true
+  cases:
+  - id: fallback-mode
+    abort_after: check_readable
+    arguments:
+      path: a.txt
+    expect:
+      is_error: true
+      text: Operation aborted
+      details: {}
+      fs_calls:
+      - check_readable a.txt

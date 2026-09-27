@@ -1,0 +1,30 @@
+name: builtin-read-malformed-file-url-rejected-before-ctx-fs-access-as-invalid
+family: agent
+authority: minion-agent-docs spec/tools.md WP-13.1 (master f46051fb)
+pi_revision: b7bb00b936dbe21b8e160b3e89efdec361846699
+requirements:
+- TOOL-026
+- TOOL-039
+witnesses:
+- malformed_file_url_rejected_before_ctx_fs_access_as_invalid
+notes: 'R002-A: a malformed file:// URL is rejected by the strict conversion at pipeline step 4, before
+  ANY ctx.fs call, as ''Cannot access <path>: invalid path'' where <path> is the step-4 input string (IMPL-C003).'
+builtin_tool:
+  tool: read
+  cases:
+  - id: file:///%ZZ
+    arguments:
+      path: file:///%ZZ
+    expect:
+      is_error: true
+      text: 'Cannot access file:///%ZZ: invalid path'
+      details: {}
+      fs_calls: []
+  - id: file:///a%2Fb
+    arguments:
+      path: file:///a%2Fb
+    expect:
+      is_error: true
+      text: 'Cannot access file:///a%2Fb: invalid path'
+      details: {}
+      fs_calls: []

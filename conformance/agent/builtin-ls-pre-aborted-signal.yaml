@@ -1,0 +1,24 @@
+name: builtin-ls-pre-aborted-signal
+family: agent
+authority: minion-agent-docs spec/tools.md WP-13.1 (master f46051fb)
+pi_revision: b7bb00b936dbe21b8e160b3e89efdec361846699
+requirements:
+- TOOL-028
+witnesses:
+- ls_pre_aborted_signal
+notes: An already-aborted signal rejects with 'Operation aborted' before any ctx.fs call.
+builtin_tool:
+  tool: ls
+  fixture:
+  - path: a
+    file:
+      text: x
+  cases:
+  - id: pre-aborted
+    signal: pre_aborted
+    arguments: {}
+    expect:
+      is_error: true
+      text: Operation aborted
+      details: {}
+      fs_calls: []

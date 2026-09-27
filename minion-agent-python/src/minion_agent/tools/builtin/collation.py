@@ -7,10 +7,12 @@ language's own lowercase/sort), so loading verifies both the binding and the ICU
 at runtime -- `icu.ICU_VERSION` is only the version PyICU was compiled against.
 
 Version strings do not identify a BUILD: another ICU that also reports 78.3 would pass them
-(`L13-WP131-FR003`). So loading also verifies the build itself: every ICU library actually mapped
-into this process (common, i18n and data) must be byte-identical (SHA-256) to the ONE verified
-build that scripts/pinned-icu/build.sh produced from the SHA-512-checked release tarball, as
-recorded in that build's identity file (`MINION_AGENT_ICU_IDENTITY`).
+(`L13-WP131-FR003`). So loading also verifies the build itself (`CE-L13-WP131-03`): EVERY ICU
+library instance loaded into this process -- all of them, of any version, not the first match per
+name -- must be one the ONE verified build produced and byte-identical (SHA-256) to it, as recorded
+in the identity file that scripts/pinned-icu/build.sh writes in the same run that verified the
+release tarball and compiled it (`MINION_AGENT_ICU_IDENTITY`). The check runs when collation is
+first loaded; an ICU loaded later cannot rebind what PyICU has already bound (disclosed boundary).
 
 Windows: the pinned ICU's DLL directory is given by `MINION_AGENT_ICU_BIN`
 (scripts/pinned-icu/build.sh prints it); the DLL names carry the major version (`icuuc78.dll`),
@@ -38,11 +40,9 @@ PINNED_SOURCE_SHA512 = (
 """SHA-512 of `icu4c-78.3-sources.tgz` (the release's `SHASUM512.txt`), which the identity file must
 name: the verified build is the one built from exactly this source."""
 
-ICU_LIBRARIES = ("icuuc", "icui18n", "icudata")
-"""The ICU libraries whose loaded bytes are checked: common, i18n (collation) and data."""
-
-_WINDOWS_DLLS = {"icuuc": "icuuc78.dll", "icui18n": "icuin78.dll", "icudata": "icudt78.dll"}
-_LINUX_SONAMES = {"icuuc": "libicuuc.so", "icui18n": "libicui18n.so", "icudata": "libicudata.so"}
+REQUIRED_ROLES = ("icuuc", "icui18n", "icudata")
+"""Every process that sorts must have loaded the verified build's common, i18n (collation) and data
+libraries; any OTHER ICU library it has loaded must be the verified build's too (R-F2)."""
 
 
 class PinnedIcuError(RuntimeError):
@@ -61,58 +61,93 @@ def _runtime_icu_version() -> str:
     return ".".join(map(str, parts))
 
 
-def _loaded_windows_libraries() -> dict[str, str]:
-    """The files of the ICU DLLs actually loaded into this process (`GetModuleHandleW` never loads
-    anything; a module that is not loaded is simply absent)."""
+def _base_name(path: str) -> str:
+    """A module's file name, lowercased, whichever separator its path uses."""
+    return path.replace("\\", "/").rsplit("/", 1)[-1].lower()
+
+
+def is_icu_library(path: str) -> bool:
+    """Whether a loaded module is an ICU library, of ANY version or origin (R-F1): `icu*.dll` on
+    Windows, `libicu*.so*` elsewhere. PyICU's own extension (`_icu_*.pyd` / `.so`) is not."""
+    base = _base_name(path)
+    if base.endswith(".dll"):
+        return base.startswith("icu")
+    return base.startswith("libicu") and ".so" in base
+
+
+def _enum_process_modules(psapi: Any, process: Any, handles: Any, needed: Any) -> bool:
+    return bool(psapi.EnumProcessModules(process, handles, ctypes.sizeof(handles), needed))
+
+
+def _loaded_windows_modules(capacity: int = 1024) -> list[str]:
+    """Every module loaded into this process (`EnumProcessModules`): a second module with the same
+    base name loaded from another directory is a separate entry, unlike `GetModuleHandleW`."""
     from ctypes import wintypes
 
+    psapi = ctypes.WinDLL("psapi", use_last_error=True)
     kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
-    kernel32.GetModuleHandleW.restype = wintypes.HMODULE
-    kernel32.GetModuleHandleW.argtypes = [wintypes.LPCWSTR]
+    kernel32.GetCurrentProcess.restype = wintypes.HANDLE
+    psapi.EnumProcessModules.argtypes = [
+        wintypes.HANDLE,
+        ctypes.POINTER(wintypes.HMODULE),
+        wintypes.DWORD,
+        ctypes.POINTER(wintypes.DWORD),
+    ]
     kernel32.GetModuleFileNameW.restype = wintypes.DWORD
     kernel32.GetModuleFileNameW.argtypes = [wintypes.HMODULE, wintypes.LPWSTR, wintypes.DWORD]
-    loaded: dict[str, str] = {}
-    for name, dll in _WINDOWS_DLLS.items():
-        handle = kernel32.GetModuleHandleW(dll)
-        if handle:
-            buffer = ctypes.create_unicode_buffer(32768)
-            if kernel32.GetModuleFileNameW(handle, buffer, len(buffer)):
-                loaded[name] = buffer.value
-    return loaded
+    process = kernel32.GetCurrentProcess()
+    count = capacity
+    while True:
+        handles = (wintypes.HMODULE * count)()
+        needed = wintypes.DWORD()
+        if not _enum_process_modules(psapi, process, handles, ctypes.byref(needed)):
+            raise PinnedIcuError("cannot enumerate the process's loaded modules")
+        if needed.value <= ctypes.sizeof(handles):
+            break
+        count = needed.value // ctypes.sizeof(wintypes.HMODULE) + 64
+    modules: list[str] = []
+    buffer = ctypes.create_unicode_buffer(32768)
+    for index in range(needed.value // ctypes.sizeof(wintypes.HMODULE)):
+        if kernel32.GetModuleFileNameW(handles[index], buffer, len(buffer)):
+            modules.append(buffer.value)
+    return modules
 
 
-def _loaded_linux_libraries(maps: str) -> dict[str, str]:
-    """The files of the ICU shared objects mapped into this process, from `/proc/self/maps`."""
-    loaded: dict[str, str] = {}
+def _mapped_linux_files(maps: str) -> list[str]:
+    """Every file mapped into this process, from `/proc/self/maps` (each distinct path once)."""
+    files: list[str] = []
     for line in maps.splitlines():
         fields = line.split(maxsplit=5)
-        if len(fields) < 6:
-            continue
-        path = fields[5]
-        base = os.path.basename(path)
-        for name, soname in _LINUX_SONAMES.items():
-            if base.startswith(soname):
-                loaded.setdefault(name, path)
-    return loaded
+        if len(fields) == 6 and fields[5].startswith("/") and fields[5] not in files:
+            files.append(fields[5])
+    return files
 
 
-def _loaded_icu_libraries(maps_path: str = "/proc/self/maps") -> dict[str, str]:
+def loaded_icu_instances(maps_path: str = "/proc/self/maps") -> list[str]:
+    """Every distinct ICU library instance loaded into this process (R-F1) -- no first-match
+    lookups, so a foreign same-name copy loaded next to the verified one is listed too."""
     if sys.platform == "win32":
-        return _loaded_windows_libraries()
-    with open(maps_path, encoding="utf-8", errors="replace") as maps:
-        return _loaded_linux_libraries(maps.read())
+        modules = _loaded_windows_modules()
+    else:
+        with open(maps_path, encoding="utf-8", errors="replace") as maps:
+            modules = _mapped_linux_files(maps.read())
+    return [module for module in modules if is_icu_library(module)]
 
 
-def _parse_identity(text: str) -> dict[str, str]:
-    """`<name> <hex>` lines (`#` comments ignored), as scripts/pinned-icu/build.sh writes them."""
-    entries: dict[str, str] = {}
+def _parse_identity(text: str) -> tuple[dict[str, str], dict[str, tuple[str, str]]]:
+    """scripts/pinned-icu/build.sh's identity file: `source-sha512 <hex>`, `platform <name>`, and
+    one `library <role> <file name> <sha256>` line per ICU runtime library the build produced."""
+    facts: dict[str, str] = {}
+    libraries: dict[str, tuple[str, str]] = {}
     for line in text.splitlines():
-        line = line.strip()
-        if not line or line.startswith("#"):
+        fields = line.split()
+        if not fields or fields[0].startswith("#"):
             continue
-        name, _, value = line.partition(" ")
-        entries[name] = value.strip().lower()
-    return entries
+        if fields[0] == "library" and len(fields) == 4:
+            libraries[fields[2].lower()] = (fields[1], fields[3].lower())
+        elif len(fields) == 2:
+            facts[fields[0]] = fields[1].lower()
+    return facts, libraries
 
 
 def _sha256(path: str) -> str:
@@ -123,11 +158,14 @@ def _sha256(path: str) -> str:
     return digest.hexdigest()
 
 
-def verify_build_identity(loaded: dict[str, str], identity_path: str | None) -> None:
-    """Fail closed unless every ICU library actually loaded is the ONE verified build
-    (`R006-C`; `L13-WP131-FR003`): the identity file must come from the pinned source, and each of
-    common/i18n/data must be loaded and byte-identical to that build. A same-version build from
-    anywhere else -- a distribution's ICU, another compile of the same release -- is rejected."""
+def verify_build_identity(instances: Sequence[str], identity_path: str | None) -> None:
+    """Fail closed unless EVERY ICU library instance loaded into this process belongs to the ONE
+    verified build (`R006-C`: "fail rather than fall back if it would link or load any other ICU";
+    `L13-WP131-FR003`, `CE-L13-WP131-03` R-F2). In order, for each instance: its file name must be
+    one the build produced (a library the build did not produce -- another major version, a
+    distribution or system ICU -- is rejected even if its bytes equal a listed one), and its bytes
+    must equal that library's recorded SHA-256 (byte-identical copies of the same library are the
+    same build's bytes and pass). The build's common, i18n and data libraries must be loaded."""
     if not identity_path:
         raise PinnedIcuError(
             f"{ICU_IDENTITY_ENV} is not set: the verified ICU {PINNED_ICU} build's identity is "
@@ -135,27 +173,32 @@ def verify_build_identity(loaded: dict[str, str], identity_path: str | None) -> 
         )
     try:
         with open(identity_path, encoding="utf-8") as file:
-            identity = _parse_identity(file.read())
+            facts, libraries = _parse_identity(file.read())
     except OSError as exc:
         raise PinnedIcuError(f"the ICU build identity file is unreadable: {exc}") from exc
-    if identity.get("source-sha512") != PINNED_SOURCE_SHA512:
+    if facts.get("source-sha512") != PINNED_SOURCE_SHA512:
         raise PinnedIcuError(
             f"the ICU build identity {identity_path} does not name the pinned ICU {PINNED_ICU} "
             "source tarball"
         )
-    for name in ICU_LIBRARIES:
-        path = loaded.get(name)
-        if path is None:
-            raise PinnedIcuError(f"ICU library {name} is not loaded from the verified build")
-        expected = identity.get(name)
-        if expected is None:
-            raise PinnedIcuError(f"the ICU build identity {identity_path} does not list {name}")
+    roles_loaded: set[str] = set()
+    for path in instances:
+        listed = libraries.get(_base_name(path))
+        if listed is None:
+            raise PinnedIcuError(
+                f"loaded ICU library {path} is not part of the verified ICU {PINNED_ICU} build"
+            )
+        role, expected = listed
         actual = _sha256(path)
         if actual != expected:
             raise PinnedIcuError(
-                f"loaded ICU library {name} ({path}) is not the verified ICU {PINNED_ICU} build: "
+                f"loaded ICU library {role} ({path}) is not the verified ICU {PINNED_ICU} build: "
                 f"sha256 {actual}, expected {expected}"
             )
+        roles_loaded.add(role)
+    for role in REQUIRED_ROLES:
+        if role not in roles_loaded:
+            raise PinnedIcuError(f"ICU library {role} is not loaded from the verified build")
 
 
 class Collation:
@@ -201,15 +244,21 @@ def pinned_collation() -> Collation:
         raise PinnedIcuError(
             f"PyICU {PINNED_PYICU} over ICU {PINNED_ICU} is not loadable: {exc}"
         ) from exc
+    try:
+        runtime = _runtime_icu_version()
+    except (OSError, AttributeError) as exc:
+        # No ICU 78 is loaded (e.g. a stand-in binding) or it lacks u_getVersion_78: fail closed
+        # with the typed error rather than a raw loader error (CE-L13-WP131-03 W-F7, Linux).
+        raise PinnedIcuError(f"the ICU {PINNED_ICU} runtime is not loadable: {exc}") from exc
     loaded = {
         "PyICU": icu.VERSION,
         "ICU (compiled)": icu.ICU_VERSION,
-        "ICU (runtime)": _runtime_icu_version(),
+        "ICU (runtime)": runtime,
     }
     expected = {"PyICU": PINNED_PYICU, "ICU (compiled)": PINNED_ICU, "ICU (runtime)": PINNED_ICU}
     if loaded != expected:
         raise PinnedIcuError(
             f"pinned collation tuple mismatch: expected {expected}, loaded {loaded}"
         )
-    verify_build_identity(_loaded_icu_libraries(), os.environ.get(ICU_IDENTITY_ENV))
+    verify_build_identity(loaded_icu_instances(), os.environ.get(ICU_IDENTITY_ENV))
     return Collation(icu)

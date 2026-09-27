@@ -6909,12 +6909,16 @@ rows:
   - ls_collation_r006c_corpus_order (canonical scenario conformance/agent/builtin-ls-collation-r006c-corpus-order.yaml)
   - ls_collation_canonical_equivalents_tie (canonical scenario conformance/agent/builtin-ls-collation-canonical-equivalents-tie-order-a.yaml + conformance/agent/builtin-ls-collation-canonical-equivalents-tie-order-b.yaml)
   - ls_lowercase_key_uses_pinned_icu_root_mapping (canonical scenario conformance/agent/builtin-ls-lowercase-key-post-unicode-15-mappings.yaml + conformance/agent/builtin-ls-lowercase-key-uses-pinned-icu-root-mapping.yaml)
-  - one verified ICU build, same-version foreign build rejected (minion-agent-python/tests/tools/builtin/test_collation_build_identity.py; L13-WP131-FR003)
+  - one verified ICU build -- W-F1..W-F7 of CE-L13-WP131-03 (minion-agent-python/tests/tools/builtin/test_collation_build_identity.py; real fresh-process witnesses on Windows, Linux evidence in minion-agent-docs assurance/layers/data/13-wp131-ce-l13-wp131-03/; L13-WP131-FR003)
   python: 'minion_agent/tools/builtin/collation.py (pinned_collation over PyICU 2.16.2 / ICU 78.3; version
-    checks, plus the build-identity gate verify_build_identity: every ICU library actually loaded --
-    common, i18n, data -- must be byte-identical (SHA-256) to the ONE verified build recorded in the
-    identity file scripts/pinned-icu/build.sh writes from the SHA-512-checked source; a same-version
-    foreign build fails closed, L13-WP131-FR003); scripts/pinned-icu/; canonical builtin_tool scenarios below'
+    checks, plus the build-identity gate of CE-L13-WP131-03: loaded_icu_instances lists EVERY ICU
+    library instance in the process -- any name, any version, every same-name copy (Windows
+    EnumProcessModules, Linux /proc/self/maps) -- and verify_build_identity requires each to be a
+    file the ONE verified build produced (an unlisted ICU is rejected first) and byte-identical to
+    it (SHA-256), with common/i18n/data loaded; the identity is written only by the
+    scripts/pinned-icu/build.sh run that verified the SHA-512-checked tarball, extracted it fresh,
+    compiled it and installed it into a clean directory -- there is no re-attestation mode;
+    L13-WP131-FR003); scripts/pinned-icu/; canonical builtin_tool scenarios below'
   rust: planned; not yet implemented (WP-13.1 CONTRACT_INTEGRATED, minion-agent#48) -- intended location
     minion-agent-rust/crates/minion-agent/src/tools/builtin/collation.rs; implementation not authorized
   disposition: intentional divergence

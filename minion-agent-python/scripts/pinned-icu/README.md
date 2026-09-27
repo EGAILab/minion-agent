@@ -13,14 +13,15 @@ uv sync                                                          # builds PyICU 
 uv run pytest
 ```
 
-**Build identity (`L13-WP131-FR003`).** A version check cannot tell this build from another ICU
-that also reports 78.3, so the script records the build's identity in
-`<prefix>/pinned-icu-identity.txt` (the source tarball's SHA-512 and the SHA-256 of the built
-`icuuc`/`icui18n`/`icudata` libraries), and `--env` exports its path as
-`MINION_AGENT_ICU_IDENTITY`. At load, `ls` hashes the ICU libraries actually mapped into the
-process and fails closed unless all three match. For a build made before this check existed,
-`bash scripts/pinned-icu/build.sh <prefix> --identity` records it (the source tarball must
-still verify).
+**Build identity (`L13-WP131-FR003`, `CE-L13-WP131-03`).** A version check cannot tell this
+build from another ICU that also reports 78.3. So each build run records
+`<prefix>/pinned-icu-identity.txt`: the source tarball's SHA-512, the platform, and the file name
+and SHA-256 of every ICU runtime library that run produced. `--env` exports its path as
+`MINION_AGENT_ICU_IDENTITY`. At load, `ls` lists EVERY ICU library instance in the process and
+fails closed unless each is one of those files, byte for byte, and the common, i18n and data
+libraries are loaded. The identity is written only by the build run itself, after the verified
+tarball was freshly extracted, compiled and installed into a clean directory. There is no mode
+that re-attests existing binaries: a build without an identity is rebuilt.
 
 `uv sync` builds PyICU from the sdist whose hash `uv.lock` pins, using the `PYICU_*` variables the
 script prints. `--env` also sets `UV_NO_CACHE`, so a PyICU wheel built against some other ICU is

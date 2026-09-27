@@ -4,18 +4,28 @@
 #
 #   bash scripts/pinned-icu/build.sh <prefix>        # e.g. ../.toolchain/icu-78.3
 #   eval "$(bash scripts/pinned-icu/build.sh <prefix> --env)"
-#   bash scripts/pinned-icu/build.sh <prefix> --identity   # (re)record an existing build's identity
 #
-# The build's IDENTITY file (<prefix>/pinned-icu-identity.txt) records the SHA-256 of the built
-# ICU runtime libraries, next to the verified source tarball's SHA-512. At runtime `ls` loads only
-# a build whose loaded libraries match it byte for byte (L13-WP131-FR003): a version check alone
+# The build's IDENTITY file (<prefix>/pinned-icu-identity.txt) records, for every ICU runtime
+# library THIS RUN produced, its file name and SHA-256, next to the verified source tarball's
+# SHA-512 and the platform. At runtime `ls` loads only if every ICU library instance in the process
+# is one of those files, byte for byte (L13-WP131-FR003, CE-L13-WP131-03): a version check alone
 # cannot tell this build from another ICU that also reports 78.3.
+#
+# The trust root is the build run itself (CE-L13-WP131-03 R-F4): the identity is written only at
+# the end of a run that verified the tarball, extracted it fresh, compiled it and installed it into
+# a CLEAN output directory. There is no mode that hashes binaries this run did not produce; a build
+# without an identity is rebuilt, not re-attested.
 #
 # Windows: Git Bash + Visual Studio 2022 (MSBuild found via vswhere). Linux: a C/C++ toolchain.
 # Nothing is installed outside <prefix>.
 set -euo pipefail
 PREFIX=$(mkdir -p "$1" && cd "$1" && pwd)
 MODE=${2:-build}
+case "$MODE" in
+  build|--env) ;;
+  *) echo "unsupported mode: $MODE (build or --env; an existing build is never re-attested)" >&2
+     exit 2 ;;
+esac
 REL=https://github.com/unicode-org/icu/releases/download/release-78.3
 TGZ=icu4c-78.3-sources.tgz
 SHA512=04a49455e1489030c520a4bfd2664fa2171e7938d08f2acdbbcb1fda976639fd8b1f0704f2eec89ba59a7b6d118ceaab6ec5a096e40d9085a0895d91ce225245
@@ -38,7 +48,9 @@ print_env() {
     echo "export MINION_AGENT_ICU_BIN='$w\\bin64'"
   else
     echo "export PYICU_INCLUDES='$PREFIX/install/include'"
-    echo "export PYICU_LFLAGS='-L$PREFIX/install/lib:-Wl,-rpath,$PREFIX/install/lib'"
+    # DT_RPATH, not DT_RUNPATH: RUNPATH applies only to PyICU's own direct dependencies, so
+    # libicuuc's own dependency on libicudata would not be found (CE-L13-WP131-03 Linux run).
+    echo "export PYICU_LFLAGS='-L$PREFIX/install/lib:-Wl,-rpath,$PREFIX/install/lib:-Wl,--disable-new-dtags'"
     # -L$PREFIX comes before the system library path, so bare names resolve to the pinned build.
     echo "export PYICU_LIBRARIES='icui18n:icuuc:icudata'"
     echo "export PYICU_CFLAGS='-std=c++17'"
@@ -52,20 +64,30 @@ print_env() {
   echo "export UV_NO_CACHE=1  # rebuild PyICU against this ICU rather than reuse a cached wheel"
 }
 
+role_of() {  # ICU runtime library file name -> identity role
+  case "$1" in
+    icuuc*|libicuuc.*) echo icuuc ;;
+    icuin*|libicui18n.*) echo icui18n ;;
+    icudt*|libicudata.*) echo icudata ;;
+    icuio*|libicuio.*) echo icuio ;;
+    icutu*|libicutu.*) echo icutu ;;
+    *) echo other ;;
+  esac
+}
+
+# Called ONLY at the end of a build run, after the tarball verification, the fresh extraction, the
+# compile and the clean install below (R-F4): it hashes exactly the files this run produced.
 write_identity() {
-  local uc i18n data
-  if [ "$OS" = windows ]; then
-    uc=icu/bin64/icuuc78.dll; i18n=icu/bin64/icuin78.dll; data=icu/bin64/icudt78.dll
-  else
-    uc=$(readlink -f install/lib/libicuuc.so.78); i18n=$(readlink -f install/lib/libicui18n.so.78)
-    data=$(readlink -f install/lib/libicudata.so.78)
-  fi
+  local dir file
+  if [ "$OS" = windows ]; then dir=icu/bin64; else dir=install/lib; fi
   {
-    echo "# pinned ICU 78.3 build identity -- scripts/pinned-icu/build.sh (R006-C, L13-WP131-FR003)"
+    echo "# pinned ICU 78.3 build identity -- scripts/pinned-icu/build.sh (R006-C, CE-L13-WP131-03)"
     echo "source-sha512 $SHA512"
-    echo "icuuc $(sha256sum "$uc" | cut -d' ' -f1)"
-    echo "icui18n $(sha256sum "$i18n" | cut -d' ' -f1)"
-    echo "icudata $(sha256sum "$data" | cut -d' ' -f1)"
+    echo "platform $OS"
+    for file in "$dir"/icu*.dll "$dir"/libicu*.so.*; do
+      [ -f "$file" ] && [ ! -L "$file" ] || continue
+      echo "library $(role_of "$(basename "$file")") $(basename "$file") $(sha256sum "$file" | cut -d' ' -f1)"
+    done
   } > pinned-icu-identity.txt
   echo "identity recorded in $PREFIX/pinned-icu-identity.txt" >&2
 }
@@ -73,15 +95,10 @@ write_identity() {
 if [ "$MODE" = --env ]; then print_env; exit 0; fi
 
 cd "$PREFIX"
-if [ "$MODE" = --identity ]; then
-  # Only for a build this script made: the source tarball it was built from must still verify.
-  echo "$SHA512 *$TGZ" | sha512sum -c - >&2
-  write_identity
-  exit 0
-fi
 [ -f "$TGZ" ] || curl -fsSLO "$REL/$TGZ"
 echo "$SHA512 *$TGZ" | sha512sum -c -
-rm -rf icu && tar xzf "$TGZ"
+# A clean slate: no binary, install tree or identity from an earlier run survives into this one.
+rm -rf icu install pinned-icu-identity.txt && tar xzf "$TGZ"
 if [ "$OS" = windows ]; then
   VSWHERE="/c/Program Files (x86)/Microsoft Visual Studio/Installer/vswhere.exe"
   MSBUILD=$("$VSWHERE" -latest -requires Microsoft.Component.MSBuild -find 'MSBuild\**\Bin\MSBuild.exe' | head -1)

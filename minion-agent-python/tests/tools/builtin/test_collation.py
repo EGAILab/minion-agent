@@ -49,6 +49,22 @@ def test_version_mismatch_fails_closed(monkeypatch: pytest.MonkeyPatch) -> None:
         pinned_collation.cache_clear()
 
 
+def test_unloadable_runtime_icu_fails_closed(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A binding that loaded no ICU 78 (Linux stand-in, CE-L13-WP131-03 W-F7): the runtime probe's
+    loader error becomes the typed rejection."""
+    _fresh(monkeypatch)
+
+    def no_runtime() -> str:
+        raise OSError("libicuuc.so.78: cannot open shared object file")
+
+    monkeypatch.setattr(collation, "_runtime_icu_version", no_runtime)
+    try:
+        with pytest.raises(PinnedIcuError, match=r"ICU 78\.3 runtime is not loadable"):
+            pinned_collation()
+    finally:
+        pinned_collation.cache_clear()
+
+
 def test_missing_pyicu_fails_closed(monkeypatch: pytest.MonkeyPatch) -> None:
     _fresh(monkeypatch)
     real_import = builtins.__import__

@@ -42,4 +42,6 @@ builtin_tool:
         mime_type: image/png
         sha256: dd2696b1dbbdce326b193f9d75d876482718f32fbd7f6b66de0b3cd3a2568f05
         bytes: 83
+        base64_len: 112
+        canonical_base64: true
       details: {}

@@ -9,6 +9,7 @@ tool's output itself.
 from __future__ import annotations
 
 import base64
+import binascii
 import hashlib
 import os
 import re
@@ -20,6 +21,7 @@ from minion_agent.execution import Err, FsError, FsErrorCode, LocalFileSystem, O
 from minion_agent.execution.filesystem import DirEntryProbe, DirEntryProbeKind
 from minion_agent.llm import ImageBlock, TextBlock, ToolCallBlock
 from minion_agent.runtime import Context, RunAbortController
+from minion_agent.session.derive import _encode_block
 from minion_agent.tools.builtin import ReadToolOptions, create_ls_tool, create_read_tool
 from minion_agent.tools.events import declare_tools_events
 from minion_agent.tools.execute import execute_call
@@ -217,10 +219,21 @@ async def run_builtin_tool_scenario(document: dict[str, Any]) -> list[dict[str, 
             if len(result.content) > 1:
                 block = result.content[1]
                 assert isinstance(block, ImageBlock) and block.data is not None
+                # L13-WP131-RUST-I001: the binding's own canonical Layer-02 serialization of the
+                # result, strictly decoded to the semantic bytes (representation normalization
+                # only), and checked to be exactly the canonical base64 of those bytes.
+                serialized = _encode_block(block)["data"]
+                try:
+                    decoded: bytes | None = base64.b64decode(serialized, validate=True)
+                except binascii.Error:
+                    decoded = None  # not strictly decodable: not the canonical base64
                 image = {
                     "mime_type": block.mime_type,
-                    "sha256": hashlib.sha256(block.data).hexdigest(),
-                    "bytes": len(block.data),
+                    "sha256": None if decoded is None else hashlib.sha256(decoded).hexdigest(),
+                    "bytes": None if decoded is None else len(decoded),
+                    "base64_len": len(serialized),
+                    "canonical_base64": decoded is not None
+                    and base64.b64encode(decoded).decode("ascii") == serialized,
                 }
             observed: dict[str, Any] = {
                 "is_error": result.is_error,

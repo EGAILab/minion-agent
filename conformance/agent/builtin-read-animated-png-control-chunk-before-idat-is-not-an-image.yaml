@@ -1,0 +1,44 @@
+name: builtin-read-animated-png-control-chunk-before-idat-is-not-an-image
+family: agent
+authority: minion-agent-docs spec/tools.md WP-13.1 (master ed72c96f); pinned-Pi authority run of minion-agent#74
+pi_revision: b7bb00b936dbe21b8e160b3e89efdec361846699
+requirements:
+- TOOL-025
+witnesses:
+- read_animated_png_control_chunk_before_idat_is_not_an_image
+notes: 'mime.ts isAnimatedPng: an acTL chunk BEFORE the first IDAT makes the sniff return null, so pinned
+  Pi reads the file through the TEXT branch (Node utf-8 decoding of the raw bytes, no image block). The
+  same chunk AFTER IDAT is not seen by the walk, which stops at IDAT: still image/png. #74 item E.'
+builtin_tool:
+  tool: read
+  fixture:
+  - path: apng_actl_before_idat.png
+    file:
+      base64: iVBORw0KGgoAAAANSUhEUgAAAAgAAAAFCAIAAAD38zoCAAAACGFjVEwAAAABAAAAALQt6aAAAAAaSURBVHicY2RgYGBnYMZELAyszAwMWBAVJQA6cgDMCZh1kQAAAABJRU5ErkJggg==
+  - path: png_actl_after_idat.png
+    file:
+      base64: iVBORw0KGgoAAAANSUhEUgAAAAgAAAAFCAIAAAD38zoCAAAAGklEQVR4nGNkYGBgZ2DGRCwMrMwMDFgQFSUAOnIAzAmYdZEAAAAIYWNUTAAAAAEAAAAAtC3poAAAAABJRU5ErkJggg==
+  cases:
+  - id: actl-before-idat
+    arguments:
+      path: apng_actl_before_idat.png
+    expect:
+      is_error: false
+      text: "\uFFFDPNG\r\n\x1A\n\0\0\0\rIHDR\0\0\0\b\0\0\0\x05\b\x02\0\0\0\uFFFD\uFFFD:\x02\0\0\0\bacTL\0\
+        \0\0\x01\0\0\0\0\uFFFD-\uFFFD\0\0\0\x1AIDATx\uFFFDcd```g`\uFFFDD,\f\uFFFD\uFFFD\f\fX\x10\x15%\0\
+        :r\0\uFFFD\t\uFFFDu\uFFFD\0\0\0\0IEND\uFFFDB`\uFFFD"
+      image: null
+      details: {}
+  - id: png_actl_after_idat.png
+    arguments:
+      path: png_actl_after_idat.png
+    expect:
+      is_error: false
+      text: Read image file [image/png]
+      image:
+        mime_type: image/png
+        sha256: 7f93665ab98e3fbbe1f39bbef1457f890c1050b938688665bcc0dc71a800fb46
+        bytes: 103
+        base64_len: 140
+        canonical_base64: true
+      details: {}

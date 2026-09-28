@@ -1,0 +1,35 @@
+name: builtin-read-image-first-eligible-jpeg-quality-wins
+family: agent
+authority: minion-agent-docs spec/tools.md WP-13.1 (master ed72c96f); pinned-Pi authority run of minion-agent#74
+pi_revision: b7bb00b936dbe21b8e160b3e89efdec361846699
+requirements:
+- TOOL-025
+witnesses:
+- read_image_first_eligible_jpeg_quality_wins
+notes: 'A 1-bit noise PNG wider than 2000 px resizes to 2000x2000 high-entropy grayscale: the PNG candidate
+  exceeds the base64 ceiling while BOTH JPEG quality 80 and 85 fit, so the exact bytes are the quality-80
+  candidate -- the first eligible in pinned Pi''s order [80, 85, 70, 55, 40], not the smallest and not
+  another order. #74 item C (a BMP source reaching the same path is item A).'
+builtin_tool:
+  tool: read
+  fixture:
+  - path: png1_noise_2100x2100.png
+    file:
+      fixture_file: h74-wp131-hardening/png1_noise_2100x2100.png
+  cases:
+  - id: png1_noise_2100x2100.png
+    arguments:
+      path: png1_noise_2100x2100.png
+    expect:
+      is_error: false
+      text: 'Read image file [image/jpeg]
+
+        [Image: original 2100x2100, displayed at 2000x2000. Multiply coordinates by 1.05 to map to original
+        image.]'
+      image:
+        mime_type: image/jpeg
+        sha256: 6cbc55bd1915220be63c5c73f65966eb7d6390a13f4bd06c666af2f18d618f48
+        bytes: 2723660
+        base64_len: 3631548
+        canonical_base64: true
+      details: {}

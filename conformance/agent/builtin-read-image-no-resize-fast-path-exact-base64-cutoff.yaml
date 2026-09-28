@@ -1,0 +1,51 @@
+name: builtin-read-image-no-resize-fast-path-exact-base64-cutoff
+family: agent
+authority: minion-agent-docs spec/tools.md WP-13.1 (master ed72c96f); pinned-Pi authority run of minion-agent#74
+pi_revision: b7bb00b936dbe21b8e160b3e89efdec361846699
+requirements:
+- TOOL-025
+witnesses:
+- read_image_no_resize_fast_path_exact_base64_cutoff
+notes: 'The same 8x5 PNG padded with trailing zeros (Photon decodes it). At 3,538,941 bytes the base64
+  length 4,718,588 is below the 4.5 MiB ceiling: the INPUT bytes pass through unchanged, no hint. At 3,538,942
+  bytes it equals 4,718,592 (not strictly below): the image is re-encoded at the same size, wasResized,
+  with the dimension hint ''displayed at 8x5 ... 1.00''. #74 item D (the owner''s 3,538,944 also takes
+  the resize branch; recorded in the authority run).'
+builtin_tool:
+  tool: read
+  fixture:
+  - path: png_small_rgb_padded_3538941.png
+    file:
+      fixture_file: h74-wp131-hardening/png_small_rgb_padded_3538941.png
+  - path: png_small_rgb_padded_3538942.png
+    file:
+      fixture_file: h74-wp131-hardening/png_small_rgb_padded_3538942.png
+  cases:
+  - id: png_small_rgb_padded_3538941.png
+    arguments:
+      path: png_small_rgb_padded_3538941.png
+    expect:
+      is_error: false
+      text: Read image file [image/png]
+      image:
+        mime_type: image/png
+        sha256: b9f5b3315c8d26580af76f223197ebad89369f49ebbd357a9c53075ef10e30fa
+        bytes: 3538941
+        base64_len: 4718588
+        canonical_base64: true
+      details: {}
+  - id: png_small_rgb_padded_3538942.png
+    arguments:
+      path: png_small_rgb_padded_3538942.png
+    expect:
+      is_error: false
+      text: 'Read image file [image/png]
+
+        [Image: original 8x5, displayed at 8x5. Multiply coordinates by 1.00 to map to original image.]'
+      image:
+        mime_type: image/png
+        sha256: 162dd8838e9294aa5faa7688774d7a04f589dea9971aa6897d204b7dd037fae0
+        bytes: 181
+        base64_len: 244
+        canonical_base64: true
+      details: {}

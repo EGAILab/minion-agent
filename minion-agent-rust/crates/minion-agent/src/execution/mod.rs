@@ -11,7 +11,7 @@ pub use error::{
 };
 pub use filesystem::{
     DirEntryProbe, DirEntryProbeKind, FileInfo, FileKind, FileSystem, FsTarget, LocalFileSystem,
-    TargetKey,
+    TargetKey, file_url_to_path,
 };
 pub use service::{FileSystemService, LocalExecutionProviders, ShellService, SubprocessService};
 pub use shell::{LocalShell, Shell, ShellExecOptions, ShellOutput, StreamCallback};

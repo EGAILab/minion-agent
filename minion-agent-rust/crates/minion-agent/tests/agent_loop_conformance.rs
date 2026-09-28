@@ -32,6 +32,7 @@ fn root() -> PathBuf {
 #[derive(Debug, Eq, PartialEq)]
 enum AgentDocumentKind {
     Primitive,
+    Builtin,
     Placeholder,
     Executable,
     Unclassified,
@@ -47,6 +48,9 @@ fn contains_placeholder(value: &Value) -> bool {
 }
 
 fn classify(document: &Value) -> AgentDocumentKind {
+    if document.get("builtin_tool").is_some() {
+        return AgentDocumentKind::Builtin;
+    }
     if [
         "transform",
         "tool_registry",
@@ -1183,6 +1187,10 @@ fn discovery_classifies_every_agent_document_by_semantic_shape() {
         .iter()
         .filter(|(_, document)| classify(document) == AgentDocumentKind::Executable)
         .count();
+    let builtin = documents
+        .iter()
+        .filter(|(_, document)| classify(document) == AgentDocumentKind::Builtin)
+        .count();
     let unclassified = documents
         .iter()
         .filter(|(_, document)| classify(document) == AgentDocumentKind::Unclassified)
@@ -1193,7 +1201,10 @@ fn discovery_classifies_every_agent_document_by_semantic_shape() {
         unclassified.is_empty(),
         "unclassified Agent documents: {unclassified:?}"
     );
-    assert_eq!(documents.len(), primitives + placeholders + executable);
+    assert_eq!(
+        documents.len(),
+        primitives + placeholders + executable + builtin
+    );
     assert!(primitives > 0);
     assert!(placeholders > 0);
     assert!(executable > 0);

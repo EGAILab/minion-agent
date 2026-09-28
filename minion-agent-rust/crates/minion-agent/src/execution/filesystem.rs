@@ -712,7 +712,10 @@ fn expand_path(raw: &str) -> PathBuf {
     PathBuf::from(raw)
 }
 
-fn file_url_to_path(raw: &str, windows: bool) -> Option<String> {
+/// Strict form of the already-certified file URL conversion, exposed for callers that must
+/// reject an invalid `file://` input before any filesystem access (`TOOL-026`, R002-A).
+/// The ordinary `resolve_local_path` fallback remains unchanged.
+pub fn file_url_to_path(raw: &str, windows: bool) -> Option<String> {
     let normalized = raw.replace('\\', "/");
     let url = AdaUrl::parse(normalized, None).ok()?;
     if url.protocol() != "file:" {

@@ -66,6 +66,18 @@ fn module_path_with(
 }
 
 #[cfg(windows)]
+fn loaded_module_paths_with<H>(
+    handles: impl IntoIterator<Item = H>,
+    mut getter: impl FnMut(H, &mut [u16]) -> usize,
+) -> Result<Vec<std::path::PathBuf>, String> {
+    let mut paths = Vec::new();
+    for handle in handles {
+        paths.push(module_path_with(|buffer| getter(handle, buffer))?);
+    }
+    Ok(paths)
+}
+
+#[cfg(windows)]
 fn loaded_modules() -> Result<Vec<std::path::PathBuf>, String> {
     use std::ffi::c_void;
     #[link(name = "psapi")]
@@ -105,13 +117,9 @@ fn loaded_modules() -> Result<Vec<std::path::PathBuf>, String> {
         }
         count = needed as usize / std::mem::size_of::<*mut c_void>() + 64;
     };
-    let mut paths = Vec::with_capacity(handles.len());
-    for handle in handles {
-        paths.push(module_path_with(|buffer| unsafe {
-            GetModuleFileNameW(handle, buffer.as_mut_ptr(), buffer.len() as u32) as usize
-        })?);
-    }
-    Ok(paths)
+    loaded_module_paths_with(handles, |handle, buffer| unsafe {
+        GetModuleFileNameW(handle, buffer.as_mut_ptr(), buffer.len() as u32) as usize
+    })
 }
 
 fn verify_identity(modules: &[std::path::PathBuf], identity_path: &Path) -> Result<(), String> {
@@ -334,6 +342,52 @@ mod tests {
             .unwrap(),
             std::path::PathBuf::from("X")
         );
+    }
+
+    #[cfg(windows)]
+    fn synthetic_module_lookup(
+        modules: &[std::path::PathBuf],
+        handle: usize,
+        buffer: &mut [u16],
+        failed_length: usize,
+    ) -> usize {
+        use std::os::windows::ffi::OsStrExt;
+
+        if handle == modules.len() {
+            return failed_length;
+        }
+        let path: Vec<u16> = modules[handle].as_os_str().encode_wide().collect();
+        buffer[..path.len()].copy_from_slice(&path);
+        path.len()
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn failed_or_truncated_lookup_fails_the_whole_inventory() {
+        let (_temp, modules, _identity) = fixture();
+        for failed_length in [0, 32768] {
+            let error = loaded_module_paths_with(0..=modules.len(), |handle, buffer| {
+                synthetic_module_lookup(&modules, handle, buffer, failed_length)
+            })
+            .unwrap_err();
+            assert!(error.contains("complete path"), "{error}");
+        }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn failed_or_truncated_lookup_prevents_sort() {
+        let (_temp, modules, identity) = fixture();
+        for failed_length in [0, 32768] {
+            let error = sort_names_with_inventory(vec!["b".into(), "a".into()], || {
+                let paths = loaded_module_paths_with(0..=modules.len(), |handle, buffer| {
+                    synthetic_module_lookup(&modules, handle, buffer, failed_length)
+                })?;
+                Ok((paths, identity.clone()))
+            })
+            .unwrap_err();
+            assert!(error.contains("complete path"), "{error}");
+        }
     }
 
     #[test]

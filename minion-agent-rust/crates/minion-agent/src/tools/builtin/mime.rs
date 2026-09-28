@@ -110,4 +110,20 @@ mod tests {
         );
         assert_eq!(detect_supported_image_mime_type(b"BM"), None);
     }
+
+    #[test]
+    fn apng_animation_control_before_idat_is_not_a_supported_still_image() {
+        let png = include_bytes!(
+            "../../../../../../conformance/agent/fixtures/r005a-photon/png_small_rgb.png"
+        );
+        assert_eq!(detect_supported_image_mime_type(png), Some("image/png"));
+        let mut apng = png[..33].to_vec(); // signature + complete IHDR chunk
+        apng.extend_from_slice(&8u32.to_be_bytes());
+        apng.extend_from_slice(b"acTL");
+        apng.extend_from_slice(&1u32.to_be_bytes()); // frame count
+        apng.extend_from_slice(&0u32.to_be_bytes()); // play count
+        apng.extend_from_slice(&0u32.to_be_bytes()); // CRC is irrelevant to MIME sniff
+        apng.extend_from_slice(&png[33..]);
+        assert_eq!(detect_supported_image_mime_type(&apng), None);
+    }
 }

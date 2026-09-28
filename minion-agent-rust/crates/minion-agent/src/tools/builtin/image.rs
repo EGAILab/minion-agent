@@ -29,6 +29,35 @@ struct Resized {
     hint: Option<String>,
 }
 
+// ECMAScript `toFixed(2)` rounds the exact binary64 value, not the result of
+// first multiplying that value by 100 in binary64. The image scale is finite,
+// positive and bounded by i32 image dimensions, so u128 covers its cents.
+fn to_fixed_2_positive(value: f64) -> String {
+    debug_assert!(value.is_finite() && value > 0.0);
+    let bits = value.to_bits();
+    let biased = ((bits >> 52) & 0x7ff) as i32;
+    let fraction = bits & ((1u64 << 52) - 1);
+    let (significand, exponent) = if biased == 0 {
+        (fraction as u128, -1022 - 52)
+    } else {
+        ((fraction | (1u64 << 52)) as u128, biased - 1023 - 52)
+    };
+    let numerator = significand * 100;
+    let cents = if exponent >= 0 {
+        numerator << exponent
+    } else {
+        let shift = (-exponent) as u32;
+        if shift >= 128 {
+            0
+        } else {
+            let quotient = numerator >> shift;
+            let remainder = numerator & ((1u128 << shift) - 1);
+            quotient + u128::from(remainder >= (1u128 << (shift - 1)))
+        }
+    };
+    format!("{}.{:02}", cents / 100, cents % 100)
+}
+
 fn tiff_orientation(bytes: &[u8], start: usize) -> u8 {
     if start.checked_add(8).is_none_or(|end| end > bytes.len()) {
         return 1;
@@ -206,12 +235,11 @@ fn resize(
     let mut target_width = width;
     let mut target_height = height;
     if target_width > 2000 {
-        target_height =
-            ((target_height as f64 * 2000.0 / target_width as f64) + 0.5).floor() as i32;
+        target_height = (target_height as f64 * 2000.0 / target_width as f64).round() as i32;
         target_width = 2000;
     }
     if target_height > 2000 {
-        target_width = ((target_width as f64 * 2000.0 / target_height as f64) + 0.5).floor() as i32;
+        target_width = (target_width as f64 * 2000.0 / target_height as f64).round() as i32;
         target_height = 2000;
     }
     loop {
@@ -227,9 +255,7 @@ fn resize(
         for (candidate, candidate_mime) in candidates? {
             if candidate.len().div_ceil(3) * 4 < MAX_BASE64_BYTES {
                 let scale = width as f64 / target_width as f64;
-                // Pi uses Number::toFixed(2): exact positive half-cent ties round upward,
-                // whereas Rust's formatter uses ties-to-even (1.125 -> 1.12).
-                let scale_text = format!("{:.2}", ((scale * 100.0 + 0.5).floor()) / 100.0);
+                let scale_text = to_fixed_2_positive(scale);
                 let hint = format!(
                     "[Image: original {width}x{height}, displayed at {target_width}x{target_height}. Multiply coordinates by {scale_text} to map to original image.]"
                 );
@@ -267,7 +293,7 @@ fn resize(
 fn process(bytes: &[u8], mime: &'static str, resize_enabled: bool) -> Processed {
     let mut normalized = bytes.to_vec();
     let mut final_mime = mime;
-    let mut hints = Vec::new();
+    let converted_from = (mime == "image/bmp").then_some(mime);
     let Ok(mut photon) = Photon::new() else {
         return Processed::Omitted(
             "[Image omitted: could not be resized below the inline image size limit.]",
@@ -288,7 +314,6 @@ fn process(bytes: &[u8], mime: &'static str, resize_enabled: bool) -> Processed 
         };
         normalized = png;
         final_mime = "image/png";
-        hints.push("[Image converted from image/bmp to image/png.]".to_owned());
     }
     if resize_enabled {
         match resize(&mut photon, &normalized, final_mime) {
@@ -297,6 +322,10 @@ fn process(bytes: &[u8], mime: &'static str, resize_enabled: bool) -> Processed 
                 mime,
                 hint,
             })) => {
+                let mut hints = Vec::new();
+                if let Some(source) = converted_from {
+                    hints.push(format!("[Image converted from {source} to {mime}.]"));
+                }
                 if let Some(hint) = hint {
                     hints.push(hint);
                 }
@@ -311,6 +340,10 @@ fn process(bytes: &[u8], mime: &'static str, resize_enabled: bool) -> Processed 
             ),
         }
     } else {
+        let mut hints = Vec::new();
+        if let Some(source) = converted_from {
+            hints.push(format!("[Image converted from {source} to {final_mime}.]"));
+        }
         Processed::Ready {
             bytes: normalized,
             mime: final_mime,
@@ -363,6 +396,104 @@ pub(super) fn read_image(
 mod tests {
     use super::*;
     use sha2::{Digest, Sha256};
+
+    fn noise_bmp(width: usize, height: usize) -> Vec<u8> {
+        let stride = (width * 3).div_ceil(4) * 4;
+        let mut data = vec![0u8; 54 + stride * height];
+        let file_size = data.len() as u32;
+        data[..2].copy_from_slice(b"BM");
+        data[2..6].copy_from_slice(&file_size.to_le_bytes());
+        data[10..14].copy_from_slice(&54u32.to_le_bytes());
+        data[14..18].copy_from_slice(&40u32.to_le_bytes());
+        data[18..22].copy_from_slice(&(width as u32).to_le_bytes());
+        data[22..26].copy_from_slice(&(height as u32).to_le_bytes());
+        data[26..28].copy_from_slice(&1u16.to_le_bytes());
+        data[28..30].copy_from_slice(&24u16.to_le_bytes());
+        data[34..38].copy_from_slice(&((stride * height) as u32).to_le_bytes());
+        let mut state = 0x1234_5678u32;
+        for pixel in &mut data[54..] {
+            state = state.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+            *pixel = ((state >> 16) as u8) & 0x3f;
+        }
+        data
+    }
+
+    #[test]
+    fn scale_hint_rounds_exact_binary64_like_ecmascript_to_fixed() {
+        for (value, expected) in [
+            (1.075, "1.07"),
+            (1.125, "1.13"),
+            (1.005, "1.00"),
+            (2.675, "2.67"),
+            (1.325, "1.32"),
+        ] {
+            assert_eq!(to_fixed_2_positive(value), expected, "{value}");
+        }
+    }
+
+    #[test]
+    fn resize_hint_uses_exact_2150_to_2000_scale() {
+        let data = noise_bmp(2150, 4);
+        let Processed::Ready { hints, .. } = process(&data, "image/bmp", true) else {
+            panic!("BMP must resize");
+        };
+        assert!(hints[1].contains("Multiply coordinates by 1.07 "));
+    }
+
+    #[test]
+    fn bmp_to_jpeg_hint_uses_final_mime_and_first_eligible_quality() {
+        let data = noise_bmp(2100, 2100);
+        let Processed::Ready { bytes, mime, hints } = process(&data, "image/bmp", true) else {
+            panic!("BMP must resize to an inline result");
+        };
+        assert_eq!(mime, "image/jpeg");
+        assert_eq!(hints[0], "[Image converted from image/bmp to image/jpeg.]");
+
+        // The PNG is too large. The first accepted JPEG must be quality 80,
+        // not the later 85/70/55/40 candidates.
+        let mut photon = Photon::new().unwrap();
+        let original = photon.decode(&data).unwrap();
+        let resized = photon.resize(original, 2000, 2000).unwrap();
+        let png = photon.png(resized).unwrap();
+        assert!(png.len().div_ceil(3) * 4 >= MAX_BASE64_BYTES);
+        let quality_80 = photon.jpeg(resized, 80).unwrap();
+        let quality_85 = photon.jpeg(resized, 85).unwrap();
+        assert!(quality_80.len().div_ceil(3) * 4 < MAX_BASE64_BYTES);
+        assert!(quality_85.len().div_ceil(3) * 4 < MAX_BASE64_BYTES);
+        assert!(
+            bytes == quality_80,
+            "first eligible JPEG quality must be 80"
+        );
+        assert!(bytes != quality_85, "quality 85 is distinguishable");
+        photon.free(resized);
+        photon.free(original);
+    }
+
+    #[test]
+    fn exact_base64_ceiling_does_not_use_the_no_resize_fast_path() {
+        let original = include_bytes!(
+            "../../../../../../conformance/agent/fixtures/r005a-photon/png_small_rgb.png"
+        );
+        let byte_ceiling = MAX_BASE64_BYTES / 4 * 3;
+        let mut below = original.to_vec();
+        below.resize(byte_ceiling - 3, 0);
+        let Processed::Ready { bytes, hints, .. } = process(&below, "image/png", true) else {
+            panic!("below-ceiling PNG must be accepted");
+        };
+        assert!(
+            bytes == below,
+            "below-ceiling input must pass through byte-for-byte"
+        );
+        assert!(hints.is_empty());
+
+        let mut at = original.to_vec();
+        at.resize(byte_ceiling, 0);
+        let Processed::Ready { bytes, hints, .. } = process(&at, "image/png", true) else {
+            panic!("ceiling PNG must be resized");
+        };
+        assert!(bytes != at, "at-ceiling input must be re-encoded");
+        assert_eq!(hints.len(), 1);
+    }
 
     #[test]
     fn bmp_conversion_matches_pinned_photon_bytes() {

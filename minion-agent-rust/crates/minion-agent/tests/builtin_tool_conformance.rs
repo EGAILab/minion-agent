@@ -160,7 +160,11 @@ impl FileSystem for FixtureFs {
         if let Some(error) = self.scripted_error("read_binary_file", path) {
             return Err(error);
         }
-        self.local.read_binary_file(path, signal).await
+        let answer = self.local.read_binary_file(path, signal).await;
+        if self.abort_after.as_deref() == Some("read_binary_file") {
+            self.controller.abort();
+        }
+        answer
     }
     async fn check_readable(
         &self,
@@ -340,6 +344,24 @@ impl FileSystem for FixtureFs {
         Err(Self::not_supported("unexpected process_path"))
     }
     async fn cleanup(&self) {}
+}
+
+#[tokio::test]
+async fn abort_during_read_binary_file_wins_at_worker_settlement() {
+    let document = json!({
+        "name": "worker settle abort witness",
+        "builtin_tool": {
+            "tool": "read",
+            "fixture": [{"path": "note.txt", "file": {"text": "hello"}}]
+        }
+    });
+    let case = json!({
+        "id": "abort_after_read_binary_file",
+        "arguments": {"path": "note.txt"},
+        "abort_after": "read_binary_file",
+        "expect": {"is_error": true, "text": "Operation aborted", "details": {}}
+    });
+    run_case(&document, &case).await;
 }
 
 fn content_bytes(root: &Path, content: &Value) -> Vec<u8> {

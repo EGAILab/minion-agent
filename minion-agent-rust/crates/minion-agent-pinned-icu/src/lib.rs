@@ -50,8 +50,24 @@ fn loaded_modules() -> Result<Vec<std::path::PathBuf>, String> {
 }
 
 #[cfg(windows)]
+fn module_path_with(
+    getter: impl FnOnce(&mut [u16]) -> usize,
+) -> Result<std::path::PathBuf, String> {
+    use std::os::windows::ffi::OsStringExt;
+
+    let mut buffer = vec![0u16; 32768];
+    let length = getter(&mut buffer);
+    if length == 0 || length >= buffer.len() {
+        return Err(failed("cannot read a loaded module's complete path"));
+    }
+    Ok(std::path::PathBuf::from(std::ffi::OsString::from_wide(
+        &buffer[..length],
+    )))
+}
+
+#[cfg(windows)]
 fn loaded_modules() -> Result<Vec<std::path::PathBuf>, String> {
-    use std::{ffi::c_void, os::windows::ffi::OsStringExt};
+    use std::ffi::c_void;
     #[link(name = "psapi")]
     unsafe extern "system" {
         fn EnumProcessModules(
@@ -91,15 +107,9 @@ fn loaded_modules() -> Result<Vec<std::path::PathBuf>, String> {
     };
     let mut paths = Vec::with_capacity(handles.len());
     for handle in handles {
-        let mut buffer = vec![0u16; 32768];
-        let length = unsafe { GetModuleFileNameW(handle, buffer.as_mut_ptr(), buffer.len() as u32) }
-            as usize;
-        if length == 0 || length >= buffer.len() {
-            return Err(failed("cannot read a loaded module's complete path"));
-        }
-        paths.push(std::path::PathBuf::from(std::ffi::OsString::from_wide(
-            &buffer[..length],
-        )));
+        paths.push(module_path_with(|buffer| unsafe {
+            GetModuleFileNameW(handle, buffer.as_mut_ptr(), buffer.len() as u32) as usize
+        })?);
     }
     Ok(paths)
 }
@@ -174,6 +184,17 @@ fn root_lower(input: &str) -> Result<String, String> {
 }
 
 pub fn sort_names(names: Vec<String>) -> Result<Vec<String>, String> {
+    sort_names_with_inventory(names, || {
+        let identity = std::env::var_os("MINION_AGENT_ICU_IDENTITY")
+            .ok_or_else(|| failed("MINION_AGENT_ICU_IDENTITY is not set"))?;
+        Ok((loaded_modules()?, std::path::PathBuf::from(identity)))
+    })
+}
+
+fn sort_names_with_inventory(
+    names: Vec<String>,
+    inventory: impl FnOnce() -> Result<(Vec<std::path::PathBuf>, std::path::PathBuf), String>,
+) -> Result<Vec<String>, String> {
     let collator = UCollator::try_from("en-001").map_err(|error| failed(error.to_string()))?;
     collator
         .set_attribute(
@@ -207,9 +228,8 @@ pub fn sort_names(names: Vec<String>) -> Result<Vec<String>, String> {
             version[0], version[1]
         )));
     }
-    let identity = std::env::var_os("MINION_AGENT_ICU_IDENTITY")
-        .ok_or_else(|| failed("MINION_AGENT_ICU_IDENTITY is not set"))?;
-    verify_identity(&loaded_modules()?, Path::new(&identity))?;
+    let (modules, identity) = inventory()?;
+    verify_identity(&modules, &identity)?;
     let mut keyed = names
         .into_iter()
         .map(|name| root_lower(&name).map(|key| (key, name)))
@@ -232,6 +252,89 @@ pub fn sort_names(names: Vec<String>) -> Result<Vec<String>, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn fixture() -> (
+        tempfile::TempDir,
+        Vec<std::path::PathBuf>,
+        std::path::PathBuf,
+    ) {
+        let temp = tempfile::tempdir().unwrap();
+        let mut lines = vec![format!("source-sha512 {SOURCE_SHA512}")];
+        let mut modules = Vec::new();
+        for role in ["icuuc", "icui18n", "icudata"] {
+            let name = if cfg!(windows) {
+                format!("{role}78.dll")
+            } else {
+                format!("lib{role}.so.78")
+            };
+            let path = temp.path().join(&name);
+            fs::write(&path, role.as_bytes()).unwrap();
+            let hash: String = Sha256::digest(role.as_bytes())
+                .iter()
+                .map(|byte| format!("{byte:02x}"))
+                .collect();
+            lines.push(format!("library {role} {name} {hash}"));
+            modules.push(path);
+        }
+        let identity = temp.path().join("identity.txt");
+        fs::write(&identity, lines.join("\n")).unwrap();
+        (temp, modules, identity)
+    }
+
+    #[test]
+    fn sort_fails_closed_on_mismatching_identity() {
+        let (_temp, modules, identity) = fixture();
+        fs::write(&identity, "source-sha512 wrong").unwrap();
+        let error =
+            sort_names_with_inventory(vec!["b".into(), "a".into()], || Ok((modules, identity)))
+                .unwrap_err();
+        assert!(error.contains("pinned source tarball"), "{error}");
+    }
+
+    #[test]
+    fn sort_checks_second_same_name_instance_and_accepts_identical_twin() {
+        let (temp, mut modules, identity) = fixture();
+        let twin_dir = temp.path().join("twin");
+        fs::create_dir(&twin_dir).unwrap();
+        let twin = twin_dir.join(modules[0].file_name().unwrap());
+        fs::write(&twin, b"foreign").unwrap();
+        modules.push(twin.clone());
+        let error = sort_names_with_inventory(vec!["b".into(), "a".into()], || {
+            Ok((modules.clone(), identity.clone()))
+        })
+        .unwrap_err();
+        assert!(error.contains("does not match"), "{error}");
+
+        fs::write(&twin, fs::read(&modules[0]).unwrap()).unwrap();
+        assert_eq!(
+            sort_names_with_inventory(vec!["b".into(), "a".into()], || { Ok((modules, identity)) })
+                .unwrap(),
+            ["a", "b"]
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn failed_or_truncated_module_path_lookup_is_never_skipped() {
+        assert!(
+            module_path_with(|_| 0)
+                .unwrap_err()
+                .contains("complete path")
+        );
+        assert!(
+            module_path_with(|buffer| buffer.len())
+                .unwrap_err()
+                .contains("complete path")
+        );
+        assert_eq!(
+            module_path_with(|buffer| {
+                buffer[0] = b'X' as u16;
+                1
+            })
+            .unwrap(),
+            std::path::PathBuf::from("X")
+        );
+    }
 
     #[test]
     fn identity_checks_every_loaded_instance_and_required_role() {

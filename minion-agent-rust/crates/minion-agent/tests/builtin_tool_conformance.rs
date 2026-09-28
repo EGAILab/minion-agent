@@ -603,7 +603,7 @@ async fn every_builtin_scenario_uses_real_rust_tools_and_execution() {
         }
     }
     assert_eq!(
-        documents, 45,
+        documents, 50,
         "all WP-13.1 canonical documents must be discovered"
     );
     assert!(count >= documents, "every document has an executable case");

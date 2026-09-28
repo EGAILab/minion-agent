@@ -6693,6 +6693,11 @@ rows:
   - W-G16 no file_info / canonical_path dependency (canonical scenario conformance/agent/builtin-read-does-not-depend-on-file-info-or-canonical-path.yaml; CE13-C006)
   - W-G6, W-G11, W-G12 real host rows; W-I1..W-I4 abort ordering (minion-agent-python/tests/tools/builtin/test_read_access_and_abort_order.py; L13-WP131-I001)
   - W-I5 abort while check_readable is blocked (minion-agent-python/tests/tools/builtin/test_tools.py::test_read_abort_answers_at_once_leaves_the_access_check_running_then_stops)
+  - read_image_bmp_conversion_hint_names_final_mime_after_jpeg_resize (canonical scenario conformance/agent/builtin-read-image-bmp-conversion-hint-names-final-mime-after-jpeg-resize.yaml; minion-agent#74)
+  - read_image_scale_hint_to_fixed_rounds_exact_binary_value (canonical scenario conformance/agent/builtin-read-image-scale-hint-to-fixed-rounds-exact-binary-value.yaml; minion-agent#74)
+  - read_image_first_eligible_jpeg_quality_wins (canonical scenario conformance/agent/builtin-read-image-first-eligible-jpeg-quality-wins.yaml; minion-agent#74)
+  - read_image_no_resize_fast_path_exact_base64_cutoff (canonical scenario conformance/agent/builtin-read-image-no-resize-fast-path-exact-base64-cutoff.yaml; minion-agent#74)
+  - read_animated_png_control_chunk_before_idat_is_not_an_image (canonical scenario conformance/agent/builtin-read-animated-png-control-chunk-before-idat-is-not-an-image.yaml; minion-agent#74)
   python: 'minion_agent/tools/builtin/read.py (create_read_tool, ReadToolOptions), image.py + photon/ (pinned photon_rs_bg.wasm via wasmtime 49.0.0), mime.py, truncate.py, _js.py; tests/tools/builtin/; canonical builtin_tool scenarios below'
   rust: 'minion-agent-rust/crates/minion-agent/src/tools/builtin/read.rs (create_read_tool, ReadToolOptions),
     image.rs + photon.rs (pinned photon_rs_bg.wasm via wasmtime 49.0.0), mime.rs, truncate.rs, text.rs,

@@ -1,0 +1,37 @@
+name: builtin-read-image-bmp-conversion-hint-names-final-mime-after-jpeg-resize
+family: agent
+authority: minion-agent-docs spec/tools.md WP-13.1 (master ed72c96f); pinned-Pi authority run of minion-agent#74
+pi_revision: b7bb00b936dbe21b8e160b3e89efdec361846699
+requirements:
+- TOOL-025
+witnesses:
+- read_image_bmp_conversion_hint_names_final_mime_after_jpeg_resize
+notes: 'A 1-bit noise BMP wider than 2000 px converts to PNG; Lanczos resizing to 2000x2000 turns it into
+  high-entropy grayscale whose PNG candidate exceeds the base64 ceiling, so a JPEG candidate wins. Pinned
+  Pi''s conversion hint names the FINAL MIME (''to image/jpeg''), not the intermediate PNG (image-process.ts:
+  conversionHint(normalized.convertedFrom, resized.mimeType)). #74 item A.'
+builtin_tool:
+  tool: read
+  fixture:
+  - path: bmp1_noise_2100x2100.bmp
+    file:
+      fixture_file: h74-wp131-hardening/bmp1_noise_2100x2100.bmp
+  cases:
+  - id: bmp1_noise_2100x2100.bmp
+    arguments:
+      path: bmp1_noise_2100x2100.bmp
+    expect:
+      is_error: false
+      text: 'Read image file [image/jpeg]
+
+        [Image converted from image/bmp to image/jpeg.]
+
+        [Image: original 2100x2100, displayed at 2000x2000. Multiply coordinates by 1.05 to map to original
+        image.]'
+      image:
+        mime_type: image/jpeg
+        sha256: 14160ecc760a04ad0775d418e1e2325885b96e1389acc0883be606df8d03bf83
+        bytes: 2724365
+        base64_len: 3632488
+        canonical_base64: true
+      details: {}

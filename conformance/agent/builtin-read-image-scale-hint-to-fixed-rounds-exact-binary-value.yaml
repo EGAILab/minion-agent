@@ -1,0 +1,72 @@
+name: builtin-read-image-scale-hint-to-fixed-rounds-exact-binary-value
+family: agent
+authority: minion-agent-docs spec/tools.md WP-13.1 (master ed72c96f); pinned-Pi authority run of minion-agent#74
+pi_revision: b7bb00b936dbe21b8e160b3e89efdec361846699
+requirements:
+- TOOL-025
+witnesses:
+- read_image_scale_hint_to_fixed_rounds_exact_binary_value
+notes: 'Widths 2150, 2650 and 3050 resize to width 2000; the scale W/2000 is a decimal half-cent tie whose
+  binary64 value lies just BELOW the tie, so ECMAScript toFixed(2) rounds DOWN: 1.07, 1.32, 1.52 (not
+  1.08, 1.33, 1.53, which rounding binary64(scale * 100) would give). #74 item B.'
+builtin_tool:
+  tool: read
+  fixture:
+  - path: png_rgb_2150x4.png
+    file:
+      base64: iVBORw0KGgoAAAANSUhEUgAACGYAAAAECAIAAABJQjwhAAAByElEQVR42u3RhzpQAQCA0UtCioqkYbU1USqkrFAaRCUNo1IimVEkWxq2NEmToq000RBFS0uhIqQILaMUL/I/wvmOIEjIyCuOGKeprW+6YPGK1Rs8/LZH7Ek8eDTj/NXb94tL33783PS7s4dU/0EqoydqzTCaa2lj57TR2z8kKjY55UTmpev5hU9eVXz6+r29S1x6wNDhYzWmzzKZb73c0dndNzB8d8KBtPRzV27de/S87EPdt19/RXv1U1AeNWGKruEci6Wr1rp6bQ3eEbP38PEzF6/lPXj8srz6S0vb/5595IYMU1OfNnP2PCtbh/WbNm8L2xW//8ips9k37z589uZ9bePPPyKSfQcqjRw/WcfAbOGSlWtcPLcERUYnHTp2+kJObkHJi3dV9c2t/8R6yw5WHTNpqp6x+aJl9uvcfAJCd8btSz2ZdfnGnaKnrytrGn504MePHz9+/Pjx48ePHz9+/Pjx48ePHz9+/PjxW9oIPOPHjx8/fvz48ePHjx8/fvz48ePHjx8/fvz48Qs848ePHz9+/Pjx48ePHz9+/Pjx48ePHz9+/PjxCzzjx48fP378+PHjx48fP378+PHjx48fP378+PF3A7ypJie7/WbOAAAAAElFTkSuQmCC
+  - path: png_rgb_2650x4.png
+    file:
+      base64: iVBORw0KGgoAAAANSUhEUgAACloAAAAECAIAAABj4edWAAAB50lEQVR42u3RBzdQAQCA0UelIaOJhCJNok1GWkbaOyNEQ0MyisyoZCQNlUSD9t4o2RVFy2iqNGhIhezxP975fsI9VxA6y/bprzF8lN4k01kLrVc4u27x3xGx/8iJs1dup2Y/fvH6Y/nv2uYO3Xooqg3WHmswxWLukuUr17tv3bZrz8G4xAvXk9MfFhS9+/zjb32blExvZfVhuhOMp89cYOWwZuNmv+3h+2KOn7l8615W3vNXH75V1jRJdpVXUNXUGjNxsvmcxbZO69y8A0Mio48mnL+WlPYgv/Bt2fc/da2duvfqN3CoznijaZbzl9mvdvH0DQ7be/jY6Us372bmPisp/fqrulGii1xflUEjRuubmM1eZOO4dpNXwM7dB2JPnrt6537Ok5dvPlVU/W/pKN1TacCQkeMMp86Yt9Ru1QYPn6DQqEPxpy7eSMl49LT4/Zef/xrw48ePHz9+/Pjx48ePHz9+/Pjx48ePHz9+/Pjx48ePH78Y/QKH+PHjx48fP378+PHjx48fP378+PHjx48fP378+PHjx49ffH6BQ/z48ePHjx8/fvz48ePHjx8/fvz48ePHjx8/fvz48ePHLz6/wCF+/Pjx48ePHz9+/Pjx48ePHz9+/Pjx48ePHz9+/Pjx4xefvx2nt9PM9e9eFQAAAABJRU5ErkJggg==
+  - path: png_rgb_3050x4.png
+    file:
+      base64: iVBORw0KGgoAAAANSUhEUgAAC+oAAAAECAIAAAAsmbOvAAAB6klEQVR42u3Q0wIVBgAA0JuX27K1WrZtr7Zl27ZtY6utWm7Ltm3btm1+xn05n3BOIBAuSswEydNkzlWwxK+VajZo3q5rn8Gj/pwya/6ytVt2Hzp54fq9p28+h4rwY5zEKdNny1uk9G9V6zRu1bFH/2FjJ02bu2jlhu37jp65fOvhi/ffwkaOET9Z6kw5CxQvV7FG/WZtu/QeNHLC5Jnzlq7ZvOvgifPX7j55/Slk+GixE6VIlzVP4VIVqtRu1LJD935Dx0z8d87CFeu37T1y+tLNB8/ffQ0TKXq8pKky5shfrOwf1es1bdO518AR4/+Z8f+S1Zt2Hjh+7uqdx68+hvghaqyEP6fNkrtQyfKVazVs0b5b3yGj/5o6e8HydVv3HD518cb9Z2+/hI74U9wkv2TInq9omd+r1W3SulPPAcPH/T39v8WrNu7Yf+zslduPXn7g5+fn5+fn5+fn5+fn5+fn5+fn5+fn5+fn5+fn5+fn5+fnD54/4Jyfn5+fn5+fn5+fn5+fn5+fn5+fn5+fn5+fn5+fn5+fn58/WP6Ac35+fn5+fn5+fn5+fn5+fn5+fn5+fn5+fn5+fn5+fn5+fv5g+QPO+fn5+fn5+fn5+fn5+fn5+fn5+fn5+fn5+fn5+fn5+fn5+YPl/w4X9S7i33gDnwAAAABJRU5ErkJggg==
+  cases:
+  - id: png_rgb_2150x4.png
+    arguments:
+      path: png_rgb_2150x4.png
+    expect:
+      is_error: false
+      text: 'Read image file [image/png]
+
+        [Image: original 2150x4, displayed at 2000x4. Multiply coordinates by 1.07 to map to original
+        image.]'
+      image:
+        mime_type: image/png
+        sha256: 7627bfd570fc2586682cd1c3aaf24570193850812f348714bdf3d39dfba217fa
+        bytes: 28637
+        base64_len: 38184
+        canonical_base64: true
+      details: {}
+  - id: png_rgb_2650x4.png
+    arguments:
+      path: png_rgb_2650x4.png
+    expect:
+      is_error: false
+      text: 'Read image file [image/png]
+
+        [Image: original 2650x4, displayed at 2000x3. Multiply coordinates by 1.32 to map to original
+        image.]'
+      image:
+        mime_type: image/png
+        sha256: 95c4402558e8bcf83e6dba31beab343c54e23dedc174377f717b03340d7399bd
+        bytes: 23814
+        base64_len: 31752
+        canonical_base64: true
+      details: {}
+  - id: png_rgb_3050x4.png
+    arguments:
+      path: png_rgb_3050x4.png
+    expect:
+      is_error: false
+      text: 'Read image file [image/png]
+
+        [Image: original 3050x4, displayed at 2000x3. Multiply coordinates by 1.52 to map to original
+        image.]'
+      image:
+        mime_type: image/png
+        sha256: 11bc63401b6e937b924087bac75f79d3cf9e8b0145e89cbf97f563368b487efc
+        bytes: 24071
+        base64_len: 32096
+        canonical_base64: true
+      details: {}

@@ -630,6 +630,16 @@ async fn providers_without_the_extension_report_not_supported() {
             .code,
         FsErrorCode::NotSupported
     );
+    for path in ["entry", "missing", "a\0b"] {
+        assert_eq!(
+            provider
+                .check_read_write(path, None)
+                .await
+                .unwrap_err()
+                .code,
+            FsErrorCode::NotSupported
+        );
+    }
 }
 
 #[test]

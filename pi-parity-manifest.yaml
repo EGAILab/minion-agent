@@ -6682,7 +6682,12 @@ rows:
     | FILE_WRITE_DATA, all sharing, OPEN_EXISTING, backup semantics; FILE_DELETE_CHILD not requested). Embedded
     NUL rejected before either native call as unknown. Implementation candidate (WP-12.E3, minion-agent#79), pending
     independent review.'
-  rust: not implemented; planned (WP-12.E3, minion-agent#79) -- minion-agent-rust/crates/minion-agent/src/execution/filesystem.rs
+  rust: 'minion-agent-rust/crates/minion-agent/src/execution/filesystem.rs (FileSystem::check_read_write
+    default not_supported; LocalFileSystem::check_read_write, one POSIX access(R_OK | W_OK)
+    or one Windows read-data+write-data open), with language evidence in
+    minion-agent-rust/crates/minion-agent/tests/execution_read_write_access.rs and the
+    provider-capability regression in tests/execution_filesystem.rs. Rust implementation
+    candidate for WP-12.E3, minion-agent#79; independent closure review pending.'
   disposition: intentional divergence
 - id: TOOL-025
   phase: 6

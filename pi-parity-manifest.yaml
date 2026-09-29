@@ -6647,8 +6647,41 @@ rows:
     section 13. Classified `intentional divergence` as a whole because of its owner-approved Windows rule, the same
     shape as EXEC-008; its POSIX rule is DIRECT_PI_PARITY.'
   tests:
-  - spec/execution.md section 13.6 witness matrix (predicted outcomes; implementation evidence to be added)
-  python: not implemented; planned (WP-12.E3, minion-agent#79) -- minion-agent-python/src/minion_agent/execution/filesystem.py
+  - spec/execution.md section 13.6 witness matrix
+  - minion-agent-python/tests/execution/test_filesystem_check_read_write.py::test_check_read_write_leaves_content_and_existing_operations_unchanged
+  - minion-agent-python/tests/execution/test_filesystem_check_read_write.py::test_dangling_symlink_is_not_found
+  - minion-agent-python/tests/execution/test_filesystem_check_read_write.py::test_embedded_nul_is_rejected_before_either_native_call
+  - minion-agent-python/tests/execution/test_filesystem_check_read_write.py::test_embedded_nul_path_is_rejected_as_unknown
+  - minion-agent-python/tests/execution/test_filesystem_check_read_write.py::test_fifo_is_ok_and_does_not_block
+  - minion-agent-python/tests/execution/test_filesystem_check_read_write.py::test_local_filesystem_never_answers_not_supported
+  - minion-agent-python/tests/execution/test_filesystem_check_read_write.py::test_missing_path_and_non_directory_component
+  - minion-agent-python/tests/execution/test_filesystem_check_read_write.py::test_negative_control_is_rejected_by_its_witness
+  - minion-agent-python/tests/execution/test_filesystem_check_read_write.py::test_posix_branch_is_one_access_r_ok_w_ok_on_the_resolved_path
+  - minion-agent-python/tests/execution/test_filesystem_check_read_write.py::test_posix_branch_keeps_the_access_calls_own_errno
+  - minion-agent-python/tests/execution/test_filesystem_check_read_write.py::test_posix_rw_but_not_search_directory_is_ok_yet_refuses_creation
+  - minion-agent-python/tests/execution/test_filesystem_check_read_write.py::test_posix_unsearchable_parent_is_permission_denied
+  - minion-agent-python/tests/execution/test_filesystem_check_read_write.py::test_pre_aborted_signal_is_accepted_but_not_inspected
+  - minion-agent-python/tests/execution/test_filesystem_check_read_write.py::test_provider_without_exec009_answers_not_supported
+  - minion-agent-python/tests/execution/test_filesystem_check_read_write.py::test_readable_but_not_writable_file_is_permission_denied
+  - minion-agent-python/tests/execution/test_filesystem_check_read_write.py::test_readonly_or_deny_write_directory_is_permission_denied
+  - minion-agent-python/tests/execution/test_filesystem_check_read_write.py::test_relative_path_resolution
+  - minion-agent-python/tests/execution/test_filesystem_check_read_write.py::test_rw_directory_is_ok
+  - minion-agent-python/tests/execution/test_filesystem_check_read_write.py::test_rw_regular_file_directly_and_through_symlink
+  - minion-agent-python/tests/execution/test_filesystem_check_read_write.py::test_symlink_loop_uses_the_host_error_mapping
+  - minion-agent-python/tests/execution/test_filesystem_check_read_write.py::test_two_probe_mutant_makes_two_host_decisions
+  - minion-agent-python/tests/execution/test_filesystem_check_read_write.py::test_windows_branch_is_one_open_for_read_and_write_data
+  - minion-agent-python/tests/execution/test_filesystem_check_read_write.py::test_windows_directory_denying_delete_child_is_ok
+  - minion-agent-python/tests/execution/test_filesystem_check_read_write.py::test_windows_readonly_attribute_directory_is_ok
+  - minion-agent-python/tests/execution/test_filesystem_check_read_write.py::test_windows_readonly_attribute_file_is_permission_denied
+  - minion-agent-python/tests/execution/test_filesystem_check_read_write.py::test_windows_symlink_loop_matches_the_unchanged_layer12_operations
+  - minion-agent-python/tests/execution/test_filesystem_check_read_write.py::test_writable_but_not_readable_file_is_permission_denied
+  python: 'minion-agent-python/src/minion_agent/execution/filesystem.py (_check_read_write_posix, _windows_open_probe,
+    _check_read_write_windows, _check_read_write_sync, LocalFileSystem.check_read_write), additive to the existing
+    FileSystem Protocol (one new check_read_write member) -- every existing operation, check_readable included,
+    unchanged. POSIX: exactly one libc access(path, R_OK | W_OK) keeping its own errno. Windows: exactly one CreateFileW(FILE_READ_DATA
+    | FILE_WRITE_DATA, all sharing, OPEN_EXISTING, backup semantics; FILE_DELETE_CHILD not requested). Embedded
+    NUL rejected before either native call as unknown. Implementation candidate (WP-12.E3, minion-agent#79), pending
+    independent review.'
   rust: not implemented; planned (WP-12.E3, minion-agent#79) -- minion-agent-rust/crates/minion-agent/src/execution/filesystem.rs
   disposition: intentional divergence
 - id: TOOL-025

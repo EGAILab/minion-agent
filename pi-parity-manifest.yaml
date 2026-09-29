@@ -6614,6 +6614,42 @@ rows:
     at `689db685f4d586c9b3dc97965e1e096771c8f87e` (PR #64); cross-language CERTIFIED_CLOSED
     (minion-agent#62).'
   disposition: intentional divergence
+- id: EXEC-009
+  phase: 6
+  pi: packages/coding-agent/src/core/tools/edit.ts:96-109 (EditOperations.access, independently supplied; defaultEditOperations.access
+    = fs.promises.access(path, constants.R_OK | constants.W_OK)), awaited at edit.ts:347-356 before readFile; Node
+    22.15.1 / libuv 1.49.2 src/unix/fs.c:1713 (access(2)) and src/win/fs.c:2272 (GetFileAttributesW; W_OK fails
+    only for a non-directory with the read-only attribute)
+  surface: Layer 12, WP-12.E3 -- an additive extension to ctx.fs (check_read_write)
+  rule: 'CONTRACT_DRAFT (owner decision L13-WP132-O2 = A-1, refined: minion-agent#49 issuecomment-5881558193; routine
+    lifecycle delegated under minion-agent#75; coordinated as work package WP-12.E3, minion-agent#79).
+
+
+    One new operation, additive to EXEC-002''s ctx.fs inventory, with every existing operation (EXEC-008 check_readable
+    included) unchanged: `check_read_write(path, signal?) -> Result[None, FsError]` resolves the path (EXEC-002
+    section 3.2), follows symlinks, and answers in ONE provider operation whether the target exists and the calling
+    process may both read and write it (a file may be opened for reading and writing; a directory may be listed
+    and have entries created or removed). It never truncates, writes, creates, deletes or changes the target, and
+    consumes no content (a FIFO does not block). A read+write-accessible directory is Ok. It is never composed from
+    check_readable plus a separate writability probe, and never inferred from existence, metadata or canonicalization.
+    Errors use EXEC-001''s FsErrorCode taxonomy; a provider without the operation answers not_supported for every
+    call. Signal accepted, not inspected.
+
+
+    POSIX: DIRECT_PI_PARITY with one access(path, R_OK | W_OK) keeping the host errno. Windows: MINION_ARCHITECTURAL_MAPPING
+    by owner decision -- semantic read+write accessibility including ACL denial and the read-only attribute of a
+    non-directory, defined by one CreateFileW(FILE_READ_DATA | FILE_WRITE_DATA, all sharing, OPEN_EXISTING, backup
+    semantics, symlinks followed), deliberately not libuv''s attribute-only access. Its purpose is to let Layer
+    13 edit (TOOL-030/TOOL-033) preserve the provenance of Pi''s single access stage (spec/execution.md section
+    13.5); providers without it use an explicitly disclosed fallback (check_readable, later write failures at the
+    write site). Certified first-party local providers MUST implement it. Semantics and the witness matrix: spec/execution.md
+    section 13. Classified `intentional divergence` as a whole because of its owner-approved Windows rule, the same
+    shape as EXEC-008; its POSIX rule is DIRECT_PI_PARITY.'
+  tests:
+  - spec/execution.md section 13.6 witness matrix (predicted outcomes; implementation evidence to be added)
+  python: not implemented; planned (WP-12.E3, minion-agent#79) -- minion-agent-python/src/minion_agent/execution/filesystem.py
+  rust: not implemented; planned (WP-12.E3, minion-agent#79) -- minion-agent-rust/crates/minion-agent/src/execution/filesystem.rs
+  disposition: intentional divergence
 - id: TOOL-025
   phase: 6
   pi: 'packages/coding-agent/src/core/tools/read.ts (schema lines 21-25; execute lines 223-334);

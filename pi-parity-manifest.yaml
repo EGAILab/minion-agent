@@ -6746,10 +6746,11 @@ rows:
 
 
     Scope extension (WP-13.2 contract draft, minion-agent#49 -- not yet certified for these consumers):
-    `write` (TOOL-029) and `edit` (TOOL-030) resolve their `path` argument through this same pipeline
+    `write` (TOOL-029) and `edit` (TOOL-030) consume this row''s shared PREPROCESSING, steps 1-4 only
     (pinned Pi''s resolveToCwd, which read''s and ls''s resolution also build on), including R002-A''s
-    strict pre-ctx.fs rejection with the same text. No pipeline semantics change; WP-13.1''s certification
-    of this row is unchanged.'
+    strict pre-ctx.fs rejection with the same text -- never step 5''s read-only dispatch, which stays
+    read/ls-specific (L13-WP132-R002). No pipeline semantics change; WP-13.1''s certification of this row
+    is unchanged.'
   tests:
   - read_leading_ascii_space_not_trimmed (canonical scenario conformance/agent/builtin-read-leading-ascii-space-not-trimmed.yaml)
   - read_unicode_space_normalized (canonical scenario conformance/agent/builtin-read-unicode-space-normalized.yaml)

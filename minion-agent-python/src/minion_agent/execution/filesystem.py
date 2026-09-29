@@ -628,6 +628,81 @@ def _check_readable_sync(path: str) -> None:
         _check_readable_posix(path)
 
 
+def _check_read_write_posix(path: str) -> None:
+    """`EXEC-009` on POSIX, spec section 13.4: exactly one `access(path, R_OK | W_OK)` -- the call
+    Node's `fs.access(path, R_OK | W_OK)` makes -- evaluated with the process's real IDs and
+    following symlinks. The combined predicate is ONE host decision, never `check_readable` plus a
+    separate write probe; the call's own errno is kept (`ENOENT`, `ENOTDIR`, `EACCES`, `EROFS`,
+    `ETXTBSY`, `ELOOP`, ...) and classified by `to_fs_error`. `access` opens nothing: no content is
+    consumed, nothing is truncated, and a FIFO cannot block."""
+    import ctypes
+
+    if _libc_access()(os.fsencode(path), os.R_OK | os.W_OK) != 0:
+        code = ctypes.get_errno()
+        raise OSError(code, os.strerror(code), path)
+
+
+# Win32: on a file FILE_READ_DATA|FILE_WRITE_DATA is read+write data; on a directory the same bits
+# are FILE_LIST_DIRECTORY|FILE_ADD_FILE. FILE_DELETE_CHILD (0x40) and FILE_ADD_SUBDIRECTORY are
+# deliberately NOT requested (spec section 13.4, WP12E3-C001): Ok is an access answer, not a
+# promise that a later removal succeeds.
+_FILE_WRITE_DATA = 0x0002
+
+
+def _windows_open_probe(path: str, desired_access: int) -> None:
+    """ONE `CreateFileW` of `path` asking for `desired_access`: all sharing modes, `OPEN_EXISTING`
+    (never creates or truncates), backup semantics (a directory can be opened; the ACL is still
+    checked), symlinks followed (no `FILE_FLAG_OPEN_REPARSE_POINT`). The handle is closed at once
+    and nothing is read or written. A failure is raised as the matching `OSError`."""
+    import ctypes
+    from ctypes import wintypes
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.CreateFileW.restype = wintypes.HANDLE
+    kernel32.CreateFileW.argtypes = [
+        wintypes.LPCWSTR,
+        wintypes.DWORD,
+        wintypes.DWORD,
+        wintypes.LPVOID,
+        wintypes.DWORD,
+        wintypes.DWORD,
+        wintypes.HANDLE,
+    ]
+    kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+    handle = kernel32.CreateFileW(
+        path,
+        desired_access,
+        _FILE_SHARE_ALL,
+        None,
+        _OPEN_EXISTING,
+        _FILE_FLAG_BACKUP_SEMANTICS,
+        None,
+    )
+    if handle == wintypes.HANDLE(-1).value:
+        code = ctypes.get_last_error()
+        raise OSError(None, ctypes.FormatError(code), path, code)
+    kernel32.CloseHandle(handle)
+
+
+def _check_read_write_windows(path: str) -> None:
+    """`EXEC-009` on Windows, spec section 13.4 (owner decision `L13-WP132-O2`,
+    `MINION_ARCHITECTURAL_MAPPING`): semantic read+write accessibility -- ACL denial of reading or
+    writing and the read-only attribute of a non-directory both fail -- decided by ONE open for
+    `FILE_READ_DATA | FILE_WRITE_DATA`, not libuv's attribute-only `access`."""
+    _windows_open_probe(path, _FILE_READ_DATA | _FILE_WRITE_DATA)
+
+
+def _check_read_write_sync(path: str) -> None:
+    """`EXEC-009`, spec section 13.3. `path` is already the RESOLVED path. An embedded NUL is
+    rejected before either native call, exactly as `check_readable` rejects it (`WP12E2-I002`)."""
+    if "\x00" in path:
+        raise _EmbeddedNulPath("embedded null character in path")
+    if os.name == "nt":
+        _check_read_write_windows(path)
+    else:
+        _check_read_write_posix(path)
+
+
 def _remove_sync(path: str, recursive: bool, force: bool) -> None:
     try:
         st = os.lstat(path)
@@ -702,6 +777,11 @@ class FileSystem(Protocol):
     # `EXEC-008` (spec section 12), additive. A provider that cannot supply it returns
     # `Err(not_supported)` for every call -- a capability answer, never a target failure.
     async def check_readable(
+        self, path: str, signal: RunSignal | None = None
+    ) -> Result[None, FsError]: ...
+    # `EXEC-009` (spec section 13), additive: Pi `edit`'s single `access(path, R_OK | W_OK)`. A
+    # provider that cannot supply it returns `Err(not_supported)` for every call.
+    async def check_read_write(
         self, path: str, signal: RunSignal | None = None
     ) -> Result[None, FsError]: ...
     async def canonical_path(
@@ -942,6 +1022,25 @@ class LocalFileSystem:
         except _EmbeddedNulPath as exc:
             # Section 2.1's mapping of that rejection: Node's `ERR_INVALID_ARG_VALUE` is none of
             # `toFileError`'s listed codes (in particular not the `EINVAL` errno), so `unknown`.
+            return Err(FsError(FsErrorCode.UNKNOWN, str(exc), resolved, exc))
+        return Ok(None)
+
+    async def check_read_write(
+        self, path: str, signal: RunSignal | None = None
+    ) -> Result[None, FsError]:
+        """`EXEC-009`, spec section 13. Additive Layer-12 extension -- no existing operation
+        (`check_readable` included) changes. Resolves with section 3.2's rules, follows symlinks,
+        and answers in ONE host decision whether the target exists and is both readable and
+        writable, without consuming, truncating or changing it. `Ok` is an access answer, not a
+        promise that a later create/remove/write succeeds (WP12E3-C001). `signal` is accepted but
+        never inspected (section 13.3)."""
+        resolved = resolve_local_path(self.cwd, path)
+        try:
+            await asyncio.to_thread(_check_read_write_sync, resolved)
+        except OSError as exc:
+            return Err(to_fs_error(exc, resolved))
+        except _EmbeddedNulPath as exc:
+            # The same section 2.1 mapping as `check_readable`'s NUL rejection: `unknown`.
             return Err(FsError(FsErrorCode.UNKNOWN, str(exc), resolved, exc))
         return Ok(None)
 

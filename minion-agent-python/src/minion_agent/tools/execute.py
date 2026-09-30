@@ -192,48 +192,48 @@ never checked, so a non-finite number there is kept -- as pinned Pi keeps it."""
 
 _FINITE_FLOAT = Annotated[float, AllowInfNan(False)]
 _PLAIN = frozenset({str, int, bool, bytes, type(None)})
-_SHAPES: dict[tuple[type[Any], bool], type[BaseModel]] = {}
-_BUILDING: dict[tuple[type[Any], bool], str] = {}
+_SHAPES: dict[type[Any], type[BaseModel]] = {}
+_BUILDING: dict[type[Any], str] = {}
 """Record types whose shape is being built, by shape name: a recursive reference resolves to a
 forward reference to that name."""
 _SHAPE_NAMESPACE: dict[str, Any] = {}
 _SHAPE_CONFIG = ConfigDict(extra="allow", arbitrary_types_allowed=True)
 
 
-def _shape(annotation: Any, finite: bool) -> Any:
+def _shape(annotation: Any) -> Any:
     """The callback-free structural shape of a declared type, as its delivered (`model_dump`) value
-    is laid out (`TOOL-041`, `CE-L0506-D001-I001-01`): `float` (finite-only when `finite`), the
-    plain scalars and `Literal`s as declared, unions/containers through their arguments, and every
+    is laid out (`TOOL-041`, `CE-L0506-D001-I001-01`): `float` finite-only, the plain scalars
+    and `Literal`s as declared, unions/containers through their arguments, and every
     record type (model, dataclass, TypedDict) as a shape model over its delivered keys. Everything
     that can run user code is dropped: `Annotated` metadata (validators, constraints), decorators,
     defaults; any other class is checked by `isinstance` alone."""
     if annotation is float:
-        return _FINITE_FLOAT if finite else float
+        return _FINITE_FLOAT
     if annotation in _PLAIN or annotation is Any or annotation is object:
         return annotation
     if isinstance(annotation, NewType):
-        return _shape(annotation.__supertype__, finite)
+        return _shape(annotation.__supertype__)
     if isinstance(annotation, TypeAliasType):
-        return _shape(annotation.__value__, finite)
+        return _shape(annotation.__value__)
     origin, args = get_origin(annotation), get_args(annotation)
     if origin is Annotated:
-        return _shape(args[0], finite)
+        return _shape(args[0])
     if origin in (Union, UnionType):
-        return functools.reduce(operator.or_, (_shape(arg, finite) for arg in args))
+        return functools.reduce(operator.or_, (_shape(arg) for arg in args))
     if origin is Literal:
         return annotation
     if origin is not None:
-        mapped = tuple(arg if arg is Ellipsis else _shape(arg, finite) for arg in args)
+        mapped = tuple(arg if arg is Ellipsis else _shape(arg) for arg in args)
         return origin[mapped]
     if isinstance(annotation, type):
         if issubclass(annotation, RootModel):
-            return _shape(annotation.model_fields["root"].annotation, finite)
+            return _shape(annotation.model_fields["root"].annotation)
         if (
             issubclass(annotation, BaseModel)
             or is_dataclass(annotation)
             or is_typeddict(annotation)
         ):
-            return _record_shape(annotation, finite)
+            return _record_shape(annotation)
         return InstanceOf[annotation]  # type: ignore[misc]  # a runtime class, isinstance-checked
     return Any
 
@@ -252,28 +252,28 @@ def _delivered_keys(record: type[Any]) -> dict[str, Any]:
     return keys
 
 
-def _record_shape(record: type[Any], finite: bool) -> Any:
+def _record_shape(record: type[Any]) -> Any:
     """A shape model over `record`'s delivered keys, built once per record type. Every key is
     optional (an excluded field is absent) and extra keys are allowed (undeclared). A recursive
     reference -- `record` itself, or a record type referring back -- becomes a forward reference
     to the shape under construction, resolved once the outermost shape is built."""
-    key = (record, finite)
-    if key in _SHAPES:
-        return _SHAPES[key]
-    if key in _BUILDING:
-        return ForwardRef(_BUILDING[key])
-    name = f"{record.__name__}Shape{'Finite' if finite else ''}{id(record):x}"
-    _BUILDING[key] = name
+
+    if record in _SHAPES:
+        return _SHAPES[record]
+    if record in _BUILDING:
+        return ForwardRef(_BUILDING[record])
+    name = f"{record.__name__}Shape{id(record):x}"
+    _BUILDING[record] = name
     try:
         fields_: dict[str, Any] = {
-            f"f{index}": (_shape(annotation, finite), Field(None, validation_alias=delivered))
+            f"f{index}": (_shape(annotation), Field(None, validation_alias=delivered))
             for index, (delivered, annotation) in enumerate(_delivered_keys(record).items())
         }
         shape = create_model(name, __config__=_SHAPE_CONFIG, **fields_)
     finally:
-        del _BUILDING[key]
+        del _BUILDING[record]
     _SHAPE_NAMESPACE[name] = shape
-    _SHAPES[key] = shape
+    _SHAPES[record] = shape
     if not _BUILDING:  # the outermost shape: resolve every forward reference built on the way
         for built in _SHAPES.values():
             built.model_rebuild(_types_namespace=_SHAPE_NAMESPACE)
@@ -283,20 +283,18 @@ def _record_shape(record: type[Any], finite: bool) -> Any:
 def _reject_declared_non_finite(model: type[BaseModel], delivered: dict[str, Any]) -> None:
     """The finite-only rule for a pydantic-model tool (`TOOL-041`, `L0506-D001-I001`), on the value
     Layer 06 delivers (`model_dump()` of the one ordinary validation, user callbacks included):
-    rejected when it fits the declared types' structural shape, but not once every declared `float`
-    is finite-only. pydantic's union semantics decide on the complete value -- a non-finite value is
-    kept when some finite-only alternative accepts it (Pi's `anyOf`), so an `Any`/`object`
-    alternative or an undeclared extra keeps it. The shapes run no user code, so each user validator
-    runs exactly once; a delivered value outside the declared shape is not a declared numeric
-    position and stays pydantic's."""
+    rejected when validating it against the declared types' finite-only structural shape reports a
+    non-finite number (`finite_number`) at any position. pydantic's union semantics decide on the
+    complete value -- a union some finite-only alternative accepts reports nothing (Pi's `anyOf`),
+    so an `Any`/`object` alternative or an undeclared extra keeps its value. A position outside
+    the declared shape reports only its own mismatch, which neither rejects the call nor exempts
+    another position (`CE-I001-C002`). The shape runs no user code: each user validator runs
+    exactly once."""
     try:
-        _record_shape(model, True).model_validate(delivered)
+        _record_shape(model).model_validate(delivered)
     except PydanticValidationError as error:
-        try:
-            _record_shape(model, False).model_validate(delivered)
-        except PydanticValidationError:
-            return
-        raise ArgumentValidationError(str(error)) from error
+        if any(detail["type"] == "finite_number" for detail in error.errors()):
+            raise ArgumentValidationError(str(error)) from error
 
 
 def _arity(execute: Any) -> int:

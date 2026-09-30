@@ -311,10 +311,10 @@ def test_first_union_member_only_mutant_is_killed(monkeypatch: pytest.MonkeyPatc
     `list[float] | list[Any]` pair kills it)."""
     original = execute_module._shape
 
-    def first_member(annotation: Any, finite: bool) -> Any:
+    def first_member(annotation: Any) -> Any:
         if get_origin(annotation) in (Union, UnionType):
-            return original(get_args(annotation)[0], finite)
-        return original(annotation, finite)
+            return original(get_args(annotation)[0])
+        return original(annotation)
 
     monkeypatch.setattr(execute_module, "_shape", first_member)
     monkeypatch.setattr(execute_module, "_SHAPES", {})

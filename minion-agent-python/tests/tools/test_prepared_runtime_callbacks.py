@@ -344,3 +344,132 @@ async def test_declared_type_kinds(
         _assert_rejected(outcome)
     else:
         assert not outcome["rejected"], outcome
+
+
+# --- CE-I001-C002 refined: an out-of-shape position never exempts a numeric one ----------------
+
+
+class NumericOnly(BaseModel):
+    number: float = 0.0
+
+    @model_validator(mode="after")
+    def rewrite(self) -> NumericOnly:
+        self.number = VALUE[0]
+        return self
+
+
+class WithMalformedSibling(BaseModel):
+    number: float = 0.0
+    text: str = "ok"
+
+    @model_validator(mode="after")
+    def rewrite(self) -> WithMalformedSibling:
+        self.number = VALUE[0]
+        self.text = VALUE[0]  # type: ignore[assignment]  # outside this non-numeric field's shape
+        return self
+
+
+class Count(BaseModel):
+    count: int = 0
+
+    @model_validator(mode="after")
+    def rewrite(self) -> Count:
+        self.count = VALUE[0]  # type: ignore[assignment]  # a non-finite in a declared integer
+        return self
+
+
+class Pair(BaseModel):
+    number: float = 0.0
+    text: str = "ok"
+
+
+class NestedMalformed(BaseModel):
+    pair: Pair = Field(default_factory=Pair)
+    pairs: list[Pair] = []
+
+    @model_validator(mode="after")
+    def rewrite(self) -> NestedMalformed:
+        self.pair.number = VALUE[0]
+        self.pair.text = VALUE[0]  # type: ignore[assignment]
+        return self
+
+
+class ListMalformed(BaseModel):
+    numbers: list[float] = []
+    maybe: Pair | None = None
+
+    @model_validator(mode="after")
+    def rewrite(self) -> ListMalformed:
+        self.numbers = [VALUE[0], "x"]  # type: ignore[list-item]  # a numeric element + a mismatch
+        return self
+
+
+class OpenWithMalformedSibling(BaseModel):
+    loose: float | Any = 0.0
+    items: list[float] | list[Any] = []
+    text: str = "ok"
+
+    @model_validator(mode="after")
+    def rewrite(self) -> OpenWithMalformedSibling:
+        self.loose = VALUE[0]
+        self.items = [VALUE[0]]
+        self.text = VALUE[0]  # type: ignore[assignment]
+        return self
+
+
+@pytest.mark.filterwarnings("ignore:Pydantic serializer warnings")
+@pytest.mark.parametrize(
+    "model",
+    [NumericOnly, WithMalformedSibling, Count, NestedMalformed, ListMalformed],
+    ids=["numeric-only", "malformed-sibling", "integer", "nested-sibling", "list-element"],
+)
+async def test_an_out_of_shape_position_never_exempts_a_numeric_one(
+    model: type[BaseModel], produced: float
+) -> None:
+    del produced
+    _assert_rejected(await _run(model, {}))
+
+
+@pytest.mark.filterwarnings("ignore:Pydantic serializer warnings")
+async def test_unconstrained_alternatives_beside_a_malformed_sibling_are_kept(
+    produced: float,
+) -> None:
+    """No blanket sweep: only a declared numeric position rejects."""
+    outcome = await _run(OpenWithMalformedSibling, {})
+    assert not outcome["rejected"], outcome
+    assert repr(outcome["execute"]) == repr(
+        {"loose": produced, "items": [produced], "text": produced}
+    )
+
+
+@pytest.mark.filterwarnings("ignore:Pydantic serializer warnings")
+async def test_whole_record_open_shape_exemption_is_killed(
+    monkeypatch: pytest.MonkeyPatch, produced: float
+) -> None:
+    """Negative control: rev 2's rule -- reject only when the WHOLE delivered value fits the
+    non-finite-admitting shape -- lets a malformed sibling exempt the numeric field."""
+    finite_rule = execute_module._reject_declared_non_finite
+
+    def whole_record_exemption(model: type[BaseModel], delivered: dict[str, Any]) -> None:
+        open_values = _map_non_finite(delivered)
+        try:
+            execute_module._record_shape(model).model_validate(open_values)
+        except PydanticValidationError:
+            return
+        finite_rule(model, delivered)
+
+    monkeypatch.setattr(execute_module, "_reject_declared_non_finite", whole_record_exemption)
+    assert not (await _run(WithMalformedSibling, {}))["rejected"]
+    del produced
+
+
+def _map_non_finite(value: Any) -> Any:
+    """The delivered value with every non-finite number made finite: validating it against the
+    finite shape is validating the original against the non-finite-admitting shape."""
+    if isinstance(value, dict):
+        return {key: _map_non_finite(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_map_non_finite(item) for item in value]
+    if isinstance(value, float) and not math.isfinite(value):
+        return 0.0
+    return value

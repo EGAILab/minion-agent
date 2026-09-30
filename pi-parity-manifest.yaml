@@ -6836,7 +6836,7 @@ rows:
     row asserts the REJECTION-BEFORE-ctx.fs mechanism and its INVALID classification; TOOL-039''s
     own test of the same name asserts the resulting MESSAGE TEXT specifically -- two distinct
     assertions sharing one canonical scenario name deliberately, not an accidental duplicate)
-  python: 'minion_agent/tools/builtin/paths.py::preprocess_path (steps 1-4; step 4 calls execution.filesystem.file_url_to_path, the certified conversion under a public name); canonical builtin_tool scenarios below'
+  python: 'minion_agent/tools/builtin/paths.py::preprocess_path (steps 1-4; step 4 calls execution.filesystem.file_url_to_path, the certified conversion under a public name); canonical builtin_tool scenarios below. write/edit (WP-13.2) consume steps 1-4 through the same preprocess_path (implementation candidate, minion-agent#49).'
   rust: 'minion-agent-rust/crates/minion-agent/src/tools/builtin/paths.rs::preprocess_path (step 4 calls the
     certified execution::file_url_to_path); canonical builtin_tool scenarios below'
   disposition: adopted
@@ -6934,7 +6934,7 @@ rows:
   - write_cancellation_checkpoints (canonical scenario conformance/agent/builtin-mutation/builtin-write-cancellation-checkpoints.yaml)
   - edit_write_pinned_pi_authority_corpus (canonical scenario conformance/agent/builtin-mutation/builtin-write-corpus.yaml; candidate, pending
     contract review)
-  python: not implemented; planned (WP-13.2, minion-agent#49)
+  python: 'minion_agent/tools/builtin/write.py (create_write_tool; UTF-16 length via _utf16.utf16_length, WHATWG encoding via _utf16.encode_utf8; in-lock absolute_path, create_dir, write_file, abort checkpoints); minion_agent/tools/builtin/plugin.py fs_mutation_tools_plugin. Implementation candidate (WP-13.2, minion-agent#49), pending independent review.'
   rust: not implemented; planned (WP-13.2, minion-agent#49)
   disposition: adopted
 - id: TOOL-030
@@ -6961,7 +6961,7 @@ rows:
   - edit_fallback_without_exec_009 (canonical scenarios conformance/agent/builtin-mutation/builtin-edit-provider-without-exec-009-uses-disclosed-fallback.yaml
     + conformance/agent/builtin-mutation/builtin-edit-provider-without-exec-009-or-exec-008-skips-access.yaml)
   - edit_cancellation_checkpoints (canonical scenario conformance/agent/builtin-mutation/builtin-edit-cancellation-checkpoints.yaml)
-  python: not implemented; planned (WP-13.2, minion-agent#49)
+  python: 'minion_agent/tools/builtin/edit.py (create_edit_tool, prepare_edit_arguments, EXEC-009 access stage with the disclosed FALLBACK); minion_agent/tools/builtin/edit_diff.py (apply_edits, diagnostics, generate_diff_string, generate_unified_patch); minion_agent/tools/builtin/_jsdiff.py (the pinned diff 8.0.4 diffLines/createTwoFilesPatch port); minion_agent/tools/builtin/_utf16.py (JavaScript UTF-16 string semantics). Implementation candidate (WP-13.2, minion-agent#49), pending independent review.'
   rust: not implemented; planned (WP-13.2, minion-agent#49)
   disposition: adopted
 - id: TOOL-031
@@ -6981,7 +6981,7 @@ rows:
     contract review)
   - fuzzy_normalize replay (conformance/agent/fixtures/wp132-fuzzy-normalize/fuzzy_normalize.json, pinned Pi's
     normalizeForFuzzyMatch results, replayed by each binding against its fuzzy_normalize)
-  python: not implemented; planned (WP-13.2, minion-agent#49)
+  python: 'minion_agent/tools/builtin/edit_diff.py (fuzzy_normalize over the pinned ICU 78.3 FilteredNormalizer2 NFKC restricted to [:age=16.0:] via collation.Collation.nfkc_unicode16, the ECMAScript trimEnd set, preserve_unchanged_lines, split_bom, line endings). Implementation candidate (WP-13.2, minion-agent#49), pending independent review.'
   rust: not implemented; planned (WP-13.2, minion-agent#49)
   disposition: adopted
 - id: TOOL-032
@@ -7008,7 +7008,7 @@ rows:
   - queue_not_directory_fallback_key (conformance/agent/builtin-mutation/builtin-mutation-queue-not-directory-fallback-key.yaml)
   - queue_shared_by_write_and_edit (conformance/agent/builtin-mutation/builtin-mutation-queue-write-and-edit-share-the-queue.yaml)
   - ordering authority -- pinned file-mutation-queue.ts traces (minion-agent-docs assurance/layers/data/13-wp132-evidence/out/queue_authority.json)
-  python: not implemented; planned (WP-13.2, minion-agent#49)
+  python: 'minion_agent/tools/builtin/mutation_queue.py (with_mutation_queue, mutation_queue_key: global registration chain, per-(provider, key) FIFO, settle-then-proceed registration). Implementation candidate (WP-13.2, minion-agent#49), pending independent review.'
   rust: not implemented; planned (WP-13.2, minion-agent#49)
   disposition: adopted
 - id: TOOL-033
@@ -7026,7 +7026,7 @@ rows:
   - edit_cancellation_checkpoints (conformance/agent/builtin-mutation/builtin-edit-cancellation-checkpoints.yaml)
   - queue_abort_keeps_lock_until_inflight_settles (conformance/agent/builtin-mutation/builtin-mutation-queue-aborted-call-holds-lock-until-its-write-settles.yaml)
   - queue_release_after_error_and_abort (conformance/agent/builtin-mutation/builtin-mutation-queue-released-after-error-and-after-abort.yaml)
-  python: not implemented; planned (WP-13.2, minion-agent#49)
+  python: 'minion_agent/tools/builtin/write.py check_abort and the edit/write checkpoints (no abort listener; no ctx.fs call receives the signal). Implementation candidate (WP-13.2, minion-agent#49), pending independent review.'
   rust: not implemented; planned (WP-13.2, minion-agent#49)
   disposition: adopted
 - id: TOOL-039
@@ -7095,7 +7095,7 @@ rows:
   - malformed_file_url_rejected_before_ctx_fs_access_as_invalid (canonical scenario conformance/agent/builtin-ls-malformed-file-url-rejected-before-ctx-fs-access-as-invalid.yaml + conformance/agent/builtin-read-malformed-file-url-rejected-before-ctx-fs-access-as-invalid.yaml)
   - ls_enumeration_failure_cannot_read_directory (canonical scenario conformance/agent/builtin-ls-enumeration-failure-cannot-read-directory.yaml)
   - ls_provider_without_extension_not_supported (canonical scenario conformance/agent/builtin-ls-provider-without-extension-not-supported.yaml)
-  python: 'minion_agent/tools/builtin/paths.py (CAUSE_PHRASES, BuiltinToolError); read.py/ls.py error sites; canonical builtin_tool scenarios below'
+  python: 'minion_agent/tools/builtin/paths.py (CAUSE_PHRASES, BuiltinToolError); read.py/ls.py error sites; canonical builtin_tool scenarios below. WP-13.2 sites (write.py, edit.py, mutation_queue.py) are an implementation candidate (minion-agent#49), pending independent review.'
   rust: 'minion-agent-rust/crates/minion-agent/src/tools/builtin/paths.rs (cause, OPERATION_ABORTED);
     read.rs/ls.rs error sites; canonical builtin_tool scenarios below'
   disposition: intentional divergence

@@ -24,7 +24,9 @@ built-in tool schema; `family` routes to the unified schema; otherwise the legac
 schema governs.
 """
 
+import copy
 import json
+import math
 import re
 from pathlib import Path
 from typing import Any
@@ -51,6 +53,9 @@ BUILTIN_MUTATION_SCHEMA = CONFORMANCE / "schema" / "builtin-mutation-scenario.sc
 # WP-13.2 (write/edit + mutation queue): its own directory and shape, so the WP-13.1 `builtin_tool`
 # runners (which glob conformance/agent/*.yaml) are unaffected.
 BUILTIN_MUTATION_DIR = CONFORMANCE / "agent" / "builtin-mutation"
+PREPARED_RUNTIME_SCHEMA = CONFORMANCE / "schema" / "prepared-runtime-scenario.schema.json"
+# Layer 05/06 delta L0506-D001 (TOOL-041): its own directory and shape.
+PREPARED_RUNTIME_DIR = CONFORMANCE / "agent" / "prepared-runtime"
 
 # Families whose scenarios arrive in a later plan. Their schema must still exist
 # and must still be a valid JSON Schema. Empty now that every family is
@@ -103,6 +108,7 @@ def test_family_has_scenarios(family: str) -> None:
         AUTH_DEVICE_CODE_SCHEMA,
         BUILTIN_TOOL_SCHEMA,
         BUILTIN_MUTATION_SCHEMA,
+        PREPARED_RUNTIME_SCHEMA,
     ],
     ids=lambda p: p.stem,
 )
@@ -146,6 +152,110 @@ def test_builtin_mutation_scenario_validates(scenario: Path) -> None:
     assert not errors, "\n".join(
         f"{'/'.join(str(part) for part in error.path)}: {error.message}" for error in errors
     )
+
+
+def test_prepared_runtime_scenarios_exist() -> None:
+    assert sorted(PREPARED_RUNTIME_DIR.glob("*.yaml"))
+
+
+@pytest.mark.parametrize(
+    "scenario", sorted(PREPARED_RUNTIME_DIR.glob("*.yaml")), ids=lambda value: value.stem
+)
+def test_prepared_runtime_scenario_validates(scenario: Path) -> None:
+    document = yaml.safe_load(scenario.read_text(encoding="utf-8"))
+    assert "prepared_runtime" in document
+    schema = json.loads(PREPARED_RUNTIME_SCHEMA.read_text(encoding="utf-8"))
+    errors = sorted(
+        Draft202012Validator(schema).iter_errors(document),
+        key=lambda error: list(error.path),
+    )
+    assert not errors, "\n".join(
+        f"{'/'.join(str(part) for part in error.path)}: {error.message}" for error in errors
+    )
+
+
+def _prepared_runtime_documents() -> list[dict[str, Any]]:
+    return [
+        yaml.safe_load(path.read_text(encoding="utf-8"))
+        for path in sorted(PREPARED_RUNTIME_DIR.glob("*.yaml"))
+    ]
+
+
+_FINITE_LITERAL = re.compile(r"-?(0|[1-9][0-9]*)(\.[0-9]+)?([eE][+-]?[0-9]+)?")
+
+
+def _finite_literal_is_finite(token: str) -> bool:
+    return token in ("+Infinity", "-Infinity", "NaN") or (
+        _FINITE_LITERAL.fullmatch(token) is not None and math.isfinite(float(token))
+    )
+
+
+def test_prepared_runtime_preflight_holds_for_every_case() -> None:
+    """The schema's language-neutral PREFLIGHT (L0506-D001-R002): a `prepared` case observes
+    exactly its `observe` pointers, and every finite literal denotes a finite binary64 value."""
+    for document in _prepared_runtime_documents():
+        for case in document["prepared_runtime"]["cases"]:
+            expect = case["expect"]
+            if expect["outcome"] == "prepared":
+                assert set(expect["observed"]) == set(case["observe"]), case["id"]
+            tokens = [*case.get("prepare_set", {}).values(), *expect.get("observed", {}).values()]
+            assert all(_finite_literal_is_finite(t) for t in tokens), case["id"]
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        pytest.param(lambda case: case.pop("schema"), id="custom-without-schema"),
+        pytest.param(lambda case: case.pop("prepare_set"), id="custom-without-prepare_set"),
+        pytest.param(lambda case: case["expect"].pop("observed"), id="prepared-without-observed"),
+        pytest.param(
+            lambda case: case["prepare_set"].__setitem__("extra", "1garbage"),
+            id="malformed-finite-token",
+        ),
+        pytest.param(
+            lambda case: case["expect"].__setitem__("outcome", "argument_validation_failure"),
+            id="failure-with-observed",
+        ),
+    ],
+)
+def test_prepared_runtime_schema_rejects_undispatchable_cases(mutation: Any) -> None:
+    """L0506-D001-R002: each isolated mutation of a valid custom case is REJECTED by the schema."""
+    base = next(
+        document
+        for document in _prepared_runtime_documents()
+        if document["name"] == "prepared-runtime-undeclared-field"
+    )
+    document = copy.deepcopy(base)
+    mutation(document["prepared_runtime"]["cases"][0])
+    schema = json.loads(PREPARED_RUNTIME_SCHEMA.read_text(encoding="utf-8"))
+    assert list(Draft202012Validator(schema).iter_errors(document))
+
+
+def test_prepared_runtime_gates_are_explicit_and_acyclic() -> None:
+    """L0506-D001-R003: every document names its gate; a delta-gated (L0506-D001) document holds
+    only custom cases, runnable from the accepted Layer 05/06 baseline; the real-edit document is
+    gated to WP-13.2. A missing gate, or an edit case inside the delta gate, is rejected by the
+    schema."""
+    documents = _prepared_runtime_documents()
+    gates = {document["name"]: document["gate"] for document in documents}
+    assert gates["prepared-runtime-edit-json-string-numbers"] == "WP-13.2"
+    for document in documents:
+        if document["gate"] == "L0506-D001":
+            assert {case["tool"] for case in document["prepared_runtime"]["cases"]} == {"custom"}
+    schema = json.loads(PREPARED_RUNTIME_SCHEMA.read_text(encoding="utf-8"))
+    validator = Draft202012Validator(schema)
+    edit_document = next(d for d in documents if d["gate"] == "WP-13.2")
+    moved = copy.deepcopy(edit_document)
+    moved["gate"] = "L0506-D001"
+    assert list(validator.iter_errors(moved))
+    ungated = copy.deepcopy(edit_document)
+    ungated.pop("gate")
+    assert list(validator.iter_errors(ungated))
+
+
+def test_prepared_runtime_preflight_rejects_an_overflowing_finite_literal() -> None:
+    assert not _finite_literal_is_finite("1e999")
+    assert _finite_literal_is_finite("1.7976931348623157e+308")
 
 
 def _session_document(append: dict[str, Any]) -> dict[str, Any]:

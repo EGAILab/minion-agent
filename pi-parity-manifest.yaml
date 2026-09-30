@@ -6961,6 +6961,9 @@ rows:
   - edit_fallback_without_exec_009 (canonical scenarios conformance/agent/builtin-mutation/builtin-edit-provider-without-exec-009-uses-disclosed-fallback.yaml
     + conformance/agent/builtin-mutation/builtin-edit-provider-without-exec-009-or-exec-008-skips-access.yaml)
   - edit_cancellation_checkpoints (canonical scenario conformance/agent/builtin-mutation/builtin-edit-cancellation-checkpoints.yaml)
+  - edit_prepared_runtime_numbers (canonical scenario conformance/agent/prepared-runtime/prepared-runtime-edit-json-string-numbers.yaml,
+    gate WP-13.2 -- prepareEditArguments' JSON.parse numbers reach the pre-execute hook -- +/-Infinity, -0, binary64
+    rounding; run once L0506-D001 (TOOL-041) is certified, minion-agent#88)
   python: not implemented; planned (WP-13.2, minion-agent#49)
   rust: not implemented; planned (WP-13.2, minion-agent#49)
   disposition: adopted
@@ -7141,3 +7144,31 @@ rows:
     build-identity gate over every loaded ICU module instance -- Windows EnumProcessModules, Linux
     /proc/self/maps); canonical builtin_tool scenarios below'
   disposition: intentional divergence
+- id: TOOL-041
+  phase: 4
+  pi: packages/agent/src/agent-loop.ts::prepareToolCallArguments/prepareToolCall (prepared args -> validateToolArguments
+    -> beforeToolCall args -> execute); packages/ai/src/utils/validation.ts::validateToolArguments (typebox 1.3.7);
+    packages/coding-agent/src/core/tools/edit.ts::prepareEditArguments (JSON.parse)
+  surface: Layer 05/06 post-certification delta L0506-D001 -- the prepared runtime numeric domain (prepare_arguments
+    result, validation, tools/pre-execute arguments, execute arguments)
+  rule: 'CONTRACT_DRAFT (L0506-D001, minion-agent#88; Owner decision L13-WP132-I004 Option 1, minion-agent#49
+    issuecomment-5912178299; intentional divergence NONE). Prepared runtime arguments carry Pi''s runtime numbers:
+    finite binary64 including -0 (sign preserved), +Infinity, -Infinity, and NaN (reachable only through a tool''s own
+    prepare_arguments). Raw ToolCall arguments, tool_execution_* original arguments and ToolCall serialization are
+    unchanged. Validation: a declared number/integer instance is finite-only (+/-Infinity and NaN rejected with the
+    certified TOOL-003 immediate error; -0 accepted, sign kept); an undeclared position keeps any runtime number. The
+    tools/pre-execute listener and execute observe the prepared value exactly; the successful path serializes no
+    prepared value (Pi''s only serialization of it is its validation-failure diagnostic, a JSON.stringify projection:
+    +/-Infinity and NaN -> null, -0 -> 0, runtime values unchanged; Minion''s TOOL-003 validator text is its own).
+    Full rules: spec/tools.md Layer 06, ''Prepared runtime numeric domain (TOOL-041)''.'
+  tests:
+  - prepared_runtime_numeric_domain -- delta certification gate L0506-D001 (L0506-D001-R003) -- canonical scenarios
+    conformance/agent/prepared-runtime/prepared-runtime-declared-number-field.yaml, prepared-runtime-declared-integer-field.yaml
+    and prepared-runtime-undeclared-field.yaml (19 custom cases), generated from the pinned-Pi authority in minion-agent-docs
+    assurance/layers/data/l0506-d001
+  - real-edit integration witness (gate WP-13.2, NOT part of this row's certification) -- conformance/agent/prepared-runtime/prepared-runtime-edit-json-string-numbers.yaml;
+    run by WP-13.2's Python approval and Rust implementation reviews once L0506-D001 is certified (see TOOL-030)
+  python: 'not implemented; planned (L0506-D001, minion-agent#88) -- known defect L0506-D001-C001: tools/execute.py::_validate
+    accepts non-finite values in a declared number field'
+  rust: not implemented; planned (L0506-D001, minion-agent#88)
+  disposition: adopted

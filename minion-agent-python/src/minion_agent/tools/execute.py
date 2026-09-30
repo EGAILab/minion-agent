@@ -30,12 +30,14 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+import math
 from collections.abc import Awaitable, Callable, Coroutine
 from dataclasses import dataclass
 from typing import Any
 
-from jsonschema import Draft202012Validator
+from jsonschema import Draft202012Validator, validators
 from jsonschema.exceptions import ValidationError as JsonSchemaValidationError
+from pydantic import BaseModel
 from pydantic import ValidationError as PydanticValidationError
 
 from ..llm import ToolCallBlock
@@ -141,14 +143,54 @@ def _validate(definition: ToolDefinition, arguments: dict[str, Any]) -> dict[str
     """
     if isinstance(definition.parameters, dict):
         try:
-            Draft202012Validator(definition.parameters).validate(arguments)
+            PreparedArgumentsValidator(definition.parameters).validate(arguments)
         except JsonSchemaValidationError as error:
             raise ArgumentValidationError(error.message) from error
         return dict(arguments)
     try:
-        return definition.parameters.model_validate(arguments).model_dump()
+        validated = definition.parameters.model_validate(arguments).model_dump()
     except PydanticValidationError as error:
         raise ArgumentValidationError(str(error)) from error
+    _reject_declared_non_finite(definition.parameters, arguments)
+    return validated
+
+
+def _is_finite_number(checker: Any, instance: Any) -> bool:
+    """JSON Schema `number`, finite-only (`TOOL-041`): pinned Pi's validator rejects +/-Infinity
+    and NaN in a declared `number`, as JSON's own data model has no non-finite numbers. The
+    `jsonschema` library's `number` admits them (`L0506-D001-C001`). `integer` already rejects
+    them (`inf.is_integer()` is false), and `-0.0` stays a valid `number` and `integer`."""
+    return Draft202012Validator.TYPE_CHECKER.is_type(instance, "number") and (
+        not isinstance(instance, float) or math.isfinite(instance)
+    )
+
+
+PreparedArgumentsValidator: Any = validators.extend(  # type: ignore[no-untyped-call]
+    Draft202012Validator,
+    type_checker=Draft202012Validator.TYPE_CHECKER.redefine("number", _is_finite_number),
+)
+"""Layer 06's validator for the prepared runtime arguments of a raw JSON-Schema tool (`TOOL-041`):
+Draft 2020-12 with a finite-only `number`. A value in a position the schema does not constrain is
+never checked, so a non-finite number there is kept -- as pinned Pi keeps it."""
+
+
+def _reject_declared_non_finite(model: type[BaseModel], arguments: dict[str, Any]) -> None:
+    """The same finite-only rule for a pydantic-model tool (`TOOL-041`): pydantic's own `float`
+    accepts +/-inf and NaN, so the prepared arguments are also checked against the model's own
+    JSON schema -- reporting ONLY a non-finite value in a declared numeric position (pydantic stays
+    the authority for every other rule). A model whose JSON schema cannot be generated is left to
+    pydantic alone (disclosed in spec/tools.md `TOOL-041`)."""
+    try:
+        schema = model.model_json_schema()
+    except Exception:  # pydantic raises several error types for non-JSON-schema-able models
+        return
+    for error in PreparedArgumentsValidator(schema).iter_errors(arguments):
+        if (
+            error.validator == "type"
+            and isinstance(error.instance, float)
+            and not math.isfinite(error.instance)
+        ):
+            raise ArgumentValidationError(error.message)
 
 
 def _arity(execute: Any) -> int:

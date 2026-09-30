@@ -1,0 +1,1244 @@
+name: "builtin-edit-corpus-curated"
+family: "agent"
+authority: "pinned Pi b7bb00b9 edit-diff.ts/utils/text.ts + diff 8.0.4 under Node 22.15.1 (authority corpus)"
+pi_revision: "b7bb00b936dbe21b8e160b3e89efdec361846699"
+requirements:
+  - "TOOL-030"
+  - "TOOL-031"
+witnesses:
+  - "edit_write_pinned_pi_authority_corpus"
+notes: "GENERATED from the pinned-Pi authority run (minion-agent-docs assurance/layers/data/13-wp132-evidence): edit: the curated rules of spec/tools.md WP-13.2 (matching, diagnostics, fuzzy, BOM, line endings, diff). Expectations are pinned Pi's result text, final file bytes and details, verbatim. Do not edit by hand; regenerate with harness/make_scenarios.py."
+builtin_mutation:
+  cases:
+    - id: "exact-single"
+      tool: "edit"
+      fixture:
+        - path: "src/app.txt"
+          file:
+            base64: "YWxwaGEKYmV0YQpnYW1tYQo="
+      arguments:
+        path: "src/app.txt"
+        edits:
+          - oldText: "beta"
+            newText: "BETA"
+      expect:
+        is_error: false
+        text: "Successfully replaced 1 block(s) in src/app.txt."
+        details:
+          diff: " 1 alpha\n-2 beta\n+2 BETA\n 3 gamma"
+          patch: "--- src/app.txt\n+++ src/app.txt\n@@ -1,3 +1,3 @@\n alpha\n-beta\n+BETA\n gamma\n"
+          firstChangedLine: 2
+        files_after:
+          - path: "src/app.txt"
+            base64: "YWxwaGEKQkVUQQpnYW1tYQo="
+    - id: "exact-multi-out-of-order"
+      tool: "edit"
+      fixture:
+        - path: "src/app.txt"
+          file:
+            base64: "b25lCnR3bwp0aHJlZQpmb3VyCmZpdmUK"
+      arguments:
+        path: "src/app.txt"
+        edits:
+          - oldText: "four"
+            newText: "4"
+          - oldText: "one"
+            newText: "1"
+          - oldText: "three"
+            newText: "3"
+      expect:
+        is_error: false
+        text: "Successfully replaced 3 block(s) in src/app.txt."
+        details:
+          diff: "-1 one\n+1 1\n 2 two\n-3 three\n-4 four\n+3 3\n+4 4\n 5 five"
+          patch: "--- src/app.txt\n+++ src/app.txt\n@@ -1,5 +1,5 @@\n-one\n+1\n two\n-three\n-four\n+3\n+4\n five\n"
+          firstChangedLine: 1
+        files_after:
+          - path: "src/app.txt"
+            base64: "MQp0d28KMwo0CmZpdmUK"
+    - id: "adjacent-not-overlapping"
+      tool: "edit"
+      fixture:
+        - path: "src/app.txt"
+          file:
+            base64: "YWJjZGVmCg=="
+      arguments:
+        path: "src/app.txt"
+        edits:
+          - oldText: "abc"
+            newText: "X"
+          - oldText: "def"
+            newText: "Y"
+      expect:
+        is_error: false
+        text: "Successfully replaced 2 block(s) in src/app.txt."
+        details:
+          diff: "-1 abcdef\n+1 XY"
+          patch: "--- src/app.txt\n+++ src/app.txt\n@@ -1,1 +1,1 @@\n-abcdef\n+XY\n"
+          firstChangedLine: 1
+        files_after:
+          - path: "src/app.txt"
+            base64: "WFkK"
+    - id: "overlap"
+      tool: "edit"
+      fixture:
+        - path: "src/app.txt"
+          file:
+            base64: "YWJjZGVmCg=="
+      arguments:
+        path: "src/app.txt"
+        edits:
+          - oldText: "abcd"
+            newText: "X"
+          - oldText: "cdef"
+            newText: "Y"
+      expect:
+        is_error: true
+        text: "edits[0] and edits[1] overlap in src/app.txt. Merge them into one edit or target disjoint regions."
+        details: {}
+        files_after:
+          - path: "src/app.txt"
+            base64: "YWJjZGVmCg=="
+    - id: "overlap-reported-in-sorted-order"
+      tool: "edit"
+      fixture:
+        - path: "src/app.txt"
+          file:
+            base64: "YWJjZGVmCg=="
+      arguments:
+        path: "src/app.txt"
+        edits:
+          - oldText: "cdef"
+            newText: "Y"
+          - oldText: "abcd"
+            newText: "X"
+      expect:
+        is_error: true
+        text: "edits[1] and edits[0] overlap in src/app.txt. Merge them into one edit or target disjoint regions."
+        details: {}
+        files_after:
+          - path: "src/app.txt"
+            base64: "YWJjZGVmCg=="
+    - id: "not-found-single"
+      tool: "edit"
+      fixture:
+        - path: "src/app.txt"
+          file:
+            base64: "YWxwaGEK"
+      arguments:
+        path: "src/app.txt"
+        edits:
+          - oldText: "zeta"
+            newText: "Z"
+      expect:
+        is_error: true
+        text: "Could not find the exact text in src/app.txt. The old text must match exactly including all whitespace and newlines."
+        details: {}
+        files_after:
+          - path: "src/app.txt"
+            base64: "YWxwaGEK"
+    - id: "not-found-multi"
+      tool: "edit"
+      fixture:
+        - path: "src/app.txt"
+          file:
+            base64: "YWxwaGEKYmV0YQo="
+      arguments:
+        path: "src/app.txt"
+        edits:
+          - oldText: "alpha"
+            newText: "A"
+          - oldText: "zeta"
+            newText: "Z"
+      expect:
+        is_error: true
+        text: "Could not find edits[1] in src/app.txt. The oldText must match exactly including all whitespace and newlines."
+        details: {}
+        files_after:
+          - path: "src/app.txt"
+            base64: "YWxwaGEKYmV0YQo="
+    - id: "empty-old-single"
+      tool: "edit"
+      fixture:
+        - path: "src/app.txt"
+          file:
+            base64: "YWxwaGEK"
+      arguments:
+        path: "src/app.txt"
+        edits:
+          - oldText: ""
+            newText: "x"
+      expect:
+        is_error: true
+        text: "oldText must not be empty in src/app.txt."
+        details: {}
+        files_after:
+          - path: "src/app.txt"
+            base64: "YWxwaGEK"
+    - id: "empty-old-multi"
+      tool: "edit"
+      fixture:
+        - path: "src/app.txt"
+          file:
+            base64: "YWxwaGEK"
+      arguments:
+        path: "src/app.txt"
+        edits:
+          - oldText: "alpha"
+            newText: "A"
+          - oldText: ""
+            newText: "x"
+      expect:
+        is_error: true
+        text: "edits[1].oldText must not be empty in src/app.txt."
+        details: {}
+        files_after:
+          - path: "src/app.txt"
+            base64: "YWxwaGEK"
+    - id: "empty-old-after-lf-normalization-is-not-empty"
+      tool: "edit"
+      fixture:
+        - path: "src/app.txt"
+          file:
+            base64: "YQ0KYgo="
+      arguments:
+        path: "src/app.txt"
+        edits:
+          - oldText: "\u000D\n"
+            newText: "|"
+      expect:
+        is_error: true
+        text: "Found 2 occurrences of the text in src/app.txt. The text must be unique. Please provide more context to make it unique."
+        details: {}
+        files_after:
+          - path: "src/app.txt"
+            base64: "YQ0KYgo="
+    - id: "duplicate-exact-single"
+      tool: "edit"
+      fixture:
+        - path: "src/app.txt"
+          file:
+            base64: "eCA9IDEKeCA9IDEK"
+      arguments:
+        path: "src/app.txt"
+        edits:
+          - oldText: "x = 1"
+            newText: "x = 2"
+      expect:
+        is_error: true
+        text: "Found 2 occurrences of the text in src/app.txt. The text must be unique. Please provide more context to make it unique."
+        details: {}
+        files_after:
+          - path: "src/app.txt"
+            base64: "eCA9IDEKeCA9IDEK"
+    - id: "duplicate-exact-multi"
+      tool: "edit"
+      fixture:
+        - path: "src/app.txt"
+          file:
+            base64: "YQpiCmIK"
+      arguments:
+        path: "src/app.txt"
+        edits:
+          - oldText: "a"
+            newText: "A"
+          - oldText: "b"
+            newText: "B"
+      expect:
+        is_error: true
+        text: "Found 2 occurrences of edits[1] in src/app.txt. Each oldText must be unique. Please provide more context to make it unique."
+        details: {}
+        files_after:
+          - path: "src/app.txt"
+            base64: "YQpiCmIK"
+    - id: "duplicate-only-in-fuzzy-space"
+      tool: "edit"
+      fixture:
+        - path: "src/app.txt"
+          file:
+            base64: "Zm9vIApmb28K"
+      arguments:
+        path: "src/app.txt"
+        edits:
+          - oldText: "foo "
+            newText: "bar"
+      expect:
+        is_error: true
+        text: "Found 2 occurrences of the text in src/app.txt. The text must be unique. Please provide more context to make it unique."
+        details: {}
+        files_after:
+          - path: "src/app.txt"
+            base64: "Zm9vIApmb28K"
+    - id: "no-change-single"
+      tool: "edit"
+      fixture:
+        - path: "src/app.txt"
+          file:
+            base64: "YWxwaGEK"
+      arguments:
+        path: "src/app.txt"
+        edits:
+          - oldText: "alpha"
+            newText: "alpha"
+      expect:
+        is_error: true
+        text: "No changes made to src/app.txt. The replacement produced identical content. This might indicate an issue with special characters or the text not existing as expected."
+        details: {}
+        files_after:
+          - path: "src/app.txt"
+            base64: "YWxwaGEK"
+    - id: "no-change-multi"
+      tool: "edit"
+      fixture:
+        - path: "src/app.txt"
+          file:
+            base64: "YWxwaGEKYmV0YQo="
+      arguments:
+        path: "src/app.txt"
+        edits:
+          - oldText: "alpha"
+            newText: "alpha"
+          - oldText: "beta"
+            newText: "beta"
+      expect:
+        is_error: true
+        text: "No changes made to src/app.txt. The replacements produced identical content."
+        details: {}
+        files_after:
+          - path: "src/app.txt"
+            base64: "YWxwaGEKYmV0YQo="
+    - id: "replace-with-empty"
+      tool: "edit"
+      fixture:
+        - path: "src/app.txt"
+          file:
+            base64: "a2VlcApkcm9wIG1lCmtlZXAK"
+      arguments:
+        path: "src/app.txt"
+        edits:
+          - oldText: "drop me\n"
+            newText: ""
+      expect:
+        is_error: false
+        text: "Successfully replaced 1 block(s) in src/app.txt."
+        details:
+          diff: " 1 keep\n-2 drop me\n 3 keep"
+          patch: "--- src/app.txt\n+++ src/app.txt\n@@ -1,3 +1,2 @@\n keep\n-drop me\n keep\n"
+          firstChangedLine: 2
+        files_after:
+          - path: "src/app.txt"
+            base64: "a2VlcAprZWVwCg=="
+    - id: "multiline-old-and-new"
+      tool: "edit"
+      fixture:
+        - path: "src/app.txt"
+          file:
+            base64: "Zm4gYSgpIHsKICAxCn0K"
+      arguments:
+        path: "src/app.txt"
+        edits:
+          - oldText: "fn a() {\n  1\n}"
+            newText: "fn a() {\n  2\n  3\n}"
+      expect:
+        is_error: false
+        text: "Successfully replaced 1 block(s) in src/app.txt."
+        details:
+          diff: " 1 fn a() {\n-2   1\n+2   2\n+3   3\n 3 }"
+          patch: "--- src/app.txt\n+++ src/app.txt\n@@ -1,3 +1,4 @@\n fn a() {\n-  1\n+  2\n+  3\n }\n"
+          firstChangedLine: 2
+        files_after:
+          - path: "src/app.txt"
+            base64: "Zm4gYSgpIHsKICAyCiAgMwp9Cg=="
+    - id: "old-text-crlf-normalized"
+      tool: "edit"
+      fixture:
+        - path: "src/app.txt"
+          file:
+            base64: "YQpiCg=="
+      arguments:
+        path: "src/app.txt"
+        edits:
+          - oldText: "a\u000D\nb"
+            newText: "c\u000D\nd"
+      expect:
+        is_error: false
+        text: "Successfully replaced 1 block(s) in src/app.txt."
+        details:
+          diff: "-1 a\n-2 b\n+1 c\n+2 d"
+          patch: "--- src/app.txt\n+++ src/app.txt\n@@ -1,2 +1,2 @@\n-a\n-b\n+c\n+d\n"
+          firstChangedLine: 1
+        files_after:
+          - path: "src/app.txt"
+            base64: "YwpkCg=="
+    - id: "fuzzy-trailing-ws"
+      tool: "edit"
+      fixture:
+        - path: "src/app.txt"
+          file:
+            base64: "a2VlcCAgIAphbHBoYSAgCmJldGEJCnRhaWwgIAo="
+      arguments:
+        path: "src/app.txt"
+        edits:
+          - oldText: "alpha\nbeta"
+            newText: "ALPHA\nBETA"
+      expect:
+        is_error: false
+        text: "Successfully replaced 1 block(s) in src/app.txt."
+        details:
+          diff: " 1 keep   \n-2 alpha  \n-3 beta\t\n+2 ALPHA\n+3 BETA\n 4 tail  "
+          patch: "--- src/app.txt\n+++ src/app.txt\n@@ -1,4 +1,4 @@\n keep   \n-alpha  \n-beta\t\n+ALPHA\n+BETA\n tail  \n"
+          firstChangedLine: 2
+        files_after:
+          - path: "src/app.txt"
+            base64: "a2VlcCAgIApBTFBIQQpCRVRBCnRhaWwgIAo="
+    - id: "fuzzy-spreads-to-all-edits"
+      tool: "edit"
+      fixture:
+        - path: "src/app.txt"
+          file:
+            base64: "b25lICAgCnR3byAgCnRocmVlCg=="
+      arguments:
+        path: "src/app.txt"
+        edits:
+          - oldText: "three"
+            newText: "3"
+          - oldText: "one\ntwo"
+            newText: "1\n2"
+      expect:
+        is_error: false
+        text: "Successfully replaced 2 block(s) in src/app.txt."
+        details:
+          diff: "-1 one   \n-2 two  \n-3 three\n+1 1\n+2 2\n+3 3"
+          patch: "--- src/app.txt\n+++ src/app.txt\n@@ -1,3 +1,3 @@\n-one   \n-two  \n-three\n+1\n+2\n+3\n"
+          firstChangedLine: 1
+        files_after:
+          - path: "src/app.txt"
+            base64: "MQoyCjMK"
+    - id: "fuzzy-smart-quotes"
+      tool: "edit"
+      fixture:
+        - path: "src/app.txt"
+          file:
+            base64: "c2F5IOKAmGhp4oCZIGFuZCDigJxieWXigJ0K"
+      arguments:
+        path: "src/app.txt"
+        edits:
+          - oldText: "say 'hi' and \"bye\""
+            newText: "said"
+      expect:
+        is_error: false
+        text: "Successfully replaced 1 block(s) in src/app.txt."
+        details:
+          diff: "-1 say \u2018hi\u2019 and \u201Cbye\u201D\n+1 said"
+          patch: "--- src/app.txt\n+++ src/app.txt\n@@ -1,1 +1,1 @@\n-say \u2018hi\u2019 and \u201Cbye\u201D\n+said\n"
+          firstChangedLine: 1
+        files_after:
+          - path: "src/app.txt"
+            base64: "c2FpZAo="
+    - id: "fuzzy-dashes"
+      tool: "edit"
+      fixture:
+        - path: "src/app.txt"
+          file:
+            base64: "YeKAk2LigJRj4oiSZOKAkGXigJFm4oCSZ+KAlWgK"
+      arguments:
+        path: "src/app.txt"
+        edits:
+          - oldText: "a-b-c-d-e-f-g-h"
+            newText: "dashes"
+      expect:
+        is_error: false
+        text: "Successfully replaced 1 block(s) in src/app.txt."
+        details:
+          diff: "-1 a\u2013b\u2014c\u2212d\u2010e\u2011f\u2012g\u2015h\n+1 dashes"
+          patch: "--- src/app.txt\n+++ src/app.txt\n@@ -1,1 +1,1 @@\n-a\u2013b\u2014c\u2212d\u2010e\u2011f\u2012g\u2015h\n+dashes\n"
+          firstChangedLine: 1
+        files_after:
+          - path: "src/app.txt"
+            base64: "ZGFzaGVzCg=="
+    - id: "fuzzy-special-spaces"
+      tool: "edit"
+      fixture:
+        - path: "src/app.txt"
+          file:
+            base64: "eMKgeeKAgnrigK934oGfduOAgHUK"
+      arguments:
+        path: "src/app.txt"
+        edits:
+          - oldText: "x y z w v u"
+            newText: "spaces"
+      expect:
+        is_error: false
+        text: "Successfully replaced 1 block(s) in src/app.txt."
+        details:
+          diff: "-1 x\u00A0y\u2002z\u202Fw\u205Fv\u3000u\n+1 spaces"
+          patch: "--- src/app.txt\n+++ src/app.txt\n@@ -1,1 +1,1 @@\n-x\u00A0y\u2002z\u202Fw\u205Fv\u3000u\n+spaces\n"
+          firstChangedLine: 1
+        files_after:
+          - path: "src/app.txt"
+            base64: "c3BhY2VzCg=="
+    - id: "fuzzy-nfkc-ligature"
+      tool: "edit"
+      fixture:
+        - path: "src/app.txt"
+          file:
+            base64: "YSDvrIFsZSBoZXJlICAgCg=="
+      arguments:
+        path: "src/app.txt"
+        edits:
+          - oldText: "a file here"
+            newText: "ok"
+      expect:
+        is_error: false
+        text: "Successfully replaced 1 block(s) in src/app.txt."
+        details:
+          diff: "-1 a \uFB01le here   \n+1 ok"
+          patch: "--- src/app.txt\n+++ src/app.txt\n@@ -1,1 +1,1 @@\n-a \uFB01le here   \n+ok\n"
+          firstChangedLine: 1
+        files_after:
+          - path: "src/app.txt"
+            base64: "b2sK"
+    - id: "fuzzy-nfkc-fullwidth"
+      tool: "edit"
+      fixture:
+        - path: "src/app.txt"
+          file:
+            base64: "77yh77yi77yjIAo="
+      arguments:
+        path: "src/app.txt"
+        edits:
+          - oldText: "ABC"
+            newText: "abc"
+      expect:
+        is_error: false
+        text: "Successfully replaced 1 block(s) in src/app.txt."
+        details:
+          diff: "-1 \uFF21\uFF22\uFF23 \n+1 abc"
+          patch: "--- src/app.txt\n+++ src/app.txt\n@@ -1,1 +1,1 @@\n-\uFF21\uFF22\uFF23 \n+abc\n"
+          firstChangedLine: 1
+        files_after:
+          - path: "src/app.txt"
+            base64: "YWJjCg=="
+    - id: "fuzzy-nfkc-unicode16-outlined"
+      tool: "edit"
+      fixture:
+        - path: "src/app.txt"
+          file:
+            base64: "8JyzliB4ICAK"
+      arguments:
+        path: "src/app.txt"
+        edits:
+          - oldText: "A x"
+            newText: "hit"
+      expect:
+        is_error: false
+        text: "Successfully replaced 1 block(s) in src/app.txt."
+        details:
+          diff: "-1 \U0001CCD6 x  \n+1 hit"
+          patch: "--- src/app.txt\n+++ src/app.txt\n@@ -1,1 +1,1 @@\n-\U0001CCD6 x  \n+hit\n"
+          firstChangedLine: 1
+        files_after:
+          - path: "src/app.txt"
+            base64: "aGl0Cg=="
+    - id: "fuzzy-nfkc-unicode17-new-stays"
+      tool: "edit"
+      fixture:
+        - path: "src/app.txt"
+          file:
+            base64: "6p+xIGtlZXAgIAp6eiAgCg=="
+      arguments:
+        path: "src/app.txt"
+        edits:
+          - oldText: "zz"
+            newText: "ZZ"
+      expect:
+        is_error: false
+        text: "Successfully replaced 1 block(s) in src/app.txt."
+        details:
+          diff: " 1 \uA7F1 keep  \n-2 zz  \n+2 ZZ  "
+          patch: "--- src/app.txt\n+++ src/app.txt\n@@ -1,2 +1,2 @@\n \uA7F1 keep  \n-zz  \n+ZZ  \n"
+          firstChangedLine: 2
+        files_after:
+          - path: "src/app.txt"
+            base64: "6p+xIGtlZXAgIApaWiAgCg=="
+    - id: "fuzzy-nfkc-unicode17-on-touched-line"
+      tool: "edit"
+      fixture:
+        - path: "src/app.txt"
+          file:
+            base64: "6p+xIHrigJl6ICAKa2VlcAo="
+      arguments:
+        path: "src/app.txt"
+        edits:
+          - oldText: "z'z"
+            newText: "ZZ"
+      expect:
+        is_error: false
+        text: "Successfully replaced 1 block(s) in src/app.txt."
+        details:
+          diff: "-1 \uA7F1 z\u2019z  \n+1 \uA7F1 ZZ\n 2 keep"
+          patch: "--- src/app.txt\n+++ src/app.txt\n@@ -1,2 +1,2 @@\n-\uA7F1 z\u2019z  \n+\uA7F1 ZZ\n keep\n"
+          firstChangedLine: 1
+        files_after:
+          - path: "src/app.txt"
+            base64: "6p+xIFpaCmtlZXAK"
+    - id: "fuzzy-preserves-untouched-lines"
+      tool: "edit"
+      fixture:
+        - path: "src/app.txt"
+          file:
+            base64: "ICB1bnRvdWNoZWQgIAp04oCZeCAgCgl0cmFpbCAJCg=="
+      arguments:
+        path: "src/app.txt"
+        edits:
+          - oldText: "t'x"
+            newText: "T"
+      expect:
+        is_error: false
+        text: "Successfully replaced 1 block(s) in src/app.txt."
+        details:
+          diff: " 1   untouched  \n-2 t\u2019x  \n+2 T\n 3 \ttrail \t"
+          patch: "--- src/app.txt\n+++ src/app.txt\n@@ -1,3 +1,3 @@\n   untouched  \n-t\u2019x  \n+T\n \ttrail \t\n"
+          firstChangedLine: 2
+        files_after:
+          - path: "src/app.txt"
+            base64: "ICB1bnRvdWNoZWQgIApUCgl0cmFpbCAJCg=="
+    - id: "fuzzy-two-edits-same-line"
+      tool: "edit"
+      fixture:
+        - path: "src/app.txt"
+          file:
+            base64: "YWIgIGNkICBlZiAgCg=="
+      arguments:
+        path: "src/app.txt"
+        edits:
+          - oldText: "ab"
+            newText: "1"
+          - oldText: "ef"
+            newText: "3"
+      expect:
+        is_error: false
+        text: "Successfully replaced 2 block(s) in src/app.txt."
+        details:
+          diff: "-1 ab  cd  ef  \n+1 1  cd  3  "
+          patch: "--- src/app.txt\n+++ src/app.txt\n@@ -1,1 +1,1 @@\n-ab  cd  ef  \n+1  cd  3  \n"
+          firstChangedLine: 1
+        files_after:
+          - path: "src/app.txt"
+            base64: "MSAgY2QgIDMgIAo="
+    - id: "fuzzy-duplicate-normalized-lines"
+      tool: "edit"
+      fixture:
+        - path: "src/app.txt"
+          file:
+            base64: "eCAgCngKeCAK"
+      arguments:
+        path: "src/app.txt"
+        edits:
+          - oldText: "x\nx\nx"
+            newText: "y"
+      expect:
+        is_error: false
+        text: "Successfully replaced 1 block(s) in src/app.txt."
+        details:
+          diff: "-1 x  \n-2 x\n-3 x \n+1 y"
+          patch: "--- src/app.txt\n+++ src/app.txt\n@@ -1,3 +1,1 @@\n-x  \n-x\n-x \n+y\n"
+          firstChangedLine: 1
+        files_after:
+          - path: "src/app.txt"
+            base64: "eQo="
+    - id: "js-whitespace-set"
+      tool: "edit"
+      fixture:
+        - path: "src/app.txt"
+          file:
+            base64: "YcKFCmIcCmPjgIAKZO+7vwplwqAKZuKAqAo="
+      arguments:
+        path: "src/app.txt"
+        edits:
+          - oldText: "a\u0085\nb\u001C\nc\nd\ne\nf"
+            newText: "W"
+      expect:
+        is_error: false
+        text: "Successfully replaced 1 block(s) in src/app.txt."
+        details:
+          diff: "-1 a\u0085\n-2 b\u001C\n-3 c\u3000\n-4 d\uFEFF\n-5 e\u00A0\n-6 f\u2028\n+1 W"
+          patch: "--- src/app.txt\n+++ src/app.txt\n@@ -1,6 +1,1 @@\n-a\u0085\n-b\u001C\n-c\u3000\n-d\uFEFF\n-e\u00A0\n-f\u2028\n+W\n"
+          firstChangedLine: 1
+        files_after:
+          - path: "src/app.txt"
+            base64: "Vwo="
+    - id: "nel-is-not-js-whitespace"
+      tool: "edit"
+      fixture:
+        - path: "src/app.txt"
+          file:
+            base64: "cMKFIApxCg=="
+      arguments:
+        path: "src/app.txt"
+        edits:
+          - oldText: "p\nq"
+            newText: "PQ"
+      expect:
+        is_error: true
+        text: "Could not find the exact text in src/app.txt. The old text must match exactly including all whitespace and newlines."
+        details: {}
+        files_after:
+          - path: "src/app.txt"
+            base64: "cMKFIApxCg=="
+    - id: "info-separator-is-not-js-whitespace"
+      tool: "edit"
+      fixture:
+        - path: "src/app.txt"
+          file:
+            base64: "cBwKcQo="
+      arguments:
+        path: "src/app.txt"
+        edits:
+          - oldText: "p\nq"
+            newText: "PQ"
+      expect:
+        is_error: true
+        text: "Could not find the exact text in src/app.txt. The old text must match exactly including all whitespace and newlines."
+        details: {}
+        files_after:
+          - path: "src/app.txt"
+            base64: "cBwKcQo="
+    - id: "empty-normalized-old-counts-code-units"
+      tool: "edit"
+      fixture:
+        - path: "src/app.txt"
+          file:
+            base64: "YWLwn5iAYwo="
+      arguments:
+        path: "src/app.txt"
+        edits:
+          - oldText: "   "
+            newText: "X"
+      expect:
+        is_error: true
+        text: "Found 5 occurrences of the text in src/app.txt. The text must be unique. Please provide more context to make it unique."
+        details: {}
+        files_after:
+          - path: "src/app.txt"
+            base64: "YWLwn5iAYwo="
+    - id: "empty-normalized-old-short-content"
+      tool: "edit"
+      fixture:
+        - path: "src/app.txt"
+          file:
+            base64: "YQ=="
+      arguments:
+        path: "src/app.txt"
+        edits:
+          - oldText: "  "
+            newText: "X"
+      expect:
+        is_error: false
+        text: "Successfully replaced 1 block(s) in src/app.txt."
+        details:
+          diff: "-1 a\n+1 Xa"
+          patch: "--- src/app.txt\n+++ src/app.txt\n@@ -1,1 +1,1 @@\n-a\n\\ No newline at end of file\n+Xa\n\\ No newline at end of file\n"
+          firstChangedLine: 1
+        files_after:
+          - path: "src/app.txt"
+            base64: "WGE="
+    - id: "empty-normalized-old-empty-file"
+      tool: "edit"
+      fixture:
+        - path: "src/app.txt"
+          file:
+            base64: ""
+      arguments:
+        path: "src/app.txt"
+        edits:
+          - oldText: "  "
+            newText: "X"
+      expect:
+        is_error: true
+        text: "Replacement range is outside the base content."
+        details: {}
+        files_after:
+          - path: "src/app.txt"
+            base64: ""
+    - id: "empty-normalized-old-two-units"
+      tool: "edit"
+      fixture:
+        - path: "src/app.txt"
+          file:
+            base64: "YWI="
+      arguments:
+        path: "src/app.txt"
+        edits:
+          - oldText: "\t"
+            newText: "X"
+      expect:
+        is_error: false
+        text: "Successfully replaced 1 block(s) in src/app.txt."
+        details:
+          diff: "-1 ab\n+1 Xab"
+          patch: "--- src/app.txt\n+++ src/app.txt\n@@ -1,1 +1,1 @@\n-ab\n\\ No newline at end of file\n+Xab\n\\ No newline at end of file\n"
+          firstChangedLine: 1
+        files_after:
+          - path: "src/app.txt"
+            base64: "WGFi"
+    - id: "internal-line-count-whitespace-only-last-line"
+      tool: "edit"
+      fixture:
+        - path: "src/app.txt"
+          file:
+            base64: "YeKAmQogICA="
+      arguments:
+        path: "src/app.txt"
+        edits:
+          - oldText: "a'"
+            newText: "b"
+      expect:
+        is_error: true
+        text: "Cannot preserve unchanged lines because the base content has a different line count."
+        details: {}
+        files_after:
+          - path: "src/app.txt"
+            base64: "YeKAmQogICA="
+    - id: "internal-line-count-crlf-whitespace-last-line"
+      tool: "edit"
+      fixture:
+        - path: "src/app.txt"
+          file:
+            base64: "eOKAnA0KeQ0KCSA="
+      arguments:
+        path: "src/app.txt"
+        edits:
+          - oldText: "x\""
+            newText: "z"
+      expect:
+        is_error: true
+        text: "Cannot preserve unchanged lines because the base content has a different line count."
+        details: {}
+        files_after:
+          - path: "src/app.txt"
+            base64: "eOKAnA0KeQ0KCSA="
+    - id: "bom-kept"
+      tool: "edit"
+      fixture:
+        - path: "src/app.txt"
+          file:
+            base64: "77u/YWxwaGEKYmV0YQo="
+      arguments:
+        path: "src/app.txt"
+        edits:
+          - oldText: "beta"
+            newText: "B"
+      expect:
+        is_error: false
+        text: "Successfully replaced 1 block(s) in src/app.txt."
+        details:
+          diff: " 1 alpha\n-2 beta\n+2 B"
+          patch: "--- src/app.txt\n+++ src/app.txt\n@@ -1,2 +1,2 @@\n alpha\n-beta\n+B\n"
+          firstChangedLine: 2
+        files_after:
+          - path: "src/app.txt"
+            base64: "77u/YWxwaGEKQgo="
+    - id: "crlf-first"
+      tool: "edit"
+      fixture:
+        - path: "src/app.txt"
+          file:
+            base64: "YQ0KYg0KYw0K"
+      arguments:
+        path: "src/app.txt"
+        edits:
+          - oldText: "b"
+            newText: "B"
+      expect:
+        is_error: false
+        text: "Successfully replaced 1 block(s) in src/app.txt."
+        details:
+          diff: " 1 a\n-2 b\n+2 B\n 3 c"
+          patch: "--- src/app.txt\n+++ src/app.txt\n@@ -1,3 +1,3 @@\n a\n-b\n+B\n c\n"
+          firstChangedLine: 2
+        files_after:
+          - path: "src/app.txt"
+            base64: "YQ0KQg0KYw0K"
+    - id: "crlf-first-with-lone-cr"
+      tool: "edit"
+      fixture:
+        - path: "src/app.txt"
+          file:
+            base64: "YQ0KYg1jCmQNCg=="
+      arguments:
+        path: "src/app.txt"
+        edits:
+          - oldText: "c"
+            newText: "C"
+      expect:
+        is_error: false
+        text: "Successfully replaced 1 block(s) in src/app.txt."
+        details:
+          diff: " 1 a\n 2 b\n-3 c\n+3 C\n 4 d"
+          patch: "--- src/app.txt\n+++ src/app.txt\n@@ -1,4 +1,4 @@\n a\n b\n-c\n+C\n d\n"
+          firstChangedLine: 3
+        files_after:
+          - path: "src/app.txt"
+            base64: "YQ0KYg0KQw0KZA0K"
+    - id: "lf-first-then-crlf"
+      tool: "edit"
+      fixture:
+        - path: "src/app.txt"
+          file:
+            base64: "YQpiDQpjDQo="
+      arguments:
+        path: "src/app.txt"
+        edits:
+          - oldText: "c"
+            newText: "C"
+      expect:
+        is_error: false
+        text: "Successfully replaced 1 block(s) in src/app.txt."
+        details:
+          diff: " 1 a\n 2 b\n-3 c\n+3 C"
+          patch: "--- src/app.txt\n+++ src/app.txt\n@@ -1,3 +1,3 @@\n a\n b\n-c\n+C\n"
+          firstChangedLine: 3
+        files_after:
+          - path: "src/app.txt"
+            base64: "YQpiCkMK"
+    - id: "cr-only"
+      tool: "edit"
+      fixture:
+        - path: "src/app.txt"
+          file:
+            base64: "YQ1iDWM="
+      arguments:
+        path: "src/app.txt"
+        edits:
+          - oldText: "b"
+            newText: "B"
+      expect:
+        is_error: false
+        text: "Successfully replaced 1 block(s) in src/app.txt."
+        details:
+          diff: " 1 a\n-2 b\n+2 B\n 3 c"
+          patch: "--- src/app.txt\n+++ src/app.txt\n@@ -1,3 +1,3 @@\n a\n-b\n+B\n c\n\\ No newline at end of file\n"
+          firstChangedLine: 2
+        files_after:
+          - path: "src/app.txt"
+            base64: "YQpCCmM="
+    - id: "no-final-newline"
+      tool: "edit"
+      fixture:
+        - path: "src/app.txt"
+          file:
+            base64: "YWxwaGEKYmV0YQ=="
+      arguments:
+        path: "src/app.txt"
+        edits:
+          - oldText: "beta"
+            newText: "BETA"
+      expect:
+        is_error: false
+        text: "Successfully replaced 1 block(s) in src/app.txt."
+        details:
+          diff: " 1 alpha\n-2 beta\n+2 BETA"
+          patch: "--- src/app.txt\n+++ src/app.txt\n@@ -1,2 +1,2 @@\n alpha\n-beta\n\\ No newline at end of file\n+BETA\n\\ No newline at end of file\n"
+          firstChangedLine: 2
+        files_after:
+          - path: "src/app.txt"
+            base64: "YWxwaGEKQkVUQQ=="
+    - id: "add-final-newline"
+      tool: "edit"
+      fixture:
+        - path: "src/app.txt"
+          file:
+            base64: "YWxwaGEKYmV0YQ=="
+      arguments:
+        path: "src/app.txt"
+        edits:
+          - oldText: "beta"
+            newText: "beta\n"
+      expect:
+        is_error: false
+        text: "Successfully replaced 1 block(s) in src/app.txt."
+        details:
+          diff: " 1 alpha\n-2 beta\n+2 beta"
+          patch: "--- src/app.txt\n+++ src/app.txt\n@@ -1,2 +1,2 @@\n alpha\n-beta\n\\ No newline at end of file\n+beta\n"
+          firstChangedLine: 2
+        files_after:
+          - path: "src/app.txt"
+            base64: "YWxwaGEKYmV0YQo="
+    - id: "bom-and-crlf"
+      tool: "edit"
+      fixture:
+        - path: "src/app.txt"
+          file:
+            base64: "77u/eA0KeQ0K"
+      arguments:
+        path: "src/app.txt"
+        edits:
+          - oldText: "y"
+            newText: "Y"
+      expect:
+        is_error: false
+        text: "Successfully replaced 1 block(s) in src/app.txt."
+        details:
+          diff: " 1 x\n-2 y\n+2 Y"
+          patch: "--- src/app.txt\n+++ src/app.txt\n@@ -1,2 +1,2 @@\n x\n-y\n+Y\n"
+          firstChangedLine: 2
+        files_after:
+          - path: "src/app.txt"
+            base64: "77u/eA0KWQ0K"
+    - id: "invalid-utf8-decoded"
+      tool: "edit"
+      fixture:
+        - path: "src/app.txt"
+          file:
+            base64: "//5BCg=="
+      arguments:
+        path: "src/app.txt"
+        edits:
+          - oldText: "A"
+            newText: "B"
+      expect:
+        is_error: false
+        text: "Successfully replaced 1 block(s) in src/app.txt."
+        details:
+          diff: "-1 \uFFFD\uFFFDA\n+1 \uFFFD\uFFFDB"
+          patch: "--- src/app.txt\n+++ src/app.txt\n@@ -1,1 +1,1 @@\n-\uFFFD\uFFFDA\n+\uFFFD\uFFFDB\n"
+          firstChangedLine: 1
+        files_after:
+          - path: "src/app.txt"
+            base64: "77+977+9Qgo="
+    - id: "astral-in-content"
+      tool: "edit"
+      fixture:
+        - path: "src/app.txt"
+          file:
+            base64: "8J+YgCBvbmUg8J+YgQp0aGUgZW5kCg=="
+      arguments:
+        path: "src/app.txt"
+        edits:
+          - oldText: "one"
+            newText: "1"
+          - oldText: "end"
+            newText: "END"
+      expect:
+        is_error: false
+        text: "Successfully replaced 2 block(s) in src/app.txt."
+        details:
+          diff: "-1 \U0001F600 one \U0001F601\n-2 the end\n+1 \U0001F600 1 \U0001F601\n+2 the END"
+          patch: "--- src/app.txt\n+++ src/app.txt\n@@ -1,2 +1,2 @@\n-\U0001F600 one \U0001F601\n-the end\n+\U0001F600 1 \U0001F601\n+the END\n"
+          firstChangedLine: 1
+        files_after:
+          - path: "src/app.txt"
+            base64: "8J+YgCAxIPCfmIEKdGhlIEVORAo="
+    - id: "lone-surrogate-new-text"
+      tool: "edit"
+      fixture:
+        - path: "src/app.txt"
+          file:
+            base64: "YWxwaGEK"
+      unpaired_surrogate_arguments: true
+      arguments:
+        path: "src/app.txt"
+        edits:
+          - oldText: "alpha"
+            newText: "a\uD800b"
+      expect:
+        is_error: false
+        text: "Successfully replaced 1 block(s) in src/app.txt."
+        details:
+          diff: "-1 alpha\n+1 a\uD800b"
+          patch: "--- src/app.txt\n+++ src/app.txt\n@@ -1,1 +1,1 @@\n-alpha\n+a\uD800b\n"
+          firstChangedLine: 1
+        files_after:
+          - path: "src/app.txt"
+            base64: "Ye+/vWIK"
+    - id: "diff-two-hunks"
+      tool: "edit"
+      fixture:
+        - path: "src/app.txt"
+          file:
+            base64: "bGluZSAxCmxpbmUgMgpsaW5lIDMKbGluZSA0CmxpbmUgNQpsaW5lIDYKbGluZSA3CmxpbmUgOApsaW5lIDkKbGluZSAxMApsaW5lIDExCmxpbmUgMTIKbGluZSAxMwpsaW5lIDE0CmxpbmUgMTUKbGluZSAxNgpsaW5lIDE3CmxpbmUgMTgKbGluZSAxOQpsaW5lIDIwCmxpbmUgMjEKbGluZSAyMgpsaW5lIDIzCmxpbmUgMjQKbGluZSAyNQpsaW5lIDI2CmxpbmUgMjcKbGluZSAyOApsaW5lIDI5CmxpbmUgMzAKbGluZSAzMQpsaW5lIDMyCmxpbmUgMzMKbGluZSAzNApsaW5lIDM1CmxpbmUgMzYKbGluZSAzNwpsaW5lIDM4CmxpbmUgMzkKbGluZSA0MAo="
+      arguments:
+        path: "src/app.txt"
+        edits:
+          - oldText: "line 5\n"
+            newText: "LINE 5\n"
+          - oldText: "line 30\n"
+            newText: "LINE 30\n"
+      expect:
+        is_error: false
+        text: "Successfully replaced 2 block(s) in src/app.txt."
+        details:
+          diff: "  1 line 1\n  2 line 2\n  3 line 3\n  4 line 4\n- 5 line 5\n+ 5 LINE 5\n  6 line 6\n  7 line 7\n  8 line 8\n  9 line 9\n    ...\n 26 line 26\n 27 line 27\n 28 line 28\n 29 line 29\n-30 line 30\n+30 LINE 30\n 31 line 31\n 32 line 32\n 33 line 33\n 34 line 34\n    ..."
+          patch: "--- src/app.txt\n+++ src/app.txt\n@@ -1,9 +1,9 @@\n line 1\n line 2\n line 3\n line 4\n-line 5\n+LINE 5\n line 6\n line 7\n line 8\n line 9\n@@ -26,9 +26,9 @@\n line 26\n line 27\n line 28\n line 29\n-line 30\n+LINE 30\n line 31\n line 32\n line 33\n line 34\n"
+          firstChangedLine: 5
+        files_after:
+          - path: "src/app.txt"
+            base64: "bGluZSAxCmxpbmUgMgpsaW5lIDMKbGluZSA0CkxJTkUgNQpsaW5lIDYKbGluZSA3CmxpbmUgOApsaW5lIDkKbGluZSAxMApsaW5lIDExCmxpbmUgMTIKbGluZSAxMwpsaW5lIDE0CmxpbmUgMTUKbGluZSAxNgpsaW5lIDE3CmxpbmUgMTgKbGluZSAxOQpsaW5lIDIwCmxpbmUgMjEKbGluZSAyMgpsaW5lIDIzCmxpbmUgMjQKbGluZSAyNQpsaW5lIDI2CmxpbmUgMjcKbGluZSAyOApsaW5lIDI5CkxJTkUgMzAKbGluZSAzMQpsaW5lIDMyCmxpbmUgMzMKbGluZSAzNApsaW5lIDM1CmxpbmUgMzYKbGluZSAzNwpsaW5lIDM4CmxpbmUgMzkKbGluZSA0MAo="
+    - id: "diff-joined-context-8"
+      tool: "edit"
+      fixture:
+        - path: "src/app.txt"
+          file:
+            base64: "bGluZSAxCmxpbmUgMgpsaW5lIDMKbGluZSA0CmxpbmUgNQpsaW5lIDYKbGluZSA3CmxpbmUgOApsaW5lIDkKbGluZSAxMApsaW5lIDExCmxpbmUgMTIKbGluZSAxMwpsaW5lIDE0CmxpbmUgMTUKbGluZSAxNgpsaW5lIDE3CmxpbmUgMTgKbGluZSAxOQpsaW5lIDIwCmxpbmUgMjEKbGluZSAyMgpsaW5lIDIzCmxpbmUgMjQKbGluZSAyNQpsaW5lIDI2CmxpbmUgMjcKbGluZSAyOApsaW5lIDI5CmxpbmUgMzAKbGluZSAzMQpsaW5lIDMyCmxpbmUgMzMKbGluZSAzNApsaW5lIDM1CmxpbmUgMzYKbGluZSAzNwpsaW5lIDM4CmxpbmUgMzkKbGluZSA0MAo="
+      arguments:
+        path: "src/app.txt"
+        edits:
+          - oldText: "line 10\n"
+            newText: "L10\n"
+          - oldText: "line 19\n"
+            newText: "L19\n"
+      expect:
+        is_error: false
+        text: "Successfully replaced 2 block(s) in src/app.txt."
+        details:
+          diff: "    ...\n  6 line 6\n  7 line 7\n  8 line 8\n  9 line 9\n-10 line 10\n+10 L10\n 11 line 11\n 12 line 12\n 13 line 13\n 14 line 14\n 15 line 15\n 16 line 16\n 17 line 17\n 18 line 18\n-19 line 19\n+19 L19\n 20 line 20\n 21 line 21\n 22 line 22\n 23 line 23\n    ..."
+          patch: "--- src/app.txt\n+++ src/app.txt\n@@ -6,18 +6,18 @@\n line 6\n line 7\n line 8\n line 9\n-line 10\n+L10\n line 11\n line 12\n line 13\n line 14\n line 15\n line 16\n line 17\n line 18\n-line 19\n+L19\n line 20\n line 21\n line 22\n line 23\n"
+          firstChangedLine: 10
+        files_after:
+          - path: "src/app.txt"
+            base64: "bGluZSAxCmxpbmUgMgpsaW5lIDMKbGluZSA0CmxpbmUgNQpsaW5lIDYKbGluZSA3CmxpbmUgOApsaW5lIDkKTDEwCmxpbmUgMTEKbGluZSAxMgpsaW5lIDEzCmxpbmUgMTQKbGluZSAxNQpsaW5lIDE2CmxpbmUgMTcKbGluZSAxOApMMTkKbGluZSAyMApsaW5lIDIxCmxpbmUgMjIKbGluZSAyMwpsaW5lIDI0CmxpbmUgMjUKbGluZSAyNgpsaW5lIDI3CmxpbmUgMjgKbGluZSAyOQpsaW5lIDMwCmxpbmUgMzEKbGluZSAzMgpsaW5lIDMzCmxpbmUgMzQKbGluZSAzNQpsaW5lIDM2CmxpbmUgMzcKbGluZSAzOApsaW5lIDM5CmxpbmUgNDAK"
+    - id: "diff-split-context-9"
+      tool: "edit"
+      fixture:
+        - path: "src/app.txt"
+          file:
+            base64: "bGluZSAxCmxpbmUgMgpsaW5lIDMKbGluZSA0CmxpbmUgNQpsaW5lIDYKbGluZSA3CmxpbmUgOApsaW5lIDkKbGluZSAxMApsaW5lIDExCmxpbmUgMTIKbGluZSAxMwpsaW5lIDE0CmxpbmUgMTUKbGluZSAxNgpsaW5lIDE3CmxpbmUgMTgKbGluZSAxOQpsaW5lIDIwCmxpbmUgMjEKbGluZSAyMgpsaW5lIDIzCmxpbmUgMjQKbGluZSAyNQpsaW5lIDI2CmxpbmUgMjcKbGluZSAyOApsaW5lIDI5CmxpbmUgMzAKbGluZSAzMQpsaW5lIDMyCmxpbmUgMzMKbGluZSAzNApsaW5lIDM1CmxpbmUgMzYKbGluZSAzNwpsaW5lIDM4CmxpbmUgMzkKbGluZSA0MAo="
+      arguments:
+        path: "src/app.txt"
+        edits:
+          - oldText: "line 10\n"
+            newText: "L10\n"
+          - oldText: "line 20\n"
+            newText: "L20\n"
+      expect:
+        is_error: false
+        text: "Successfully replaced 2 block(s) in src/app.txt."
+        details:
+          diff: "    ...\n  6 line 6\n  7 line 7\n  8 line 8\n  9 line 9\n-10 line 10\n+10 L10\n 11 line 11\n 12 line 12\n 13 line 13\n 14 line 14\n    ...\n 16 line 16\n 17 line 17\n 18 line 18\n 19 line 19\n-20 line 20\n+20 L20\n 21 line 21\n 22 line 22\n 23 line 23\n 24 line 24\n    ..."
+          patch: "--- src/app.txt\n+++ src/app.txt\n@@ -6,9 +6,9 @@\n line 6\n line 7\n line 8\n line 9\n-line 10\n+L10\n line 11\n line 12\n line 13\n line 14\n@@ -16,9 +16,9 @@\n line 16\n line 17\n line 18\n line 19\n-line 20\n+L20\n line 21\n line 22\n line 23\n line 24\n"
+          firstChangedLine: 10
+        files_after:
+          - path: "src/app.txt"
+            base64: "bGluZSAxCmxpbmUgMgpsaW5lIDMKbGluZSA0CmxpbmUgNQpsaW5lIDYKbGluZSA3CmxpbmUgOApsaW5lIDkKTDEwCmxpbmUgMTEKbGluZSAxMgpsaW5lIDEzCmxpbmUgMTQKbGluZSAxNQpsaW5lIDE2CmxpbmUgMTcKbGluZSAxOApsaW5lIDE5CkwyMApsaW5lIDIxCmxpbmUgMjIKbGluZSAyMwpsaW5lIDI0CmxpbmUgMjUKbGluZSAyNgpsaW5lIDI3CmxpbmUgMjgKbGluZSAyOQpsaW5lIDMwCmxpbmUgMzEKbGluZSAzMgpsaW5lIDMzCmxpbmUgMzQKbGluZSAzNQpsaW5lIDM2CmxpbmUgMzcKbGluZSAzOApsaW5lIDM5CmxpbmUgNDAK"
+    - id: "diff-no-newline-at-eof"
+      tool: "edit"
+      fixture:
+        - path: "src/app.txt"
+          file:
+            base64: "YQpiCmM="
+      arguments:
+        path: "src/app.txt"
+        edits:
+          - oldText: "c"
+            newText: "C"
+      expect:
+        is_error: false
+        text: "Successfully replaced 1 block(s) in src/app.txt."
+        details:
+          diff: " 1 a\n 2 b\n-3 c\n+3 C"
+          patch: "--- src/app.txt\n+++ src/app.txt\n@@ -1,3 +1,3 @@\n a\n b\n-c\n\\ No newline at end of file\n+C\n\\ No newline at end of file\n"
+          firstChangedLine: 3
+        files_after:
+          - path: "src/app.txt"
+            base64: "YQpiCkM="
+    - id: "diff-insert-lines"
+      tool: "edit"
+      fixture:
+        - path: "src/app.txt"
+          file:
+            base64: "YQpiCg=="
+      arguments:
+        path: "src/app.txt"
+        edits:
+          - oldText: "a\n"
+            newText: "a\nx\ny\nz\n"
+      expect:
+        is_error: false
+        text: "Successfully replaced 1 block(s) in src/app.txt."
+        details:
+          diff: " 1 a\n+2 x\n+3 y\n+4 z\n 2 b"
+          patch: "--- src/app.txt\n+++ src/app.txt\n@@ -1,2 +1,5 @@\n a\n+x\n+y\n+z\n b\n"
+          firstChangedLine: 2
+        files_after:
+          - path: "src/app.txt"
+            base64: "YQp4CnkKegpiCg=="
+    - id: "diff-delete-lines"
+      tool: "edit"
+      fixture:
+        - path: "src/app.txt"
+          file:
+            base64: "YQp4CnkKegpiCg=="
+      arguments:
+        path: "src/app.txt"
+        edits:
+          - oldText: "x\ny\nz\n"
+            newText: ""
+      expect:
+        is_error: false
+        text: "Successfully replaced 1 block(s) in src/app.txt."
+        details:
+          diff: " 1 a\n-2 x\n-3 y\n-4 z\n 5 b"
+          patch: "--- src/app.txt\n+++ src/app.txt\n@@ -1,5 +1,2 @@\n a\n-x\n-y\n-z\n b\n"
+          firstChangedLine: 2
+        files_after:
+          - path: "src/app.txt"
+            base64: "YQpiCg=="
+    - id: "diff-width-changes"
+      tool: "edit"
+      fixture:
+        - path: "src/app.txt"
+          file:
+            base64: "bGluZSAxCmxpbmUgMgpsaW5lIDMKbGluZSA0CmxpbmUgNQpsaW5lIDYKbGluZSA3CmxpbmUgOApsaW5lIDkK"
+      arguments:
+        path: "src/app.txt"
+        edits:
+          - oldText: "line 9"
+            newText: "line 9\nline 10\nline 11"
+      expect:
+        is_error: false
+        text: "Successfully replaced 1 block(s) in src/app.txt."
+        details:
+          diff: "    ...\n  6 line 6\n  7 line 7\n  8 line 8\n  9 line 9\n+10 line 10\n+11 line 11"
+          patch: "--- src/app.txt\n+++ src/app.txt\n@@ -6,4 +6,6 @@\n line 6\n line 7\n line 8\n line 9\n+line 10\n+line 11\n"
+          firstChangedLine: 10
+        files_after:
+          - path: "src/app.txt"
+            base64: "bGluZSAxCmxpbmUgMgpsaW5lIDMKbGluZSA0CmxpbmUgNQpsaW5lIDYKbGluZSA3CmxpbmUgOApsaW5lIDkKbGluZSAxMApsaW5lIDExCg=="
+    - id: "diff-repeated-lines-myers"
+      tool: "edit"
+      fixture:
+        - path: "src/app.txt"
+          file:
+            base64: "YQpiCmEKYgphCmIK"
+      arguments:
+        path: "src/app.txt"
+        edits:
+          - oldText: "b\na\nb\na"
+            newText: "b\nZ\nb\nZ"
+      expect:
+        is_error: false
+        text: "Successfully replaced 1 block(s) in src/app.txt."
+        details:
+          diff: " 1 a\n 2 b\n-3 a\n+3 Z\n 4 b\n-5 a\n+5 Z\n 6 b"
+          patch: "--- src/app.txt\n+++ src/app.txt\n@@ -1,6 +1,6 @@\n a\n b\n-a\n+Z\n b\n-a\n+Z\n b\n"
+          firstChangedLine: 3
+        files_after:
+          - path: "src/app.txt"
+            base64: "YQpiCloKYgpaCmIK"
+    - id: "validate-empty-edits"
+      tool: "edit"
+      fixture:
+        - path: "src/app.txt"
+          file:
+            base64: "eAo="
+      arguments:
+        path: "src/app.txt"
+        edits: []
+      expect:
+        is_error: true
+        text: "Edit tool input is invalid. edits must contain at least one replacement."
+        details: {}
+        files_after:
+          - path: "src/app.txt"
+            base64: "eAo="

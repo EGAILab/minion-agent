@@ -47,6 +47,10 @@ AGENT_INBOX_SCHEMA = CONFORMANCE / "schema" / "agent-inbox-scenario.schema.json"
 LLM_SERVICE_SCHEMA = CONFORMANCE / "schema" / "llm-service-scenario.schema.json"
 AUTH_DEVICE_CODE_SCHEMA = CONFORMANCE / "schema" / "auth-device-code-scenario.schema.json"
 BUILTIN_TOOL_SCHEMA = CONFORMANCE / "schema" / "builtin-tool-scenario.schema.json"
+BUILTIN_MUTATION_SCHEMA = CONFORMANCE / "schema" / "builtin-mutation-scenario.schema.json"
+# WP-13.2 (write/edit + mutation queue): its own directory and shape, so the WP-13.1 `builtin_tool`
+# runners (which glob conformance/agent/*.yaml) are unaffected.
+BUILTIN_MUTATION_DIR = CONFORMANCE / "agent" / "builtin-mutation"
 
 # Families whose scenarios arrive in a later plan. Their schema must still exist
 # and must still be a valid JSON Schema. Empty now that every family is
@@ -98,6 +102,7 @@ def test_family_has_scenarios(family: str) -> None:
         LLM_SERVICE_SCHEMA,
         AUTH_DEVICE_CODE_SCHEMA,
         BUILTIN_TOOL_SCHEMA,
+        BUILTIN_MUTATION_SCHEMA,
     ],
     ids=lambda p: p.stem,
 )
@@ -114,6 +119,26 @@ def test_family_schema_is_wellformed(schema_path: Path) -> None:
 def test_scenario_validates(family: str, scenario: Path) -> None:
     document = yaml.safe_load(scenario.read_text(encoding="utf-8"))
     schema = json.loads(_schema_path_for(document, family).read_text(encoding="utf-8"))
+    errors = sorted(
+        Draft202012Validator(schema).iter_errors(document),
+        key=lambda error: list(error.path),
+    )
+    assert not errors, "\n".join(
+        f"{'/'.join(str(part) for part in error.path)}: {error.message}" for error in errors
+    )
+
+
+def test_builtin_mutation_scenarios_exist() -> None:
+    assert sorted(BUILTIN_MUTATION_DIR.glob("*.yaml"))
+
+
+@pytest.mark.parametrize(
+    "scenario", sorted(BUILTIN_MUTATION_DIR.glob("*.yaml")), ids=lambda value: value.stem
+)
+def test_builtin_mutation_scenario_validates(scenario: Path) -> None:
+    document = yaml.safe_load(scenario.read_text(encoding="utf-8"))
+    assert "builtin_mutation" in document
+    schema = json.loads(BUILTIN_MUTATION_SCHEMA.read_text(encoding="utf-8"))
     errors = sorted(
         Draft202012Validator(schema).iter_errors(document),
         key=lambda error: list(error.path),

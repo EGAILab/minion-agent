@@ -1,0 +1,166 @@
+name: "builtin-edit-cancellation-checkpoints"
+family: "agent"
+authority: "minion-agent-docs spec/tools.md WP-13.2 (minion-agent#49); pinned Pi write.ts/edit.ts/file-mutation-queue.ts"
+pi_revision: "b7bb00b936dbe21b8e160b3e89efdec361846699"
+requirements:
+  - "TOOL-030"
+  - "TOOL-033"
+  - "EXEC-009"
+witnesses:
+  - "edit_cancellation_checkpoints"
+notes: "edit checks the signal after registration+wait, after the access stage (and BEFORE reporting an access failure, edit.ts's catch), after the read, after matching and after the write. A read or write failure's own error wins; an abort during the read wins over a later diagnostic."
+builtin_mutation:
+  fixture:
+    - path: "f.txt"
+      file:
+        text: "alpha\n"
+    - path: "denied.txt"
+      file:
+        text: "alpha\n"
+    - path: "unreadable.txt"
+      file:
+        text: "alpha\n"
+    - path: "ro.txt"
+      file:
+        text: "alpha\n"
+  provider:
+    check_read_write:
+      - path: "denied.txt"
+        error: "permission_denied"
+    read_binary_file:
+      - path: "unreadable.txt"
+        error: "permission_denied"
+    write_file:
+      - path: "ro.txt"
+        error: "permission_denied"
+  cases:
+    - id: "pre-aborted-answered-by-layer06-preflight"
+      tool: "edit"
+      signal: "pre_aborted"
+      arguments:
+        path: "f.txt"
+        edits:
+          - oldText: "alpha"
+            newText: "A"
+      expect:
+        is_error: true
+        text: "Operation aborted"
+        details: {}
+        fs_calls: []
+        files_after:
+          - path: "f.txt"
+            text: "alpha\n"
+    - id: "abort-during-registration"
+      tool: "edit"
+      abort_after: "canonical_path"
+      arguments:
+        path: "f.txt"
+        edits:
+          - oldText: "alpha"
+            newText: "A"
+      expect:
+        is_error: true
+        text: "Operation aborted"
+        details: {}
+        fs_calls:
+          - "canonical_path f.txt"
+        files_after:
+          - path: "f.txt"
+            text: "alpha\n"
+    - id: "abort-during-access"
+      tool: "edit"
+      abort_after: "check_read_write"
+      arguments:
+        path: "f.txt"
+        edits:
+          - oldText: "alpha"
+            newText: "A"
+      expect:
+        is_error: true
+        text: "Operation aborted"
+        details: {}
+        fs_calls:
+          - "canonical_path f.txt"
+          - "check_read_write f.txt"
+    - id: "abort-wins-over-access-failure"
+      tool: "edit"
+      abort_after: "check_read_write"
+      arguments:
+        path: "denied.txt"
+        edits:
+          - oldText: "alpha"
+            newText: "A"
+      expect:
+        is_error: true
+        text: "Operation aborted"
+        details: {}
+    - id: "abort-during-read"
+      tool: "edit"
+      abort_after: "read_binary_file"
+      arguments:
+        path: "f.txt"
+        edits:
+          - oldText: "alpha"
+            newText: "A"
+      expect:
+        is_error: true
+        text: "Operation aborted"
+        details: {}
+        fs_calls:
+          - "canonical_path f.txt"
+          - "check_read_write f.txt"
+          - "read_binary_file f.txt"
+        files_after:
+          - path: "f.txt"
+            text: "alpha\n"
+    - id: "abort-during-read-wins-over-diagnostic"
+      tool: "edit"
+      abort_after: "read_binary_file"
+      arguments:
+        path: "f.txt"
+        edits:
+          - oldText: "missing"
+            newText: "A"
+      expect:
+        is_error: true
+        text: "Operation aborted"
+        details: {}
+    - id: "read-error-wins-over-abort"
+      tool: "edit"
+      abort_after: "read_binary_file"
+      arguments:
+        path: "unreadable.txt"
+        edits:
+          - oldText: "alpha"
+            newText: "A"
+      expect:
+        is_error: true
+        text: "Cannot read unreadable.txt: permission denied"
+        details: {}
+    - id: "abort-during-write-still-written"
+      tool: "edit"
+      abort_after: "write_file"
+      arguments:
+        path: "f.txt"
+        edits:
+          - oldText: "alpha"
+            newText: "A"
+      expect:
+        is_error: true
+        text: "Operation aborted"
+        details: {}
+        files_after:
+          - path: "f.txt"
+            text: "A\n"
+    - id: "write-error-wins-over-abort"
+      tool: "edit"
+      abort_after: "write_file"
+      arguments:
+        path: "ro.txt"
+        edits:
+          - oldText: "alpha"
+            newText: "A"
+      expect:
+        is_error: true
+        text: "Cannot write ro.txt: permission denied"
+        details: {}

@@ -1,0 +1,47 @@
+name: "builtin-mutation-queue-not-found-fallback-key-serializes-creates"
+family: "agent"
+authority: "minion-agent-docs spec/tools.md WP-13.2 (minion-agent#49); pinned Pi write.ts/edit.ts/file-mutation-queue.ts"
+pi_revision: "b7bb00b936dbe21b8e160b3e89efdec361846699"
+requirements:
+  - "TOOL-032"
+witnesses:
+  - "queue_not_found_fallback_key"
+notes: "A not-yet-existing target keys by its lexical absolute path (canonical_path not_found): two creates of the same new file serialize. Ordering authority: queue_authority.json scenario 'enoent-fallback-key-serializes-creates' (pinned Pi file-mutation-queue.ts, unmodified, Node 22.15.1)."
+builtin_mutation:
+  fixture: []
+  queue:
+    calls:
+      - id: "A"
+        tool: "write"
+        arguments:
+          path: "new.txt"
+          content: "A"
+      - id: "B"
+        tool: "write"
+        arguments:
+          path: "./new.txt"
+          content: "B"
+    gates:
+      - id: "a-write"
+        operation: "write_file"
+        path: "new.txt"
+    steps:
+      - release: "a-write"
+    expect:
+      results:
+        A:
+          is_error: false
+          text: "Successfully wrote 1 bytes to new.txt"
+        B:
+          is_error: false
+          text: "Successfully wrote 1 bytes to ./new.txt"
+      order:
+        -
+          - "p canonical_path new.txt #1 not_found"
+          - "p absolute_path new.txt #1 start"
+        -
+          - "p write_file new.txt #1 ok"
+          - "p absolute_path ./new.txt #2 start"
+      files_after:
+        - path: "new.txt"
+          text: "B"

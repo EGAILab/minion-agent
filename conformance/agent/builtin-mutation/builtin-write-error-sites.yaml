@@ -1,0 +1,145 @@
+name: "builtin-write-error-sites"
+family: "agent"
+authority: "minion-agent-docs spec/tools.md WP-13.2 (minion-agent#49); pinned Pi write.ts/edit.ts/file-mutation-queue.ts"
+pi_revision: "b7bb00b936dbe21b8e160b3e89efdec361846699"
+requirements:
+  - "TOOL-029"
+  - "TOOL-032"
+  - "TOOL-039"
+  - "TOOL-026"
+witnesses:
+  - "write_error_sites_r010b_vocabulary"
+notes: "Every write failure site with its L13-WP132-O1 wrapper and the closed R010-B cause phrase; details {}. A registration failure happens before the lock; the failing operation owns the site."
+builtin_mutation:
+  fixture:
+    - path: "f.txt"
+      file:
+        text: "original\n"
+    - path: "notes.txt"
+      file:
+        text: "a file, not a directory\n"
+  provider:
+    canonical_path:
+      - path: "locked.txt"
+        error: "permission_denied"
+      - path: "notes.txt/child.md"
+        error: "not_directory"
+    absolute_path:
+      - path: "bad-fallback.txt"
+        error: "invalid"
+      - path: "./f.txt"
+        error: "unknown"
+    create_dir:
+      - path: "notes.txt"
+        error: "not_directory"
+      - path: "denied"
+        error: "permission_denied"
+    write_file:
+      - path: "ro.txt"
+        error: "permission_denied"
+      - path: "full.txt"
+        error: "unknown"
+  cases:
+    - id: "registration-canonical-path-fails"
+      tool: "write"
+      arguments:
+        path: "locked.txt"
+        content: "x"
+      expect:
+        is_error: true
+        text: "Cannot resolve locked.txt: permission denied"
+        details: {}
+        fs_calls:
+          - "canonical_path locked.txt"
+        files_after:
+          - path: "locked.txt"
+            absent: true
+    - id: "registration-fallback-absolute-path-fails"
+      tool: "write"
+      arguments:
+        path: "bad-fallback.txt"
+        content: "x"
+      expect:
+        is_error: true
+        text: "Cannot resolve bad-fallback.txt: invalid path"
+        details: {}
+        fs_calls:
+          - "canonical_path bad-fallback.txt"
+          - "absolute_path bad-fallback.txt"
+    - id: "in-lock-absolute-path-fails"
+      tool: "write"
+      arguments:
+        path: "./f.txt"
+        content: "x"
+      expect:
+        is_error: true
+        text: "Cannot resolve ./f.txt: unknown filesystem error"
+        details: {}
+        fs_calls:
+          - "canonical_path ./f.txt"
+          - "absolute_path ./f.txt"
+        files_after:
+          - path: "f.txt"
+            text: "original\n"
+    - id: "not-directory-key-fallback-then-parent-fails"
+      tool: "write"
+      arguments:
+        path: "notes.txt/child.md"
+        content: "x"
+      expect:
+        is_error: true
+        text: "Cannot create parent directory of notes.txt/child.md: not a directory"
+        details: {}
+        fs_calls:
+          - "canonical_path notes.txt/child.md"
+          - "absolute_path notes.txt/child.md"
+          - "absolute_path notes.txt/child.md"
+          - "create_dir notes.txt"
+    - id: "parent-create-fails"
+      tool: "write"
+      arguments:
+        path: "denied/x.txt"
+        content: "x"
+      expect:
+        is_error: true
+        text: "Cannot create parent directory of denied/x.txt: permission denied"
+        details: {}
+        fs_calls:
+          - "canonical_path denied/x.txt"
+          - "absolute_path denied/x.txt"
+          - "absolute_path denied/x.txt"
+          - "create_dir denied"
+    - id: "write-fails-permission"
+      tool: "write"
+      arguments:
+        path: "ro.txt"
+        content: "x"
+      expect:
+        is_error: true
+        text: "Cannot write ro.txt: permission denied"
+        details: {}
+        fs_calls:
+          - "canonical_path ro.txt"
+          - "absolute_path ro.txt"
+          - "absolute_path ro.txt"
+          - "create_dir ."
+          - "write_file ro.txt"
+    - id: "write-fails-unknown"
+      tool: "write"
+      arguments:
+        path: "full.txt"
+        content: "x"
+      expect:
+        is_error: true
+        text: "Cannot write full.txt: unknown filesystem error"
+        details: {}
+    - id: "malformed-file-url-rejected-before-ctx-fs"
+      tool: "write"
+      arguments:
+        path: "file:///%ZZ"
+        content: "x"
+      expect:
+        is_error: true
+        text: "Cannot access file:///%ZZ: invalid path"
+        details: {}
+        fs_calls: []

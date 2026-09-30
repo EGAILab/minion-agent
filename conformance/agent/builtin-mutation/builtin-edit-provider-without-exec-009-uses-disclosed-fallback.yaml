@@ -1,0 +1,76 @@
+name: "builtin-edit-provider-without-exec-009-uses-disclosed-fallback"
+family: "agent"
+authority: "minion-agent-docs spec/tools.md WP-13.2 (minion-agent#49); pinned Pi write.ts/edit.ts/file-mutation-queue.ts"
+pi_revision: "b7bb00b936dbe21b8e160b3e89efdec361846699"
+requirements:
+  - "TOOL-030"
+  - "TOOL-039"
+  - "EXEC-009"
+witnesses:
+  - "edit_fallback_without_exec_009"
+notes: "FALLBACK (spec/execution.md section 13.5; owner-disclosed, never Pi-equivalent): check_read_write answers not_supported, so the access stage asks check_readable; a readable-but-unwritable file then fails at the WRITE site, not the access site."
+builtin_mutation:
+  fixture:
+    - path: "f.txt"
+      file:
+        text: "alpha\n"
+    - path: "denied.txt"
+      file:
+        text: "alpha\n"
+    - path: "ro.txt"
+      file:
+        text: "alpha\n"
+  provider:
+    without_exec_009: true
+    check_readable:
+      - path: "denied.txt"
+        error: "permission_denied"
+    write_file:
+      - path: "ro.txt"
+        error: "permission_denied"
+  cases:
+    - id: "check-readable-fails-at-access-site"
+      tool: "edit"
+      arguments:
+        path: "denied.txt"
+        edits:
+          - oldText: "alpha"
+            newText: "A"
+      expect:
+        is_error: true
+        text: "Could not edit file: denied.txt. permission denied."
+        details: {}
+        fs_calls:
+          - "canonical_path denied.txt"
+          - "check_read_write denied.txt"
+          - "check_readable denied.txt"
+    - id: "unwritable-fails-at-write-site"
+      tool: "edit"
+      arguments:
+        path: "ro.txt"
+        edits:
+          - oldText: "alpha"
+            newText: "A"
+      expect:
+        is_error: true
+        text: "Cannot write ro.txt: permission denied"
+        details: {}
+        fs_calls:
+          - "canonical_path ro.txt"
+          - "check_read_write ro.txt"
+          - "check_readable ro.txt"
+          - "read_binary_file ro.txt"
+          - "write_file ro.txt"
+    - id: "success"
+      tool: "edit"
+      arguments:
+        path: "f.txt"
+        edits:
+          - oldText: "alpha"
+            newText: "A"
+      expect:
+        is_error: false
+        text: "Successfully replaced 1 block(s) in f.txt."
+        files_after:
+          - path: "f.txt"
+            text: "A\n"

@@ -1,0 +1,155 @@
+name: "builtin-edit-corpus-prepare"
+family: "agent"
+authority: "pinned Pi b7bb00b9 edit-diff.ts/utils/text.ts + diff 8.0.4 under Node 22.15.1 (authority corpus)"
+pi_revision: "b7bb00b936dbe21b8e160b3e89efdec361846699"
+requirements:
+  - "TOOL-030"
+  - "TOOL-031"
+witnesses:
+  - "edit_write_pinned_pi_authority_corpus"
+notes: "GENERATED from the pinned-Pi authority run (minion-agent-docs assurance/layers/data/13-wp132-evidence): prepare_arguments coercions (edit.ts prepareEditArguments) through the real Layer 06 pipeline. Expectations are pinned Pi's result text, final file bytes and details, verbatim. Do not edit by hand; regenerate with harness/make_scenarios.py."
+builtin_mutation:
+  cases:
+    - id: "prepare-json-string-array"
+      tool: "edit"
+      fixture:
+        - path: "src/app.txt"
+          file:
+            base64: "eAphCg=="
+      arguments:
+        path: "src/app.txt"
+        edits: "[{\"oldText\": \"a\", \"newText\": \"b\"}]"
+      expect:
+        is_error: false
+        text: "Successfully replaced 1 block(s) in src/app.txt."
+        details:
+          diff: " 1 x\n-2 a\n+2 b"
+          patch: "--- src/app.txt\n+++ src/app.txt\n@@ -1,2 +1,2 @@\n x\n-a\n+b\n"
+          firstChangedLine: 2
+        files_after:
+          - path: "src/app.txt"
+            base64: "eApiCg=="
+    - id: "prepare-json-string-single"
+      tool: "edit"
+      fixture:
+        - path: "src/app.txt"
+          file:
+            base64: "eAphCg=="
+      arguments:
+        path: "src/app.txt"
+        edits: "{\"oldText\": \"a\", \"newText\": \"b\"}"
+      expect:
+        is_error: false
+        text: "Successfully replaced 1 block(s) in src/app.txt."
+        details:
+          diff: " 1 x\n-2 a\n+2 b"
+          patch: "--- src/app.txt\n+++ src/app.txt\n@@ -1,2 +1,2 @@\n x\n-a\n+b\n"
+          firstChangedLine: 2
+        files_after:
+          - path: "src/app.txt"
+            base64: "eApiCg=="
+    - id: "prepare-json-string-invalid"
+      tool: "edit"
+      fixture:
+        - path: "src/app.txt"
+          file:
+            base64: "eAphCg=="
+      arguments:
+        path: "src/app.txt"
+        edits: "[not json"
+      expect:
+        is_error: true
+        argument_validation_failure: true
+        fs_calls: []
+    - id: "prepare-json-string-other"
+      tool: "edit"
+      fixture:
+        - path: "src/app.txt"
+          file:
+            base64: "eAphCg=="
+      arguments:
+        path: "src/app.txt"
+        edits: "42"
+      expect:
+        is_error: true
+        argument_validation_failure: true
+        fs_calls: []
+    - id: "prepare-single-object"
+      tool: "edit"
+      fixture:
+        - path: "src/app.txt"
+          file:
+            base64: "eAphCg=="
+      arguments:
+        path: "src/app.txt"
+        edits:
+          oldText: "a"
+          newText: "b"
+          extra: 1
+      expect:
+        is_error: false
+        text: "Successfully replaced 1 block(s) in src/app.txt."
+        details:
+          diff: " 1 x\n-2 a\n+2 b"
+          patch: "--- src/app.txt\n+++ src/app.txt\n@@ -1,2 +1,2 @@\n x\n-a\n+b\n"
+          firstChangedLine: 2
+        files_after:
+          - path: "src/app.txt"
+            base64: "eApiCg=="
+    - id: "prepare-legacy-top-level"
+      tool: "edit"
+      fixture:
+        - path: "src/app.txt"
+          file:
+            base64: "eAphCg=="
+      arguments:
+        path: "src/app.txt"
+        oldText: "a"
+        newText: "b"
+      expect:
+        is_error: false
+        text: "Successfully replaced 1 block(s) in src/app.txt."
+        details:
+          diff: " 1 x\n-2 a\n+2 b"
+          patch: "--- src/app.txt\n+++ src/app.txt\n@@ -1,2 +1,2 @@\n x\n-a\n+b\n"
+          firstChangedLine: 2
+        files_after:
+          - path: "src/app.txt"
+            base64: "eApiCg=="
+    - id: "prepare-legacy-appends"
+      tool: "edit"
+      fixture:
+        - path: "src/app.txt"
+          file:
+            base64: "eAphCg=="
+      arguments:
+        path: "src/app.txt"
+        edits:
+          - oldText: "x"
+            newText: "y"
+        oldText: "a"
+        newText: "b"
+      expect:
+        is_error: false
+        text: "Successfully replaced 2 block(s) in src/app.txt."
+        details:
+          diff: "-1 x\n-2 a\n+1 y\n+2 b"
+          patch: "--- src/app.txt\n+++ src/app.txt\n@@ -1,2 +1,2 @@\n-x\n-a\n+y\n+b\n"
+          firstChangedLine: 1
+        files_after:
+          - path: "src/app.txt"
+            base64: "eQpiCg=="
+    - id: "prepare-legacy-non-string-ignored"
+      tool: "edit"
+      fixture:
+        - path: "src/app.txt"
+          file:
+            base64: "eAphCg=="
+      arguments:
+        path: "src/app.txt"
+        oldText: "a"
+        newText: 3
+      expect:
+        is_error: true
+        argument_validation_failure: true
+        fs_calls: []

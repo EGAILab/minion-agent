@@ -1,0 +1,62 @@
+name: "builtin-mutation-queue-slow-failing-registration-then-proceeds"
+family: "agent"
+authority: "minion-agent-docs spec/tools.md WP-13.2 (minion-agent#49); pinned Pi write.ts/edit.ts/file-mutation-queue.ts"
+pi_revision: "b7bb00b936dbe21b8e160b3e89efdec361846699"
+requirements:
+  - "TOOL-032"
+witnesses:
+  - "queue_failed_registration_settles_then_releases"
+notes: "L13-WP132-R003: A's canonical_path is pending and then fails. B (another key) does not begin its key lookup until A's failure settles, then proceeds; A leaves no entry, so C (A's own target) proceeds too. Negative controls: starting B early; leaving a lingering entry (C never settles). Ordering authority: queue_authority.json scenario 'slow-failing-registration-delays-later-registration-until-it-settles' (pinned Pi file-mutation-queue.ts, unmodified, Node 22.15.1)."
+builtin_mutation:
+  fixture:
+    - path: "a.txt"
+      file:
+        text: "a\n"
+  queue:
+    calls:
+      - id: "A"
+        tool: "write"
+        arguments:
+          path: "a.txt"
+          content: "A"
+      - id: "B"
+        tool: "write"
+        arguments:
+          path: "b.txt"
+          content: "B"
+      - id: "C"
+        tool: "write"
+        arguments:
+          path: "./a.txt"
+          content: "C"
+    gates:
+      - id: "a-key"
+        operation: "canonical_path"
+        path: "a.txt"
+    steps:
+      - release: "a-key"
+        error: "permission_denied"
+    expect:
+      results:
+        A:
+          is_error: true
+          text: "Cannot resolve a.txt: permission denied"
+          details: {}
+        B:
+          is_error: false
+          text: "Successfully wrote 1 bytes to b.txt"
+        C:
+          is_error: false
+          text: "Successfully wrote 1 bytes to ./a.txt"
+      order:
+        -
+          - "p canonical_path a.txt #1 permission_denied"
+          - "p canonical_path b.txt #1 start"
+      never:
+        - "p absolute_path a.txt #1 start"
+        - "p write_file a.txt #1 start"
+      files_after:
+        - path: "a.txt"
+          text: "C"
+        - path: "b.txt"
+          text: "B"

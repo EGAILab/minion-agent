@@ -321,6 +321,9 @@ mod windows {
         drop(held);
         assert_eq!(fs.check_read_write("held.txt", None).await, Ok(()));
         assert_eq!(fs.check_readable("held.txt", None).await, Ok(()));
-        assert_eq!(fs.read_binary_file("held.txt", None).await, Ok(b"x".to_vec()));
+        assert_eq!(
+            fs.read_binary_file("held.txt", None).await,
+            Ok(b"x".to_vec())
+        );
     }
 }

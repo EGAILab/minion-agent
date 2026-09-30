@@ -6621,7 +6621,8 @@ rows:
     22.15.1 / libuv v1.49.2 (tag commit e1095c7a4373ce00cd8874d8e820de5afb25776e = Node v22.15.1 deps/uv, same blobs) -- src/unix/fs.c blob 239ecda16a7eb9b40453502cf0362ae66366cf72 uv_fs_access 1792-1801 -> uv__fs_work 1695-1764, access(req->path, req->flags) at 1713; src/win/fs.c blob f2215bb3082178193d37f8429536bfe7b707dd0d fs__access 2272-2295 (GetFileAttributesW; W_OK fails
     only for a non-directory with the read-only attribute)
   surface: Layer 12, WP-12.E3 -- an additive extension to ctx.fs (check_read_write)
-  rule: 'CONTRACT_DRAFT (owner decision L13-WP132-O2 = A-1, refined: minion-agent#49 issuecomment-5881558193; routine
+  rule: 'CERTIFIED (WP-12.E3 cross-language CERTIFIED_CLOSED, minion-agent#79; Python main ada1032644d3, witness minion-agent#84; Rust main 8a2a39481f36, minion-agent#83). Status
+    history: CONTRACT_DRAFT (owner decision L13-WP132-O2 = A-1, refined: minion-agent#49 issuecomment-5881558193; routine
     lifecycle delegated under minion-agent#75; coordinated as work package WP-12.E3, minion-agent#79).
 
 
@@ -6674,20 +6675,22 @@ rows:
   - minion-agent-python/tests/execution/test_filesystem_check_read_write.py::test_windows_readonly_attribute_directory_is_ok
   - minion-agent-python/tests/execution/test_filesystem_check_read_write.py::test_windows_readonly_attribute_file_is_permission_denied
   - minion-agent-python/tests/execution/test_filesystem_check_read_write.py::test_windows_symlink_loop_matches_the_unchanged_layer12_operations
+  - minion-agent-python/tests/execution/test_filesystem_check_read_write.py::test_windows_sharing_violation_matches_the_bindings_other_operations
+  - minion-agent-rust/crates/minion-agent/tests/execution_read_write_access.rs (incl. windows::sharing_violation_uses_the_existing_filesystem_error_mapper)
   - minion-agent-python/tests/execution/test_filesystem_check_read_write.py::test_writable_but_not_readable_file_is_permission_denied
   python: 'minion-agent-python/src/minion_agent/execution/filesystem.py (_check_read_write_posix, _windows_open_probe,
     _check_read_write_windows, _check_read_write_sync, LocalFileSystem.check_read_write), additive to the existing
     FileSystem Protocol (one new check_read_write member) -- every existing operation, check_readable included,
     unchanged. POSIX: exactly one libc access(path, R_OK | W_OK) keeping its own errno. Windows: exactly one CreateFileW(FILE_READ_DATA
     | FILE_WRITE_DATA, all sharing, OPEN_EXISTING, backup semantics; FILE_DELETE_CHILD not requested). Embedded
-    NUL rejected before either native call as unknown. Implementation candidate (WP-12.E3, minion-agent#79), pending
-    independent review.'
+    NUL rejected before either native call as unknown. Merged at main ada1032644d3da701f4ad319a7d5e1402aafcf4d (minion-agent#82) after
+    exact-SHA independent review; sharing-violation consistency witness minion-agent#84.'
   rust: 'minion-agent-rust/crates/minion-agent/src/execution/filesystem.rs (FileSystem::check_read_write
     default not_supported; LocalFileSystem::check_read_write, one POSIX access(R_OK | W_OK)
     or one Windows read-data+write-data open), with language evidence in
     minion-agent-rust/crates/minion-agent/tests/execution_read_write_access.rs and the
-    provider-capability regression in tests/execution_filesystem.rs. Rust implementation
-    candidate for WP-12.E3, minion-agent#79; independent closure review pending.'
+    provider-capability regression in tests/execution_filesystem.rs. Merged at main
+    8a2a39481f3613d3caea7d23048b518e05931bc0 (minion-agent#83) after exact-SHA independent review.'
   disposition: intentional divergence
 - id: TOOL-025
   phase: 6

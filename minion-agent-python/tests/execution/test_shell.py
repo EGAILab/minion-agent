@@ -409,9 +409,11 @@ async def test_exec_auto_discovers_a_shell_without_a_configured_path() -> None:
     assert result.value.stdout.strip() == "auto-discovered"
 
 
+@pytest.mark.skipif(os.name != "nt", reason="POSIX falls back to sh (minion-agent#86)")
 async def test_exec_no_bash_found_on_this_platform(monkeypatch: pytest.MonkeyPatch) -> None:
     """The "no bash shell found" error branch -- simulated by hiding every discovery path this
-    platform's own `_resolve_shell` would otherwise take."""
+    platform's own `_resolve_shell` would otherwise take. Windows-only (minion-agent#86): on POSIX,
+    pinned Pi -- and `_resolve_shell` -- fall back to `sh` instead of failing."""
     shell = LocalShell()
     monkeypatch.delenv("PROGRAMFILES", raising=False)
     monkeypatch.delenv("PROGRAMFILES(X86)", raising=False)
@@ -420,6 +422,21 @@ async def test_exec_no_bash_found_on_this_platform(monkeypatch: pytest.MonkeyPat
     result = await shell.exec("echo hi")
     assert isinstance(result, Err)
     assert result.error.code == ShellErrorCode.SHELL_UNAVAILABLE
+
+
+@pytest.mark.skipif(os.name == "nt", reason="the POSIX sh fallback (minion-agent#86)")
+async def test_resolve_shell_falls_back_to_sh_when_no_bash_is_found_on_posix(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """POSIX counterpart of `test_exec_no_bash_found_on_this_platform`: with every bash discovery
+    path hidden, `_resolve_shell` answers `sh` (pinned Pi's non-Windows order: /bin/bash, then
+    `bash` on PATH, then `sh`), never `shell_unavailable`."""
+    shell = LocalShell()
+    monkeypatch.setattr(os.path, "exists", lambda _path: False)
+    monkeypatch.setattr(shutil, "which", lambda _name: None)
+    result = await shell._resolve_shell()
+    assert isinstance(result, Ok)
+    assert result.value == "sh"
 
 
 @pytest.mark.skipif(os.name != "nt", reason="exercises the Windows-only PATH fallback branch")

@@ -195,6 +195,7 @@ mod posix {
 #[cfg(windows)]
 mod windows {
     use super::*;
+    use std::os::windows::fs::OpenOptionsExt;
 
     struct ResetAcl(std::path::PathBuf);
 
@@ -297,5 +298,29 @@ mod windows {
         for (path, permissions) in [&file, &dir].into_iter().zip(original) {
             std::fs::set_permissions(path, permissions).unwrap();
         }
+    }
+
+    #[tokio::test]
+    async fn sharing_violation_uses_the_existing_filesystem_error_mapper() {
+        let (root, fs) = fixture();
+        let file = root.path().join("held.txt");
+        std::fs::write(&file, b"x").unwrap();
+        let held = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .share_mode(0)
+            .open(&file)
+            .unwrap();
+
+        let combined = fs.check_read_write("held.txt", None).await.unwrap_err();
+        let readable = fs.check_readable("held.txt", None).await.unwrap_err();
+        let read = fs.read_binary_file("held.txt", None).await.unwrap_err();
+        assert_eq!(combined.code, readable.code);
+        assert_eq!(combined.code, read.code);
+
+        drop(held);
+        assert_eq!(fs.check_read_write("held.txt", None).await, Ok(()));
+        assert_eq!(fs.check_readable("held.txt", None).await, Ok(()));
+        assert_eq!(fs.read_binary_file("held.txt", None).await, Ok(b"x".to_vec()));
     }
 }

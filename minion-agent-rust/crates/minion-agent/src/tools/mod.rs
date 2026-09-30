@@ -6,8 +6,10 @@
 pub mod builtin;
 mod definition;
 mod execution;
+mod prepared;
 mod registry;
 
 pub use definition::*;
 pub use execution::*;
+pub use prepared::{NonJsonPreparedValue, PreparedNumber, PreparedValue};
 pub use registry::ToolRegistry;

@@ -113,6 +113,11 @@ def test_replacement_ending_past_the_base_is_internal_range() -> None:
         edit_diff._replacement_line_range(spans, edit_diff.Replacement(0, 1, 5, "x"))
 
 
+def test_prepare_returns_a_non_object_unchanged() -> None:
+    """L13-WP132-R005: unreachable through the object-valued ToolCall, reproduced when called."""
+    assert prepare_edit_arguments("just a string") == "just a string"
+
+
 def test_prepare_rejects_json_constants_js_does_not_parse() -> None:
     assert prepare_edit_arguments({"path": "f", "edits": "NaN"})["edits"] == "NaN"
     assert prepare_edit_arguments({"path": "f", "edits": "[1e999]"})["edits"] == [float("inf")]

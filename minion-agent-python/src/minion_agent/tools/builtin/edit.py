@@ -90,9 +90,12 @@ def _json_parse(text: str) -> Any:
     return json.loads(text, parse_constant=_reject_constant)
 
 
-def prepare_edit_arguments(arguments: dict[str, Any]) -> dict[str, Any]:
+def prepare_edit_arguments(arguments: Any) -> Any:
     """`prepareEditArguments` (`edit.ts:116-147`). Layer 06 hands it a copy of the object-valued
-    tool-call arguments (`L13-WP132-R005`: the non-object branch is unreachable here)."""
+    tool-call arguments, so step 1's non-object branch is unreachable through the pipeline
+    (`L13-WP132-R005`); called directly, the callback still returns a non-object unchanged."""
+    if not isinstance(arguments, dict):
+        return arguments
     args = arguments
     edits = args.get("edits")
     if isinstance(edits, str):

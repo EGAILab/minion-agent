@@ -210,6 +210,18 @@ pub trait FileSystem: Send + Sync {
             "check_readable is not supported by this filesystem provider",
         ))
     }
+    /// One combined read-and-write access decision (`EXEC-009`). The signal is accepted but
+    /// is not inspected by this metadata-class query.
+    async fn check_read_write(
+        &self,
+        _path: &str,
+        _signal: Option<&dyn AbortSignal>,
+    ) -> Result<(), FsError> {
+        Err(FsError::new(
+            FsErrorCode::NotSupported,
+            "check_read_write is not supported by this filesystem provider",
+        ))
+    }
     async fn canonical_path(
         &self,
         path: &str,
@@ -558,6 +570,17 @@ impl FileSystem for LocalFileSystem {
             .map_err(|error| FsError::new(FsErrorCode::Unknown, error.to_string()))?
     }
 
+    async fn check_read_write(
+        &self,
+        path: &str,
+        _signal: Option<&dyn AbortSignal>,
+    ) -> Result<(), FsError> {
+        let path = self.resolved(path);
+        tokio::task::spawn_blocking(move || check_local_read_write(&path))
+            .await
+            .map_err(|error| FsError::new(FsErrorCode::Unknown, error.to_string()))?
+    }
+
     async fn canonical_path(
         &self,
         path: &str,
@@ -847,6 +870,78 @@ fn map_readability_error(error: io::Error) -> FsError {
     }
 }
 
+/// A host `Unsupported` error is not a provider-capability answer. The latter is reserved for
+/// the trait default when EXEC-009 is absent.
+fn map_read_write_error(error: io::Error) -> FsError {
+    if error.kind() == io::ErrorKind::Unsupported {
+        FsError::new(FsErrorCode::Unknown, error.to_string())
+    } else {
+        map_fs_error(error)
+    }
+}
+
+#[cfg(unix)]
+fn check_local_read_write(path: &Path) -> Result<(), FsError> {
+    use nix::unistd::{AccessFlags, access};
+
+    check_posix_read_write_with(path, |path| {
+        access(path, AccessFlags::R_OK | AccessFlags::W_OK)
+            .map_err(|errno| io::Error::from_raw_os_error(errno as i32))
+    })
+}
+
+#[cfg(unix)]
+fn check_posix_read_write_with(
+    path: &Path,
+    query: impl FnOnce(&Path) -> io::Result<()>,
+) -> Result<(), FsError> {
+    if path.as_os_str().as_encoded_bytes().contains(&0) {
+        return Err(FsError::new(
+            FsErrorCode::Unknown,
+            "path contains an embedded NUL byte",
+        ));
+    }
+    // One host access(R_OK | W_OK), retaining its own errno; never a stat or content open.
+    query(path).map_err(map_read_write_error)
+}
+
+#[cfg(windows)]
+fn check_local_read_write(path: &Path) -> Result<(), FsError> {
+    use std::os::windows::fs::OpenOptionsExt;
+    use windows_sys::Win32::Storage::FileSystem::{
+        FILE_FLAG_BACKUP_SEMANTICS, FILE_READ_DATA, FILE_SHARE_DELETE, FILE_SHARE_READ,
+        FILE_SHARE_WRITE, FILE_WRITE_DATA,
+    };
+
+    check_windows_read_write_with(path, |path| {
+        // FILE_READ_DATA | FILE_WRITE_DATA is also LIST_DIRECTORY | ADD_FILE for a directory.
+        // OPEN_EXISTING is OpenOptions' default disposition; no create/truncate flags are set.
+        // Do not request FILE_DELETE_CHILD (0x40) or OPEN_REPARSE_POINT.
+        std::fs::OpenOptions::new()
+            .access_mode(FILE_READ_DATA | FILE_WRITE_DATA)
+            .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE)
+            .custom_flags(FILE_FLAG_BACKUP_SEMANTICS)
+            .open(path)
+            .map(|_| ())
+    })
+}
+
+#[cfg(windows)]
+fn check_windows_read_write_with(
+    path: &Path,
+    query: impl FnOnce(&Path) -> io::Result<()>,
+) -> Result<(), FsError> {
+    use std::os::windows::ffi::OsStrExt;
+
+    if path.as_os_str().encode_wide().any(|unit| unit == 0) {
+        return Err(FsError::new(
+            FsErrorCode::Unknown,
+            "path contains an embedded NUL byte",
+        ));
+    }
+    query(path).map_err(map_read_write_error)
+}
+
 #[cfg(unix)]
 fn check_local_readable(path: &Path) -> Result<(), FsError> {
     use nix::unistd::{AccessFlags, access};
@@ -940,6 +1035,68 @@ mod tests {
         for (kind, expected) in cases {
             assert_eq!(map_readability_error(io::Error::from(kind)).code, expected);
         }
+    }
+
+    #[test]
+    fn host_read_write_errors_preserve_the_combined_querys_error_class() {
+        let cases = [
+            (io::ErrorKind::NotFound, FsErrorCode::NotFound),
+            (io::ErrorKind::NotADirectory, FsErrorCode::NotDirectory),
+            (
+                io::ErrorKind::PermissionDenied,
+                FsErrorCode::PermissionDenied,
+            ),
+            (io::ErrorKind::InvalidInput, FsErrorCode::Invalid),
+            (io::ErrorKind::Other, FsErrorCode::Unknown),
+            (io::ErrorKind::Unsupported, FsErrorCode::Unknown),
+        ];
+        for (kind, expected) in cases {
+            assert_eq!(map_read_write_error(io::Error::from(kind)).code, expected);
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn combined_access_calls_the_host_once_and_keeps_its_errno() {
+        let mut calls = 0;
+        let result = check_posix_read_write_with(Path::new("/witness"), |path| {
+            calls += 1;
+            assert_eq!(path, Path::new("/witness"));
+            Err(io::Error::from_raw_os_error(
+                nix::errno::Errno::EROFS as i32,
+            ))
+        });
+        assert_eq!(calls, 1);
+        assert_eq!(result.unwrap_err().code, FsErrorCode::Unknown);
+
+        let mut nul_calls = 0;
+        let result = check_posix_read_write_with(Path::new("bad\0path"), |_| {
+            nul_calls += 1;
+            Ok(())
+        });
+        assert_eq!(nul_calls, 0);
+        assert_eq!(result.unwrap_err().code, FsErrorCode::Unknown);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_combined_access_calls_one_probe_and_rejects_nul_first() {
+        let mut calls = 0;
+        let result = check_windows_read_write_with(Path::new("C:\\witness"), |path| {
+            calls += 1;
+            assert_eq!(path, Path::new("C:\\witness"));
+            Err(io::Error::from(io::ErrorKind::PermissionDenied))
+        });
+        assert_eq!(calls, 1);
+        assert_eq!(result.unwrap_err().code, FsErrorCode::PermissionDenied);
+
+        let mut nul_calls = 0;
+        let result = check_windows_read_write_with(Path::new("bad\0path"), |_| {
+            nul_calls += 1;
+            Ok(())
+        });
+        assert_eq!(nul_calls, 0);
+        assert_eq!(result.unwrap_err().code, FsErrorCode::Unknown);
     }
 
     #[cfg(unix)]

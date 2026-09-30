@@ -1,0 +1,30 @@
+{
+ "authority": "pinned Pi b7bb00b936dbe21b8e160b3e89efdec361846699 edit-diff.ts normalizeForFuzzyMatch under Node 22.15.1 (ICU 76.1, Unicode 16.0)",
+ "cases": [
+  {
+   "id": "fz-trim-set",
+   "text": "a \t\u000b\f\u00a0\ufeff\u1680\u2000\u200a\u202f\u205f\u3000\u2028\u2029\n",
+   "normalized": "a\n"
+  },
+  {
+   "id": "fz-not-trimmed",
+   "text": "a\u0085\u001c\u001d\u001e\u001f\u180e\u200b\n",
+   "normalized": "a\u0085\u001c\u001d\u001e\u001f\u180e\u200b\n"
+  },
+  {
+   "id": "fz-nfkc-compose",
+   "text": "e\u0301 A\u030a \u1e9b\u0323 \uff76\uff9e",
+   "normalized": "\u00e9 \u00c5 \u1e69 \u30ac"
+  },
+  {
+   "id": "fz-quotes-dashes-spaces",
+   "text": "\u2018\u2019\u201a\u201b\u201c\u201d\u201e\u201f\u2010\u2011\u2012\u2013\u2014\u2015\u2212\u00a0\u2002\u200a\u202f\u205f\u3000",
+   "normalized": "''''\"\"\"\"-------"
+  },
+  {
+   "id": "fz-unicode16-17",
+   "text": "\ud833\udcd6\ud833\udcf9\ua7f1",
+   "normalized": "A9\ua7f1"
+  }
+ ]
+}

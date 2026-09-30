@@ -1,0 +1,38 @@
+name: "builtin-edit-provider-without-exec-009-or-exec-008-skips-access"
+family: "agent"
+authority: "minion-agent-docs spec/tools.md WP-13.2 (minion-agent#49); pinned Pi write.ts/edit.ts/file-mutation-queue.ts"
+pi_revision: "b7bb00b936dbe21b8e160b3e89efdec361846699"
+requirements:
+  - "TOOL-030"
+  - "EXEC-009"
+witnesses:
+  - "edit_fallback_without_exec_009"
+notes: "FALLBACK with check_readable unsupported too: the access stage is skipped; the read and write sites answer."
+builtin_mutation:
+  fixture:
+    - path: "f.txt"
+      file:
+        text: "alpha\n"
+  provider:
+    without_exec_009: true
+    without_exec_008: true
+  cases:
+    - id: "access-skipped"
+      tool: "edit"
+      arguments:
+        path: "f.txt"
+        edits:
+          - oldText: "alpha"
+            newText: "A"
+      expect:
+        is_error: false
+        text: "Successfully replaced 1 block(s) in f.txt."
+        fs_calls:
+          - "canonical_path f.txt"
+          - "check_read_write f.txt"
+          - "check_readable f.txt"
+          - "read_binary_file f.txt"
+          - "write_file f.txt"
+        files_after:
+          - path: "f.txt"
+            text: "A\n"

@@ -1,0 +1,51 @@
+name: "builtin-mutation-queue-write-and-edit-share-the-queue"
+family: "agent"
+authority: "minion-agent-docs spec/tools.md WP-13.2 (minion-agent#49); pinned Pi write.ts/edit.ts/file-mutation-queue.ts"
+pi_revision: "b7bb00b936dbe21b8e160b3e89efdec361846699"
+requirements:
+  - "TOOL-032"
+  - "TOOL-030"
+  - "TOOL-029"
+witnesses:
+  - "queue_shared_by_write_and_edit"
+notes: "write and edit use ONE queue: a write issued while an edit of the same file holds the lock waits for it. Ordering authority: queue_authority.json scenario 'same-target-registration-in-call-order' (pinned Pi file-mutation-queue.ts, unmodified, Node 22.15.1)."
+builtin_mutation:
+  fixture:
+    - path: "f.txt"
+      file:
+        text: "alpha\n"
+  queue:
+    calls:
+      - id: "A"
+        tool: "edit"
+        arguments:
+          path: "f.txt"
+          edits:
+            - oldText: "alpha"
+              newText: "A"
+      - id: "B"
+        tool: "write"
+        arguments:
+          path: "./f.txt"
+          content: "B"
+    gates:
+      - id: "a-read"
+        operation: "read_binary_file"
+        path: "f.txt"
+    steps:
+      - release: "a-read"
+    expect:
+      results:
+        A:
+          is_error: false
+          text: "Successfully replaced 1 block(s) in f.txt."
+        B:
+          is_error: false
+          text: "Successfully wrote 1 bytes to ./f.txt"
+      order:
+        -
+          - "p write_file f.txt #1 ok"
+          - "p absolute_path ./f.txt #1 start"
+      files_after:
+        - path: "f.txt"
+          text: "B"

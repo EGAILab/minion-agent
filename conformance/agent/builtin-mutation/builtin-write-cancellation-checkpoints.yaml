@@ -1,0 +1,133 @@
+name: "builtin-write-cancellation-checkpoints"
+family: "agent"
+authority: "minion-agent-docs spec/tools.md WP-13.2 (minion-agent#49); pinned Pi write.ts/edit.ts/file-mutation-queue.ts"
+pi_revision: "b7bb00b936dbe21b8e160b3e89efdec361846699"
+requirements:
+  - "TOOL-029"
+  - "TOOL-033"
+witnesses:
+  - "write_cancellation_checkpoints"
+notes: "No abort listener while the lock is held; the signal is checked after registration+wait, after create_dir and after write_file (an abort during the in-lock absolute_path is observed after create_dir, where Pi observes an abort during mkdir, L13-WP132-R001). A pre-aborted call still registers. A failing step's own error wins: Pi checks abort only after a step succeeds."
+builtin_mutation:
+  fixture:
+    - path: "f.txt"
+      file:
+        text: "original\n"
+  provider:
+    create_dir:
+      - path: "denied"
+        error: "permission_denied"
+    write_file:
+      - path: "ro.txt"
+        error: "permission_denied"
+  cases:
+    - id: "pre-aborted-existing"
+      tool: "write"
+      signal: "pre_aborted"
+      arguments:
+        path: "f.txt"
+        content: "x"
+      expect:
+        is_error: true
+        text: "Operation aborted"
+        details: {}
+        fs_calls:
+          - "canonical_path f.txt"
+        files_after:
+          - path: "f.txt"
+            text: "original\n"
+    - id: "pre-aborted-new-file-registers-with-fallback-key"
+      tool: "write"
+      signal: "pre_aborted"
+      arguments:
+        path: "new.txt"
+        content: "x"
+      expect:
+        is_error: true
+        text: "Operation aborted"
+        details: {}
+        fs_calls:
+          - "canonical_path new.txt"
+          - "absolute_path new.txt"
+        files_after:
+          - path: "new.txt"
+            absent: true
+    - id: "abort-during-registration"
+      tool: "write"
+      abort_after: "canonical_path"
+      arguments:
+        path: "f.txt"
+        content: "x"
+      expect:
+        is_error: true
+        text: "Operation aborted"
+        details: {}
+        fs_calls:
+          - "canonical_path f.txt"
+    - id: "abort-during-in-lock-absolute-path-seen-after-create-dir"
+      tool: "write"
+      abort_after: "absolute_path"
+      arguments:
+        path: "f.txt"
+        content: "x"
+      expect:
+        is_error: true
+        text: "Operation aborted"
+        details: {}
+        fs_calls:
+          - "canonical_path f.txt"
+          - "absolute_path f.txt"
+          - "create_dir ."
+        files_after:
+          - path: "f.txt"
+            text: "original\n"
+    - id: "abort-during-create-dir"
+      tool: "write"
+      abort_after: "create_dir"
+      arguments:
+        path: "f.txt"
+        content: "x"
+      expect:
+        is_error: true
+        text: "Operation aborted"
+        details: {}
+        fs_calls:
+          - "canonical_path f.txt"
+          - "absolute_path f.txt"
+          - "create_dir ."
+        files_after:
+          - path: "f.txt"
+            text: "original\n"
+    - id: "abort-during-write-still-written"
+      tool: "write"
+      abort_after: "write_file"
+      arguments:
+        path: "f.txt"
+        content: "x"
+      expect:
+        is_error: true
+        text: "Operation aborted"
+        details: {}
+        files_after:
+          - path: "f.txt"
+            text: "x"
+    - id: "create-dir-error-wins-over-abort"
+      tool: "write"
+      abort_after: "create_dir"
+      arguments:
+        path: "denied/x.txt"
+        content: "x"
+      expect:
+        is_error: true
+        text: "Cannot create parent directory of denied/x.txt: permission denied"
+        details: {}
+    - id: "write-error-wins-over-abort"
+      tool: "write"
+      abort_after: "write_file"
+      arguments:
+        path: "ro.txt"
+        content: "x"
+      expect:
+        is_error: true
+        text: "Cannot write ro.txt: permission denied"
+        details: {}

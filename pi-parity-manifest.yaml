@@ -6851,8 +6851,11 @@ rows:
     bytes to <path>'' with n = UTF-16 code units (Pi''s content.length, a known Pi misnomer reproduced verbatim),
     details {}. Raw failure sites per TOOL-039. Full rules: spec/tools.md, WP-13.2, ''`write` (TOOL-029)''.'
   tests:
-  - spec/tools.md, WP-13.2 witnesses and differential evidence (to be generated from the pinned-Pi authority before
-    implementation approval)
+  - write_success_parents_overwrite_utf16_length (canonical scenario conformance/agent/builtin-mutation/builtin-write-creates-parents-overwrites-and-reports-utf16-length.yaml)
+  - write_error_sites_r010b_vocabulary (canonical scenario conformance/agent/builtin-mutation/builtin-write-error-sites.yaml)
+  - write_cancellation_checkpoints (canonical scenario conformance/agent/builtin-mutation/builtin-write-cancellation-checkpoints.yaml)
+  - edit_write_pinned_pi_authority_corpus (canonical scenario conformance/agent/builtin-mutation/builtin-write-corpus.yaml; candidate, pending
+    contract review)
   python: not implemented; planned (WP-13.2, minion-agent#49)
   rust: not implemented; planned (WP-13.2, minion-agent#49)
   disposition: adopted
@@ -6873,8 +6876,13 @@ rows:
     exactly. UTF-16 string semantics throughout. Full rules: spec/tools.md, WP-13.2, ''`edit` (TOOL-030)'' and ''edit
     result details''.'
   tests:
-  - spec/tools.md, WP-13.2 witnesses and differential evidence (to be generated from the pinned-Pi authority before
-    implementation approval)
+  - edit_write_pinned_pi_authority_corpus (canonical scenarios conformance/agent/builtin-mutation/builtin-edit-corpus-*.yaml, generated from
+    the pinned-Pi authority run in minion-agent-docs assurance/layers/data/13-wp132-evidence; candidate, pending
+    contract review)
+  - edit_error_sites_r010b_vocabulary (canonical scenario conformance/agent/builtin-mutation/builtin-edit-error-sites.yaml)
+  - edit_fallback_without_exec_009 (canonical scenarios conformance/agent/builtin-mutation/builtin-edit-provider-without-exec-009-uses-disclosed-fallback.yaml
+    + conformance/agent/builtin-mutation/builtin-edit-provider-without-exec-009-or-exec-008-skips-access.yaml)
+  - edit_cancellation_checkpoints (canonical scenario conformance/agent/builtin-mutation/builtin-edit-cancellation-checkpoints.yaml)
   python: not implemented; planned (WP-13.2, minion-agent#49)
   rust: not implemented; planned (WP-13.2, minion-agent#49)
   disposition: adopted
@@ -6890,8 +6898,11 @@ rows:
     for byte from the original; BOM strip/restore; first-ending line-ending detection and Pi''s restore quirks.
     Full rules: spec/tools.md, WP-13.2, ''Fuzzy matching ... (TOOL-031)''.'
   tests:
-  - spec/tools.md, WP-13.2 witnesses and differential evidence (to be generated from the pinned-Pi authority before
-    implementation approval)
+  - edit_write_pinned_pi_authority_corpus (canonical scenarios conformance/agent/builtin-mutation/builtin-edit-corpus-*.yaml, generated from
+    the pinned-Pi authority run in minion-agent-docs assurance/layers/data/13-wp132-evidence; candidate, pending
+    contract review)
+  - fuzzy_normalize replay (conformance/agent/fixtures/wp132-fuzzy-normalize/fuzzy_normalize.json, pinned Pi's
+    normalizeForFuzzyMatch results, replayed by each binding against its fuzzy_normalize)
   python: not implemented; planned (WP-13.2, minion-agent#49)
   rust: not implemented; planned (WP-13.2, minion-agent#49)
   disposition: adopted
@@ -6908,8 +6919,17 @@ rows:
     and abort. Ordering/key: DIRECT_PI_PARITY; provider scoping: MINION_ARCHITECTURAL_MAPPING. Full rules: spec/tools.md,
     WP-13.2, ''Mutation queue (TOOL-032)''.'
   tests:
-  - spec/tools.md, WP-13.2 witnesses and differential evidence (to be generated from the pinned-Pi authority before
-    implementation approval)
+  - queue_same_target_registration_in_call_order (conformance/agent/builtin-mutation/builtin-mutation-queue-same-target-registers-in-call-order.yaml)
+  - queue_fifo_per_key (conformance/agent/builtin-mutation/builtin-mutation-queue-fifo-of-three.yaml)
+  - queue_different_keys_concurrent (conformance/agent/builtin-mutation/builtin-mutation-queue-different-keys-run-concurrently.yaml)
+  - queue_failed_registration_settles_then_releases (conformance/agent/builtin-mutation/builtin-mutation-queue-slow-failing-registration-then-proceeds.yaml)
+  - queue_release_after_error_and_abort (conformance/agent/builtin-mutation/builtin-mutation-queue-released-after-error-and-after-abort.yaml)
+  - queue_symlink_and_target_share (conformance/agent/builtin-mutation/builtin-mutation-queue-symlink-and-target-share-one-queue.yaml)
+  - queue_scoped_per_provider (conformance/agent/builtin-mutation/builtin-mutation-queue-providers-do-not-share-queues.yaml)
+  - queue_not_found_fallback_key (conformance/agent/builtin-mutation/builtin-mutation-queue-not-found-fallback-key-serializes-creates.yaml)
+  - queue_not_directory_fallback_key (conformance/agent/builtin-mutation/builtin-mutation-queue-not-directory-fallback-key.yaml)
+  - queue_shared_by_write_and_edit (conformance/agent/builtin-mutation/builtin-mutation-queue-write-and-edit-share-the-queue.yaml)
+  - ordering authority -- pinned file-mutation-queue.ts traces (minion-agent-docs assurance/layers/data/13-wp132-evidence/out/queue_authority.json)
   python: not implemented; planned (WP-13.2, minion-agent#49)
   rust: not implemented; planned (WP-13.2, minion-agent#49)
   disposition: adopted
@@ -6924,8 +6944,10 @@ rows:
     the signal; a pre-aborted call still registers and waits its turn; a failing step''s own error wins unless Pi
     checks abort first (edit''s access site). Full rules: spec/tools.md, WP-13.2, ''Cancellation (TOOL-033)''.'
   tests:
-  - spec/tools.md, WP-13.2 witnesses and differential evidence (to be generated from the pinned-Pi authority before
-    implementation approval)
+  - write_cancellation_checkpoints (conformance/agent/builtin-mutation/builtin-write-cancellation-checkpoints.yaml)
+  - edit_cancellation_checkpoints (conformance/agent/builtin-mutation/builtin-edit-cancellation-checkpoints.yaml)
+  - queue_abort_keeps_lock_until_inflight_settles (conformance/agent/builtin-mutation/builtin-mutation-queue-aborted-call-holds-lock-until-its-write-settles.yaml)
+  - queue_release_after_error_and_abort (conformance/agent/builtin-mutation/builtin-mutation-queue-released-after-error-and-after-abort.yaml)
   python: not implemented; planned (WP-13.2, minion-agent#49)
   rust: not implemented; planned (WP-13.2, minion-agent#49)
   disposition: adopted

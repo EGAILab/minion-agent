@@ -1,0 +1,196 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$comment": "Layer 13 WP-13.2 (write/edit + the shared mutation queue) canonical shape, discriminated by a top-level `builtin_mutation` key. Scenarios live in conformance/agent/builtin-mutation/ (their own directory, so the WP-13.1 `builtin_tool` runners are unaffected). A runner builds `fixture` (plus a case's own `fixture`) under a FRESH temporary root for every case or queue scenario, wraps the real local ctx.fs in each declared provider (scripted answers and gates for named paths, every call recorded), constructs the REAL write/edit tools over those providers, and runs every call through the REAL Layer 06 execute pipeline (prepare_arguments, schema validation, execute). The runner performs no tool logic. PATHS: a path a tool passes to ctx.fs is recorded verbatim when relative, and relative to the fixture root ('/'-separated, '.' for the root) when absolute; scripted answers and gates match that same recorded form. Unscripted, ungated calls go to the real provider unchanged.",
+  "type": "object",
+  "required": ["name", "family", "authority", "pi_revision", "requirements", "witnesses", "builtin_mutation"],
+  "additionalProperties": false,
+  "properties": {
+    "name": { "type": "string", "minLength": 1 },
+    "family": { "const": "agent" },
+    "authority": { "type": "string", "minLength": 1 },
+    "pi_revision": { "type": "string", "minLength": 1 },
+    "requirements": { "type": "array", "minItems": 1, "items": { "type": "string", "pattern": "^(TOOL|EXEC)-0[0-9]{2}$" } },
+    "witnesses": {
+      "$comment": "The pi-parity-manifest `tests:` names this scenario closes.",
+      "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 }
+    },
+    "notes": { "type": "string" },
+    "builtin_mutation": {
+      "type": "object",
+      "additionalProperties": false,
+      "oneOf": [{ "required": ["cases"] }, { "required": ["queue"] }],
+      "properties": {
+        "fixture": { "type": "array", "items": { "$ref": "#/$defs/entry" } },
+        "provider": { "$ref": "#/$defs/provider", "$comment": "scripting shared by every provider of the scenario" },
+        "cases": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/case" } },
+        "queue": { "$ref": "#/$defs/queue" }
+      }
+    }
+  },
+  "$defs": {
+    "tool": { "enum": ["write", "edit"] },
+    "entry": {
+      "type": "object",
+      "required": ["path"],
+      "additionalProperties": false,
+      "properties": {
+        "path": { "type": "string", "minLength": 1 },
+        "dir": { "const": true },
+        "symlink": { "type": "string", "$comment": "link target, relative to the fixture root" },
+        "file": { "$ref": "#/$defs/content" }
+      },
+      "oneOf": [{ "required": ["dir"] }, { "required": ["symlink"] }, { "required": ["file"] }]
+    },
+    "content": {
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "maxProperties": 1,
+      "properties": {
+        "text": { "type": "string", "$comment": "written as UTF-8, byte for byte (no newline translation)" },
+        "base64": { "type": "string" }
+      }
+    },
+    "fsErrorCode": { "enum": ["aborted", "not_found", "permission_denied", "not_directory", "is_directory", "invalid", "not_supported", "unknown"] },
+    "operation": { "enum": ["canonical_path", "absolute_path", "create_dir", "write_file", "check_read_write", "check_readable", "read_binary_file"] },
+    "scriptedError": {
+      "type": "object", "required": ["path", "error"], "additionalProperties": false,
+      "properties": { "path": { "type": "string" }, "error": { "$ref": "#/$defs/fsErrorCode" } }
+    },
+    "provider": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "without_exec_009": { "const": true, "$comment": "check_read_write returns not_supported for every path (a provider lacking EXEC-009, spec/execution.md section 13.5 FALLBACK)" },
+        "without_exec_008": { "const": true, "$comment": "check_readable returns not_supported for every path (a provider lacking EXEC-008)" },
+        "canonical_path": { "type": "array", "items": { "$ref": "#/$defs/scriptedError" } },
+        "absolute_path": { "type": "array", "items": { "$ref": "#/$defs/scriptedError" } },
+        "create_dir": { "type": "array", "items": { "$ref": "#/$defs/scriptedError" } },
+        "write_file": { "type": "array", "items": { "$ref": "#/$defs/scriptedError" } },
+        "check_read_write": { "type": "array", "items": { "$ref": "#/$defs/scriptedError" } },
+        "check_readable": { "type": "array", "items": { "$ref": "#/$defs/scriptedError" } },
+        "read_binary_file": { "type": "array", "items": { "$ref": "#/$defs/scriptedError" } }
+      }
+    },
+    "fileAfter": {
+      "type": "object", "required": ["path"], "additionalProperties": false,
+      "$comment": "the fixture file's state after the case/scenario: its exact bytes, or absent",
+      "properties": {
+        "path": { "type": "string", "minLength": 1 },
+        "text": { "type": "string", "$comment": "compared as its UTF-8 bytes" },
+        "base64": { "type": "string" },
+        "absent": { "const": true }
+      },
+      "oneOf": [{ "required": ["text"] }, { "required": ["base64"] }, { "required": ["absent"] }]
+    },
+    "case": {
+      "type": "object",
+      "required": ["tool", "arguments", "expect"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string" },
+        "tool": { "$ref": "#/$defs/tool" },
+        "fixture": { "type": "array", "items": { "$ref": "#/$defs/entry" }, "$comment": "added to the scenario fixture for this case only" },
+        "signal": { "const": "pre_aborted" },
+        "abort_after": {
+          "$ref": "#/$defs/operation",
+          "$comment": "the runner aborts the call's signal as the FIRST invocation of the named ctx.fs operation hands back its (real or scripted) answer -- before the tool resumes"
+        },
+        "arguments": { "$comment": "the raw tool-call arguments, before prepare_arguments (any JSON value)" },
+        "unpaired_surrogate_arguments": {
+          "const": true,
+          "$comment": "the arguments contain an unpaired UTF-16 surrogate. Whether a binding can receive such an argument is decided at Layer 02/05 (spec/tools.md WP-13.2, String semantics: recorded, not resolved). A binding whose argument decoding carries it MUST pass the case; one whose decoding cannot represent it MUST show the argument is rejected before the tool runs, and records that as the Layer 02/05 hazard, not as a pass"
+        },
+        "expect": { "$ref": "#/$defs/expectation" }
+      }
+    },
+    "expectation": {
+      "type": "object",
+      "required": ["is_error"],
+      "additionalProperties": false,
+      "oneOf": [{ "required": ["text"] }, { "required": ["argument_validation_failure"] }],
+      "properties": {
+        "is_error": { "type": "boolean" },
+        "text": { "type": "string", "$comment": "content_blocks[0].text, exact" },
+        "argument_validation_failure": {
+          "const": true,
+          "$comment": "the prepared arguments fail the tool's parameter schema: Layer 06's certified immediate argument-validation error (its text is Layer 06's, not asserted here); execute never runs and no ctx.fs call is made"
+        },
+        "details": { "type": "object", "$comment": "the tool's own details, exact; {} means none" },
+        "fs_calls": { "type": "array", "items": { "type": "string" }, "$comment": "every ctx.fs call in order, as '<operation> <recorded path>'" },
+        "files_after": { "type": "array", "items": { "$ref": "#/$defs/fileAfter" } }
+      }
+    },
+    "queue": {
+      "type": "object",
+      "required": ["calls", "expect"],
+      "additionalProperties": false,
+      "$comment": "Concurrent calls. The runner creates one wrapped ctx.fs per `providers` id (default one provider, `p`) over the SAME fixture root -- distinct provider instances, so distinct queue scopes -- and one write and one edit tool per provider. It starts every call in list order WITHOUT awaiting any (each call is begun before the next is started), then quiesces; then applies each step in order, quiescing after each; then requires every call to have settled (a call still pending with no gate held is a failure: a lingering queue entry or a lost wake-up). QUIESCE: run the binding's scheduler until no task can make progress without a gate being released. The log records, per provider, every ctx.fs invocation's start and its answer, and every call's result.",
+      "properties": {
+        "providers": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "pattern": "^[a-z][a-z0-9]*$" } },
+        "calls": {
+          "type": "array", "minItems": 1,
+          "items": {
+            "type": "object", "required": ["id", "tool", "arguments"], "additionalProperties": false,
+            "properties": {
+              "id": { "type": "string", "pattern": "^[A-Z]$" },
+              "tool": { "$ref": "#/$defs/tool" },
+              "provider": { "type": "string" },
+              "signal": { "const": "pre_aborted" },
+              "arguments": { "type": "object" }
+            }
+          }
+        },
+        "gates": {
+          "type": "array",
+          "$comment": "each named invocation (the `occurrence`-th invocation of `operation` on `path` through `provider`, 1-based) blocks before reaching the real provider until a step releases it",
+          "items": {
+            "type": "object", "required": ["id", "operation", "path"], "additionalProperties": false,
+            "properties": {
+              "id": { "type": "string", "minLength": 1 },
+              "provider": { "type": "string" },
+              "operation": { "$ref": "#/$defs/operation" },
+              "path": { "type": "string" },
+              "occurrence": { "type": "integer", "minimum": 1, "default": 1 }
+            }
+          }
+        },
+        "steps": {
+          "type": "array",
+          "items": {
+            "type": "object", "additionalProperties": false,
+            "oneOf": [{ "required": ["release"] }, { "required": ["abort"] }],
+            "properties": {
+              "release": { "type": "string", "$comment": "a gate id: the held invocation proceeds to the real provider" },
+              "error": { "$ref": "#/$defs/fsErrorCode", "$comment": "with release: the held invocation answers this error instead of reaching the provider" },
+              "abort": { "type": "string", "pattern": "^[A-Z]$", "$comment": "abort that call's signal" }
+            }
+          }
+        },
+        "expect": {
+          "type": "object",
+          "required": ["results"],
+          "additionalProperties": false,
+          "properties": {
+            "results": {
+              "type": "object",
+              "$comment": "per call id: is_error, exact text and (optionally) exact details",
+              "additionalProperties": {
+                "type": "object", "required": ["is_error", "text"], "additionalProperties": false,
+                "properties": { "is_error": { "type": "boolean" }, "text": { "type": "string" }, "details": { "type": "object" } }
+              }
+            },
+            "order": {
+              "type": "array",
+              "$comment": "each pair [a, b]: event a is logged, and before event b if b is logged at all (use `logged` to require b). EVENT NAMES: '<provider> <operation> <recorded path> #<n> start' and '<provider> <operation> <recorded path> #<n> ok|<error code>' (n = that provider's 1-based invocation count for that operation and path), and 'result <call id>'",
+              "items": { "type": "array", "minItems": 2, "maxItems": 2, "items": { "type": "string" } }
+            },
+            "logged": { "type": "array", "items": { "type": "string" }, "$comment": "events that must occur" },
+            "never": { "type": "array", "items": { "type": "string" }, "$comment": "events that must not occur" },
+            "files_after": { "type": "array", "items": { "$ref": "#/$defs/fileAfter" } }
+          }
+        }
+      }
+    }
+  }
+}

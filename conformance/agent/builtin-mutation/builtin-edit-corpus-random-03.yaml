@@ -1,0 +1,1255 @@
+name: "builtin-edit-corpus-random-03"
+family: "agent"
+authority: "pinned Pi b7bb00b9 edit-diff.ts/utils/text.ts + diff 8.0.4 under Node 22.15.1 (authority corpus)"
+pi_revision: "b7bb00b936dbe21b8e160b3e89efdec361846699"
+requirements:
+  - "TOOL-030"
+  - "TOOL-031"
+witnesses:
+  - "edit_write_pinned_pi_authority_corpus"
+notes: "GENERATED from the pinned-Pi authority run (minion-agent-docs assurance/layers/data/13-wp132-evidence): edit: seeded random differential breadth. Expectations are pinned Pi's result text, final file bytes and details, verbatim. Do not edit by hand; regenerate with harness/make_scenarios.py."
+builtin_mutation:
+  cases:
+    - id: "random-120"
+      tool: "edit"
+      fixture:
+        - path: "src/app.txt"
+          file:
+            base64: "eHlhDQrDqXjjgIANCvCfmIANCmHigJwNCiDwn5iAYcKg"
+      arguments:
+        path: "src/app.txt"
+        edits:
+          - oldText: "\u00E9x\u3000\n\U0001F600"
+            newText: "\u0085y \n"
+          - oldText: "\u3000\n\U0001F600\na\u201C\n"
+            newText: "\u2019\u201Cca"
+          - oldText: "\u3000\n\U0001F600\na\u201C\n"
+            newText: ""
+      expect:
+        is_error: true
+        text: "edits[0] and edits[1] overlap in src/app.txt. Merge them into one edit or target disjoint regions."
+        details: {}
+        files_after:
+          - path: "src/app.txt"
+            base64: "eHlhDQrDqXjjgIANCvCfmIANCmHigJwNCiDwn5iAYcKg"
+    - id: "random-121"
+      tool: "edit"
+      fixture:
+        - path: "src/app.txt"
+          file:
+            base64: "ICDigJnCoCAKZcyBICB5CsOp"
+      arguments:
+        path: "src/app.txt"
+        edits:
+          - oldText: "y\n\u00E9"
+            newText: "\u3000x"
+          - oldText: "\u00A0"
+            newText: ""
+          - oldText: "\ne\u0301  y\n"
+            newText: "\u3000  \u2019  b"
+      expect:
+        is_error: true
+        text: "Found 9 occurrences of edits[1] in src/app.txt. Each oldText must be unique. Please provide more context to make it unique."
+        details: {}
+        files_after:
+          - path: "src/app.txt"
+            base64: "ICDigJnCoCAKZcyBICB5CsOp"
+    - id: "random-122"
+      tool: "edit"
+      fixture:
+        - path: "src/app.txt"
+          file:
+            base64: "DQrjgIDDqWIJw6kNCgliDQpjeWIJ4oCUDQphw6nChXnDqWMNCmXMgWPwn5iAZcyBICANCuKAmWINCsOp"
+      arguments:
+        path: "src/app.txt"
+        edits:
+          - oldText: "b"
+            newText: "  \u3000\uFB01ye\u0301"
+          - oldText: "\u00E9\u0085y\u00E9c\n"
+            newText: " \n \u2019\u3000"
+          - oldText: " \n'b"
+            newText: "\u2014\t\u00A0\t\u2014"
+      expect:
+        is_error: true
+        text: "Found 4 occurrences of edits[0] in src/app.txt. Each oldText must be unique. Please provide more context to make it unique."
+        details: {}
+        files_after:
+          - path: "src/app.txt"
+            base64: "DQrjgIDDqWIJw6kNCgliDQpjeWIJ4oCUDQphw6nChXnDqWMNCmXMgWPwn5iAZcyBICANCuKAmWINCsOp"
+    - id: "random-123"
+      tool: "edit"
+      fixture:
+        - path: "src/app.txt"
+          file:
+            base64: "w6lhCgogICAK4oCU4oCcCu+sgQoJeGXMgQoK4oCUY8Op8J+YgCAg"
+      arguments:
+        path: "src/app.txt"
+        edits:
+          - oldText: "  \n\u2014\u201C\n\uFB01"
+            newText: "\u2019"
+      expect:
+        is_error: false
+        text: "Successfully replaced 1 block(s) in src/app.txt."
+        details:
+          diff: " 1 \u00E9a\n 2 \n-3    \n-4 \u2014\u201C\n-5 \uFB01\n+3  \u2019\n 6 \txe\u0301\n 7 \n 8 \u2014c\u00E9\U0001F600  "
+          patch: "--- src/app.txt\n+++ src/app.txt\n@@ -1,8 +1,6 @@\n \u00E9a\n \n-   \n-\u2014\u201C\n-\uFB01\n+ \u2019\n \txe\u0301\n \n \u2014c\u00E9\U0001F600  \n\\ No newline at end of file\n"
+          firstChangedLine: 3
+        files_after:
+          - path: "src/app.txt"
+            base64: "w6lhCgog4oCZCgl4ZcyBCgrigJRjw6nwn5iAICA="
+    - id: "random-124"
+      tool: "edit"
+      fixture:
+        - path: "src/app.txt"
+          file:
+            base64: "4oCZYvCfmIAKZcyB4oCU44CA44CACg=="
+      arguments:
+        path: "src/app.txt"
+        edits:
+          - oldText: "\u2014\u3000\u3000\n"
+            newText: "\u00A0a"
+      expect:
+        is_error: false
+        text: "Successfully replaced 1 block(s) in src/app.txt."
+        details:
+          diff: " 1 \u2019b\U0001F600\n-2 e\u0301\u2014\u3000\u3000\n+2 e\u0301\u00A0a"
+          patch: "--- src/app.txt\n+++ src/app.txt\n@@ -1,2 +1,2 @@\n \u2019b\U0001F600\n-e\u0301\u2014\u3000\u3000\n+e\u0301\u00A0a\n\\ No newline at end of file\n"
+          firstChangedLine: 2
+        files_after:
+          - path: "src/app.txt"
+            base64: "4oCZYvCfmIAKZcyBwqBh"
+    - id: "random-125"
+      tool: "edit"
+      fixture:
+        - path: "src/app.txt"
+          file:
+            base64: "DQoJ4oCU4oCU44CA4oCZDQrjgIANCuKAlA0K8J+YgOKAnA0KeeKAlCAgw6nigJw="
+      arguments:
+        path: "src/app.txt"
+        edits:
+          - oldText: "y\u2014  "
+            newText: "\u00A0be\u0301y\u2019"
+      expect:
+        is_error: false
+        text: "Successfully replaced 1 block(s) in src/app.txt."
+        details:
+          diff: "   ...\n 2 \t\u2014\u2014\u3000\u2019\n 3 \u3000\n 4 \u2014\n 5 \U0001F600\u201C\n-6 y\u2014  \u00E9\u201C\n+6 \u00A0be\u0301y\u2019\u00E9\u201C"
+          patch: "--- src/app.txt\n+++ src/app.txt\n@@ -2,5 +2,5 @@\n \t\u2014\u2014\u3000\u2019\n \u3000\n \u2014\n \U0001F600\u201C\n-y\u2014  \u00E9\u201C\n\\ No newline at end of file\n+\u00A0be\u0301y\u2019\u00E9\u201C\n\\ No newline at end of file\n"
+          firstChangedLine: 6
+        files_after:
+          - path: "src/app.txt"
+            base64: "DQoJ4oCU4oCU44CA4oCZDQrjgIANCuKAlA0K8J+YgOKAnA0KwqBiZcyBeeKAmcOp4oCc"
+    - id: "random-126"
+      tool: "edit"
+      fixture:
+        - path: "src/app.txt"
+          file:
+            base64: "CmXMgSDCheKAnAoK4oCUCnjjgIBiw6nigJQKCu+sgWNlzIEKCg=="
+      arguments:
+        path: "src/app.txt"
+        edits:
+          - oldText: " \u0085\u201C\n"
+            newText: "\u3000"
+          - oldText: "\n"
+            newText: "\n\u0085\u2014\n\uFB01"
+      expect:
+        is_error: true
+        text: "Found 8 occurrences of edits[1] in src/app.txt. Each oldText must be unique. Please provide more context to make it unique."
+        details: {}
+        files_after:
+          - path: "src/app.txt"
+            base64: "CmXMgSDCheKAnAoK4oCUCnjjgIBiw6nigJQKCu+sgWNlzIEKCg=="
+    - id: "random-127"
+      tool: "edit"
+      fixture:
+        - path: "src/app.txt"
+          file:
+            base64: "CmXMgWJiYWFhCnjigJwgIGEKYeKAlAoKwqBiwqBjeMOpCiDjgIAKwoU="
+      arguments:
+        path: "src/app.txt"
+        edits:
+          - oldText: "  a\na-\n\n"
+            newText: "e\u0301e\u0301"
+          - oldText: "x\u3000x"
+            newText: "\u00E9y\t"
+          - oldText: " \u3000\n"
+            newText: "\u2014\u2019"
+      expect:
+        is_error: true
+        text: "Could not find edits[1] in src/app.txt. The oldText must match exactly including all whitespace and newlines."
+        details: {}
+        files_after:
+          - path: "src/app.txt"
+            base64: "CmXMgWJiYWFhCnjigJwgIGEKYeKAlAoKwqBiwqBjeMOpCiDjgIAKwoU="
+    - id: "random-128"
+      tool: "edit"
+      fixture:
+        - path: "src/app.txt"
+          file:
+            base64: "77u/4oCcZcyB4oCcIGXMgQrwn5iACuKAme+sgcOpeeKAnAoK4oCU"
+      arguments:
+        path: "src/app.txt"
+        edits:
+          - oldText: "\n\u2019\uFB01\u00E9y\u201C\n"
+            newText: "\uFB01\n\u3000\u0085"
+      expect:
+        is_error: false
+        text: "Successfully replaced 1 block(s) in src/app.txt."
+        details:
+          diff: " 1 \u201Ce\u0301\u201C e\u0301\n-2 \U0001F600\n-3 \u2019\uFB01\u00E9y\u201C\n-4 \n+2 \U0001F600\uFB01\n+3 \u3000\u0085\n 5 \u2014"
+          patch: "--- src/app.txt\n+++ src/app.txt\n@@ -1,5 +1,4 @@\n \u201Ce\u0301\u201C e\u0301\n-\U0001F600\n-\u2019\uFB01\u00E9y\u201C\n-\n+\U0001F600\uFB01\n+\u3000\u0085\n \u2014\n\\ No newline at end of file\n"
+          firstChangedLine: 2
+        files_after:
+          - path: "src/app.txt"
+            base64: "77u/4oCcZcyB4oCcIGXMgQrwn5iA76yBCuOAgMKFCuKAlA=="
+    - id: "random-129"
+      tool: "edit"
+      fixture:
+        - path: "src/app.txt"
+          file:
+            base64: "CsKFICDigJkJICDigJkKCnnigJwKwoVj76yBY+OAgAogICAgYQ=="
+      arguments:
+        path: "src/app.txt"
+        edits:
+          - oldText: "\u0085  "
+            newText: "yycb"
+          - oldText: "\u00E9"
+            newText: "x\U0001F600\U0001F600"
+      expect:
+        is_error: true
+        text: "Found 2 occurrences of edits[0] in src/app.txt. Each oldText must be unique. Please provide more context to make it unique."
+        details: {}
+        files_after:
+          - path: "src/app.txt"
+            base64: "CsKFICDigJkJICDigJkKCnnigJwKwoVj76yBY+OAgAogICAgYQ=="
+    - id: "random-130"
+      tool: "edit"
+      fixture:
+        - path: "src/app.txt"
+          file:
+            base64: "CQkKYQphIAnwn5iAZcyB4oCcCg=="
+      arguments:
+        path: "src/app.txt"
+        edits:
+          - oldText: "\n"
+            newText: "\u0085\n"
+          - oldText: "\U0001F600e\u0301\u201C\n"
+            newText: " "
+      expect:
+        is_error: true
+        text: "Found 3 occurrences of edits[0] in src/app.txt. Each oldText must be unique. Please provide more context to make it unique."
+        details: {}
+        files_after:
+          - path: "src/app.txt"
+            base64: "CQkKYQphIAnwn5iAZcyB4oCcCg=="
+    - id: "random-131"
+      tool: "edit"
+      fixture:
+        - path: "src/app.txt"
+          file:
+            base64: "Cgp54oCZ4oCU8J+YgMKgCuKAlArigJQgIA=="
+      arguments:
+        path: "src/app.txt"
+        edits:
+          - oldText: "y'-\U0001F600 \n-\n"
+            newText: "b"
+          - oldText: "b\u2014e\u0301"
+            newText: "\u3000\u2014\U0001F600\u3000"
+          - oldText: "  "
+            newText: "\t\u00E9cx "
+      expect:
+        is_error: true
+        text: "Could not find edits[1] in src/app.txt. The oldText must match exactly including all whitespace and newlines."
+        details: {}
+        files_after:
+          - path: "src/app.txt"
+            base64: "Cgp54oCZ4oCU8J+YgMKgCuKAlArigJQgIA=="
+    - id: "random-132"
+      tool: "edit"
+      fixture:
+        - path: "src/app.txt"
+          file:
+            base64: "Y+KAlCAgZcyBCmXMgWXMgQkKwqB4YcKg4oCcCuKAmeKAmWJj76yBICAK4oCZ76yB4oCcYmMKYgpiwoXDqQl5CQo="
+      arguments:
+        path: "src/app.txt"
+        edits:
+          - oldText: "\nb\n"
+            newText: "y\u00E9 "
+          - oldText: " \n\u2019\uFB01\u201Cbc"
+            newText: "\u00A0\uFB01\U0001F600"
+          - oldText: "\n\u2019\uFB01"
+            newText: "\u3000cx\u00A0\u2014"
+      expect:
+        is_error: true
+        text: "edits[1] and edits[2] overlap in src/app.txt. Merge them into one edit or target disjoint regions."
+        details: {}
+        files_after:
+          - path: "src/app.txt"
+            base64: "Y+KAlCAgZcyBCmXMgWXMgQkKwqB4YcKg4oCcCuKAmeKAmWJj76yBICAK4oCZ76yB4oCcYmMKYgpiwoXDqQl5CQo="
+    - id: "random-133"
+      tool: "edit"
+      fixture:
+        - path: "src/app.txt"
+          file:
+            base64: "77u/76yBYgoKeXnDqQoKw6nDqe+sgeKAlAoKICDCoAo="
+      arguments:
+        path: "src/app.txt"
+        edits:
+          - oldText: "\n\nyy\u00E9"
+            newText: "\u2014c"
+          - oldText: "\n"
+            newText: "\u00E9\n\u2014e\u0301"
+          - oldText: "\nyy\u00E9\n\n\u00E9\u00E9"
+            newText: "\n\uFB01"
+      expect:
+        is_error: true
+        text: "Found 7 occurrences of edits[1] in src/app.txt. Each oldText must be unique. Please provide more context to make it unique."
+        details: {}
+        files_after:
+          - path: "src/app.txt"
+            base64: "77u/76yBYgoKeXnDqQoKw6nDqe+sgeKAlAoKICDCoAo="
+    - id: "random-134"
+      tool: "edit"
+      fixture:
+        - path: "src/app.txt"
+          file:
+            base64: "77u/8J+YgAnigJnjgIDChQ0KZcyBIHkgIAl5"
+      arguments:
+        path: "src/app.txt"
+        edits:
+          - oldText: "  "
+            newText: "\u3000\u0085"
+          - oldText: " y  \ty"
+            newText: "\uFB01e\u0301"
+      expect:
+        is_error: true
+        text: "Found 13 occurrences of edits[0] in src/app.txt. Each oldText must be unique. Please provide more context to make it unique."
+        details: {}
+        files_after:
+          - path: "src/app.txt"
+            base64: "77u/8J+YgAnigJnjgIDChQ0KZcyBIHkgIAl5"
+    - id: "random-135"
+      tool: "edit"
+      fixture:
+        - path: "src/app.txt"
+          file:
+            base64: "ICAKCnllzIFiCuKAmQ=="
+      arguments:
+        path: "src/app.txt"
+        edits:
+          - oldText: "e"
+            newText: "\U0001F600\u00E9"
+      expect:
+        is_error: false
+        text: "Successfully replaced 1 block(s) in src/app.txt."
+        details:
+          diff: " 1   \n 2 \n-3 ye\u0301b\n+3 y\U0001F600\u00E9\u0301b\n 4 \u2019"
+          patch: "--- src/app.txt\n+++ src/app.txt\n@@ -1,4 +1,4 @@\n   \n \n-ye\u0301b\n+y\U0001F600\u00E9\u0301b\n \u2019\n\\ No newline at end of file\n"
+          firstChangedLine: 3
+        files_after:
+          - path: "src/app.txt"
+            base64: "ICAKCnnwn5iAw6nMgWIK4oCZ"
+    - id: "random-136"
+      tool: "edit"
+      fixture:
+        - path: "src/app.txt"
+          file:
+            base64: "CcOpICANCu+sgWHvrIENCuKAlMOpw6kJDQoNCg=="
+      arguments:
+        path: "src/app.txt"
+        edits:
+          - oldText: "\u00A0\u0085\u00E9"
+            newText: "e\u0301"
+          - oldText: "\u00E9\uFB01 "
+            newText: "  a\u0085c"
+          - oldText: "\n"
+            newText: "\u2014c\U0001F600\u201Ca"
+      expect:
+        is_error: true
+        text: "Could not find edits[0] in src/app.txt. The oldText must match exactly including all whitespace and newlines."
+        details: {}
+        files_after:
+          - path: "src/app.txt"
+            base64: "CcOpICANCu+sgWHvrIENCuKAlMOpw6kJDQoNCg=="
+    - id: "random-137"
+      tool: "edit"
+      fixture:
+        - path: "src/app.txt"
+          file:
+            base64: "4oCcYQ=="
+      arguments:
+        path: "src/app.txt"
+        edits:
+          - oldText: "\u201Ca"
+            newText: "\t\u2019\u0085"
+      expect:
+        is_error: false
+        text: "Successfully replaced 1 block(s) in src/app.txt."
+        details:
+          diff: "-1 \u201Ca\n+1 \t\u2019\u0085"
+          patch: "--- src/app.txt\n+++ src/app.txt\n@@ -1,1 +1,1 @@\n-\u201Ca\n\\ No newline at end of file\n+\t\u2019\u0085\n\\ No newline at end of file\n"
+          firstChangedLine: 1
+        files_after:
+          - path: "src/app.txt"
+            base64: "CeKAmcKF"
+    - id: "random-138"
+      tool: "edit"
+      fixture:
+        - path: "src/app.txt"
+          file:
+            base64: "ICDChSAgCQkK76yBCnnChQoKwoVhwoXigJwKCgo="
+      arguments:
+        path: "src/app.txt"
+        edits:
+          - oldText: "\n\n"
+            newText: "\u2019\u0085"
+          - oldText: "\nfi\ny\u0085\n"
+            newText: "\u0085c"
+      expect:
+        is_error: true
+        text: "Found 2 occurrences of edits[0] in src/app.txt. Each oldText must be unique. Please provide more context to make it unique."
+        details: {}
+        files_after:
+          - path: "src/app.txt"
+            base64: "ICDChSAgCQkK76yBCnnChQoKwoVhwoXigJwKCgo="
+    - id: "random-139"
+      tool: "edit"
+      fixture:
+        - path: "src/app.txt"
+          file:
+            base64: "4oCUwqBh4oCZICAKYeKAnCDwn5iACuKAlHlhYe+sgXgK"
+      arguments:
+        path: "src/app.txt"
+        edits:
+          - oldText: "-"
+            newText: "\u201C\n"
+      expect:
+        is_error: true
+        text: "Found 2 occurrences of the text in src/app.txt. The text must be unique. Please provide more context to make it unique."
+        details: {}
+        files_after:
+          - path: "src/app.txt"
+            base64: "4oCUwqBh4oCZICAKYeKAnCDwn5iACuKAlHlhYe+sgXgK"
+    - id: "random-140"
+      tool: "edit"
+      fixture:
+        - path: "src/app.txt"
+          file:
+            base64: "44CACQ0KZcyBeSANCmFiYyDDqQ0KZcyBIHjigJTjgIBlzIENCg=="
+      arguments:
+        path: "src/app.txt"
+        edits:
+          - oldText: " \u00E9\n"
+            newText: "e\u0301y\u201C"
+          - oldText: "\u201C"
+            newText: "\uFB01\u00A0"
+          - oldText: "abc \u00E9\ne"
+            newText: "\u00E9\u00E9"
+      expect:
+        is_error: true
+        text: "Found 2 occurrences of edits[0] in src/app.txt. Each oldText must be unique. Please provide more context to make it unique."
+        details: {}
+        files_after:
+          - path: "src/app.txt"
+            base64: "44CACQ0KZcyBeSANCmFiYyDDqQ0KZcyBIHjigJTjgIBlzIENCg=="
+    - id: "random-141"
+      tool: "edit"
+      fixture:
+        - path: "src/app.txt"
+          file:
+            base64: "77u/wqDigJQKYnjigJwgIHgKCgrjgIA="
+      arguments:
+        path: "src/app.txt"
+        edits:
+          - oldText: "\u3000"
+            newText: "\u201C"
+          - oldText: "\uFB01\u00A0"
+            newText: "c"
+          - oldText: "\n\u3000"
+            newText: "\u201C\t\u00A0 x"
+      expect:
+        is_error: true
+        text: "Found 11 occurrences of edits[0] in src/app.txt. Each oldText must be unique. Please provide more context to make it unique."
+        details: {}
+        files_after:
+          - path: "src/app.txt"
+            base64: "77u/wqDigJQKYnjigJwgIHgKCgrjgIA="
+    - id: "random-142"
+      tool: "edit"
+      fixture:
+        - path: "src/app.txt"
+          file:
+            base64: "ZcyB44CAYeKAlCAg4oCcDQo="
+      arguments:
+        path: "src/app.txt"
+        edits:
+          - oldText: "\u2014  \u201C\n"
+            newText: "\u2019\u201Ca\u00E9"
+          - oldText: "e\u0301\u3000a- "
+            newText: "\u2019\u201C"
+      expect:
+        is_error: true
+        text: "edits[1] and edits[0] overlap in src/app.txt. Merge them into one edit or target disjoint regions."
+        details: {}
+        files_after:
+          - path: "src/app.txt"
+            base64: "ZcyB44CAYeKAlCAg4oCcDQo="
+    - id: "random-143"
+      tool: "edit"
+      fixture:
+        - path: "src/app.txt"
+          file:
+            base64: "CvCfmIDigJnjgIDCoMKgZcyBCmXMgWPvrIEKwqB5wqDigJllzIHigJkKee+sgWXMgQ=="
+      arguments:
+        path: "src/app.txt"
+        edits:
+          - oldText: "\u00A0\u00A0e\u0301\ne\u0301"
+            newText: ""
+          - oldText: "\u0301"
+            newText: "b"
+      expect:
+        is_error: true
+        text: "edits[0] and edits[1] overlap in src/app.txt. Merge them into one edit or target disjoint regions."
+        details: {}
+        files_after:
+          - path: "src/app.txt"
+            base64: "CvCfmIDigJnjgIDCoMKgZcyBCmXMgWPvrIEKwqB5wqDigJllzIHigJkKee+sgWXMgQ=="
+    - id: "random-144"
+      tool: "edit"
+      fixture:
+        - path: "src/app.txt"
+          file:
+            base64: "Cu+sgQoJeQ=="
+      arguments:
+        path: "src/app.txt"
+        edits:
+          - oldText: "\uFB01\n\ty"
+            newText: "\U0001F600"
+          - oldText: "\ty"
+            newText: "y\uFB01\u201C\n"
+      expect:
+        is_error: true
+        text: "edits[0] and edits[1] overlap in src/app.txt. Merge them into one edit or target disjoint regions."
+        details: {}
+        files_after:
+          - path: "src/app.txt"
+            base64: "Cu+sgQoJeQ=="
+    - id: "random-145"
+      tool: "edit"
+      fixture:
+        - path: "src/app.txt"
+          file:
+            base64: "CsOpwqAKZcyBYsOp4oCc4oCUeArChQp4CmIKCgo="
+      arguments:
+        path: "src/app.txt"
+        edits:
+          - oldText: "\uFB01"
+            newText: ""
+      expect:
+        is_error: true
+        text: "Could not find the exact text in src/app.txt. The old text must match exactly including all whitespace and newlines."
+        details: {}
+        files_after:
+          - path: "src/app.txt"
+            base64: "CsOpwqAKZcyBYsOp4oCc4oCUeArChQp4CmIKCgo="
+    - id: "random-146"
+      tool: "edit"
+      fixture:
+        - path: "src/app.txt"
+          file:
+            base64: "w6nwn5iA76yBIApiwoVhCu+sgcOpIGLigJnigJwK"
+      arguments:
+        path: "src/app.txt"
+        edits:
+          - oldText: "\u0085a\nfi"
+            newText: ""
+          - oldText: "\u00E9\U0001F600\uFB01 \nb\u0085"
+            newText: " \t\u00E9  "
+      expect:
+        is_error: true
+        text: "edits[1] and edits[0] overlap in src/app.txt. Merge them into one edit or target disjoint regions."
+        details: {}
+        files_after:
+          - path: "src/app.txt"
+            base64: "w6nwn5iA76yBIApiwoVhCu+sgcOpIGLigJnigJwK"
+    - id: "random-147"
+      tool: "edit"
+      fixture:
+        - path: "src/app.txt"
+          file:
+            base64: "76yB4oCZ"
+      arguments:
+        path: "src/app.txt"
+        edits:
+          - oldText: "\u2019"
+            newText: "yx"
+          - oldText: "fi'"
+            newText: ""
+      expect:
+        is_error: true
+        text: "edits[1] and edits[0] overlap in src/app.txt. Merge them into one edit or target disjoint regions."
+        details: {}
+        files_after:
+          - path: "src/app.txt"
+            base64: "76yB4oCZ"
+    - id: "random-148"
+      tool: "edit"
+      fixture:
+        - path: "src/app.txt"
+          file:
+            base64: "ePCfmIAKwoUJ4oCUCuKAlGXMgeKAnCAgecKFCmXMgSAKYnjCoMOpYSAgCiAgCg=="
+      arguments:
+        path: "src/app.txt"
+        edits:
+          - oldText: "\n"
+            newText: "\uFB01\u2014\u00A0"
+          - oldText: "  \n"
+            newText: "\u0085e\u0301\u2019\u2019"
+      expect:
+        is_error: true
+        text: "Found 6 occurrences of edits[0] in src/app.txt. Each oldText must be unique. Please provide more context to make it unique."
+        details: {}
+        files_after:
+          - path: "src/app.txt"
+            base64: "ePCfmIAKwoUJ4oCUCuKAlGXMgeKAnCAgecKFCmXMgSAKYnjCoMOpYSAgCiAgCg=="
+    - id: "random-149"
+      tool: "edit"
+      fixture:
+        - path: "src/app.txt"
+          file:
+            base64: "ee+sgSAgeQphYQpi76yB4oCcCg=="
+      arguments:
+        path: "src/app.txt"
+        edits:
+          - oldText: "y\naa\nbfi\u201C"
+            newText: ""
+          - oldText: "aa\nb\uFB01\u201C\n"
+            newText: "\u2014\u2019\u00E9\U0001F600y"
+      expect:
+        is_error: true
+        text: "edits[0] and edits[1] overlap in src/app.txt. Merge them into one edit or target disjoint regions."
+        details: {}
+        files_after:
+          - path: "src/app.txt"
+            base64: "ee+sgSAgeQphYQpi76yB4oCcCg=="
+    - id: "random-150"
+      tool: "edit"
+      fixture:
+        - path: "src/app.txt"
+          file:
+            base64: "YeKAnGMNCsOp4oCceA0KYWJiwoU="
+      arguments:
+        path: "src/app.txt"
+        edits:
+          - oldText: "\u201Cx\n"
+            newText: "\u00A0\uFB01"
+          - oldText: "\nabb"
+            newText: ""
+      expect:
+        is_error: true
+        text: "edits[0] and edits[1] overlap in src/app.txt. Merge them into one edit or target disjoint regions."
+        details: {}
+        files_after:
+          - path: "src/app.txt"
+            base64: "YeKAnGMNCsOp4oCceA0KYWJiwoU="
+    - id: "random-151"
+      tool: "edit"
+      fixture:
+        - path: "src/app.txt"
+          file:
+            base64: "8J+YgOKAnAph76yBeMKF76yB44CACnkKeApjw6nCoOKAnHgKYsOp4oCUYgrigJQJCg=="
+      arguments:
+        path: "src/app.txt"
+        edits:
+          - oldText: "b\U0001F600y"
+            newText: "\n\u00E9\t"
+          - oldText: "\ny\nx\n"
+            newText: ""
+          - oldText: "\u201C\nafix"
+            newText: "cxyy"
+      expect:
+        is_error: true
+        text: "Could not find edits[0] in src/app.txt. The oldText must match exactly including all whitespace and newlines."
+        details: {}
+        files_after:
+          - path: "src/app.txt"
+            base64: "8J+YgOKAnAph76yBeMKF76yB44CACnkKeApjw6nCoOKAnHgKYsOp4oCUYgrigJQJCg=="
+    - id: "random-152"
+      tool: "edit"
+      fixture:
+        - path: "src/app.txt"
+          file:
+            base64: "ICB58J+YgHgJCmHigJTigJkKZcyBwqAKIAp44oCU4oCZ76yBCg=="
+      arguments:
+        path: "src/app.txt"
+        edits:
+          - oldText: "\U0001F600x\t\n"
+            newText: ""
+          - oldText: "e"
+            newText: "\uFB01\uFB01\n"
+          - oldText: "a\u2014"
+            newText: "\u00A0"
+      expect:
+        is_error: false
+        text: "Successfully replaced 3 block(s) in src/app.txt."
+        details:
+          diff: "-1   y\U0001F600x\t\n-2 a\u2014\u2019\n-3 e\u0301\u00A0\n+1   y\u00A0\u2019\n+2 \uFB01\uFB01\n+3 \u0301\u00A0\n 4  \n 5 x\u2014\u2019\uFB01"
+          patch: "--- src/app.txt\n+++ src/app.txt\n@@ -1,5 +1,5 @@\n-  y\U0001F600x\t\n-a\u2014\u2019\n-e\u0301\u00A0\n+  y\u00A0\u2019\n+\uFB01\uFB01\n+\u0301\u00A0\n  \n x\u2014\u2019\uFB01\n"
+          firstChangedLine: 1
+        files_after:
+          - path: "src/app.txt"
+            base64: "ICB5wqDigJkK76yB76yBCsyBwqAKIAp44oCU4oCZ76yBCg=="
+    - id: "random-153"
+      tool: "edit"
+      fixture:
+        - path: "src/app.txt"
+          file:
+            base64: "YSAgZcyBCSBlzIEKeCAJwqA="
+      arguments:
+        path: "src/app.txt"
+        edits:
+          - oldText: "\u201C  "
+            newText: "\U0001F600\u2014\t"
+          - oldText: "x "
+            newText: "\u3000\t\ty"
+          - oldText: "e\u0301\t"
+            newText: "\u2019  "
+      expect:
+        is_error: true
+        text: "Could not find edits[0] in src/app.txt. The oldText must match exactly including all whitespace and newlines."
+        details: {}
+        files_after:
+          - path: "src/app.txt"
+            base64: "YSAgZcyBCSBlzIEKeCAJwqA="
+    - id: "random-154"
+      tool: "edit"
+      fixture:
+        - path: "src/app.txt"
+          file:
+            base64: "CsKFCngK4oCZYgogIHnvrIFjCmLDqeKAnGXMgQpjYXkJCgo="
+      arguments:
+        path: "src/app.txt"
+        edits:
+          - oldText: "\n"
+            newText: "\u3000\u00A0a\n"
+      expect:
+        is_error: true
+        text: "Found 8 occurrences of the text in src/app.txt. The text must be unique. Please provide more context to make it unique."
+        details: {}
+        files_after:
+          - path: "src/app.txt"
+            base64: "CsKFCngK4oCZYgogIHnvrIFjCmLDqeKAnGXMgQpjYXkJCgo="
+    - id: "random-155"
+      tool: "edit"
+      fixture:
+        - path: "src/app.txt"
+          file:
+            base64: "76yBZcyB8J+YgAoKCsKFw6nDqWXMgWXMgQrwn5iA44CA"
+      arguments:
+        path: "src/app.txt"
+        edits:
+          - oldText: "\u3000"
+            newText: "\ne\u0301\u00E9\u3000"
+      expect:
+        is_error: true
+        text: "Found 15 occurrences of the text in src/app.txt. The text must be unique. Please provide more context to make it unique."
+        details: {}
+        files_after:
+          - path: "src/app.txt"
+            base64: "76yBZcyB8J+YgAoKCsKFw6nDqWXMgWXMgQrwn5iA44CA"
+    - id: "random-156"
+      tool: "edit"
+      fixture:
+        - path: "src/app.txt"
+          file:
+            base64: "eQkKw6nChWIgw6kKeGPvrIHDqXkKCgllzIEK8J+YgMOpee+sgXjigJw="
+      arguments:
+        path: "src/app.txt"
+        edits:
+          - oldText: "\uFB01"
+            newText: "\ny\u0085   "
+          - oldText: "\u00E9\nxc\uFB01"
+            newText: "y"
+      expect:
+        is_error: true
+        text: "Found 2 occurrences of edits[0] in src/app.txt. Each oldText must be unique. Please provide more context to make it unique."
+        details: {}
+        files_after:
+          - path: "src/app.txt"
+            base64: "eQkKw6nChWIgw6kKeGPvrIHDqXkKCgllzIEK8J+YgMOpee+sgXjigJw="
+    - id: "random-157"
+      tool: "edit"
+      fixture:
+        - path: "src/app.txt"
+          file:
+            base64: "8J+YgPCfmIAgIMOpeOOAgA0Kw6nvrIFhw6kNCg=="
+      arguments:
+        path: "src/app.txt"
+        edits:
+          - oldText: "a\u00E9\n"
+            newText: "\u201C"
+          - oldText: "\U0001F600\U0001F600 "
+            newText: "\U0001F600  \u2019"
+      expect:
+        is_error: false
+        text: "Successfully replaced 2 block(s) in src/app.txt."
+        details:
+          diff: "-1 \U0001F600\U0001F600  \u00E9x\u3000\n-2 \u00E9\uFB01a\u00E9\n+1 \U0001F600  \u2019 \u00E9x\u3000\n+2 \u00E9\uFB01\u201C"
+          patch: "--- src/app.txt\n+++ src/app.txt\n@@ -1,2 +1,2 @@\n-\U0001F600\U0001F600  \u00E9x\u3000\n-\u00E9\uFB01a\u00E9\n+\U0001F600  \u2019 \u00E9x\u3000\n+\u00E9\uFB01\u201C\n\\ No newline at end of file\n"
+          firstChangedLine: 1
+        files_after:
+          - path: "src/app.txt"
+            base64: "8J+YgCAg4oCZIMOpeOOAgA0Kw6nvrIHigJw="
+    - id: "random-158"
+      tool: "edit"
+      fixture:
+        - path: "src/app.txt"
+          file:
+            base64: "YnnigJzigJx5CmLjgIAKCuOAgCAKeGN54oCUCuOAgGJiCngg44CACsOpwoVlzIEK"
+      arguments:
+        path: "src/app.txt"
+        edits:
+          - oldText: "\u00E9"
+            newText: "\ne\u0301\U0001F600"
+      expect:
+        is_error: true
+        text: "Found 2 occurrences of the text in src/app.txt. The text must be unique. Please provide more context to make it unique."
+        details: {}
+        files_after:
+          - path: "src/app.txt"
+            base64: "YnnigJzigJx5CmLjgIAKCuOAgCAKeGN54oCUCuOAgGJiCngg44CACsOpwoVlzIEK"
+    - id: "random-159"
+      tool: "edit"
+      fixture:
+        - path: "src/app.txt"
+          file:
+            base64: "77u/woXigJkJCgplzIEgIAnDqSAgwoUK"
+      arguments:
+        path: "src/app.txt"
+        edits:
+          - oldText: "\u00E9 "
+            newText: ""
+          - oldText: "\u00E9  \u0085"
+            newText: "ye\u0301\U0001F600\u00E9 "
+      expect:
+        is_error: true
+        text: "Found 2 occurrences of edits[0] in src/app.txt. Each oldText must be unique. Please provide more context to make it unique."
+        details: {}
+        files_after:
+          - path: "src/app.txt"
+            base64: "77u/woXigJkJCgplzIEgIAnDqSAgwoUK"
+    - id: "random-160"
+      tool: "edit"
+      fixture:
+        - path: "src/app.txt"
+          file:
+            base64: "44CAwqBhYiBlzIEK76yBwqDCoCB4CiAg44CAZcyBeWIKCuOAgAl5CnggIMOp4oCUYwogIO+sgQl4wqB5CmXMgQnjgIA="
+      arguments:
+        path: "src/app.txt"
+        edits:
+          - oldText: "\u3000\t"
+            newText: "a\uFB01\tbb"
+          - oldText: "e\u0301\n\uFB01\u00A0\u00A0 "
+            newText: "\u0085"
+          - oldText: " e\u0301\n"
+            newText: "\u00E9\u00E9\u2019\u00E9"
+      expect:
+        is_error: true
+        text: "Found 42 occurrences of edits[0] in src/app.txt. Each oldText must be unique. Please provide more context to make it unique."
+        details: {}
+        files_after:
+          - path: "src/app.txt"
+            base64: "44CAwqBhYiBlzIEK76yBwqDCoCB4CiAg44CAZcyBeWIKCuOAgAl5CnggIMOp4oCUYwogIO+sgQl4wqB5CmXMgQnjgIA="
+    - id: "random-161"
+      tool: "edit"
+      fixture:
+        - path: "src/app.txt"
+          file:
+            base64: "eOKAlAkJ44CAwoU="
+      arguments:
+        path: "src/app.txt"
+        edits:
+          - oldText: "\t\t\u3000"
+            newText: "\u0085b \u00E9"
+          - oldText: "\u0085"
+            newText: "xye\u0301b\t"
+          - oldText: "\u3000\u0085"
+            newText: "b\U0001F600"
+      expect:
+        is_error: true
+        text: "Found 5 occurrences of edits[0] in src/app.txt. Each oldText must be unique. Please provide more context to make it unique."
+        details: {}
+        files_after:
+          - path: "src/app.txt"
+            base64: "eOKAlAkJ44CAwoU="
+    - id: "random-162"
+      tool: "edit"
+      fixture:
+        - path: "src/app.txt"
+          file:
+            base64: "woVhwqAgw6ljDQp5woVlzIHigJnigJljDQoNCg=="
+      arguments:
+        path: "src/app.txt"
+        edits:
+          - oldText: "\uFB01\t"
+            newText: ""
+          - oldText: " \u00E9"
+            newText: "\n"
+      expect:
+        is_error: true
+        text: "Could not find edits[0] in src/app.txt. The oldText must match exactly including all whitespace and newlines."
+        details: {}
+        files_after:
+          - path: "src/app.txt"
+            base64: "woVhwqAgw6ljDQp5woVlzIHigJnigJljDQoNCg=="
+    - id: "random-163"
+      tool: "edit"
+      fixture:
+        - path: "src/app.txt"
+          file:
+            base64: "4oCc4oCcwqDigJwK"
+      arguments:
+        path: "src/app.txt"
+        edits:
+          - oldText: "\u201C"
+            newText: "c\u2014\u00E9\u00A0\u2014"
+      expect:
+        is_error: true
+        text: "Found 3 occurrences of the text in src/app.txt. The text must be unique. Please provide more context to make it unique."
+        details: {}
+        files_after:
+          - path: "src/app.txt"
+            base64: "4oCc4oCcwqDigJwK"
+    - id: "random-164"
+      tool: "edit"
+      fixture:
+        - path: "src/app.txt"
+          file:
+            base64: "ICBjCg=="
+      arguments:
+        path: "src/app.txt"
+        edits:
+          - oldText: "y "
+            newText: "yce\u0301\U0001F600\u2014"
+      expect:
+        is_error: true
+        text: "Could not find the exact text in src/app.txt. The old text must match exactly including all whitespace and newlines."
+        details: {}
+        files_after:
+          - path: "src/app.txt"
+            base64: "ICBjCg=="
+    - id: "random-165"
+      tool: "edit"
+      fixture:
+        - path: "src/app.txt"
+          file:
+            base64: "ZcyBecOpZcyBwqAK4oCc4oCUCeKAnGXMgXgK8J+YgOOAgMKF76yBIAo="
+      arguments:
+        path: "src/app.txt"
+        edits:
+          - oldText: "\n"
+            newText: "\u2019\U0001F600"
+          - oldText: "\u0301\u00A0\n\u201C\u2014"
+            newText: "  \U0001F600\u3000x"
+      expect:
+        is_error: true
+        text: "Found 3 occurrences of edits[0] in src/app.txt. Each oldText must be unique. Please provide more context to make it unique."
+        details: {}
+        files_after:
+          - path: "src/app.txt"
+            base64: "ZcyBecOpZcyBwqAK4oCc4oCUCeKAnGXMgXgK8J+YgOOAgMKF76yBIAo="
+    - id: "random-166"
+      tool: "edit"
+      fixture:
+        - path: "src/app.txt"
+          file:
+            base64: "Y+OAgMKgY+KAlOOAgAp5ZcyBCsKg4oCUCmHigJzDqSAJCgph4oCUeOKAlHnwn5iACsKF76yB8J+YgMOp76yBwqA="
+      arguments:
+        path: "src/app.txt"
+        edits:
+          - oldText: "\n\n"
+            newText: "a"
+      expect:
+        is_error: false
+        text: "Successfully replaced 1 block(s) in src/app.txt."
+        details:
+          diff: " 1 c\u3000\u00A0c\u2014\u3000\n 2 ye\u0301\n 3 \u00A0\u2014\n-4 a\u201C\u00E9 \t\n-5 \n-6 a\u2014x\u2014y\U0001F600\n+4 a\u201C\u00E9 \taa\u2014x\u2014y\U0001F600\n 7 \u0085\uFB01\U0001F600\u00E9\uFB01\u00A0"
+          patch: "--- src/app.txt\n+++ src/app.txt\n@@ -1,7 +1,5 @@\n c\u3000\u00A0c\u2014\u3000\n ye\u0301\n \u00A0\u2014\n-a\u201C\u00E9 \t\n-\n-a\u2014x\u2014y\U0001F600\n+a\u201C\u00E9 \taa\u2014x\u2014y\U0001F600\n \u0085\uFB01\U0001F600\u00E9\uFB01\u00A0\n\\ No newline at end of file\n"
+          firstChangedLine: 4
+        files_after:
+          - path: "src/app.txt"
+            base64: "Y+OAgMKgY+KAlOOAgAp5ZcyBCsKg4oCUCmHigJzDqSAJYWHigJR44oCUefCfmIAKwoXvrIHwn5iAw6nvrIHCoA=="
+    - id: "random-167"
+      tool: "edit"
+      fixture:
+        - path: "src/app.txt"
+          file:
+            base64: "ZcyB4oCZYQrCoMOpCgrigJwKYWMgIAkKwqDigJRhIGXMgQph76yB"
+      arguments:
+        path: "src/app.txt"
+        edits:
+          - oldText: "\u00E9\n\n\u201C\nac "
+            newText: ""
+          - oldText: " c\t"
+            newText: "\t"
+          - oldText: "\na"
+            newText: "x\U0001F600e\u0301\u201C"
+      expect:
+        is_error: true
+        text: "Could not find edits[1] in src/app.txt. The oldText must match exactly including all whitespace and newlines."
+        details: {}
+        files_after:
+          - path: "src/app.txt"
+            base64: "ZcyB4oCZYQrCoMOpCgrigJwKYWMgIAkKwqDigJRhIGXMgQph76yB"
+    - id: "random-168"
+      tool: "edit"
+      fixture:
+        - path: "src/app.txt"
+          file:
+            base64: "wqAgIMKFeQrjgIDjgIDjgIBlzIEJYQp4ICAKeO+sgSAgY/CfmIAK8J+YgGPCoOKAmWMK76yB44CAIArwn5iAY2IK"
+      arguments:
+        path: "src/app.txt"
+        edits:
+          - oldText: "\nx\uFB01"
+            newText: "\u201C\uFB01\u2019"
+      expect:
+        is_error: false
+        text: "Successfully replaced 1 block(s) in src/app.txt."
+        details:
+          diff: " 1 \u00A0  \u0085y\n 2 \u3000\u3000\u3000e\u0301\ta\n-3 x  \n-4 x\uFB01  c\U0001F600\n+3 x  \u201C\uFB01\u2019  c\U0001F600\n 5 \U0001F600c\u00A0\u2019c\n 6 \uFB01\u3000 \n 7 \U0001F600cb"
+          patch: "--- src/app.txt\n+++ src/app.txt\n@@ -1,7 +1,6 @@\n \u00A0  \u0085y\n \u3000\u3000\u3000e\u0301\ta\n-x  \n-x\uFB01  c\U0001F600\n+x  \u201C\uFB01\u2019  c\U0001F600\n \U0001F600c\u00A0\u2019c\n \uFB01\u3000 \n \U0001F600cb\n"
+          firstChangedLine: 3
+        files_after:
+          - path: "src/app.txt"
+            base64: "wqAgIMKFeQrjgIDjgIDjgIBlzIEJYQp4ICDigJzvrIHigJkgIGPwn5iACvCfmIBjwqDigJljCu+sgeOAgCAK8J+YgGNiCg=="
+    - id: "random-169"
+      tool: "edit"
+      fixture:
+        - path: "src/app.txt"
+          file:
+            base64: "77u/YXgK4oCU4oCcIGNlzIF5Cu+sgWLvrIFlzIHwn5iAZcyB"
+      arguments:
+        path: "src/app.txt"
+        edits:
+          - oldText: "\u201C c"
+            newText: "  "
+          - oldText: "\u201C ce\u0301y"
+            newText: ""
+      expect:
+        is_error: true
+        text: "edits[0] and edits[1] overlap in src/app.txt. Merge them into one edit or target disjoint regions."
+        details: {}
+        files_after:
+          - path: "src/app.txt"
+            base64: "77u/YXgK4oCU4oCcIGNlzIF5Cu+sgWLvrIFlzIHwn5iAZcyB"
+    - id: "random-170"
+      tool: "edit"
+      fixture:
+        - path: "src/app.txt"
+          file:
+            base64: "IA0K4oCceGXMgeKAmQ0K"
+      arguments:
+        path: "src/app.txt"
+        edits:
+          - oldText: "xe"
+            newText: "x"
+          - oldText: "\u201C\uFB01"
+            newText: "xy\u3000"
+      expect:
+        is_error: true
+        text: "Could not find edits[1] in src/app.txt. The oldText must match exactly including all whitespace and newlines."
+        details: {}
+        files_after:
+          - path: "src/app.txt"
+            base64: "IA0K4oCceGXMgeKAmQ0K"
+    - id: "random-171"
+      tool: "edit"
+      fixture:
+        - path: "src/app.txt"
+          file:
+            base64: "CSAgwoUKCuOAgOKAlMKFw6kK4oCUwoU="
+      arguments:
+        path: "src/app.txt"
+        edits:
+          - oldText: "\n\n\u3000-\u0085\u00E9"
+            newText: "b\t\u00E9\u201C  "
+      expect:
+        is_error: false
+        text: "Successfully replaced 1 block(s) in src/app.txt."
+        details:
+          diff: "-1 \t  \u0085\n-2 \n-3 \u3000\u2014\u0085\u00E9\n+1 \t  \u0085b\t\u00E9\u201C  \n 4 \u2014\u0085"
+          patch: "--- src/app.txt\n+++ src/app.txt\n@@ -1,4 +1,2 @@\n-\t  \u0085\n-\n-\u3000\u2014\u0085\u00E9\n+\t  \u0085b\t\u00E9\u201C  \n \u2014\u0085\n\\ No newline at end of file\n"
+          firstChangedLine: 1
+        files_after:
+          - path: "src/app.txt"
+            base64: "CSAgwoViCcOp4oCcICAK4oCUwoU="
+    - id: "random-172"
+      tool: "edit"
+      fixture:
+        - path: "src/app.txt"
+          file:
+            base64: "eGPjgIANCmIgIMKFDQp5DQo="
+      arguments:
+        path: "src/app.txt"
+        edits:
+          - oldText: "y\n"
+            newText: ""
+      expect:
+        is_error: false
+        text: "Successfully replaced 1 block(s) in src/app.txt."
+        details:
+          diff: " 1 xc\u3000\n 2 b  \u0085\n-3 y"
+          patch: "--- src/app.txt\n+++ src/app.txt\n@@ -1,3 +1,2 @@\n xc\u3000\n b  \u0085\n-y\n"
+          firstChangedLine: 3
+        files_after:
+          - path: "src/app.txt"
+            base64: "eGPjgIANCmIgIMKFDQo="
+    - id: "random-173"
+      tool: "edit"
+      fixture:
+        - path: "src/app.txt"
+          file:
+            base64: "wqDDqQ0KCWFjDQrwn5iAYvCfmIDCoCAJ"
+      arguments:
+        path: "src/app.txt"
+        edits:
+          - oldText: "\n\tac\n"
+            newText: ""
+          - oldText: "\U0001F600"
+            newText: "\u201Cc\U0001F600xa"
+          - oldText: "\U0001F600\u00A0 \t"
+            newText: ""
+      expect:
+        is_error: true
+        text: "Found 2 occurrences of edits[1] in src/app.txt. Each oldText must be unique. Please provide more context to make it unique."
+        details: {}
+        files_after:
+          - path: "src/app.txt"
+            base64: "wqDDqQ0KCWFjDQrwn5iAYvCfmIDCoCAJ"
+    - id: "random-174"
+      tool: "edit"
+      fixture:
+        - path: "src/app.txt"
+          file:
+            base64: "YwrChfCfmIAgIHnChQrigJnChfCfmIDwn5iA8J+YgMOpCuKAlGXMgQkJ8J+YgA=="
+      arguments:
+        path: "src/app.txt"
+        edits:
+          - oldText: "\U0001F600"
+            newText: "yx  e\u0301  "
+      expect:
+        is_error: true
+        text: "Found 5 occurrences of the text in src/app.txt. The text must be unique. Please provide more context to make it unique."
+        details: {}
+        files_after:
+          - path: "src/app.txt"
+            base64: "YwrChfCfmIAgIHnChQrigJnChfCfmIDwn5iA8J+YgMOpCuKAlGXMgQkJ8J+YgA=="
+    - id: "random-175"
+      tool: "edit"
+      fixture:
+        - path: "src/app.txt"
+          file:
+            base64: "w6nvrIFj4oCceQo="
+      arguments:
+        path: "src/app.txt"
+        edits:
+          - oldText: "y\n"
+            newText: "xy"
+          - oldText: "x "
+            newText: "\u00E9\u201C\U0001F600\u0085\u0085"
+          - oldText: "y\n"
+            newText: "\u0085x"
+      expect:
+        is_error: true
+        text: "Could not find edits[1] in src/app.txt. The oldText must match exactly including all whitespace and newlines."
+        details: {}
+        files_after:
+          - path: "src/app.txt"
+            base64: "w6nvrIFj4oCceQo="
+    - id: "random-176"
+      tool: "edit"
+      fixture:
+        - path: "src/app.txt"
+          file:
+            base64: "8J+YgMKFeOKAmQrChe+sgQoKYeOAgOKAlHjCoAoJ44CACmMJw6liCg=="
+      arguments:
+        path: "src/app.txt"
+        edits:
+          - oldText: "\nc\t\u00E9b\n"
+            newText: "\u00E9"
+      expect:
+        is_error: false
+        text: "Successfully replaced 1 block(s) in src/app.txt."
+        details:
+          diff: " 1 \U0001F600\u0085x\u2019\n 2 \u0085\uFB01\n 3 \n 4 a\u3000\u2014x\u00A0\n-5 \t\u3000\n-6 c\t\u00E9b\n+5 \t\u3000\u00E9"
+          patch: "--- src/app.txt\n+++ src/app.txt\n@@ -1,6 +1,5 @@\n \U0001F600\u0085x\u2019\n \u0085\uFB01\n \n a\u3000\u2014x\u00A0\n-\t\u3000\n-c\t\u00E9b\n+\t\u3000\u00E9\n\\ No newline at end of file\n"
+          firstChangedLine: 5
+        files_after:
+          - path: "src/app.txt"
+            base64: "8J+YgMKFeOKAmQrChe+sgQoKYeOAgOKAlHjCoAoJ44CAw6k="
+    - id: "random-177"
+      tool: "edit"
+      fixture:
+        - path: "src/app.txt"
+          file:
+            base64: "ICAgIO+sgeKAnMKgDQoJDQo="
+      arguments:
+        path: "src/app.txt"
+        edits:
+          - oldText: "\uFB01\u201C\u00A0"
+            newText: "\uFB01\ta\u201C"
+          - oldText: "  \uFB01\u201C\u00A0"
+            newText: "\u201C"
+          - oldText: " "
+            newText: "\u2019\u00E9a\u00A0"
+      expect:
+        is_error: true
+        text: "Found 8 occurrences of edits[2] in src/app.txt. Each oldText must be unique. Please provide more context to make it unique."
+        details: {}
+        files_after:
+          - path: "src/app.txt"
+            base64: "ICAgIO+sgeKAnMKgDQoJDQo="
+    - id: "random-178"
+      tool: "edit"
+      fixture:
+        - path: "src/app.txt"
+          file:
+            base64: "w6kNCg0KYQ0KDQrvrIEgwoXigJnCheOAgA0KDQrCoHkNCuKAlPCfmIDChXjvrIENCg=="
+      arguments:
+        path: "src/app.txt"
+        edits:
+          - oldText: "\u0085\u2019\u0085\u3000\n\n\u00A0y"
+            newText: "\U0001F600"
+          - oldText: "\U0001F600\u0085xfi\n"
+            newText: "\tx"
+      expect:
+        is_error: false
+        text: "Successfully replaced 2 block(s) in src/app.txt."
+        details:
+          diff: " 1 \u00E9\n 2 \n 3 a\n 4 \n-5 \uFB01 \u0085\u2019\u0085\u3000\n-6 \n-7 \u00A0y\n-8 \u2014\U0001F600\u0085x\uFB01\n+5 fi \U0001F600\n+6 -\tx"
+          patch: "--- src/app.txt\n+++ src/app.txt\n@@ -1,8 +1,6 @@\n \u00E9\n \n a\n \n-\uFB01 \u0085\u2019\u0085\u3000\n-\n-\u00A0y\n-\u2014\U0001F600\u0085x\uFB01\n+fi \U0001F600\n+-\tx\n\\ No newline at end of file\n"
+          firstChangedLine: 5
+        files_after:
+          - path: "src/app.txt"
+            base64: "w6kNCg0KYQ0KDQpmaSDwn5iADQotCXg="
+    - id: "random-179"
+      tool: "edit"
+      fixture:
+        - path: "src/app.txt"
+          file:
+            base64: "CsKFCcKg76yB8J+YgGMKYXjigJRiCgrigJxlzIHvrIEgIAogICBlzIE="
+      arguments:
+        path: "src/app.txt"
+        edits:
+          - oldText: "\u201Ce"
+            newText: "\t"
+      expect:
+        is_error: false
+        text: "Successfully replaced 1 block(s) in src/app.txt."
+        details:
+          diff: " 1 \n 2 \u0085\t\u00A0\uFB01\U0001F600c\n 3 ax\u2014b\n 4 \n-5 \u201Ce\u0301\uFB01  \n+5 \t\u0301\uFB01  \n 6    e\u0301"
+          patch: "--- src/app.txt\n+++ src/app.txt\n@@ -1,6 +1,6 @@\n \n \u0085\t\u00A0\uFB01\U0001F600c\n ax\u2014b\n \n-\u201Ce\u0301\uFB01  \n+\t\u0301\uFB01  \n    e\u0301\n\\ No newline at end of file\n"
+          firstChangedLine: 5
+        files_after:
+          - path: "src/app.txt"
+            base64: "CsKFCcKg76yB8J+YgGMKYXjigJRiCgoJzIHvrIEgIAogICBlzIE="

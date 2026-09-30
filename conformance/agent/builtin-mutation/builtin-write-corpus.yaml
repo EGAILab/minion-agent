@@ -1,0 +1,72 @@
+name: "builtin-write-corpus"
+family: "agent"
+authority: "pinned Pi b7bb00b9 edit-diff.ts/utils/text.ts + diff 8.0.4 under Node 22.15.1 (authority corpus)"
+pi_revision: "b7bb00b936dbe21b8e160b3e89efdec361846699"
+requirements:
+  - "TOOL-029"
+witnesses:
+  - "edit_write_pinned_pi_authority_corpus"
+notes: "GENERATED from the pinned-Pi authority run (minion-agent-docs assurance/layers/data/13-wp132-evidence): write: UTF-16 length and UTF-8 encoding of the written bytes. Expectations are pinned Pi's result text, final file bytes and details, verbatim. Do not edit by hand; regenerate with harness/make_scenarios.py."
+builtin_mutation:
+  cases:
+    - id: "write-ascii"
+      tool: "write"
+      arguments:
+        path: "src/app.txt"
+        content: "hello\n"
+      expect:
+        is_error: false
+        text: "Successfully wrote 6 bytes to src/app.txt"
+        details: {}
+        files_after:
+          - path: "src/app.txt"
+            base64: "aGVsbG8K"
+    - id: "write-multibyte"
+      tool: "write"
+      arguments:
+        path: "src/app.txt"
+        content: "caf\u00E9 na\u00EFve\n"
+      expect:
+        is_error: false
+        text: "Successfully wrote 11 bytes to src/app.txt"
+        details: {}
+        files_after:
+          - path: "src/app.txt"
+            base64: "Y2Fmw6kgbmHDr3ZlCg=="
+    - id: "write-astral"
+      tool: "write"
+      arguments:
+        path: "src/app.txt"
+        content: "\U0001F600\U0001F601"
+      expect:
+        is_error: false
+        text: "Successfully wrote 4 bytes to src/app.txt"
+        details: {}
+        files_after:
+          - path: "src/app.txt"
+            base64: "8J+YgPCfmIE="
+    - id: "write-lone-surrogate"
+      tool: "write"
+      unpaired_surrogate_arguments: true
+      arguments:
+        path: "src/app.txt"
+        content: "x\uDC00y"
+      expect:
+        is_error: false
+        text: "Successfully wrote 3 bytes to src/app.txt"
+        details: {}
+        files_after:
+          - path: "src/app.txt"
+            base64: "eO+/vXk="
+    - id: "write-empty"
+      tool: "write"
+      arguments:
+        path: "src/app.txt"
+        content: ""
+      expect:
+        is_error: false
+        text: "Successfully wrote 0 bytes to src/app.txt"
+        details: {}
+        files_after:
+          - path: "src/app.txt"
+            base64: ""

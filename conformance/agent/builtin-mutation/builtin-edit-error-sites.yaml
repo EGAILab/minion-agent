@@ -1,0 +1,181 @@
+name: "builtin-edit-error-sites"
+family: "agent"
+authority: "minion-agent-docs spec/tools.md WP-13.2 (minion-agent#49); pinned Pi write.ts/edit.ts/file-mutation-queue.ts"
+pi_revision: "b7bb00b936dbe21b8e160b3e89efdec361846699"
+requirements:
+  - "TOOL-030"
+  - "TOOL-032"
+  - "TOOL-039"
+  - "TOOL-026"
+  - "EXEC-009"
+witnesses:
+  - "edit_error_sites_r010b_vocabulary"
+notes: "edit's sites: empty edits (validateEditInput, before the path pipeline), the R002-A rejection, the access site (EXEC-009 check_read_write) keeping Pi's frame 'Could not edit file: <path>. <cause>.', the read site, the write site, and a diagnostic that leaves the file untouched; details {} for every error."
+builtin_mutation:
+  fixture:
+    - path: "f.txt"
+      file:
+        text: "alpha\nbeta\n"
+    - path: "denied.txt"
+      file:
+        text: "alpha\n"
+    - path: "unreadable.txt"
+      file:
+        text: "alpha\n"
+    - path: "ro.txt"
+      file:
+        text: "alpha\n"
+    - path: "odd.txt"
+      file:
+        text: "alpha\n"
+  provider:
+    check_read_write:
+      - path: "denied.txt"
+        error: "permission_denied"
+      - path: "odd.txt"
+        error: "unknown"
+    read_binary_file:
+      - path: "unreadable.txt"
+        error: "is_directory"
+    write_file:
+      - path: "ro.txt"
+        error: "permission_denied"
+  cases:
+    - id: "empty-edits"
+      tool: "edit"
+      arguments:
+        path: "f.txt"
+        edits: []
+      expect:
+        is_error: true
+        text: "Edit tool input is invalid. edits must contain at least one replacement."
+        details: {}
+        fs_calls: []
+    - id: "malformed-file-url"
+      tool: "edit"
+      arguments:
+        path: "file:///%ZZ"
+        edits:
+          - oldText: "a"
+            newText: "b"
+      expect:
+        is_error: true
+        text: "Cannot access file:///%ZZ: invalid path"
+        details: {}
+        fs_calls: []
+    - id: "missing-file-access-site"
+      tool: "edit"
+      arguments:
+        path: "missing.txt"
+        edits:
+          - oldText: "a"
+            newText: "b"
+      expect:
+        is_error: true
+        text: "Could not edit file: missing.txt. no such file or directory."
+        details: {}
+        fs_calls:
+          - "canonical_path missing.txt"
+          - "absolute_path missing.txt"
+          - "check_read_write missing.txt"
+        files_after:
+          - path: "missing.txt"
+            absent: true
+    - id: "access-denied"
+      tool: "edit"
+      arguments:
+        path: "denied.txt"
+        edits:
+          - oldText: "alpha"
+            newText: "A"
+      expect:
+        is_error: true
+        text: "Could not edit file: denied.txt. permission denied."
+        details: {}
+        fs_calls:
+          - "canonical_path denied.txt"
+          - "check_read_write denied.txt"
+        files_after:
+          - path: "denied.txt"
+            text: "alpha\n"
+    - id: "access-unknown"
+      tool: "edit"
+      arguments:
+        path: "odd.txt"
+        edits:
+          - oldText: "alpha"
+            newText: "A"
+      expect:
+        is_error: true
+        text: "Could not edit file: odd.txt. unknown filesystem error."
+        details: {}
+    - id: "read-fails"
+      tool: "edit"
+      arguments:
+        path: "unreadable.txt"
+        edits:
+          - oldText: "alpha"
+            newText: "A"
+      expect:
+        is_error: true
+        text: "Cannot read unreadable.txt: is a directory"
+        details: {}
+        fs_calls:
+          - "canonical_path unreadable.txt"
+          - "check_read_write unreadable.txt"
+          - "read_binary_file unreadable.txt"
+    - id: "write-fails"
+      tool: "edit"
+      arguments:
+        path: "ro.txt"
+        edits:
+          - oldText: "alpha"
+            newText: "A"
+      expect:
+        is_error: true
+        text: "Cannot write ro.txt: permission denied"
+        details: {}
+        fs_calls:
+          - "canonical_path ro.txt"
+          - "check_read_write ro.txt"
+          - "read_binary_file ro.txt"
+          - "write_file ro.txt"
+        files_after:
+          - path: "ro.txt"
+            text: "alpha\n"
+    - id: "diagnostic-never-writes"
+      tool: "edit"
+      arguments:
+        path: "f.txt"
+        edits:
+          - oldText: "gamma"
+            newText: "G"
+      expect:
+        is_error: true
+        text: "Could not find the exact text in f.txt. The old text must match exactly including all whitespace and newlines."
+        details: {}
+        fs_calls:
+          - "canonical_path f.txt"
+          - "check_read_write f.txt"
+          - "read_binary_file f.txt"
+        files_after:
+          - path: "f.txt"
+            text: "alpha\nbeta\n"
+    - id: "success-call-sequence"
+      tool: "edit"
+      arguments:
+        path: "f.txt"
+        edits:
+          - oldText: "beta"
+            newText: "BETA"
+      expect:
+        is_error: false
+        text: "Successfully replaced 1 block(s) in f.txt."
+        fs_calls:
+          - "canonical_path f.txt"
+          - "check_read_write f.txt"
+          - "read_binary_file f.txt"
+          - "write_file f.txt"
+        files_after:
+          - path: "f.txt"
+            text: "alpha\nBETA\n"

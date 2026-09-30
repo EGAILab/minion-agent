@@ -1,0 +1,88 @@
+name: "builtin-write-creates-parents-overwrites-and-reports-utf16-length"
+family: "agent"
+authority: "minion-agent-docs spec/tools.md WP-13.2 (minion-agent#49); pinned Pi write.ts/edit.ts/file-mutation-queue.ts"
+pi_revision: "b7bb00b936dbe21b8e160b3e89efdec361846699"
+requirements:
+  - "TOOL-029"
+  - "TOOL-032"
+witnesses:
+  - "write_success_parents_overwrite_utf16_length"
+notes: "write inside the queue: registration (canonical_path, falling back to absolute_path on not_found), then in the lock absolute_path (L13-WP132-R001), create_dir(lexical parent, recursive), write_file. The count is content's UTF-16 length (Pi's content.length, a known misnomer reproduced verbatim); details {}."
+builtin_mutation:
+  fixture:
+    - path: "f.txt"
+      file:
+        text: "old contents\n"
+  cases:
+    - id: "creates-missing-parents"
+      tool: "write"
+      arguments:
+        path: "sub/deep/new.txt"
+        content: "hello\n"
+      expect:
+        is_error: false
+        text: "Successfully wrote 6 bytes to sub/deep/new.txt"
+        details: {}
+        fs_calls:
+          - "canonical_path sub/deep/new.txt"
+          - "absolute_path sub/deep/new.txt"
+          - "absolute_path sub/deep/new.txt"
+          - "create_dir sub/deep"
+          - "write_file sub/deep/new.txt"
+        files_after:
+          - path: "sub/deep/new.txt"
+            text: "hello\n"
+    - id: "overwrites-existing"
+      tool: "write"
+      arguments:
+        path: "f.txt"
+        content: "new"
+      expect:
+        is_error: false
+        text: "Successfully wrote 3 bytes to f.txt"
+        details: {}
+        fs_calls:
+          - "canonical_path f.txt"
+          - "absolute_path f.txt"
+          - "create_dir ."
+          - "write_file f.txt"
+        files_after:
+          - path: "f.txt"
+            text: "new"
+    - id: "utf16-length-not-byte-length"
+      tool: "write"
+      arguments:
+        path: "u.txt"
+        content: "\u00E9\U0001F600"
+      expect:
+        is_error: false
+        text: "Successfully wrote 3 bytes to u.txt"
+        details: {}
+        files_after:
+          - path: "u.txt"
+            base64: "w6nwn5iA"
+    - id: "empty-content"
+      tool: "write"
+      arguments:
+        path: "e.txt"
+        content: ""
+      expect:
+        is_error: false
+        text: "Successfully wrote 0 bytes to e.txt"
+        details: {}
+        files_after:
+          - path: "e.txt"
+            text: ""
+    - id: "unpaired-surrogate-written-as-replacement-character"
+      tool: "write"
+      unpaired_surrogate_arguments: true
+      arguments:
+        path: "s.txt"
+        content: "a\uD800b"
+      expect:
+        is_error: false
+        text: "Successfully wrote 3 bytes to s.txt"
+        details: {}
+        files_after:
+          - path: "s.txt"
+            base64: "Ye+/vWI="

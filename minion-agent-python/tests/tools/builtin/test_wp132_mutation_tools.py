@@ -8,6 +8,7 @@ import asyncio
 import base64
 import inspect
 import json
+import math
 import sys
 import types
 import unicodedata
@@ -20,6 +21,7 @@ import yaml
 
 from minion_agent.execution import Err, FsError, FsErrorCode, LocalFileSystem, Ok
 from minion_agent.execution.plugin import fs_plugin
+from minion_agent.llm import ToolCallBlock
 from minion_agent.runtime import Context, RunAbortController
 from minion_agent.runtime.fiber import FiberState
 from minion_agent.tools.builtin import _signal as signal_module
@@ -37,6 +39,8 @@ from minion_agent.tools.builtin._jsdiff import create_two_files_patch, diff_line
 from minion_agent.tools.builtin._utf16 import from_units, to_units
 from minion_agent.tools.builtin.collation import pinned_collation
 from minion_agent.tools.builtin.paths import BuiltinToolError
+from minion_agent.tools.events import TOOLS_PRE_EXECUTE, declare_tools_events
+from minion_agent.tools.execute import execute_call
 from minion_agent.tools.plugin import tools_plugin
 from minion_agent.tools.registry import ToolRegistry
 
@@ -127,6 +131,41 @@ def test_prepare_parses_json_numbers_as_doubles() -> None:
     assert extra == 9007199254740992 and isinstance(extra, int)
     fraction = '{"oldText": "a", "newText": "b", "extra": 0.1}'
     assert prepare_edit_arguments({"path": "f", "edits": fraction})["edits"][0]["extra"] == 0.1
+
+
+@pytest.mark.parametrize(
+    ("token", "sign"), [("-0", -1.0), ("-0.0", -1.0), ("-0e0", -1.0), ("0", 1.0), ("0.0", 1.0)]
+)
+def test_prepare_keeps_the_sign_of_zero(token: str, sign: float) -> None:
+    """L13-WP132-I002 (re-review docs #193): JSON.parse("-0") is -0 in pinned Pi. Equality cannot
+    tell (0 == -0.0), so the sign itself is asserted."""
+    edits = '{"oldText": "a", "newText": "b", "extra": ' + token + "}"
+    extra = prepare_edit_arguments({"path": "f", "edits": edits})["edits"][0]["extra"]
+    assert extra == 0 and math.copysign(1.0, extra) == sign
+
+
+async def test_negative_zero_reaches_the_pre_execute_hook(tmp_path: Path) -> None:
+    """The prepared -0 is what Layer 06's certified pre-execute hook observes (docs #193)."""
+    (tmp_path / "f").write_text("a", encoding="utf-8")
+    registry = ToolRegistry()
+    registry.register(create_edit_tool(LocalFileSystem(str(tmp_path))))
+    ctx = Context()
+    declare_tools_events(ctx.events)
+    signs: list[float] = []
+
+    async def inspect(call: Any, definition: Any, arguments: Any, signal: Any, next_: Any) -> Any:
+        signs.append(math.copysign(1.0, arguments["edits"][0]["extra"]))
+        return await next_()
+
+    ctx.events.on(TOOLS_PRE_EXECUTE, inspect)
+    call = ToolCallBlock(
+        id="negative-zero",
+        name="edit",
+        arguments={"path": "f", "edits": '{"oldText":"a","newText":"b","extra":-0}'},
+    )
+    result = await execute_call(call, registry=registry, ctx=ctx)
+    assert signs == [-1.0]
+    assert not result.is_error and (tmp_path / "f").read_text(encoding="utf-8") == "b"
 
 
 async def test_huge_json_integer_edits_apply_through_the_real_pipeline() -> None:

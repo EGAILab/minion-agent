@@ -88,10 +88,14 @@ def _reject_constant(name: str) -> Any:
 def _js_integer(text: str) -> int | float:
     """A JSON integer as `JSON.parse` reads it: an IEEE-754 double (`L13-WP132-I002`). It is
     correctly rounded (`9007199254740993` -> `9007199254740992`), an overflow is Infinity, and
-    there is no digit limit (CPython's `int(str)` guard does not apply to `float(str)`). An
-    integral result stays a Python `int`, the representation Layer 02 gives every JSON integer."""
+    there is no digit limit (CPython's `int(str)` guard does not apply to `float(str)`). A finite
+    integral result stays a Python `int`, the representation Layer 02 gives every JSON integer --
+    except negative zero (`-0`), which an `int` cannot hold: it stays the float `-0.0`, as
+    `JSON.parse("-0")` is `-0` (`L13-WP132-I002`, re-review docs #193)."""
     value = float(text)
-    return int(value) if math.isfinite(value) else value
+    if not math.isfinite(value) or (value == 0 and math.copysign(1.0, value) < 0):
+        return value
+    return int(value)
 
 
 def _json_parse(text: str) -> Any:

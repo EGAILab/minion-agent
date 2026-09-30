@@ -220,30 +220,76 @@ async def run_cases(document: dict[str, Any]) -> list[dict[str, Any]]:
     return outcomes
 
 
-_SETTLE_S = 0.05
+VIRTUAL_HORIZON_S = 60.0
+"""How far ahead of each step the runner fast-forwards timers (virtual seconds)."""
+
+
+class VirtualClockLoop(asyncio.SelectorEventLoop):
+    """An event loop whose clock the runner can jump forward (`L13-WP132-I001`). Quiescence is then
+    timer-aware and reproducible: before a step, every timer due within the horizon is FIRED --
+    whatever its length -- instead of the runner guessing a real-time settle window. Real
+    provider I/O still runs on real threads and is waited for, never skipped."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._skipped = 0.0
+
+    def time(self) -> float:
+        return super().time() + self._skipped
+
+    def next_timer(self) -> float | None:
+        # asyncio's own timer heap (CPython BaseEventLoop); cancelled handles are skipped.
+        whens = [h.when() for h in self._scheduled if not h.cancelled()]  # type: ignore[attr-defined]
+        return min(whens) if whens else None
+
+    def skip_to(self, when: float) -> None:
+        self._skipped += max(0.0, when - self.time())
+
+
+async def _drain() -> None:
+    for _ in range(20):
+        await asyncio.sleep(0)
 
 
 async def _quiesce(providers: list[ScriptedProvider], log: list[str]) -> None:
-    """Run the scheduler until no task can progress without a gate: no real provider call in
-    flight, and no new event across a settle window that spans many scheduler turns AND wall-clock
-    time -- so a task reacting on a short timer (a signal poller, say) gets to act before the next
-    step, while a task that only polls without acting does not hold the runner forever."""
+    """Run until no task can progress without a gate: no ready callback, no real provider call in
+    flight, and no timer due within `VIRTUAL_HORIZON_S` -- each such timer is fast-forwarded to and
+    fired, so a task reacting on a timer of ANY length within the horizon acts before the next step.
+    A task that keeps re-arming a timer without acting is fired repeatedly until the horizon."""
+    loop = asyncio.get_running_loop()
+    assert isinstance(loop, VirtualClockLoop)
+    horizon = loop.time() + VIRTUAL_HORIZON_S
     while True:
-        before = len(log)
-        for _ in range(200):
-            await asyncio.sleep(0)
+        await _drain()
         if any(p.inflight for p in providers):
-            await asyncio.sleep(0.005)
+            await asyncio.sleep(0.001)  # real I/O on a worker thread: wait, never skip
             continue
-        await asyncio.sleep(_SETTLE_S)
-        for _ in range(200):
-            await asyncio.sleep(0)
+        due = loop.next_timer()
+        if due is not None and due <= horizon:
+            loop.skip_to(due)
+            continue
+        before = len(log)
+        await _drain()
         if len(log) == before and not any(p.inflight for p in providers):
             return
 
 
+def _run_queue_in_virtual_loop(document: dict[str, Any]) -> dict[str, Any]:
+    loop = VirtualClockLoop()
+    try:
+        return loop.run_until_complete(_run_queue(document))
+    finally:
+        loop.run_until_complete(loop.shutdown_default_executor())
+        loop.close()
+
+
 async def run_queue(document: dict[str, Any]) -> dict[str, Any]:
-    """Run one queue scenario; returns `{log, results, files_after, pending}`."""
+    """Run one queue scenario on its own `VirtualClockLoop` (in a worker thread, so the caller's
+    loop is untouched); returns `{log, results, files_after, pending}`."""
+    return await asyncio.to_thread(_run_queue_in_virtual_loop, document)
+
+
+async def _run_queue(document: dict[str, Any]) -> dict[str, Any]:
     spec = document["builtin_mutation"]
     queue = spec["queue"]
     with tempfile.TemporaryDirectory() as tmp:

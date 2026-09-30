@@ -43,5 +43,7 @@ def decode_utf8(data: bytes) -> str:
 
 def encode_utf8(text: str) -> bytes:
     """Node's `fs.writeFile(path, string, "utf-8")`: WHATWG UTF-8 encode, an unpaired surrogate
-    written as U+FFFD (`EF BF BD`). Takes a Python string (pairs already combined)."""
-    return _LONE_SURROGATE.sub(chr(0xFFFD), text).encode("utf-8")
+    written as U+FFFD (`EF BF BD`). A valid high+low pair held as two separate characters (as a
+    YAML `"\\uD83D\\uDE00"` decodes) is first combined into its one astral character -- JavaScript
+    has no such distinction (`L13-WP132-I003`)."""
+    return _LONE_SURROGATE.sub(chr(0xFFFD), from_units(to_units(text))).encode("utf-8")

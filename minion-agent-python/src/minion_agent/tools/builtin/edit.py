@@ -10,6 +10,7 @@ match (`edit_diff.apply_edits`); abort check; write; abort check. Result details
 from __future__ import annotations
 
 import json
+import math
 from typing import Any
 
 from ...execution import Err, FileSystem, FsErrorCode
@@ -84,10 +85,20 @@ def _reject_constant(name: str) -> Any:
     raise ValueError(f"not JSON: {name}")  # JSON.parse has no NaN/Infinity literals
 
 
+def _js_integer(text: str) -> int | float:
+    """A JSON integer as `JSON.parse` reads it: an IEEE-754 double (`L13-WP132-I002`). It is
+    correctly rounded (`9007199254740993` -> `9007199254740992`), an overflow is Infinity, and
+    there is no digit limit (CPython's `int(str)` guard does not apply to `float(str)`). An
+    integral result stays a Python `int`, the representation Layer 02 gives every JSON integer."""
+    value = float(text)
+    return int(value) if math.isfinite(value) else value
+
+
 def _json_parse(text: str) -> Any:
-    """`JSON.parse`: Python's `json` also accepts the `NaN`/`Infinity`/`-Infinity` literals, which
-    JSON does not. (An out-of-range number such as `1e999` parses to infinity in both.)"""
-    return json.loads(text, parse_constant=_reject_constant)
+    """`JSON.parse`: numbers are doubles (`_js_integer`; a JSON fraction or exponent is already a
+    correctly rounded `float`), and the `NaN`/`Infinity`/`-Infinity` literals Python's `json`
+    accepts are rejected, as JSON has none."""
+    return json.loads(text, parse_constant=_reject_constant, parse_int=_js_integer)
 
 
 def prepare_edit_arguments(arguments: Any) -> Any:

@@ -5,6 +5,7 @@ each a single-point mutant of the real source that its canonical witness must ki
 from __future__ import annotations
 
 import asyncio
+import base64
 import inspect
 import json
 import sys
@@ -21,6 +22,7 @@ from minion_agent.execution import Err, FsError, FsErrorCode, LocalFileSystem, O
 from minion_agent.execution.plugin import fs_plugin
 from minion_agent.runtime import Context, RunAbortController
 from minion_agent.runtime.fiber import FiberState
+from minion_agent.tools.builtin import _signal as signal_module
 from minion_agent.tools.builtin import (
     create_edit_tool,
     create_write_tool,
@@ -111,6 +113,86 @@ def test_replacement_ending_past_the_base_is_internal_range() -> None:
         BuiltinToolError, match=r"^Replacement range is outside the base content\.$"
     ):
         edit_diff._replacement_line_range(spans, edit_diff.Replacement(0, 1, 5, "x"))
+
+
+def test_prepare_parses_json_numbers_as_doubles() -> None:
+    """L13-WP132-I002: JSON.parse numbers are IEEE-754 doubles -- an integer too large for a double
+    is Infinity (not a parse failure), and a large integer is rounded to the nearest double."""
+    huge = '{"oldText": "a", "newText": "b", "extra": ' + "9" * 5000 + "}"
+    assert prepare_edit_arguments({"path": "f", "edits": huge})["edits"] == [
+        {"oldText": "a", "newText": "b", "extra": float("inf")}
+    ]
+    rounded = '{"oldText": "a", "newText": "b", "extra": 9007199254740993}'
+    extra = prepare_edit_arguments({"path": "f", "edits": rounded})["edits"][0]["extra"]
+    assert extra == 9007199254740992 and isinstance(extra, int)
+    fraction = '{"oldText": "a", "newText": "b", "extra": 0.1}'
+    assert prepare_edit_arguments({"path": "f", "edits": fraction})["edits"][0]["extra"] == 0.1
+
+
+async def test_huge_json_integer_edits_apply_through_the_real_pipeline() -> None:
+    """L13-WP132-I002 through Layer 06 (pinned Pi, docs #192 prepare_probe.mjs: applied, A\\n)."""
+    edits = '{"oldText":"alpha","newText":"A","extra":' + "9" * 5000 + "}"
+    document = {
+        "builtin_mutation": {
+            "fixture": [{"path": "f.txt", "file": {"text": "alpha\n"}}],
+            "cases": [
+                {
+                    "id": "huge-json-integer-extra",
+                    "tool": "edit",
+                    "arguments": {"path": "f.txt", "edits": edits},
+                    "expect": {
+                        "is_error": False,
+                        "text": "Successfully replaced 1 block(s) in f.txt.",
+                        "files_after": [{"path": "f.txt", "text": "A\n"}],
+                    },
+                }
+            ],
+        }
+    }
+    for outcome in await runner.run_cases(document):
+        check_case(outcome)
+
+
+@pytest.mark.parametrize(
+    ("escaped", "length", "utf8"),
+    [
+        ("\\uD83D\\uDE00", 2, "f09f9880"),  # a valid pair, as YAML decodes it: two characters
+        ("\\uD83D", 1, "efbfbd"),  # unpaired high
+        ("\\uDE00", 1, "efbfbd"),  # unpaired low
+        ("\\uDE00\\uD83D", 2, "efbfbdefbfbd"),  # wrong order: two unpaired units
+        ("\\U0001F600", 2, "f09f9880"),  # an ordinary astral character
+    ],
+)
+async def test_write_encodes_surrogates_as_javascript_does(
+    escaped: str, length: int, utf8: str
+) -> None:
+    """L13-WP132-I003: a YAML-escaped string reaches the real write tool through Layer 06 and is
+    written as Node's `fs.writeFile` writes the same UTF-16 units (docs #192
+    surrogate_probe.mjs)."""
+    content = yaml.safe_load(f'content: "{escaped}"')["content"]
+    document = {
+        "builtin_mutation": {
+            "cases": [
+                {
+                    "id": escaped,
+                    "tool": "write",
+                    "arguments": {"path": "f.txt", "content": content},
+                    "expect": {
+                        "is_error": False,
+                        "text": f"Successfully wrote {length} bytes to f.txt",
+                        "files_after": [
+                            {
+                                "path": "f.txt",
+                                "base64": base64.b64encode(bytes.fromhex(utf8)).decode(),
+                            }
+                        ],
+                    },
+                }
+            ]
+        }
+    }
+    for outcome in await runner.run_cases(document):
+        check_case(outcome)
 
 
 def test_prepare_returns_a_non_object_unchanged() -> None:
@@ -254,10 +336,17 @@ async def test_queue_without_provider_scoping_is_killed(
     assert not await _passes("builtin-mutation-queue-providers-do-not-share-queues")
 
 
+# L13-WP132-I001: the abort-listener mutants poll the signal on a timer; each is killed whatever the
+# poll interval, including intervals far longer than any real-time settle window.
+POLL_INTERVALS = [0.01, 0.5, 10.0]
+
+
+@pytest.mark.parametrize("poll_s", POLL_INTERVALS)
 async def test_abort_listener_release_is_killed(
-    monkeypatch: pytest.MonkeyPatch, restore_modules: None
+    monkeypatch: pytest.MonkeyPatch, restore_modules: None, poll_s: float
 ) -> None:
     del restore_modules
+    monkeypatch.setattr(signal_module, "_POLL_INTERVAL_S", poll_s)
     mutant = _mutant(
         write_module,
         "text = await with_mutation_queue(fs, p, path, work)",
@@ -272,11 +361,13 @@ async def test_abort_listener_release_is_killed(
     )
 
 
+@pytest.mark.parametrize("poll_s", POLL_INTERVALS)
 async def test_queue_wait_abort_listener_is_killed(
-    monkeypatch: pytest.MonkeyPatch, restore_modules: None
+    monkeypatch: pytest.MonkeyPatch, restore_modules: None, poll_s: float
 ) -> None:
     """docs #188's control: the caller is answered while it still waits in the queue."""
     del restore_modules
+    monkeypatch.setattr(signal_module, "_POLL_INTERVAL_S", poll_s)
     mutant = _mutant(
         write_module,
         "text = await with_mutation_queue(fs, p, path, work)",

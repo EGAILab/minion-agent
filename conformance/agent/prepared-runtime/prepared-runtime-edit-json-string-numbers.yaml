@@ -6,7 +6,8 @@ requirements:
   - "TOOL-041"
 witnesses:
   - "prepared_runtime_numeric_domain"
-notes: "The real pinned-Pi preparation path: edit's prepareEditArguments JSON-parses a string `edits`. An overflowing number becomes +/-Infinity, -0 keeps its sign, and a large integer is rounded to binary64. The value survives validation (an undeclared key of an edit item) and reaches the pre-execute hook; the edit itself applies. GENERATED from the pinned-Pi authority run; regenerate with harness/make_scenarios.py."
+notes: "The real pinned-Pi preparation path: edit's prepareEditArguments JSON-parses a string `edits`. An overflowing number becomes +/-Infinity, -0 keeps its sign, and a large integer is rounded to binary64. The value survives validation (an undeclared key of an edit item) and reaches the pre-execute hook; the edit itself applies. Gate WP-13.2 (L0506-D001-R003): an integration witness through the real built-in edit tool; not part of the delta's certification gate -- WP-13.2's Python approval and Rust implementation reviews run it once L0506-D001 is certified. GENERATED from the pinned-Pi authority run; regenerate with harness/make_scenarios.py."
+gate: "WP-13.2"
 prepared_runtime:
   cases:
     - id: "edit-overflow-positive-exponent"

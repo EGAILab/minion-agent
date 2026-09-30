@@ -231,6 +231,28 @@ def test_prepared_runtime_schema_rejects_undispatchable_cases(mutation: Any) -> 
     assert list(Draft202012Validator(schema).iter_errors(document))
 
 
+def test_prepared_runtime_gates_are_explicit_and_acyclic() -> None:
+    """L0506-D001-R003: every document names its gate; a delta-gated (L0506-D001) document holds
+    only custom cases, runnable from the accepted Layer 05/06 baseline; the real-edit document is
+    gated to WP-13.2. A missing gate, or an edit case inside the delta gate, is rejected by the
+    schema."""
+    documents = _prepared_runtime_documents()
+    gates = {document["name"]: document["gate"] for document in documents}
+    assert gates["prepared-runtime-edit-json-string-numbers"] == "WP-13.2"
+    for document in documents:
+        if document["gate"] == "L0506-D001":
+            assert {case["tool"] for case in document["prepared_runtime"]["cases"]} == {"custom"}
+    schema = json.loads(PREPARED_RUNTIME_SCHEMA.read_text(encoding="utf-8"))
+    validator = Draft202012Validator(schema)
+    edit_document = next(d for d in documents if d["gate"] == "WP-13.2")
+    moved = copy.deepcopy(edit_document)
+    moved["gate"] = "L0506-D001"
+    assert list(validator.iter_errors(moved))
+    ungated = copy.deepcopy(edit_document)
+    ungated.pop("gate")
+    assert list(validator.iter_errors(ungated))
+
+
 def test_prepared_runtime_preflight_rejects_an_overflowing_finite_literal() -> None:
     assert not _finite_literal_is_finite("1e999")
     assert _finite_literal_is_finite("1.7976931348623157e+308")

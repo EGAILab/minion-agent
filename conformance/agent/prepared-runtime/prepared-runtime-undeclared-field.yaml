@@ -7,6 +7,7 @@ requirements:
 witnesses:
   - "prepared_runtime_numeric_domain"
 notes: "A tool's own prepare_arguments sets a key the schema does not declare. Pinned Pi keeps every runtime number there -- +Infinity, -Infinity, NaN, -0 -- and the pre-execute hook and execute observe it. GENERATED from the pinned-Pi authority run; regenerate with harness/make_scenarios.py."
+gate: "L0506-D001"
 prepared_runtime:
   cases:
     - id: "undeclared-pos-inf"

@@ -7,6 +7,7 @@ requirements:
 witnesses:
   - "prepared_runtime_numeric_domain"
 notes: "A tool's own prepare_arguments sets a declared {type: integer} field. Pinned Pi's validator rejects +/-Infinity and NaN, and accepts -0 (sign kept) and large finite integral values. GENERATED from the pinned-Pi authority run; regenerate with harness/make_scenarios.py."
+gate: "L0506-D001"
 prepared_runtime:
   cases:
     - id: "declared-integer-pos-inf"

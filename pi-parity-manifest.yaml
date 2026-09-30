@@ -7141,3 +7141,25 @@ rows:
     build-identity gate over every loaded ICU module instance -- Windows EnumProcessModules, Linux
     /proc/self/maps); canonical builtin_tool scenarios below'
   disposition: intentional divergence
+- id: TOOL-041
+  phase: 4
+  pi: packages/agent/src/agent-loop.ts::prepareToolCallArguments/prepareToolCall (prepared args -> validateToolArguments
+    -> beforeToolCall args -> execute); packages/ai/src/utils/validation.ts::validateToolArguments (typebox 1.3.7);
+    packages/coding-agent/src/core/tools/edit.ts::prepareEditArguments (JSON.parse)
+  surface: Layer 05/06 post-certification delta L0506-D001 -- the prepared runtime numeric domain (prepare_arguments
+    result, validation, tools/pre-execute arguments, execute arguments)
+  rule: 'CONTRACT_DRAFT (L0506-D001, minion-agent#88; Owner decision L13-WP132-I004 Option 1, minion-agent#49
+    issuecomment-5912178299; intentional divergence NONE). Prepared runtime arguments carry Pi''s runtime numbers:
+    finite binary64 including -0 (sign preserved), +Infinity, -Infinity, and NaN (reachable only through a tool''s own
+    prepare_arguments). Raw ToolCall arguments, tool_execution_* original arguments and ToolCall serialization are
+    unchanged. Validation: a declared number/integer instance is finite-only (+/-Infinity and NaN rejected with the
+    certified TOOL-003 immediate error; -0 accepted, sign kept); an undeclared position keeps any runtime number. The
+    tools/pre-execute listener and execute observe the prepared value exactly. No serialization projection is defined
+    by Layer 06. Full rules: spec/tools.md Layer 06, ''Prepared runtime numeric domain (TOOL-041)''.'
+  tests:
+  - prepared_runtime_numeric_domain (canonical scenarios conformance/agent/prepared-runtime/*.yaml, generated from the
+    pinned-Pi authority in minion-agent-docs assurance/layers/data/l0506-d001)
+  python: 'not implemented; planned (L0506-D001, minion-agent#88) -- known defect L0506-D001-C001: tools/execute.py::_validate
+    accepts non-finite values in a declared number field'
+  rust: not implemented; planned (L0506-D001, minion-agent#88)
+  disposition: adopted

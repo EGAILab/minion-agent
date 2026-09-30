@@ -51,6 +51,9 @@ BUILTIN_MUTATION_SCHEMA = CONFORMANCE / "schema" / "builtin-mutation-scenario.sc
 # WP-13.2 (write/edit + mutation queue): its own directory and shape, so the WP-13.1 `builtin_tool`
 # runners (which glob conformance/agent/*.yaml) are unaffected.
 BUILTIN_MUTATION_DIR = CONFORMANCE / "agent" / "builtin-mutation"
+PREPARED_RUNTIME_SCHEMA = CONFORMANCE / "schema" / "prepared-runtime-scenario.schema.json"
+# Layer 05/06 delta L0506-D001 (TOOL-041): its own directory and shape.
+PREPARED_RUNTIME_DIR = CONFORMANCE / "agent" / "prepared-runtime"
 
 # Families whose scenarios arrive in a later plan. Their schema must still exist
 # and must still be a valid JSON Schema. Empty now that every family is
@@ -103,6 +106,7 @@ def test_family_has_scenarios(family: str) -> None:
         AUTH_DEVICE_CODE_SCHEMA,
         BUILTIN_TOOL_SCHEMA,
         BUILTIN_MUTATION_SCHEMA,
+        PREPARED_RUNTIME_SCHEMA,
     ],
     ids=lambda p: p.stem,
 )
@@ -139,6 +143,26 @@ def test_builtin_mutation_scenario_validates(scenario: Path) -> None:
     document = yaml.safe_load(scenario.read_text(encoding="utf-8"))
     assert "builtin_mutation" in document
     schema = json.loads(BUILTIN_MUTATION_SCHEMA.read_text(encoding="utf-8"))
+    errors = sorted(
+        Draft202012Validator(schema).iter_errors(document),
+        key=lambda error: list(error.path),
+    )
+    assert not errors, "\n".join(
+        f"{'/'.join(str(part) for part in error.path)}: {error.message}" for error in errors
+    )
+
+
+def test_prepared_runtime_scenarios_exist() -> None:
+    assert sorted(PREPARED_RUNTIME_DIR.glob("*.yaml"))
+
+
+@pytest.mark.parametrize(
+    "scenario", sorted(PREPARED_RUNTIME_DIR.glob("*.yaml")), ids=lambda value: value.stem
+)
+def test_prepared_runtime_scenario_validates(scenario: Path) -> None:
+    document = yaml.safe_load(scenario.read_text(encoding="utf-8"))
+    assert "prepared_runtime" in document
+    schema = json.loads(PREPARED_RUNTIME_SCHEMA.read_text(encoding="utf-8"))
     errors = sorted(
         Draft202012Validator(schema).iter_errors(document),
         key=lambda error: list(error.path),

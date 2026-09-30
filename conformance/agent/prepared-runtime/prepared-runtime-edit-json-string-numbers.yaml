@@ -1,0 +1,107 @@
+name: "prepared-runtime-edit-json-string-numbers"
+family: "agent"
+authority: "pinned Pi b7bb00b9 agent-loop.ts prepareToolCall + ai/src/utils/validation.ts validateToolArguments (typebox 1.3.7) + edit.ts prepareEditArguments, under Node 22.15.1 (L0506-D001 authority)"
+pi_revision: "b7bb00b936dbe21b8e160b3e89efdec361846699"
+requirements:
+  - "TOOL-041"
+witnesses:
+  - "prepared_runtime_numeric_domain"
+notes: "The real pinned-Pi preparation path: edit's prepareEditArguments JSON-parses a string `edits`. An overflowing number becomes +/-Infinity, -0 keeps its sign, and a large integer is rounded to binary64. The value survives validation (an undeclared key of an edit item) and reaches the pre-execute hook; the edit itself applies. GENERATED from the pinned-Pi authority run; regenerate with harness/make_scenarios.py."
+prepared_runtime:
+  cases:
+    - id: "edit-overflow-positive-exponent"
+      tool: "edit"
+      arguments:
+        path: "f.txt"
+        edits: "{\"oldText\":\"a\",\"newText\":\"b\",\"extra\":1e999}"
+      observe:
+        - "/edits/0/extra"
+      expect:
+        outcome: "prepared"
+        observed:
+          /edits/0/extra: "+Infinity"
+        result_text: "Successfully replaced 1 block(s) in f.txt."
+    - id: "edit-overflow-negative-exponent"
+      tool: "edit"
+      arguments:
+        path: "f.txt"
+        edits: "{\"oldText\":\"a\",\"newText\":\"b\",\"extra\":-1e999}"
+      observe:
+        - "/edits/0/extra"
+      expect:
+        outcome: "prepared"
+        observed:
+          /edits/0/extra: "-Infinity"
+        result_text: "Successfully replaced 1 block(s) in f.txt."
+    - id: "edit-overflow-positive-400-digits"
+      tool: "edit"
+      arguments:
+        path: "f.txt"
+        edits: "{\"oldText\":\"a\",\"newText\":\"b\",\"extra\":9999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999}"
+      observe:
+        - "/edits/0/extra"
+      expect:
+        outcome: "prepared"
+        observed:
+          /edits/0/extra: "+Infinity"
+        result_text: "Successfully replaced 1 block(s) in f.txt."
+    - id: "edit-overflow-negative-400-digits"
+      tool: "edit"
+      arguments:
+        path: "f.txt"
+        edits: "{\"oldText\":\"a\",\"newText\":\"b\",\"extra\":-9999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999}"
+      observe:
+        - "/edits/0/extra"
+      expect:
+        outcome: "prepared"
+        observed:
+          /edits/0/extra: "-Infinity"
+        result_text: "Successfully replaced 1 block(s) in f.txt."
+    - id: "edit-negative-zero"
+      tool: "edit"
+      arguments:
+        path: "f.txt"
+        edits: "{\"oldText\":\"a\",\"newText\":\"b\",\"extra\":-0}"
+      observe:
+        - "/edits/0/extra"
+      expect:
+        outcome: "prepared"
+        observed:
+          /edits/0/extra: "-0"
+        result_text: "Successfully replaced 1 block(s) in f.txt."
+    - id: "edit-positive-zero"
+      tool: "edit"
+      arguments:
+        path: "f.txt"
+        edits: "{\"oldText\":\"a\",\"newText\":\"b\",\"extra\":0}"
+      observe:
+        - "/edits/0/extra"
+      expect:
+        outcome: "prepared"
+        observed:
+          /edits/0/extra: "0"
+        result_text: "Successfully replaced 1 block(s) in f.txt."
+    - id: "edit-largest-finite"
+      tool: "edit"
+      arguments:
+        path: "f.txt"
+        edits: "{\"oldText\":\"a\",\"newText\":\"b\",\"extra\":1.7976931348623157e308}"
+      observe:
+        - "/edits/0/extra"
+      expect:
+        outcome: "prepared"
+        observed:
+          /edits/0/extra: "1.7976931348623157e+308"
+        result_text: "Successfully replaced 1 block(s) in f.txt."
+    - id: "edit-rounded-integer"
+      tool: "edit"
+      arguments:
+        path: "f.txt"
+        edits: "{\"oldText\":\"a\",\"newText\":\"b\",\"extra\":9007199254740993}"
+      observe:
+        - "/edits/0/extra"
+      expect:
+        outcome: "prepared"
+        observed:
+          /edits/0/extra: "9007199254740992"
+        result_text: "Successfully replaced 1 block(s) in f.txt."

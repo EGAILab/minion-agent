@@ -1,0 +1,69 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$comment": "Layer 05/06 delta L0506-D001 (TOOL-041): the prepared runtime numeric domain. Scenarios live in conformance/agent/prepared-runtime/, discriminated by a top-level `prepared_runtime` key. For each case a runner makes ONE tool call through the REAL Layer 06 pipeline (resolve, prepare_arguments, validation, the tools/pre-execute hook, execute) with a pre-execute listener that records the prepared value at each `observe` JSON pointer, and (custom tools) an execute that records the same. It performs no preparation, validation or numeric conversion itself. VALUE TOKENS: a runtime number is rendered as \"+Infinity\", \"-Infinity\", \"NaN\", \"-0\", or ECMAScript Number::toString of the finite value (an integral value decoded as a binding integer renders the same way, e.g. \"9007199254740992\"); a non-number renders as its JSON text.",
+  "type": "object",
+  "required": ["name", "family", "authority", "pi_revision", "requirements", "witnesses", "prepared_runtime"],
+  "additionalProperties": false,
+  "properties": {
+    "name": { "type": "string", "minLength": 1 },
+    "family": { "const": "agent" },
+    "authority": { "type": "string", "minLength": 1 },
+    "pi_revision": { "type": "string", "minLength": 1 },
+    "requirements": { "type": "array", "minItems": 1, "items": { "type": "string", "pattern": "^TOOL-0[0-9]{2}$" } },
+    "witnesses": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
+    "notes": { "type": "string" },
+    "prepared_runtime": {
+      "type": "object",
+      "required": ["cases"],
+      "additionalProperties": false,
+      "properties": { "cases": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/case" } } }
+    }
+  },
+  "$defs": {
+    "token": {
+      "type": "string",
+      "$comment": "a value token (see the top-level comment)",
+      "pattern": "^(\\+Infinity|-Infinity|NaN|-0|-?[0-9].*)$"
+    },
+    "case": {
+      "type": "object",
+      "required": ["id", "tool", "arguments", "observe", "expect"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "tool": {
+          "enum": ["edit", "custom"],
+          "$comment": "edit: the REAL built-in edit tool over a fresh root holding f.txt = \"a\\n\" (its own prepare_arguments, prepareEditArguments). custom: a tool named `probe` whose parameters are `schema` and whose prepare_arguments returns the arguments with `prepare_set` applied (Pi's public AgentTool.prepareArguments shim); its execute records the observed values and succeeds"
+        },
+        "schema": {
+          "enum": ["number", "integer", "open"],
+          "$comment": "custom only. number: {type: object, properties: {limit: {type: number}}, required: [limit]}; integer: the same with {type: integer}; open: {type: object, properties: {}}"
+        },
+        "prepare_set": {
+          "type": "object",
+          "additionalProperties": { "$ref": "#/$defs/token" },
+          "$comment": "custom only: keys the prepare_arguments callback sets, each to the runtime number its token denotes"
+        },
+        "arguments": { "type": "object", "$comment": "the raw ToolCall arguments (JSON); the runner also requires them unchanged after the call" },
+        "observe": { "type": "array", "minItems": 1, "items": { "type": "string", "pattern": "^(/[^/]*)+$" } },
+        "expect": {
+          "type": "object",
+          "required": ["outcome"],
+          "additionalProperties": false,
+          "properties": {
+            "outcome": {
+              "enum": ["prepared", "argument_validation_failure"],
+              "$comment": "argument_validation_failure: Layer 06's certified immediate argument-validation error (its text is Layer 06's own); neither the hook nor execute runs"
+            },
+            "observed": {
+              "type": "object",
+              "additionalProperties": { "$ref": "#/$defs/token" },
+              "$comment": "prepared only: the token at each observed pointer, as the pre-execute hook sees it and (custom) as execute receives it"
+            },
+            "result_text": { "type": "string", "$comment": "edit only: the tool's success text" }
+          }
+        }
+      }
+    }
+  }
+}

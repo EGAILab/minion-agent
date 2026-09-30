@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$comment": "Layer 05/06 delta L0506-D001 (TOOL-041): the prepared runtime numeric domain. Scenarios live in conformance/agent/prepared-runtime/, discriminated by a top-level `prepared_runtime` key. For each case a runner makes ONE tool call through the REAL Layer 06 pipeline (resolve, prepare_arguments, validation, the tools/pre-execute hook, execute) with a pre-execute listener that records the prepared value at each `observe` JSON pointer, and (custom tools) an execute that records the same. It performs no preparation, validation or numeric conversion itself. VALUE TOKENS: a runtime number is rendered as \"+Infinity\", \"-Infinity\", \"NaN\", \"-0\", or ECMAScript Number::toString of the finite value (an integral value decoded as a binding integer renders the same way, e.g. \"9007199254740992\"); a non-number renders as its JSON text.",
+  "$comment": "Layer 05/06 delta L0506-D001 (TOOL-041): the prepared runtime numeric domain. Scenarios live in conformance/agent/prepared-runtime/, discriminated by a top-level `prepared_runtime` key. For each case a runner makes ONE tool call through the REAL Layer 06 pipeline (resolve, prepare_arguments, validation, the tools/pre-execute hook, execute) with a pre-execute listener that records the prepared value at each `observe` JSON pointer, and (custom tools) an execute that records the same. It performs no preparation, validation or numeric conversion itself. VALUE TOKENS (`token`): \"+Infinity\", \"-Infinity\", \"NaN\", \"-0\" (negative zero), or a finite JSON number literal; a finite literal MUST denote a finite binary64 value (a literal that overflows is not a finite token -- write \"+Infinity\"/\"-Infinity\"). An OBSERVED token is the ECMAScript Number::toString of the value (an integral value decoded as a binding integer renders the same way, e.g. \"9007199254740992\"). PREFLIGHT (language-neutral, before running a case; a violation fails the document, it is never defaulted): for outcome `prepared`, the keys of `observed` are exactly the `observe` pointers; every finite literal in `prepare_set` or `observed` parses to a finite binary64 value.",
   "type": "object",
   "required": ["name", "family", "authority", "pi_revision", "requirements", "witnesses", "prepared_runtime"],
   "additionalProperties": false,
@@ -22,48 +22,85 @@
   "$defs": {
     "token": {
       "type": "string",
-      "$comment": "a value token (see the top-level comment)",
-      "pattern": "^(\\+Infinity|-Infinity|NaN|-0|-?[0-9].*)$"
+      "pattern": "^(\\+Infinity|-Infinity|NaN|-0|-?(0|[1-9][0-9]*)(\\.[0-9]+)?([eE][+-]?[0-9]+)?)$"
+    },
+    "pointer": { "type": "string", "pattern": "^(/[^/]+)+$" },
+    "observe": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "$ref": "#/$defs/pointer" } },
+    "tokens": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": { "$ref": "#/$defs/pointer" },
+      "additionalProperties": { "$ref": "#/$defs/token" }
     },
     "case": {
+      "oneOf": [{ "$ref": "#/$defs/editCase" }, { "$ref": "#/$defs/customCase" }]
+    },
+    "editCase": {
       "type": "object",
+      "$comment": "the REAL built-in edit tool over a fresh root holding f.txt = \"a\\n\" (its own prepare_arguments, prepareEditArguments)",
       "required": ["id", "tool", "arguments", "observe", "expect"],
       "additionalProperties": false,
       "properties": {
         "id": { "type": "string", "minLength": 1 },
-        "tool": {
-          "enum": ["edit", "custom"],
-          "$comment": "edit: the REAL built-in edit tool over a fresh root holding f.txt = \"a\\n\" (its own prepare_arguments, prepareEditArguments). custom: a tool named `probe` whose parameters are `schema` and whose prepare_arguments returns the arguments with `prepare_set` applied (Pi's public AgentTool.prepareArguments shim); its execute records the observed values and succeeds"
-        },
+        "tool": { "const": "edit" },
+        "arguments": { "type": "object" },
+        "observe": { "$ref": "#/$defs/observe" },
+        "expect": {
+          "oneOf": [
+            {
+              "type": "object",
+              "required": ["outcome", "observed", "result_text"],
+              "additionalProperties": false,
+              "properties": {
+                "outcome": { "const": "prepared" },
+                "observed": { "$ref": "#/$defs/tokens" },
+                "result_text": { "type": "string", "$comment": "the edit's success text" }
+              }
+            },
+            { "$ref": "#/$defs/failure" }
+          ]
+        }
+      }
+    },
+    "customCase": {
+      "type": "object",
+      "$comment": "a tool named `probe` whose parameters are `schema` and whose prepare_arguments returns the arguments with `prepare_set` applied (Pi's public AgentTool.prepareArguments shim); its execute records the observed values and succeeds",
+      "required": ["id", "tool", "schema", "prepare_set", "arguments", "observe", "expect"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "tool": { "const": "custom" },
         "schema": {
           "enum": ["number", "integer", "open"],
-          "$comment": "custom only. number: {type: object, properties: {limit: {type: number}}, required: [limit]}; integer: the same with {type: integer}; open: {type: object, properties: {}}"
+          "$comment": "number: {type: object, properties: {limit: {type: number}}, required: [limit]}; integer: the same with {type: integer}; open: {type: object, properties: {}}"
         },
         "prepare_set": {
           "type": "object",
-          "additionalProperties": { "$ref": "#/$defs/token" },
-          "$comment": "custom only: keys the prepare_arguments callback sets, each to the runtime number its token denotes"
+          "minProperties": 1,
+          "propertyNames": { "pattern": "^[A-Za-z_][A-Za-z0-9_]*$" },
+          "additionalProperties": { "$ref": "#/$defs/token" }
         },
-        "arguments": { "type": "object", "$comment": "the raw ToolCall arguments (JSON); the runner also requires them unchanged after the call" },
-        "observe": { "type": "array", "minItems": 1, "items": { "type": "string", "pattern": "^(/[^/]*)+$" } },
+        "arguments": { "type": "object" },
+        "observe": { "$ref": "#/$defs/observe" },
         "expect": {
-          "type": "object",
-          "required": ["outcome"],
-          "additionalProperties": false,
-          "properties": {
-            "outcome": {
-              "enum": ["prepared", "argument_validation_failure"],
-              "$comment": "argument_validation_failure: Layer 06's certified immediate argument-validation error (its text is Layer 06's own); neither the hook nor execute runs"
-            },
-            "observed": {
+          "oneOf": [
+            {
               "type": "object",
-              "additionalProperties": { "$ref": "#/$defs/token" },
-              "$comment": "prepared only: the token at each observed pointer, as the pre-execute hook sees it and (custom) as execute receives it"
+              "required": ["outcome", "observed"],
+              "additionalProperties": false,
+              "properties": { "outcome": { "const": "prepared" }, "observed": { "$ref": "#/$defs/tokens" } }
             },
-            "result_text": { "type": "string", "$comment": "edit only: the tool's success text" }
-          }
+            { "$ref": "#/$defs/failure" }
+          ]
         }
       }
+    },
+    "failure": {
+      "type": "object",
+      "$comment": "Layer 06's certified immediate argument-validation error (TOOL-003; its text is Layer 06's own, not asserted); neither the hook nor execute runs",
+      "required": ["outcome"],
+      "additionalProperties": false,
+      "properties": { "outcome": { "const": "argument_validation_failure" } }
     }
   }
 }

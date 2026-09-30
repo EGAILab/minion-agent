@@ -7154,8 +7154,10 @@ rows:
     prepare_arguments). Raw ToolCall arguments, tool_execution_* original arguments and ToolCall serialization are
     unchanged. Validation: a declared number/integer instance is finite-only (+/-Infinity and NaN rejected with the
     certified TOOL-003 immediate error; -0 accepted, sign kept); an undeclared position keeps any runtime number. The
-    tools/pre-execute listener and execute observe the prepared value exactly. No serialization projection is defined
-    by Layer 06. Full rules: spec/tools.md Layer 06, ''Prepared runtime numeric domain (TOOL-041)''.'
+    tools/pre-execute listener and execute observe the prepared value exactly; the successful path serializes no
+    prepared value (Pi''s only serialization of it is its validation-failure diagnostic, a JSON.stringify projection:
+    +/-Infinity and NaN -> null, -0 -> 0, runtime values unchanged; Minion''s TOOL-003 validator text is its own).
+    Full rules: spec/tools.md Layer 06, ''Prepared runtime numeric domain (TOOL-041)''.'
   tests:
   - prepared_runtime_numeric_domain (canonical scenarios conformance/agent/prepared-runtime/*.yaml, generated from the
     pinned-Pi authority in minion-agent-docs assurance/layers/data/l0506-d001)

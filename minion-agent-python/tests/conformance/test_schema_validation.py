@@ -24,7 +24,9 @@ built-in tool schema; `family` routes to the unified schema; otherwise the legac
 schema governs.
 """
 
+import copy
 import json
+import math
 import re
 from pathlib import Path
 from typing import Any
@@ -170,6 +172,68 @@ def test_prepared_runtime_scenario_validates(scenario: Path) -> None:
     assert not errors, "\n".join(
         f"{'/'.join(str(part) for part in error.path)}: {error.message}" for error in errors
     )
+
+
+def _prepared_runtime_documents() -> list[dict[str, Any]]:
+    return [
+        yaml.safe_load(path.read_text(encoding="utf-8"))
+        for path in sorted(PREPARED_RUNTIME_DIR.glob("*.yaml"))
+    ]
+
+
+_FINITE_LITERAL = re.compile(r"-?(0|[1-9][0-9]*)(\.[0-9]+)?([eE][+-]?[0-9]+)?")
+
+
+def _finite_literal_is_finite(token: str) -> bool:
+    return token in ("+Infinity", "-Infinity", "NaN") or (
+        _FINITE_LITERAL.fullmatch(token) is not None and math.isfinite(float(token))
+    )
+
+
+def test_prepared_runtime_preflight_holds_for_every_case() -> None:
+    """The schema's language-neutral PREFLIGHT (L0506-D001-R002): a `prepared` case observes
+    exactly its `observe` pointers, and every finite literal denotes a finite binary64 value."""
+    for document in _prepared_runtime_documents():
+        for case in document["prepared_runtime"]["cases"]:
+            expect = case["expect"]
+            if expect["outcome"] == "prepared":
+                assert set(expect["observed"]) == set(case["observe"]), case["id"]
+            tokens = [*case.get("prepare_set", {}).values(), *expect.get("observed", {}).values()]
+            assert all(_finite_literal_is_finite(t) for t in tokens), case["id"]
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        pytest.param(lambda case: case.pop("schema"), id="custom-without-schema"),
+        pytest.param(lambda case: case.pop("prepare_set"), id="custom-without-prepare_set"),
+        pytest.param(lambda case: case["expect"].pop("observed"), id="prepared-without-observed"),
+        pytest.param(
+            lambda case: case["prepare_set"].__setitem__("extra", "1garbage"),
+            id="malformed-finite-token",
+        ),
+        pytest.param(
+            lambda case: case["expect"].__setitem__("outcome", "argument_validation_failure"),
+            id="failure-with-observed",
+        ),
+    ],
+)
+def test_prepared_runtime_schema_rejects_undispatchable_cases(mutation: Any) -> None:
+    """L0506-D001-R002: each isolated mutation of a valid custom case is REJECTED by the schema."""
+    base = next(
+        document
+        for document in _prepared_runtime_documents()
+        if document["name"] == "prepared-runtime-undeclared-field"
+    )
+    document = copy.deepcopy(base)
+    mutation(document["prepared_runtime"]["cases"][0])
+    schema = json.loads(PREPARED_RUNTIME_SCHEMA.read_text(encoding="utf-8"))
+    assert list(Draft202012Validator(schema).iter_errors(document))
+
+
+def test_prepared_runtime_preflight_rejects_an_overflowing_finite_literal() -> None:
+    assert not _finite_literal_is_finite("1e999")
+    assert _finite_literal_is_finite("1.7976931348623157e+308")
 
 
 def _session_document(append: dict[str, Any]) -> dict[str, Any]:

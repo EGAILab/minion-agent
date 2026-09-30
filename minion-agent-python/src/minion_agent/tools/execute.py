@@ -52,7 +52,16 @@ from typing import (
 
 from jsonschema import Draft202012Validator, validators
 from jsonschema.exceptions import ValidationError as JsonSchemaValidationError
-from pydantic import AllowInfNan, BaseModel, ConfigDict, Field, InstanceOf, RootModel, create_model
+from pydantic import (
+    AllowInfNan,
+    BaseModel,
+    ConfigDict,
+    Field,
+    InstanceOf,
+    RootModel,
+    Strict,
+    create_model,
+)
 from pydantic import ValidationError as PydanticValidationError
 
 from ..llm import ToolCallBlock
@@ -190,8 +199,13 @@ Draft 2020-12 with a finite-only `number`. A value in a position the schema does
 never checked, so a non-finite number there is kept -- as pinned Pi keeps it."""
 
 
-_FINITE_FLOAT = Annotated[float, AllowInfNan(False)]
-_PLAIN = frozenset({str, int, bool, bytes, type(None)})
+_FINITE_FLOAT = Annotated[float, AllowInfNan(False), Strict()]
+"""A declared `float` in the shape: strict, so only an actual runtime number is judged -- a
+delivered string such as `"Infinity"` is not coerced into one (`L0506-D001-I002`) -- and
+finite-only."""
+_FINITE_INT = Annotated[int, Strict()] | _FINITE_FLOAT
+"""A declared `int`: an actual int, or an actual (finite-only) float a callback delivered there."""
+_PLAIN = frozenset({str, bool, bytes, type(None)})
 _SHAPES: dict[type[Any], type[BaseModel]] = {}
 _BUILDING: dict[type[Any], str] = {}
 """Record types whose shape is being built, by shape name: a recursive reference resolves to a
@@ -202,13 +216,15 @@ _SHAPE_CONFIG = ConfigDict(extra="allow", arbitrary_types_allowed=True)
 
 def _shape(annotation: Any) -> Any:
     """The callback-free structural shape of a declared type, as its delivered (`model_dump`) value
-    is laid out (`TOOL-041`, `CE-L0506-D001-I001-01`): `float` finite-only, the plain scalars
-    and `Literal`s as declared, unions/containers through their arguments, and every
-    record type (model, dataclass, TypedDict) as a shape model over its delivered keys. Everything
-    that can run user code is dropped: `Annotated` metadata (validators, constraints), decorators,
-    defaults; any other class is checked by `isinstance` alone."""
+    is laid out (`TOOL-041`, `CE-L0506-D001-I001-01`): `float` strict and finite-only, `int` strict,
+    the plain scalars and `Literal`s as declared, unions/containers through their arguments, and
+    every record type (model, dataclass, TypedDict) as a shape model over its delivered keys.
+    Everything that can run user code is dropped: `Annotated` metadata (validators, constraints),
+    decorators, defaults; any other class is checked by `isinstance` alone."""
     if annotation is float:
         return _FINITE_FLOAT
+    if annotation is int:
+        return _FINITE_INT
     if annotation in _PLAIN or annotation is Any or annotation is object:
         return annotation
     if isinstance(annotation, NewType):

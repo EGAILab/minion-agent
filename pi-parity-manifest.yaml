@@ -7170,9 +7170,9 @@ rows:
     run by WP-13.2's Python approval and Rust implementation reviews once L0506-D001 is certified (see TOOL-030)
   python: 'minion_agent/tools/execute.py (PreparedArgumentsValidator: Draft 2020-12 with a finite-only number;
     _reject_declared_non_finite for pydantic-model tools -- the delivered model_dump() of the one ordinary pydantic
-    validation is validated against a callback-free, finite-only structural shape of the declared types and any
-    finite_number error rejects (CE-L0506-D001-I001-01 rev 3, agreed); prepared values pass unchanged to the
-    pre-execute hook and execute) -- fixes L0506-D001-C001 and L0506-D001-I001. Implementation candidate (L0506-D001,
-    minion-agent#88), pending independent review.'
+    validation is validated against a callback-free, finite-only structural shape of the declared types with strict
+    numeric leaves, and any finite_number error rejects (CE-L0506-D001-I001-01 revs 3-4, agreed); prepared values pass
+    unchanged to the pre-execute hook and execute) -- fixes L0506-D001-C001, L0506-D001-I001 and L0506-D001-I002.
+    Implementation candidate (L0506-D001, minion-agent#88), pending independent review.'
   rust: not implemented; planned (L0506-D001, minion-agent#88)
   disposition: adopted

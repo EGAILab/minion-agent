@@ -6023,6 +6023,14 @@ rows:
     `DIRECT_PI_PARITY`: pinned Pi''s own `getMutationQueueKey` falls back for exactly these two
     codes and re-throws for any other (`file-mutation-queue.ts:20-26`).
 
+    Correction (L12-RESOLVE-ENOTDIR, minion-agent#78; documentary only -- the paragraph above is kept as history):
+    the parity claim is wrong. Pinned Pi''s getMutationQueueKey falls back on ENOENT AND ENOTDIR (not_found,
+    not_directory) and has no not_supported case; resolve() falls back on not_found and not_supported and
+    propagates not_directory. The fallback condition is therefore NOT DIRECT_PI_PARITY but a known Layer-12
+    parity gap. resolve() has no production consumer; Layer 13''s mutation queue derives its key directly from
+    canonical_path with Pi''s set (TOOL-032), never through resolve(). Changing resolve() itself is not
+    authorized (non-additive change to certified Layer 12); runtime behavior unchanged.
+
     `resolve()`''s own cancellation classification (refined `L12-R016`, CE-L12-01-03):
     `resolve(path, signal?)` is in the accepts-but-does-not-inspect group (`EXEC-002`''s own §3.1
     table) -- a direct consequence of composing `absolute_path` and `canonical_path`, both already

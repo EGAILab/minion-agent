@@ -59,6 +59,9 @@ builtin_mutation:
           - "result A"
         -
           - "p write_file f.txt #1 permission_denied"
+          - "result B"
+        -
+          - "p write_file f.txt #1 permission_denied"
           - "p absolute_path sub/../f.txt #1 start"
       never:
         - "p absolute_path ./f.txt #1 start"

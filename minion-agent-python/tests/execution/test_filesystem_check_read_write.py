@@ -416,6 +416,38 @@ async def test_windows_symlink_loop_matches_the_unchanged_layer12_operations(
     assert len({r.error.code for r in checks if isinstance(r, Err)}) == 1
 
 
+@windows_only
+async def test_windows_sharing_violation_matches_the_bindings_other_operations(
+    tmp_path: Path,
+) -> None:
+    """SHARING VIOLATION (section 13.6, WP12E3-R001): with the file held open by another handle
+    with no sharing, `check_read_write` gives exactly the classification this binding's shared
+    mapper gives `check_readable` and `read_binary_file` for the same held file -- no
+    operation-specific special case. The cross-language value is minion-agent#69's."""
+    import ctypes
+    from ctypes import wintypes
+
+    target = tmp_path / "held.txt"
+    target.write_text("x")
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.CreateFileW.restype = wintypes.HANDLE
+    dword = wintypes.DWORD
+    kernel32.CreateFileW.argtypes = [
+        wintypes.LPCWSTR, dword, dword, wintypes.LPVOID, dword, dword, wintypes.HANDLE,
+    ]  # fmt: skip
+    kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+    handle = kernel32.CreateFileW(str(target), 0xC0000000, 0, None, 3, 0, None)
+    assert handle != wintypes.HANDLE(-1).value
+    fs = LocalFileSystem(cwd=str(tmp_path))
+    try:
+        results = [await fs.check_read_write("held.txt"), await fs.check_readable("held.txt"),
+                   await fs.read_binary_file("held.txt")]  # fmt: skip
+    finally:
+        kernel32.CloseHandle(handle)
+    assert all(isinstance(r, Err) for r in results)
+    assert len({r.error.code for r in results if isinstance(r, Err)}) == 1
+
+
 @posix_only
 async def test_fifo_is_ok_and_does_not_block(tmp_path: Path) -> None:
     await _witness_fifo_no_blocking(LocalFileSystem, tmp_path)

@@ -473,3 +473,84 @@ def _map_non_finite(value: Any) -> Any:
     if isinstance(value, float) and not math.isfinite(value):
         return 0.0
     return value
+
+
+# --- L0506-D001-I002: only an actual runtime number is judged ---------------------------------
+
+TEXT: list[str] = ["Infinity"]
+
+
+class NumericLookingString(BaseModel):
+    number: float
+
+    @field_validator("number")
+    @classmethod
+    def rewrite(cls, value: float) -> Any:
+        return TEXT[0]
+
+
+class StringBesideNumber(BaseModel):
+    number: float = 0.0
+    count: int = 0
+    other: float = 0.0
+    items: list[float] = []
+    either: float | str = 0.0
+
+    @model_validator(mode="after")
+    def rewrite(self) -> StringBesideNumber:
+        self.number = TEXT[0]  # type: ignore[assignment]
+        self.count = TEXT[0]  # type: ignore[assignment]
+        self.items = [TEXT[0]]  # type: ignore[list-item]
+        self.either = TEXT[0]
+        self.other = VALUE[0]
+        return self
+
+
+class StringsOnly(BaseModel):
+    number: float = 0.0
+    count: int = 0
+    items: list[float] = []
+    inner: Pair = Field(default_factory=Pair)
+
+    @model_validator(mode="after")
+    def rewrite(self) -> StringsOnly:
+        self.number = TEXT[0]  # type: ignore[assignment]
+        self.count = TEXT[0]  # type: ignore[assignment]
+        self.items = [TEXT[0]]  # type: ignore[list-item]
+        self.inner.number = TEXT[0]  # type: ignore[assignment]
+        return self
+
+
+@pytest.fixture(params=["Infinity", "-Infinity", "NaN", "outside", "1"])
+def text(request: pytest.FixtureRequest) -> Any:
+    TEXT[0] = request.param
+    yield request.param
+    TEXT[0] = "Infinity"
+
+
+@pytest.mark.filterwarnings("ignore:Pydantic serializer warnings")
+async def test_a_delivered_string_in_a_numeric_field_is_not_a_number(text: str) -> None:
+    """The delivered value is a string, not a runtime number: the check never coerces it."""
+    outcome = await _run(NumericLookingString, {"number": 1.0})
+    assert not outcome["rejected"], outcome
+    assert outcome["hook"] == outcome["execute"] == {"number": text}
+
+
+@pytest.mark.filterwarnings("ignore:Pydantic serializer warnings")
+async def test_strings_in_numeric_positions_are_delivered_unchanged(text: str) -> None:
+    outcome = await _run(StringsOnly, {})
+    assert not outcome["rejected"], outcome
+    assert outcome["execute"] == {
+        "number": text,
+        "count": text,
+        "items": [text],
+        "inner": {"number": text, "text": "ok"},
+    }
+
+
+@pytest.mark.filterwarnings("ignore:Pydantic serializer warnings")
+async def test_a_string_never_exempts_a_genuine_non_finite_sibling(
+    text: str, produced: float
+) -> None:
+    del text, produced
+    _assert_rejected(await _run(StringBesideNumber, {}))

@@ -29,16 +29,30 @@ asked to continue from a conversation that does not make sense.
 from __future__ import annotations
 
 import asyncio
+import functools
 import inspect
 import math
+import operator
 from collections.abc import Awaitable, Callable, Coroutine
-from dataclasses import dataclass, fields, is_dataclass
+from dataclasses import dataclass, is_dataclass
 from types import UnionType
-from typing import Annotated, Any, Union, get_args, get_origin, get_type_hints, is_typeddict
+from typing import (
+    Annotated,
+    Any,
+    ForwardRef,
+    Literal,
+    NewType,
+    TypeAliasType,
+    Union,
+    get_args,
+    get_origin,
+    get_type_hints,
+    is_typeddict,
+)
 
 from jsonschema import Draft202012Validator, validators
 from jsonschema.exceptions import ValidationError as JsonSchemaValidationError
-from pydantic import BaseModel
+from pydantic import AllowInfNan, BaseModel, ConfigDict, Field, InstanceOf, RootModel, create_model
 from pydantic import ValidationError as PydanticValidationError
 
 from ..llm import ToolCallBlock
@@ -152,8 +166,9 @@ def _validate(definition: ToolDefinition, arguments: dict[str, Any]) -> dict[str
         model = definition.parameters.model_validate(arguments)
     except PydanticValidationError as error:
         raise ArgumentValidationError(str(error)) from error
-    _reject_declared_non_finite(model)
-    return model.model_dump()
+    delivered = model.model_dump()
+    _reject_declared_non_finite(definition.parameters, delivered)
+    return delivered
 
 
 def _is_finite_number(checker: Any, instance: Any) -> bool:
@@ -175,92 +190,111 @@ Draft 2020-12 with a finite-only `number`. A value in a position the schema does
 never checked, so a non-finite number there is kept -- as pinned Pi keeps it."""
 
 
-def _admits_non_finite(annotation: Any) -> bool:
-    """Whether a declared type accepts a non-finite float as-is: only an unconstrained position
-    (`Any`/`object`, or a union containing one). A numeric declaration (`float`, `int`, a union of
-    them with `None`/other types) is finite-only (`TOOL-041`), as pinned Pi's `number` is."""
-    annotation = _strip_annotated(annotation)
-    if annotation in (Any, object):
-        return True
-    if get_origin(annotation) in (Union, UnionType):
-        return any(_admits_non_finite(member) for member in get_args(annotation))
-    return False
+_FINITE_FLOAT = Annotated[float, AllowInfNan(False)]
+_PLAIN = frozenset({str, int, bool, bytes, type(None)})
+_SHAPES: dict[type[Any], type[BaseModel]] = {}
+_BUILDING: dict[type[Any], str] = {}
+"""Record types whose shape is being built, by shape name: a recursive reference resolves to a
+forward reference to that name."""
+_SHAPE_NAMESPACE: dict[str, Any] = {}
+_SHAPE_CONFIG = ConfigDict(extra="allow", arbitrary_types_allowed=True)
 
 
-def _strip_annotated(annotation: Any) -> Any:
-    while get_origin(annotation) is Annotated:
-        annotation = get_args(annotation)[0]
-    return annotation
-
-
-def _check_finite(annotation: Any, value: Any, path: str) -> None:
-    """Walk a VALIDATED value against its declared type, rejecting a non-finite float in a
-    position whose declared type does not admit one. Containers, nested models, dataclasses and
-    TypedDicts are followed; anything declared unconstrained is left as is."""
-    annotation = _strip_annotated(annotation)
-    if isinstance(value, float):
-        if not math.isfinite(value) and not _admits_non_finite(annotation):
-            raise ArgumentValidationError(f"{path or 'value'}: Input should be a finite number")
-        return
-    if _admits_non_finite(annotation) and get_origin(annotation) not in (Union, UnionType):
-        return  # unconstrained: nothing below it is declared
-    if isinstance(value, BaseModel):
-        _check_model(value, path)
-        return
-    if is_dataclass(value) and not isinstance(value, type):
-        hints = get_type_hints(type(value), include_extras=True)
-        for field in fields(value):
-            item = getattr(value, field.name)
-            _check_finite(hints.get(field.name, Any), item, f"{path}.{field.name}")
-        return
+def _shape(annotation: Any) -> Any:
+    """The callback-free structural shape of a declared type, as its delivered (`model_dump`) value
+    is laid out (`TOOL-041`, `CE-L0506-D001-I001-01`): `float` finite-only, the plain scalars
+    and `Literal`s as declared, unions/containers through their arguments, and every
+    record type (model, dataclass, TypedDict) as a shape model over its delivered keys. Everything
+    that can run user code is dropped: `Annotated` metadata (validators, constraints), decorators,
+    defaults; any other class is checked by `isinstance` alone."""
+    if annotation is float:
+        return _FINITE_FLOAT
+    if annotation in _PLAIN or annotation is Any or annotation is object:
+        return annotation
+    if isinstance(annotation, NewType):
+        return _shape(annotation.__supertype__)
+    if isinstance(annotation, TypeAliasType):
+        return _shape(annotation.__value__)
     origin, args = get_origin(annotation), get_args(annotation)
+    if origin is Annotated:
+        return _shape(args[0])
     if origin in (Union, UnionType):
-        for member in args:
-            if _describes(member, value):
-                _check_finite(member, value, path)
-                return
-        return
-    if isinstance(value, dict):
-        if is_typeddict(annotation):
-            hints = get_type_hints(annotation, include_extras=True)
-            for key, item in value.items():
-                _check_finite(hints.get(key, Any), item, f"{path}.{key}")
-        elif args:
-            for key, item in value.items():
-                _check_finite(args[-1], item, f"{path}.{key}")
-        return
-    if isinstance(value, list | tuple | set | frozenset) and args:
-        for index, item in enumerate(value):
-            if origin is tuple and not (len(args) == 2 and args[1] is Ellipsis):
-                item_type = args[index] if index < len(args) else Any
-            else:
-                item_type = args[0]
-            _check_finite(item_type, item, f"{path}.{index}")
+        return functools.reduce(operator.or_, (_shape(arg) for arg in args))
+    if origin is Literal:
+        return annotation
+    if origin is not None:
+        mapped = tuple(arg if arg is Ellipsis else _shape(arg) for arg in args)
+        return origin[mapped]
+    if isinstance(annotation, type):
+        if issubclass(annotation, RootModel):
+            return _shape(annotation.model_fields["root"].annotation)
+        if (
+            issubclass(annotation, BaseModel)
+            or is_dataclass(annotation)
+            or is_typeddict(annotation)
+        ):
+            return _record_shape(annotation)
+        return InstanceOf[annotation]  # type: ignore[misc]  # a runtime class, isinstance-checked
+    return Any
 
 
-def _describes(annotation: Any, value: Any) -> bool:
-    """Whether a union member is the one a validated container/model value belongs to."""
-    annotation = _strip_annotated(annotation)
-    if annotation is Any:
-        return False  # `Any` is a class since Python 3.11 but refuses isinstance checks
-    if is_typeddict(annotation):
-        return isinstance(value, dict)  # a TypedDict class refuses isinstance checks
-    target = get_origin(annotation) or annotation
-    return isinstance(target, type) and isinstance(value, target)
+def _delivered_keys(record: type[Any]) -> dict[str, Any]:
+    """A record type's delivered keys and declared types, as `model_dump` lays them out."""
+    if not issubclass(record, BaseModel):
+        return get_type_hints(record, include_extras=True)
+    by_alias = bool(record.model_config.get("serialize_by_alias"))
+    keys = {
+        (info.serialization_alias or info.alias or name) if by_alias else name: info.annotation
+        for name, info in record.model_fields.items()
+    }
+    for name, computed in record.model_computed_fields.items():
+        keys[(computed.alias or name) if by_alias else name] = computed.return_type
+    return keys
 
 
-def _check_model(model: BaseModel, path: str = "") -> None:
-    for name, info in type(model).model_fields.items():
-        _check_finite(info.annotation, getattr(model, name), f"{path}.{name}" if path else name)
+def _record_shape(record: type[Any]) -> Any:
+    """A shape model over `record`'s delivered keys, built once per record type. Every key is
+    optional (an excluded field is absent) and extra keys are allowed (undeclared). A recursive
+    reference -- `record` itself, or a record type referring back -- becomes a forward reference
+    to the shape under construction, resolved once the outermost shape is built."""
+
+    if record in _SHAPES:
+        return _SHAPES[record]
+    if record in _BUILDING:
+        return ForwardRef(_BUILDING[record])
+    name = f"{record.__name__}Shape{id(record):x}"
+    _BUILDING[record] = name
+    try:
+        fields_: dict[str, Any] = {
+            f"f{index}": (_shape(annotation), Field(None, validation_alias=delivered))
+            for index, (delivered, annotation) in enumerate(_delivered_keys(record).items())
+        }
+        shape = create_model(name, __config__=_SHAPE_CONFIG, **fields_)
+    finally:
+        del _BUILDING[record]
+    _SHAPE_NAMESPACE[name] = shape
+    _SHAPES[record] = shape
+    if not _BUILDING:  # the outermost shape: resolve every forward reference built on the way
+        for built in _SHAPES.values():
+            built.model_rebuild(_types_namespace=_SHAPE_NAMESPACE)
+    return shape
 
 
-def _reject_declared_non_finite(model: BaseModel) -> None:
-    """The finite-only rule for a pydantic-model tool (`TOOL-041`, `L0506-D001-I001`): pydantic's
-    own `float` accepts +/-inf and NaN, so the VALIDATED model is walked against its declared field
-    types and a non-finite float in any declared numeric position -- including `Optional`/union,
-    container, nested-model, dataclass and TypedDict positions -- is rejected. Undeclared extras and
-    `Any` positions keep the value; pydantic stays the authority for every other rule."""
-    _check_model(model)
+def _reject_declared_non_finite(model: type[BaseModel], delivered: dict[str, Any]) -> None:
+    """The finite-only rule for a pydantic-model tool (`TOOL-041`, `L0506-D001-I001`), on the value
+    Layer 06 delivers (`model_dump()` of the one ordinary validation, user callbacks included):
+    rejected when validating it against the declared types' finite-only structural shape reports a
+    non-finite number (`finite_number`) at any position. pydantic's union semantics decide on the
+    complete value -- a union some finite-only alternative accepts reports nothing (Pi's `anyOf`),
+    so an `Any`/`object` alternative or an undeclared extra keeps its value. A position outside
+    the declared shape reports only its own mismatch, which neither rejects the call nor exempts
+    another position (`CE-I001-C002`). The shape runs no user code: each user validator runs
+    exactly once."""
+    try:
+        _record_shape(model).model_validate(delivered)
+    except PydanticValidationError as error:
+        if any(detail["type"] == "finite_number" for detail in error.errors()):
+            raise ArgumentValidationError(str(error)) from error
 
 
 def _arity(execute: Any) -> int:

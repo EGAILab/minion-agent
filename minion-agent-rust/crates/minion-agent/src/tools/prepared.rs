@@ -62,6 +62,9 @@ pub enum PreparedValue {
 }
 
 impl PreparedValue {
+    pub fn is_null(&self) -> bool {
+        matches!(self, Self::Null)
+    }
     pub fn number(value: f64) -> Self {
         Self::Number(PreparedNumber::from_f64(value))
     }
@@ -139,6 +142,37 @@ impl PreparedValue {
                 .collect::<Result<serde_json::Map<_, _>, _>>()
                 .map(Value::Object),
         }
+    }
+}
+
+impl std::ops::Index<&str> for PreparedValue {
+    type Output = Self;
+    fn index(&self, key: &str) -> &Self {
+        self.get(key).unwrap_or(&Self::Null)
+    }
+}
+
+impl std::ops::IndexMut<&str> for PreparedValue {
+    fn index_mut(&mut self, key: &str) -> &mut Self {
+        if self.is_null() {
+            *self = Self::Object(BTreeMap::new());
+        }
+        self.as_object_mut()
+            .expect("prepared value is an object")
+            .entry(key.to_owned())
+            .or_insert(Self::Null)
+    }
+}
+
+impl PartialEq<Value> for PreparedValue {
+    fn eq(&self, other: &Value) -> bool {
+        self == &Self::from(other.clone())
+    }
+}
+
+impl PartialEq<i32> for PreparedValue {
+    fn eq(&self, other: &i32) -> bool {
+        self.as_f64() == Some(f64::from(*other))
     }
 }
 

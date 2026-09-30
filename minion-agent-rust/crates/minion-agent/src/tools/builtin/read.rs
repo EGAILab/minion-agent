@@ -6,7 +6,7 @@ use crate::{
     execution::{FileSystem, FsError, FsErrorCode},
     llm::{TextBlock, ToolResultContentBlock},
     tools::{
-        AgentToolResult, ToolCapabilityError, ToolDefinition, ToolExecutionRequest,
+        AgentToolResult, PreparedValue, ToolCapabilityError, ToolDefinition, ToolExecutionRequest,
         ToolExecutionSignal,
     },
 };
@@ -118,8 +118,8 @@ async fn read(
     ))
 }
 
-fn optional_number(params: &Value, name: &str) -> Option<f64> {
-    params.get(name).and_then(Value::as_f64)
+fn optional_number(params: &PreparedValue, name: &str) -> Option<f64> {
+    params.get(name).and_then(PreparedValue::as_f64)
 }
 
 pub fn create_read_tool(fs: Arc<dyn FileSystem>, options: ReadToolOptions) -> ToolDefinition {
@@ -147,7 +147,7 @@ pub fn create_read_tool(fs: Arc<dyn FileSystem>, options: ReadToolOptions) -> To
                 let path = request
                     .params
                     .get("path")
-                    .and_then(Value::as_str)
+                    .and_then(PreparedValue::as_str)
                     .ok_or_else(|| ToolCapabilityError::new("path is required"))?
                     .to_owned();
                 let offset = optional_number(&request.params, "offset");

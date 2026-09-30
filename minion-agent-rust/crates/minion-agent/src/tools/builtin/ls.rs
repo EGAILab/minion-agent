@@ -8,7 +8,7 @@ use crate::{
     execution::{DirEntryProbeKind, FileSystem, FsErrorCode},
     llm::{TextBlock, ToolResultContentBlock},
     tools::{
-        AgentToolResult, ToolCapabilityError, ToolDefinition, ToolExecutionRequest,
+        AgentToolResult, PreparedValue, ToolCapabilityError, ToolDefinition, ToolExecutionRequest,
         ToolExecutionSignal,
     },
 };
@@ -35,7 +35,7 @@ async fn list(
     fs: Arc<dyn FileSystem>,
     path: String,
     limit: f64,
-    limit_value: Value,
+    limit_value: PreparedValue,
 ) -> Result<AgentToolResult, ToolCapabilityError> {
     let working = preprocess_path(&path)?;
     let absolute = fs
@@ -105,7 +105,12 @@ async fn list(
                 number_to_string(limit),
                 number_to_string(limit * 2.0)
             ));
-            details.insert("entry_limit_reached".into(), limit_value);
+            details.insert(
+                "entry_limit_reached".into(),
+                limit_value
+                    .try_to_json()
+                    .map_err(|error| ToolCapabilityError::new(error.to_string()))?,
+            );
         }
         if truncated.truncated {
             notices.push(format!("{} limit reached", format_size(DEFAULT_MAX_BYTES)));
@@ -147,7 +152,7 @@ pub fn create_ls_tool(fs: Arc<dyn FileSystem>) -> ToolDefinition {
                 let path = request
                     .params
                     .get("path")
-                    .and_then(Value::as_str)
+                    .and_then(PreparedValue::as_str)
                     .filter(|path| !path.is_empty())
                     .unwrap_or(".")
                     .to_owned();
@@ -156,7 +161,7 @@ pub fn create_ls_tool(fs: Arc<dyn FileSystem>) -> ToolDefinition {
                     .get("limit")
                     .filter(|value| !value.is_null())
                     .cloned()
-                    .unwrap_or_else(|| json!(500));
+                    .unwrap_or_else(|| json!(500).into());
                 let limit = limit_value.as_f64().unwrap_or(500.0);
                 let signal = request.signal;
                 let worker_signal = signal.clone();

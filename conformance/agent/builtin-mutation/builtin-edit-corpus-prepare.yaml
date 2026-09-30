@@ -153,14 +153,3 @@ builtin_mutation:
         is_error: true
         argument_validation_failure: true
         fs_calls: []
-    - id: "prepare-not-an-object"
-      tool: "edit"
-      fixture:
-        - path: "src/app.txt"
-          file:
-            base64: "eAphCg=="
-      arguments: "just a string"
-      expect:
-        is_error: true
-        argument_validation_failure: true
-        fs_calls: []

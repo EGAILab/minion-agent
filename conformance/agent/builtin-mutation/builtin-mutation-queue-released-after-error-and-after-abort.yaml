@@ -7,7 +7,7 @@ requirements:
   - "TOOL-033"
 witnesses:
   - "queue_release_after_error_and_abort"
-notes: "A's write fails (scripted) and B's call is pre-aborted; each releases its entry, so the next call for the same target runs. A pre-aborted call still registers and answers only after acquiring the lock. Ordering authority: queue_authority.json scenario 'same-key-waits-and-is-released-after-an-error' (pinned Pi file-mutation-queue.ts, unmodified, Node 22.15.1)."
+notes: "A's write fails (scripted); B is aborted while it waits in the queue (after Layer 06 preflight and its registration, L13-WP132-R004). There is no abort listener, so B keeps its place, answers 'Operation aborted' only after acquiring the lock, and never reaches its in-lock steps; each releases its entry, so C runs. Ordering authority: queue_authority.json scenario 'same-key-waits-and-is-released-after-an-error' (pinned Pi file-mutation-queue.ts, unmodified, Node 22.15.1)."
 builtin_mutation:
   fixture:
     - path: "f.txt"
@@ -24,7 +24,6 @@ builtin_mutation:
           content: "A"
       - id: "B"
         tool: "write"
-        signal: "pre_aborted"
         arguments:
           path: "./f.txt"
           content: "B"
@@ -38,6 +37,7 @@ builtin_mutation:
         operation: "write_file"
         path: "f.txt"
     steps:
+      - abort: "B"
       - release: "a-write"
         error: "permission_denied"
     expect:

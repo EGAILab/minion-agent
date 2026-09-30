@@ -91,12 +91,18 @@
         "id": { "type": "string" },
         "tool": { "$ref": "#/$defs/tool" },
         "fixture": { "type": "array", "items": { "$ref": "#/$defs/entry" }, "$comment": "added to the scenario fixture for this case only" },
-        "signal": { "const": "pre_aborted" },
+        "signal": {
+          "const": "pre_aborted",
+          "$comment": "the call's signal is already aborted when the runner invokes the Layer 06 pipeline: Layer 06 preflight answers 'Operation aborted' and never invokes execute, so no ctx.fs call is made (L13-WP132-R004). The tool's own register-before-check rule is witnessed with abort_after / a queue abort step instead"
+        },
         "abort_after": {
           "$ref": "#/$defs/operation",
           "$comment": "the runner aborts the call's signal as the FIRST invocation of the named ctx.fs operation hands back its (real or scripted) answer -- before the tool resumes"
         },
-        "arguments": { "$comment": "the raw tool-call arguments, before prepare_arguments (any JSON value)" },
+        "arguments": {
+          "type": "object",
+          "$comment": "the raw tool-call arguments, before prepare_arguments. Object-valued: Layer 02/05 ToolCall arguments are a JSON object, so prepareEditArguments' non-object branch is prepare-helper authority evidence only, not an integration case (L13-WP132-R005)"
+        },
         "unpaired_surrogate_arguments": {
           "const": true,
           "$comment": "the arguments contain an unpaired UTF-16 surrogate. Whether a binding can receive such an argument is decided at Layer 02/05 (spec/tools.md WP-13.2, String semantics: recorded, not resolved). A binding whose argument decoding carries it MUST pass the case; one whose decoding cannot represent it MUST show the argument is rejected before the tool runs, and records that as the Layer 02/05 hazard, not as a pass"
@@ -136,7 +142,6 @@
               "id": { "type": "string", "pattern": "^[A-Z]$" },
               "tool": { "$ref": "#/$defs/tool" },
               "provider": { "type": "string" },
-              "signal": { "const": "pre_aborted" },
               "arguments": { "type": "object" }
             }
           }
@@ -163,7 +168,7 @@
             "properties": {
               "release": { "type": "string", "$comment": "a gate id: the held invocation proceeds to the real provider" },
               "error": { "$ref": "#/$defs/fsErrorCode", "$comment": "with release: the held invocation answers this error instead of reaching the provider" },
-              "abort": { "type": "string", "pattern": "^[A-Z]$", "$comment": "abort that call's signal" }
+              "abort": { "type": "string", "pattern": "^[A-Z]$", "$comment": "abort that call's signal. Every call starts with a live signal and passes Layer 06 preflight; an abort step therefore reaches the tool's own checkpoints (L13-WP132-R004)" }
             }
           }
         },

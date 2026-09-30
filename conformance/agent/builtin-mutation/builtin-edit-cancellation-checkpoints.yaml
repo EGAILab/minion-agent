@@ -34,9 +34,25 @@ builtin_mutation:
       - path: "ro.txt"
         error: "permission_denied"
   cases:
-    - id: "pre-aborted"
+    - id: "pre-aborted-answered-by-layer06-preflight"
       tool: "edit"
       signal: "pre_aborted"
+      arguments:
+        path: "f.txt"
+        edits:
+          - oldText: "alpha"
+            newText: "A"
+      expect:
+        is_error: true
+        text: "Operation aborted"
+        details: {}
+        fs_calls: []
+        files_after:
+          - path: "f.txt"
+            text: "alpha\n"
+    - id: "abort-during-registration"
+      tool: "edit"
+      abort_after: "canonical_path"
       arguments:
         path: "f.txt"
         edits:

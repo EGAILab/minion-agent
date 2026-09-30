@@ -7,7 +7,7 @@ requirements:
   - "TOOL-033"
 witnesses:
   - "write_cancellation_checkpoints"
-notes: "No abort listener while the lock is held; the signal is checked after registration+wait, after create_dir and after write_file (an abort during the in-lock absolute_path is observed after create_dir, where Pi observes an abort during mkdir, L13-WP132-R001). A pre-aborted call still registers. A failing step's own error wins: Pi checks abort only after a step succeeds."
+notes: "No abort listener while the lock is held; the signal is checked after registration+wait, after create_dir and after write_file (an abort during the in-lock absolute_path is observed after create_dir, where Pi observes an abort during mkdir, L13-WP132-R001). The tool has no check before the lock: an abort that arrives after Layer 06 preflight, during registration, still completes registration (fallback key included) and answers after acquiring the lock. A signal already aborted at the call's start is answered by Layer 06 preflight, which never invokes execute (L13-WP132-R004). A failing step's own error wins: Pi checks abort only after a step succeeds."
 builtin_mutation:
   fixture:
     - path: "f.txt"
@@ -21,9 +21,23 @@ builtin_mutation:
       - path: "ro.txt"
         error: "permission_denied"
   cases:
-    - id: "pre-aborted-existing"
+    - id: "pre-aborted-answered-by-layer06-preflight"
       tool: "write"
       signal: "pre_aborted"
+      arguments:
+        path: "f.txt"
+        content: "x"
+      expect:
+        is_error: true
+        text: "Operation aborted"
+        details: {}
+        fs_calls: []
+        files_after:
+          - path: "f.txt"
+            text: "original\n"
+    - id: "abort-during-registration"
+      tool: "write"
+      abort_after: "canonical_path"
       arguments:
         path: "f.txt"
         content: "x"
@@ -36,9 +50,9 @@ builtin_mutation:
         files_after:
           - path: "f.txt"
             text: "original\n"
-    - id: "pre-aborted-new-file-registers-with-fallback-key"
+    - id: "abort-during-registration-still-derives-fallback-key"
       tool: "write"
-      signal: "pre_aborted"
+      abort_after: "canonical_path"
       arguments:
         path: "new.txt"
         content: "x"
@@ -52,18 +66,6 @@ builtin_mutation:
         files_after:
           - path: "new.txt"
             absent: true
-    - id: "abort-during-registration"
-      tool: "write"
-      abort_after: "canonical_path"
-      arguments:
-        path: "f.txt"
-        content: "x"
-      expect:
-        is_error: true
-        text: "Operation aborted"
-        details: {}
-        fs_calls:
-          - "canonical_path f.txt"
     - id: "abort-during-in-lock-absolute-path-seen-after-create-dir"
       tool: "write"
       abort_after: "absolute_path"

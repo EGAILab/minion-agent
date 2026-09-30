@@ -32,8 +32,9 @@ import asyncio
 import inspect
 import math
 from collections.abc import Awaitable, Callable, Coroutine
-from dataclasses import dataclass
-from typing import Any
+from dataclasses import dataclass, fields, is_dataclass
+from types import UnionType
+from typing import Annotated, Any, Union, get_args, get_origin, get_type_hints, is_typeddict
 
 from jsonschema import Draft202012Validator, validators
 from jsonschema.exceptions import ValidationError as JsonSchemaValidationError
@@ -148,11 +149,11 @@ def _validate(definition: ToolDefinition, arguments: dict[str, Any]) -> dict[str
             raise ArgumentValidationError(error.message) from error
         return dict(arguments)
     try:
-        validated = definition.parameters.model_validate(arguments).model_dump()
+        model = definition.parameters.model_validate(arguments)
     except PydanticValidationError as error:
         raise ArgumentValidationError(str(error)) from error
-    _reject_declared_non_finite(definition.parameters, arguments)
-    return validated
+    _reject_declared_non_finite(model)
+    return model.model_dump()
 
 
 def _is_finite_number(checker: Any, instance: Any) -> bool:
@@ -174,23 +175,92 @@ Draft 2020-12 with a finite-only `number`. A value in a position the schema does
 never checked, so a non-finite number there is kept -- as pinned Pi keeps it."""
 
 
-def _reject_declared_non_finite(model: type[BaseModel], arguments: dict[str, Any]) -> None:
-    """The same finite-only rule for a pydantic-model tool (`TOOL-041`): pydantic's own `float`
-    accepts +/-inf and NaN, so the prepared arguments are also checked against the model's own
-    JSON schema -- reporting ONLY a non-finite value in a declared numeric position (pydantic stays
-    the authority for every other rule). A model whose JSON schema cannot be generated is left to
-    pydantic alone (disclosed in spec/tools.md `TOOL-041`)."""
-    try:
-        schema = model.model_json_schema()
-    except Exception:  # pydantic raises several error types for non-JSON-schema-able models
+def _admits_non_finite(annotation: Any) -> bool:
+    """Whether a declared type accepts a non-finite float as-is: only an unconstrained position
+    (`Any`/`object`, or a union containing one). A numeric declaration (`float`, `int`, a union of
+    them with `None`/other types) is finite-only (`TOOL-041`), as pinned Pi's `number` is."""
+    annotation = _strip_annotated(annotation)
+    if annotation in (Any, object):
+        return True
+    if get_origin(annotation) in (Union, UnionType):
+        return any(_admits_non_finite(member) for member in get_args(annotation))
+    return False
+
+
+def _strip_annotated(annotation: Any) -> Any:
+    while get_origin(annotation) is Annotated:
+        annotation = get_args(annotation)[0]
+    return annotation
+
+
+def _check_finite(annotation: Any, value: Any, path: str) -> None:
+    """Walk a VALIDATED value against its declared type, rejecting a non-finite float in a
+    position whose declared type does not admit one. Containers, nested models, dataclasses and
+    TypedDicts are followed; anything declared unconstrained is left as is."""
+    annotation = _strip_annotated(annotation)
+    if isinstance(value, float):
+        if not math.isfinite(value) and not _admits_non_finite(annotation):
+            raise ArgumentValidationError(f"{path or 'value'}: Input should be a finite number")
         return
-    for error in PreparedArgumentsValidator(schema).iter_errors(arguments):
-        if (
-            error.validator == "type"
-            and isinstance(error.instance, float)
-            and not math.isfinite(error.instance)
-        ):
-            raise ArgumentValidationError(error.message)
+    if _admits_non_finite(annotation) and get_origin(annotation) not in (Union, UnionType):
+        return  # unconstrained: nothing below it is declared
+    if isinstance(value, BaseModel):
+        _check_model(value, path)
+        return
+    if is_dataclass(value) and not isinstance(value, type):
+        hints = get_type_hints(type(value), include_extras=True)
+        for field in fields(value):
+            item = getattr(value, field.name)
+            _check_finite(hints.get(field.name, Any), item, f"{path}.{field.name}")
+        return
+    origin, args = get_origin(annotation), get_args(annotation)
+    if origin in (Union, UnionType):
+        for member in args:
+            if _describes(member, value):
+                _check_finite(member, value, path)
+                return
+        return
+    if isinstance(value, dict):
+        if is_typeddict(annotation):
+            hints = get_type_hints(annotation, include_extras=True)
+            for key, item in value.items():
+                _check_finite(hints.get(key, Any), item, f"{path}.{key}")
+        elif args:
+            for key, item in value.items():
+                _check_finite(args[-1], item, f"{path}.{key}")
+        return
+    if isinstance(value, list | tuple | set | frozenset) and args:
+        for index, item in enumerate(value):
+            if origin is tuple and not (len(args) == 2 and args[1] is Ellipsis):
+                item_type = args[index] if index < len(args) else Any
+            else:
+                item_type = args[0]
+            _check_finite(item_type, item, f"{path}.{index}")
+
+
+def _describes(annotation: Any, value: Any) -> bool:
+    """Whether a union member is the one a validated container/model value belongs to."""
+    annotation = _strip_annotated(annotation)
+    if annotation is Any:
+        return False  # `Any` is a class since Python 3.11 but refuses isinstance checks
+    if is_typeddict(annotation):
+        return isinstance(value, dict)  # a TypedDict class refuses isinstance checks
+    target = get_origin(annotation) or annotation
+    return isinstance(target, type) and isinstance(value, target)
+
+
+def _check_model(model: BaseModel, path: str = "") -> None:
+    for name, info in type(model).model_fields.items():
+        _check_finite(info.annotation, getattr(model, name), f"{path}.{name}" if path else name)
+
+
+def _reject_declared_non_finite(model: BaseModel) -> None:
+    """The finite-only rule for a pydantic-model tool (`TOOL-041`, `L0506-D001-I001`): pydantic's
+    own `float` accepts +/-inf and NaN, so the VALIDATED model is walked against its declared field
+    types and a non-finite float in any declared numeric position -- including `Optional`/union,
+    container, nested-model, dataclass and TypedDict positions -- is rejected. Undeclared extras and
+    `Any` positions keep the value; pydantic stays the authority for every other rule."""
+    _check_model(model)
 
 
 def _arity(execute: Any) -> int:

@@ -7159,7 +7159,7 @@ rows:
     packages/coding-agent/src/core/tools/edit.ts::prepareEditArguments (JSON.parse)
   surface: Layer 05/06 post-certification delta L0506-D001 -- the prepared runtime numeric domain (prepare_arguments
     result, validation, tools/pre-execute arguments, execute arguments)
-  rule: 'Python/shared APPROVED and merged (L0506-D001, minion-agent#88; Owner decision L13-WP132-I004 Option 1, minion-agent#49
+  rule: 'CERTIFIED_CLOSED (L0506-D001, minion-agent#88; Owner decision L13-WP132-I004 Option 1, minion-agent#49
     issuecomment-5912178299; intentional divergence NONE). Prepared runtime arguments carry Pi''s runtime numbers:
     finite binary64 including -0 (sign preserved), +Infinity, -Infinity, and NaN (reachable only through a tool''s own
     prepare_arguments). Raw ToolCall arguments, tool_execution_* original arguments and ToolCall serialization are
@@ -7189,6 +7189,6 @@ rows:
     tests/prepared_runtime_value.rs and tests/prepared_runtime_conformance.rs (explicit L0506-D001 gate,
     50 custom cases; six fixture negative controls plus independently RED-confirmed declared-number validator
     mutation and RC001 numeric-keyword applicability (bounds/multipleOf do not apply to non-finites;
-    oneOf/not retain engine-owned branch verdicts). Rust implementation candidate on minion-agent#88, pending independent closure review;
+    oneOf/not retain engine-owned branch verdicts). Rust CERTIFIED (minion-agent#94 -> ee87245b; closure review minion-agent-docs#203);
     later WP-13.2 edit gate is not counted here.'
   disposition: adopted

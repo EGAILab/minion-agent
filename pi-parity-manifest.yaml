@@ -35,7 +35,7 @@ rows:
   surface: tool call + thoughtSignature + namespace
   rule: 'ToolCall{id,name,arguments,thought_signature?,namespace?}. L0206-D002 (minion-agent#103; Owner decision
     L0506-D002-Q001 Option 1, minion-agent#99 issuecomment-5926162818; intentional divergence NONE) -- AGREED (contract #105 -> c9b6e910; Python implementation review pending;
-    Rust NOT_IMPLEMENTED):
+    Rust implementation candidate awaiting CLOSURE_REVIEW):
     arguments hold pinned Pi''s JSON.parse JavaScript value domain -- strings of any UTF-16 code units (unpaired
     surrogates in values and keys), numbers incl. -0 and +/-Infinity, binary64-rounded -- unchanged through
     construction, session append/replay (MINION-002), tool_execution_* arguments and the Layer-06 input of a tool
@@ -52,8 +52,12 @@ rows:
   python: 'src/minion_agent/llm/content.py (rewrite). L0206-D002: conforms with no production change --
     tests/conformance/raw_arguments_runner.py, test_raw_arguments_conformance.py (38),
     tests/session/test_raw_arguments_negative_controls.py (Owner decision section 11 mutants) -- contract APPROVED (#105); implementation review pending.'
-  rust: 'Phase 2 llm vocabulary (new). L0206-D002: NOT_IMPLEMENTED (serde_json::Value cannot hold an unpaired surrogate
-    or +/-Infinity; a raw runtime value representation is required).'
+  rust: 'L0206-D002 Rust candidate: llm/raw.rs RawValue/RawNumber/RawString, ToolCall::new_raw,
+    javascript.rs reused certified JSON.parse-equivalent decoder; session/mod.rs SessionField::Message live payload;
+    tools/execution.rs raw start/update payloads and tools/definition.rs raw preparation capability.
+    tests/raw_arguments_conformance.rs (38 canonical cases, every live boundary and exactly one update event/delivery);
+    tests/raw_arguments.rs (decoder, typed session fork/compaction, explicit JSON projection, raw preparation).
+    Implementation candidate awaiting independent CLOSURE_REVIEW; not cross-language certified.'
   disposition: adopted
 - id: AI-004
   phase: 2
@@ -5604,7 +5608,7 @@ rows:
   pi: N/A — Minion persistence architecture
   surface: append-only session log
   rule: 'model-visible means logged; request reconstructable; same Pi model-visible history. L0206-D002
-    (AGREED; Rust NOT_IMPLEMENTED): event data carries the raw JavaScript value domain (AI-003) -- append accepts and replay returns
+    (AGREED; Rust implementation candidate awaiting CLOSURE_REVIEW): event data carries the raw JavaScript value domain (AI-003) -- append accepts and replay returns
     unpaired surrogates, -0 and +/-Infinity unchanged; the log is not a byte form, so no JSON projection applies.'
   tests:
   - session derivation/reconstruction suite
@@ -5612,7 +5616,10 @@ rows:
   rust: 'minion-agent-rust/crates/minion-agent/src/session/mod.rs (merged, PR #4 @ 2519fc1;
     post-certification delta fixes for SES-F004/F006/F007/F008 in PR #5 @ 7e45cd1; SES-F009
     evidence -- already-conforming Session confirmed, canonical adapter remediated -- in PR #6
-    @ 54928e2); tests/session.rs, tests/session_conformance.rs'
+    @ 54928e2); tests/session.rs, tests/session_conformance.rs.
+    L0206-D002 candidate: SessionField::Message retains typed live messages without JSON projection;
+    tests/raw_arguments.rs and tests/raw_arguments_conformance.rs cover exact values/keys, signed zero and infinities
+    through append/replay, fork/compaction and real Layer-06 boundaries. CLOSURE_REVIEW pending.'
   disposition: intentional divergence
 - id: MINION-003
   phase: 2

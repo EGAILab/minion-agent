@@ -140,7 +140,7 @@ struct Observation {
     error: bool,
     hook: Option<PreparedValue>,
     execute: Option<PreparedValue>,
-    raw_events: Vec<Value>,
+    raw_events: Vec<minion_agent::llm::RawValue>,
 }
 
 fn run_case(case: &Value, mutation: Mutation) -> Observation {

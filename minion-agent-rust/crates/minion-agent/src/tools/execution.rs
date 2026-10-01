@@ -1,5 +1,4 @@
 use std::{
-    collections::BTreeMap,
     future::Future,
     mem,
     sync::Arc,
@@ -158,7 +157,7 @@ pub enum ToolExecutionError {
 pub struct ToolExecutionStart {
     pub tool_call_id: String,
     pub tool_name: String,
-    pub arguments: Value,
+    pub arguments: crate::llm::RawValue,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -172,7 +171,7 @@ pub struct ToolExecutionEnd {
 pub struct ToolExecutionUpdate {
     pub tool_call_id: String,
     pub tool_name: String,
-    pub arguments: Value,
+    pub arguments: crate::llm::RawValue,
     pub update: AgentToolResult,
 }
 
@@ -1193,8 +1192,8 @@ fn normalize_successful_after_result(
     restore_protected(candidate, authoritative)
 }
 
-fn arguments_value(arguments: &BTreeMap<String, Value>) -> Value {
-    Value::Object(arguments.clone().into_iter().collect())
+fn arguments_value(arguments: &crate::llm::RawValue) -> crate::llm::RawValue {
+    arguments.clone()
 }
 
 fn error_content(message: &str) -> Vec<ToolResultContentBlock> {

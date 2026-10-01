@@ -70,8 +70,12 @@ pub struct ToolExecutionRequest {
     pub on_update: Option<ToolUpdateCallback>,
 }
 
-pub type PrepareArguments =
-    Arc<dyn Fn(Value) -> Result<PreparedValue, ToolCapabilityError> + Send + Sync + 'static>;
+pub type PrepareArguments = Arc<
+    dyn Fn(crate::llm::RawValue) -> Result<PreparedValue, ToolCapabilityError>
+        + Send
+        + Sync
+        + 'static,
+>;
 pub type ExecuteTool = Arc<
     dyn Fn(ToolExecutionRequest) -> BoxFuture<'static, Result<AgentToolResult, ToolCapabilityError>>
         + Send
@@ -147,15 +151,38 @@ impl ToolDefinition {
     where
         F: Fn(Value) -> Result<Value, ToolCapabilityError> + Send + Sync + 'static,
     {
-        self.prepare_arguments = Some(Arc::new(move |raw| prepare(raw).map(PreparedValue::from)));
+        self.prepare_arguments = Some(Arc::new(move |raw| {
+            let json = raw
+                .try_to_json()
+                .map_err(|error| ToolCapabilityError::new(error.to_string()))?;
+            prepare(json).map(PreparedValue::from)
+        }));
         self
     }
 
-    /// Preparation receives the unchanged raw JSON domain and may return the
-    /// wider in-memory runtime domain, including non-finite numbers.
+    /// JSON-input compatibility adapter. Use `with_prepare_raw_arguments` for
+    /// a callback accepting the full UTF-16/binary64 raw domain.
     pub fn with_prepare_runtime_arguments<F>(mut self, prepare: F) -> Self
     where
         F: Fn(Value) -> Result<PreparedValue, ToolCapabilityError> + Send + Sync + 'static,
+    {
+        self.prepare_arguments = Some(Arc::new(move |raw| {
+            let json = raw
+                .try_to_json()
+                .map_err(|error| ToolCapabilityError::new(error.to_string()))?;
+            prepare(json)
+        }));
+        self
+    }
+
+    /// Receive raw arguments unchanged, including non-scalar strings/keys,
+    /// signed zero and infinities. Preparation owns any subsequent conversion.
+    pub fn with_prepare_raw_arguments<F>(mut self, prepare: F) -> Self
+    where
+        F: Fn(crate::llm::RawValue) -> Result<PreparedValue, ToolCapabilityError>
+            + Send
+            + Sync
+            + 'static,
     {
         self.prepare_arguments = Some(Arc::new(prepare));
         self

@@ -1,6 +1,6 @@
 //! In-memory tool arguments after preparation (TOOL-041).
 //!
-//! Raw tool calls remain JSON-compatible. Preparation may additionally produce
+//! Raw tool calls use the live L0206-D002 UTF-16/binary64 domain. Preparation may additionally produce
 //! non-finite binary64 numbers and arbitrary UTF-16 strings, which must never be replaced by JSON nulls,
 //! strings, or clamped values. This vocabulary deliberately does not implement
 //! `Serialize`: any future serialization boundary must specify its projection.
@@ -262,6 +262,38 @@ impl From<Value> for PreparedValue {
                 object
                     .into_iter()
                     .map(|(key, value)| (key.into(), Self::from(value)))
+                    .collect(),
+            ),
+        }
+    }
+}
+
+impl From<crate::llm::RawValue> for PreparedValue {
+    fn from(value: crate::llm::RawValue) -> Self {
+        use crate::llm::RawValue;
+        match value {
+            RawValue::Null => Self::Null,
+            RawValue::Bool(value) => Self::Bool(value),
+            RawValue::Number(value) => {
+                let number = match RawValue::Number(value).try_to_json() {
+                    Ok(Value::Number(number)) => PreparedNumber::Finite(number),
+                    _ => PreparedNumber::from_f64(value.as_f64()),
+                };
+                Self::Number(number)
+            }
+            RawValue::String(value) => {
+                Self::String(PreparedString::from_code_units(value.code_units().to_vec()))
+            }
+            RawValue::Array(values) => Self::Array(values.into_iter().map(Self::from).collect()),
+            RawValue::Object(values) => Self::Object(
+                values
+                    .into_iter()
+                    .map(|(key, value)| {
+                        (
+                            PreparedString::from_code_units(key.code_units().to_vec()),
+                            Self::from(value),
+                        )
+                    })
                     .collect(),
             ),
         }

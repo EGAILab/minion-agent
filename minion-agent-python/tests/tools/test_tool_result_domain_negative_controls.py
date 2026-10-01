@@ -1,12 +1,12 @@
-"""L0506-D003 negative controls (Owner decision WP132-RUST-C002-Q001 section 16): each realistic
-WRONG implementation of
-the tool-result runtime value domain, installed at the real pipeline seam it would live in, must
-make the canonical
-corpus FAIL -- at the boundary where the defect first becomes observable -- while the unmodified
-pipeline passes.
+"""L0506-D003 negative controls (Owner decision WP132-RUST-C002-Q001 section 16).
 
-Every mutant is a runtime monkeypatch of production code; the runner and the scenarios are
-unchanged."""
+Each realistic WRONG implementation of the tool-result runtime value domain, installed at the real
+production seam it would live in, must make the canonical corpus FAIL -- at the boundary where the
+defect first becomes observable -- while the unmodified pipeline passes. Every mutant is a runtime
+monkeypatch of production code; the runner and the scenarios are unchanged. Session mutants patch
+the agent loop's own log encoder and the production replay paths (`derive_messages`' decoder,
+Layer 08 `project`), never a runner-local alias (`L0506-D003-R002`).
+"""
 
 from __future__ import annotations
 
@@ -19,6 +19,8 @@ from typing import Any
 
 import pytest
 
+from minion_agent.agent import projection
+from minion_agent.agent_loop import driver
 from minion_agent.runtime.events import EventBus
 from minion_agent.session import derive
 from minion_agent.tools import execute as execute_module
@@ -70,20 +72,15 @@ def _map(
 def _normalized(
     result: ToolResult, *, content: bool = True, details: Callable[[Any], Any] | None = _map
 ) -> ToolResult:
-    blocks = (
-        tuple(dataclasses.replace(b, text=_fffd(b.text)) for b in result.content)
-        if content
-        else result.content
-    )
-    return dataclasses.replace(
-        result,
-        content=blocks,
-        details=details(result.details) if details is not None else result.details,
-    )
+    blocks = result.content
+    if content:
+        blocks = tuple(dataclasses.replace(b, text=_fffd(b.text)) for b in result.content)
+    new_details = details(result.details) if details is not None else result.details
+    return dataclasses.replace(result, content=blocks, details=new_details)
 
 
 async def _failures(tmp_path: Path) -> list[tuple[str, str]]:
-    """(case id, first failing boundary) for every case the pipeline as currently patched fails."""
+    """(case id, first failing boundary) for every case the pipeline as patched fails."""
     failed = []
     for index, (_, case) in enumerate(CASES):
         root = tmp_path / str(index)
@@ -92,10 +89,9 @@ async def _failures(tmp_path: Path) -> list[tuple[str, str]]:
             runner.check(case, await runner.run_case(case, root))
         except AssertionError as error:
             detail = error.args[0] if error.args else ()
-            failed.append(
-                (case["id"], detail[1] if isinstance(detail, tuple) and len(detail) > 1 else "?")
-            )
-        except Exception as error:
+            boundary = detail[1] if isinstance(detail, tuple) and len(detail) > 1 else "?"
+            failed.append((case["id"], boundary))
+        except Exception as error:  # a mutant that crashes a boundary fails it too
             failed.append((case["id"], f"raised {type(error).__name__}"))
     return failed
 
@@ -144,17 +140,45 @@ def _patch_end_event(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(EventBus, "emit", emit)
 
 
-def _patch_encode(
+def _patch_log_encoder(
     monkeypatch: pytest.MonkeyPatch, transform: Callable[[dict[str, Any]], dict[str, Any]]
 ) -> None:
+    """The agent loop's own log encoder (what `driver` appends to the session log)."""
     original = derive.encode_message
-    monkeypatch.setattr(runner, "encode_message", lambda message: transform(original(message)))
+    monkeypatch.setattr(driver, "encode_message", lambda message: transform(original(message)))
 
 
 def _strict_json_log(encoded: dict[str, Any]) -> dict[str, Any]:
     """A log whose storage is strict UTF-8 JSON: an unpaired surrogate cannot be stored."""
     json.dumps(encoded, ensure_ascii=False, allow_nan=False).encode("utf-8")
     return encoded
+
+
+def _patch_history_decoder(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`derive_messages` (committed-history replay) decodes the logged message lossily."""
+    original = derive.decode_message
+    monkeypatch.setattr(derive, "decode_message", lambda raw: original(_map(raw)))
+
+
+def _patch_projection_decoder(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Layer 08 `project` decodes the logged message lossily."""
+    original = derive.decode_message
+    monkeypatch.setattr(projection, "decode_message", lambda raw: original(_map(raw)))
+
+
+def _patch_projection_truthiness(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The R001 defect itself: replay restores `details or {}`, losing falsy details."""
+    original = projection._tool_result_from_message
+
+    def rebuild(message: Any, *, terminate: bool) -> ToolResult:
+        result = original(message, terminate=terminate)
+        return dataclasses.replace(result, details=message.details or {})
+
+    monkeypatch.setattr(projection, "_tool_result_from_message", rebuild)
+
+
+def _message_details(transform: Callable[[Any], Any]) -> Callable[[ToolResult], ToolResult]:
+    return lambda r: _normalized(r, content=False, details=transform)
 
 
 MUTANTS: dict[str, tuple[Callable[[pytest.MonkeyPatch], None], str]] = {
@@ -171,36 +195,28 @@ MUTANTS: dict[str, tuple[Callable[[pytest.MonkeyPatch], None], str]] = {
         "message",
     ),
     "message-nested-details-normalized": (
-        lambda m: _patch_message(
-            m, lambda r: _normalized(r, content=False, details=lambda d: _map(d, min_depth=2))
-        ),
+        lambda m: _patch_message(m, _message_details(lambda d: _map(d, min_depth=2))),
         "message",
     ),
     "message-keys-replaced": (
-        lambda m: _patch_message(
-            m, lambda r: _normalized(r, content=False, details=lambda d: _map(d, strings=False))
-        ),
+        lambda m: _patch_message(m, _message_details(lambda d: _map(d, strings=False))),
         "message",
     ),
     "message-json-number-projection": (
         lambda m: _patch_message(
-            m,
-            lambda r: _normalized(
-                r, content=False, details=lambda d: _map(d, strings=False, keys=False, numbers=True)
-            ),
+            m, _message_details(lambda d: _map(d, strings=False, keys=False, numbers=True))
         ),
         "message",
     ),
-    "session-strict-json-storage": (lambda m: _patch_encode(m, _strict_json_log), "raised"),
-    "session-stores-fffd": (lambda m: _patch_encode(m, _map), "session"),
+    "session-strict-json-storage": (lambda m: _patch_log_encoder(m, _strict_json_log), "message"),
+    "session-stores-fffd": (lambda m: _patch_log_encoder(m, _map), "session"),
     "session-stores-pi-file-projection": (
-        lambda m: _patch_encode(m, lambda e: _map(e, strings=False, keys=False, numbers=True)),
+        lambda m: _patch_log_encoder(m, lambda e: _map(e, strings=False, keys=False, numbers=True)),
         "session",
     ),
-    "session-reload-fffd": (
-        lambda m: m.setattr(runner, "decode_message", lambda raw: derive.decode_message(_map(raw))),
-        "session",
-    ),
+    "session-history-replay-fffd": (_patch_history_decoder, "session"),
+    "event-replay-fffd": (_patch_projection_decoder, "replayed_execution_end"),
+    "event-replay-truthiness-default": (_patch_projection_truthiness, "replayed_execution_end"),
 }
 
 

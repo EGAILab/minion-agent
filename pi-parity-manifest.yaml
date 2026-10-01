@@ -99,14 +99,15 @@ rows:
     and details hold pinned Pi''s tool-result runtime value domain -- JavaScript strings of any UTF-16 code units
     in text and at any depth of details, details keys included, numbers incl. -0, +/-Infinity and NaN -- unchanged
     from the tool''s return through the after-hook (TOOL-005), tool_execution_end (TOOL-017), the
-    ToolResultMessage and session append/replay (MINION-002). Key order is L0206-D001''s; undefined/absent details
-    stay IR-L06-004''s host mapping. Projections (filesystem UTF-8, Pi''s session file, provider payloads) are
+    ToolResultMessage, session append/committed-history replay (MINION-002) and any binding''s replayed
+    tool_execution_end (Python: Layer-08 project). Key order is L0206-D001''s; undefined/absent/top-level-null details stay IR-L06-004''s
+    host mapping (ADJ-2). Projections (filesystem UTF-8, Pi''s session file, provider payloads) are
     separate boundaries. Full rules: spec/tools.md ''Tool-result runtime value domain''.'
   tests:
   - public-llm-vocabulary-schema
   - rich-assistant-message-round-trip
   - 'tool_result_runtime_value_domain -- L0506-D003: conformance/agent/tool-result-domain/ (shape
-    tool-result-domain-scenario.schema.json; 143 gate-L0506-D003 cases + 1 gate-WP-13.2 real-edit case, generated
+    tool-result-domain-scenario.schema.json; 142 gate-L0506-D003 cases + 1 gate-WP-13.2 real-edit case, generated
     from the pinned-Pi probe in minion-agent-docs assurance/layers/data/l0506-d003-characterization);
     tests/conformance/test_tool_result_domain_conformance.py, tests/tools/test_tool_result_domain_negative_controls.py'
   python: src/minion_agent/llm/messages.py (rewrite)
@@ -2940,7 +2941,7 @@ rows:
     this shared/Python-only pass.'
   tests:
   - 'tool_result_runtime_value_domain -- L0506-D003: conformance/agent/tool-result-domain/ (shape
-    tool-result-domain-scenario.schema.json; 143 gate-L0506-D003 cases + 1 gate-WP-13.2 real-edit case, generated
+    tool-result-domain-scenario.schema.json; 142 gate-L0506-D003 cases + 1 gate-WP-13.2 real-edit case, generated
     from the pinned-Pi probe in minion-agent-docs assurance/layers/data/l0506-d003-characterization);
     tests/conformance/test_tool_result_domain_conformance.py, tests/tools/test_tool_result_domain_negative_controls.py'
   - after-hook-failure-replaces-result-with-tool-error
@@ -3355,7 +3356,7 @@ rows:
     call, runnable identically once Rust implements the same scenario.'
   tests:
   - 'tool_result_runtime_value_domain -- L0506-D003: conformance/agent/tool-result-domain/ (shape
-    tool-result-domain-scenario.schema.json; 143 gate-L0506-D003 cases + 1 gate-WP-13.2 real-edit case, generated
+    tool-result-domain-scenario.schema.json; 142 gate-L0506-D003 cases + 1 gate-WP-13.2 real-edit case, generated
     from the pinned-Pi probe in minion-agent-docs assurance/layers/data/l0506-d003-characterization);
     tests/conformance/test_tool_result_domain_conformance.py, tests/tools/test_tool_result_domain_negative_controls.py'
   - test_execute_receives_the_real_tool_call_id
@@ -5630,11 +5631,15 @@ rows:
   surface: append-only session log
   rule: 'model-visible means logged; request reconstructable; same Pi model-visible history. L0206-D002
     (CERTIFIED_CLOSED; Rust #110 -> 2ec46f4b): event data carries the raw JavaScript value domain (AI-003) -- append accepts and replay returns
-    unpaired surrogates, -0 and +/-Infinity unchanged; the log is not a byte form, so no JSON projection applies.'
+    unpaired surrogates, -0 and +/-Infinity unchanged; the log is not a byte form, so no JSON projection applies.
+    L0506-D003 (minion-agent#112; CONTRACT_DRAFT): a TOOL_RESULT entry''s message carries the tool-result domain
+    (AI-006) -- additionally NaN, at any depth of details, keys included -- admitted by append and returned
+    unchanged by committed-history replay (derive_messages) and by any binding''s event replay from the log
+    (Python: Layer-08 project). Raw ToolCall.arguments stay NaN-free (carrier boundary, spec/session.md).'
   tests:
   - session derivation/reconstruction suite
   - 'tool_result_runtime_value_domain -- L0506-D003: conformance/agent/tool-result-domain/ (shape
-    tool-result-domain-scenario.schema.json; 143 gate-L0506-D003 cases + 1 gate-WP-13.2 real-edit case, generated
+    tool-result-domain-scenario.schema.json; 142 gate-L0506-D003 cases + 1 gate-WP-13.2 real-edit case, generated
     from the pinned-Pi probe in minion-agent-docs assurance/layers/data/l0506-d003-characterization);
     tests/conformance/test_tool_result_domain_conformance.py, tests/tools/test_tool_result_domain_negative_controls.py'
   python: src/minion_agent/session/ (retain/realign)

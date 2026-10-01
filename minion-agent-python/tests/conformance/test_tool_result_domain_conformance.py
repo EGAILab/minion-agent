@@ -23,7 +23,7 @@ CASES = [
 
 def test_the_tool_result_corpus_is_complete() -> None:
     assert len(DOCUMENTS) == 7
-    assert len(CASES) == 144
+    assert len(CASES) == 143
     gates = [case for document, case in CASES if document.get("gate") == "WP-13.2"]
     assert [case["id"] for case in gates] == ["edit/lone-high-new-text"]
 

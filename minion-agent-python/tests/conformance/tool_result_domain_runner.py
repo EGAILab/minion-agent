@@ -1,26 +1,25 @@
 """Runner for `tool_result_domain` scenarios
-(`conformance/schema/tool-result-domain-scenario.schema.json`,
-L0506-D003 / `AI-006`, `TOOL-005`, `TOOL-017`, `MINION-002`: the tool-result runtime value domain).
+(`conformance/schema/tool-result-domain-scenario.schema.json`, L0506-D003 / `AI-006`, `TOOL-005`,
+`TOOL-017`, `MINION-002`: the tool-result runtime value domain).
 
-Thin by design: a case's `tool.returns` (decoded from the L0206-D002 value grammar, plus `NaN`)
-becomes the ONE
-`ToolResult` a registered tool's `execute` returns (or `tool.throws` the message it raises); the
-case's `hook` becomes
-one after-hook registered through `register_after_tool_call_hook`. The runner then only OBSERVES the
-result at each
-boundary the pipeline itself produces:
+Thin by design, and through the REAL composed stack (`L0506-D003-R002`): a scripted mock provider
+answers one turn with ONE tool call, then a final reply. The tool's `execute` returns the case's
+`tool.returns` (decoded from the L0206-D002 value grammar, plus `NaN`) or raises `tool.throws`;
+the case's `hook` is one after-hook registered through `register_after_tool_call_hook`. The agent
+loop itself finalizes the result, builds the `ToolResultMessage`, appends it to the session log and
+dispatches its events. The runner only OBSERVES:
 
-    hook            what the after-hook receives
-    execution_end   the `tools/execution-end` payload (pinned Pi's `tool_execution_end`)
-    message         `ToolResult.to_message()` of the final result (the agent loop's own projection)
-    session         that message appended to a fresh `SessionLog` (`encode_message`) and replayed
-    (`decode_message`)
+    hook                     what the after-hook receives
+    execution_end            the live `tools/execution-end` payload (`tool_execution_end`)
+    message                  the live `MessageEnd` the loop dispatches for the tool result
+    session                  the tool result in `derive_messages(log)`: committed-history replay
+    replayed_execution_end   the `ToolExecutionEnd` that `project(log)` rebuilds from the log
+                             (Layer 08 event replay; must equal `execution_end`, R001)
 
-Strings render to UTF-16 code units, numbers to tokens, objects to key -> observation maps (compared
-as sets: K1
-order is L0206-D001's). It never decodes, normalizes or converts on the pipeline's behalf. The
-gate-WP-13.2 document
-runs the REAL `edit` tool over the real `LocalFileSystem` instead of a fixture tool.
+Strings render to UTF-16 code units, numbers to tokens, objects to key -> observation maps
+(compared as sets: K1 order is L0206-D001's). The runner never decodes, normalizes or converts on
+the pipeline's behalf. The gate-WP-13.2 document registers the REAL `edit` tool over the real
+`LocalFileSystem` instead of a fixture tool.
 """
 
 from __future__ import annotations
@@ -29,24 +28,30 @@ import math
 from pathlib import Path
 from typing import Any
 
+from minion_agent.agent.events import AGENT_LIFECYCLE_EVENT
+from minion_agent.agent.identity import AgentDefinition
+from minion_agent.agent.plugin import agents_plugin
+from minion_agent.agent.projection import MessageEnd, ToolExecutionEnd, project
+from minion_agent.agent_loop import agent_loop_plugin
 from minion_agent.execution import LocalFileSystem
-from minion_agent.llm import TextBlock, ToolCallBlock
+from minion_agent.llm import ModelId, TextBlock, ToolCallBlock, ToolResultMessage, UserMessage
+from minion_agent.llm.adapters.mock import MockAdapter, ScriptedResponse
+from minion_agent.llm.messages import StopReason
+from minion_agent.llm.plugin import llm_plugin
 from minion_agent.runtime import Context
-from minion_agent.session.derive import decode_message, encode_message
-from minion_agent.session.events import EventKind
-from minion_agent.session.log import SessionLog
+from minion_agent.session import derive_messages
+from minion_agent.session.service import session_plugin
 from minion_agent.tools.builtin import create_edit_tool
 from minion_agent.tools.decisions import AfterToolCallOverride
 from minion_agent.tools.definition import ToolDefinition
-from minion_agent.tools.events import TOOLS_EXECUTION_END, declare_tools_events
-from minion_agent.tools.execute import execute_call, register_after_tool_call_hook
-from minion_agent.tools.registry import ToolRegistry
+from minion_agent.tools.events import TOOLS_EXECUTION_END
+from minion_agent.tools.execute import register_after_tool_call_hook
+from minion_agent.tools.plugin import tools_plugin
 from minion_agent.tools.result import ToolResult
 
 from .raw_arguments_runner import canonical_finite, expect, observe, string
 
-# L0506-D003: the result domain is the raw token grammar plus NaN (a tool result is not JSON.parse
-# output).
+# L0506-D003: the result domain is the raw token grammar plus NaN (not JSON.parse output).
 NAMED = {"+Infinity": math.inf, "-Infinity": -math.inf, "-0": -0.0, "NaN": math.nan}
 
 
@@ -94,7 +99,7 @@ def content(blocks: Any) -> list[Any]:
     return [observe(block.text) for block in blocks]
 
 
-def observed(result: ToolResult) -> dict[str, Any]:
+def observed(result: ToolResult | ToolResultMessage) -> dict[str, Any]:
     return {
         "content": content(result.content),
         "details": observe(result.details),
@@ -126,100 +131,102 @@ def _after_hook(hook: dict[str, Any], seen: dict[str, Any]) -> Any:
             return AfterToolCallOverride(details=None)
         if mode == "throws":
             raise RuntimeError(decode(hook["message"]))
+        replaced = tuple(TextBlock(text=decode(b)) for b in hook.get("content", ()))
         return AfterToolCallOverride(
-            content=tuple(TextBlock(text=decode(b)) for b in hook["content"])
-            if "content" in hook
-            else None,
+            content=replaced if "content" in hook else None,
             details=decode(hook["details"]) if "details" in hook else None,
         )
 
     return after
 
 
-async def run_case(case: dict[str, Any], root: Path | None = None) -> dict[str, Any]:
-    """One call through every boundary; returns each boundary's observation."""
+def _fixture_tool(tool: dict[str, Any]) -> ToolDefinition:
+    async def execute(tool_call_id: str, arguments: dict[str, Any]) -> ToolResult:
+        if "throws" in tool:
+            raise RuntimeError(decode(tool["throws"]))
+        returns = tool["returns"]
+        return ToolResult(
+            tool_call_id=tool_call_id,
+            tool_name="probe",
+            content=tuple(TextBlock(text=decode(b)) for b in returns["content"]),
+            details=decode(returns["details"]),
+        )
+
+    return ToolDefinition(
+        name="probe",
+        label="probe",
+        description="probe",
+        parameters={"type": "object", "properties": {}},
+        execute=execute,
+    )
+
+
+async def run_case(case: dict[str, Any], root: Path) -> dict[str, Any]:
+    """One agent run through every boundary; returns each boundary's observation."""
     seen: dict[str, Any] = {}
-    registry = ToolRegistry()
+    ctx = Context()
+    for plugin in (session_plugin, llm_plugin, tools_plugin, agents_plugin, agent_loop_plugin):
+        await ctx.plugin(plugin)
     if "edit" in case:
-        assert root is not None
         (root / "f.txt").write_bytes(bytes.fromhex(case["edit"]["file_utf8_hex"]))
-        registry.register(create_edit_tool(LocalFileSystem(str(root))))
+        ctx.tools.register(create_edit_tool(LocalFileSystem(str(root))))
         call = ToolCallBlock(id="call-1", name="edit", arguments=decode(case["edit"]["arguments"]))
     else:
-        tool = case["tool"]
-
-        async def execute(tool_call_id: str, arguments: dict[str, Any]) -> ToolResult:
-            if "throws" in tool:
-                raise RuntimeError(decode(tool["throws"]))
-            returns = tool["returns"]
-            return ToolResult(
-                tool_call_id=tool_call_id,
-                tool_name="probe",
-                content=tuple(TextBlock(text=decode(b)) for b in returns["content"]),
-                details=decode(returns["details"]),
-            )
-
-        registry.register(
-            ToolDefinition(
-                name="probe",
-                label="probe",
-                description="probe",
-                parameters={"type": "object", "properties": {}},
-                execute=execute,
-            )
-        )
+        ctx.tools.register(_fixture_tool(case["tool"]))
         call = ToolCallBlock(id="call-1", name="probe", arguments={})
-    ctx = Context()
-    declare_tools_events(ctx.events)
+    ctx.llm.register(
+        MockAdapter(
+            [
+                ScriptedResponse((call,), StopReason.TOOL_USE),
+                ScriptedResponse((TextBlock(text="done"),), StopReason.STOP),
+            ]
+        )
+    )
     if case["hook"]["mode"] != "none":
         register_after_tool_call_hook(ctx, _after_hook(case["hook"], seen))
 
-    def on_end(call_id: str, name: str, result: ToolResult, *rest: Any) -> None:
+    def on_end(call_id: str, name: str, result: ToolResult) -> None:
         seen.setdefault("execution_end", []).append(observed(result))
 
+    def on_lifecycle(instance: Any, event: Any) -> None:
+        if isinstance(event, MessageEnd) and isinstance(event.message, ToolResultMessage):
+            seen.setdefault("message", []).append(observed(event.message))
+
     ctx.events.on(TOOLS_EXECUTION_END, on_end)
-    result = await execute_call(call, registry=registry, ctx=ctx)
-    message = result.to_message()
-    seen["message"] = {
-        "content": content(message.content),
-        "details": observe(message.details),
-        "is_error": message.is_error,
-    }
-    event = SessionLog(session_id="s").append(
-        EventKind.TOOL_RESULT, {"message": encode_message(message)}
+    handle = ctx.agents.create(
+        "probe", AgentDefinition(name="probe", model=ModelId("mock", "mock-1"), system="")
     )
-    replayed = decode_message(event.data["message"])
-    seen["session"] = {"content": content(replayed.content), "details": observe(replayed.details)}
+    loop = ctx.agent_loop.for_instance(handle.instance)
+    ctx.events.on(AGENT_LIFECYCLE_EVENT, on_lifecycle)
+    handle.instance.inbox.followup(UserMessage(content=(TextBlock(text="go"),), timestamp=1))
+    await loop.run_until_idle()
+
+    log = handle.instance.log
+    seen["session"] = [
+        {"content": content(m.content), "details": observe(m.details)}
+        for m in derive_messages(log)
+        if isinstance(m, ToolResultMessage)
+    ]
+    seen["replayed_execution_end"] = [
+        observed(e.result) for e in project(log) if isinstance(e, ToolExecutionEnd)
+    ]
     if "edit" in case:
-        seen["file_utf8_hex"] = (root / "f.txt").read_bytes().hex()  # type: ignore[operator]
+        seen["file_utf8_hex"] = (root / "f.txt").read_bytes().hex()
     return seen
 
 
 def check(case: dict[str, Any], seen: dict[str, Any]) -> None:
     want = case["expect"]
     hook = want["hook"]
-    assert seen.get("hook") == (expected(hook) if hook is not None else None), (
-        case["id"],
-        "hook",
-        seen.get("hook"),
-    )
-    assert seen.get("execution_end") == [expected(want["execution_end"])], (
-        case["id"],
-        "execution_end",
-    )
-    assert seen.get("message") == expected(want["message"]), (
-        case["id"],
-        "message",
-        seen.get("message"),
-    )
-    assert seen.get("session") == expected(want["session"]), (
-        case["id"],
-        "session",
-        seen.get("session"),
-    )
+    boundaries = [
+        ("hook", expected(hook) if hook is not None else None),
+        ("execution_end", [expected(want["execution_end"])]),
+        ("message", [expected(want["message"])]),
+        ("session", [expected(want["session"])]),
+        # Layer 08 replay of the same event (R001): the scenario's own execution_end expectation.
+        ("replayed_execution_end", [expected(want["execution_end"])]),
+    ]
     if "file_utf8_hex" in want:
-        assert seen.get("file_utf8_hex") == want["file_utf8_hex"], (
-            case["id"],
-            "file",
-            seen.get("file_utf8_hex"),
-        )
+        boundaries.append(("file_utf8_hex", want["file_utf8_hex"]))
+    for boundary, wanted in boundaries:
+        assert seen.get(boundary) == wanted, (case["id"], boundary, seen.get(boundary))

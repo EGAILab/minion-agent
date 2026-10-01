@@ -12,7 +12,7 @@
  "witnesses": [
   "tool_result_runtime_value_domain"
  ],
- "notes": "null/true/false as leaves and as the whole top-level details; empty object and array. Absent/undefined details are excluded (ADJ-2: certified IR-L06-004 host mapping, not folded). GENERATED from the pinned-Pi L0506-D003 probe; regenerate with harness/make_scenarios.py.",
+ "notes": "null/true/false as leaves; true/false as the whole top-level details; empty object and array. Absent/undefined details and a top-level null are excluded (ADJ-2: certified IR-L06-004 host mapping, not folded). GENERATED from the pinned-Pi L0506-D003 probe; regenerate with harness/make_scenarios.py.",
  "tool_result_domain": {
   "cases": [
    {
@@ -148,77 +148,6 @@
         ]
        ]
       }
-     }
-    }
-   },
-   {
-    "id": "details-top-scalar/null",
-    "tool": {
-     "returns": {
-      "content": [
-       {
-        "utf16": [
-         111,
-         107
-        ]
-       }
-      ],
-      "details": null
-     }
-    },
-    "hook": {
-     "mode": "none"
-    },
-    "expect": {
-     "hook": null,
-     "execution_end": {
-      "content": [
-       {
-        "utf16": [
-         111,
-         107
-        ]
-       }
-      ],
-      "details": null,
-      "is_error": false
-     },
-     "message": {
-      "content": [
-       {
-        "utf16": [
-         111,
-         107
-        ]
-       }
-      ],
-      "details": null,
-      "is_error": false
-     },
-     "session": {
-      "content": [
-       {
-        "utf16": [
-         111,
-         107
-        ]
-       }
-      ],
-      "details": null
-     }
-    },
-    "pi_session_file": {
-     "line_utf8_hex": "7b2274797065223a226d657373616765222c226964223a226531222c22706172656e744964223a6e756c6c2c2274696d657374616d70223a2274222c226d657373616765223a7b22726f6c65223a22746f6f6c526573756c74222c22746f6f6c43616c6c4964223a2263616c6c2d31222c22746f6f6c4e616d65223a2270726f6265222c22636f6e74656e74223a5b7b2274797065223a2274657874222c2274657874223a226f6b227d5d2c2264657461696c73223a6e756c6c2c2269734572726f72223a66616c73652c2274696d657374616d70223a307d7d0a",
-     "reload": {
-      "content": [
-       {
-        "utf16": [
-         111,
-         107
-        ]
-       }
-      ],
-      "details": null
      }
     }
    },

@@ -233,6 +233,16 @@ class Collation:
         self._collator = collator
         self._root = icu.Locale.getRoot()
         self._unicode_string: Callable[[str], Any] = icu.UnicodeString
+        # WP-13.2 TOOL-031: the same verified ICU also supplies `fuzzy_normalize`'s NFKC, filtered
+        # to Unicode 16.0 (pinned Node 22.15.1 / ICU 76.1): a code point unassigned in 16.0 passes
+        # through unchanged (spec/tools.md WP-13.2 "Unicode authority").
+        self._nfkc16 = icu.FilteredNormalizer2(
+            icu.Normalizer2.getNFKCInstance(), icu.UnicodeSet("[:age=16.0:]")
+        )
+
+    def nfkc_unicode16(self, text: str) -> str:
+        """NFKC at Unicode 16.0 of a string without unpaired surrogates."""
+        return str(self._nfkc16.normalize(text))
 
     def key(self, name: str) -> str:
         return str(self._unicode_string(name).toLower(self._root))

@@ -56,6 +56,12 @@ BUILTIN_MUTATION_DIR = CONFORMANCE / "agent" / "builtin-mutation"
 PREPARED_RUNTIME_SCHEMA = CONFORMANCE / "schema" / "prepared-runtime-scenario.schema.json"
 # Layer 05/06 delta L0506-D001 (TOOL-041): its own directory and shape.
 PREPARED_RUNTIME_DIR = CONFORMANCE / "agent" / "prepared-runtime"
+PREPARED_STRING_SCHEMA = CONFORMANCE / "schema" / "prepared-string-scenario.schema.json"
+# Layer 05/06 delta L0506-D002 (TOOL-041 string domain): its own directory and shape.
+PREPARED_STRING_DIR = CONFORMANCE / "agent" / "prepared-runtime-string"
+RAW_ARGUMENTS_SCHEMA = CONFORMANCE / "schema" / "raw-arguments-scenario.schema.json"
+# Cross-layer delta L0206-D002 (AI-003 raw value domain): its own directory and JSON shape.
+RAW_ARGUMENTS_DIR = CONFORMANCE / "agent" / "raw-arguments"
 SCHEMA_DOMAIN_SCHEMA = CONFORMANCE / "schema" / "schema-domain-scenario.schema.json"
 # Layer-05 delta L05-D001 (TOOL-016/TOOL-003 schema string domain): own directory and JSON shape.
 SCHEMA_DOMAIN_DIR = CONFORMANCE / "agent" / "schema-domain"
@@ -259,6 +265,192 @@ def test_prepared_runtime_gates_are_explicit_and_acyclic() -> None:
 def test_prepared_runtime_preflight_rejects_an_overflowing_finite_literal() -> None:
     assert not _finite_literal_is_finite("1e999")
     assert _finite_literal_is_finite("1.7976931348623157e+308")
+
+
+def _prepared_string_documents() -> list[dict[str, Any]]:
+    return [
+        yaml.safe_load(path.read_text(encoding="utf-8"))
+        for path in sorted(PREPARED_STRING_DIR.glob("*.yaml"))
+    ]
+
+
+def _prepared_string_validator() -> Draft202012Validator:
+    return Draft202012Validator(json.loads(PREPARED_STRING_SCHEMA.read_text(encoding="utf-8")))
+
+
+def test_prepared_string_schema_is_wellformed() -> None:
+    Draft202012Validator.check_schema(
+        json.loads(PREPARED_STRING_SCHEMA.read_text(encoding="utf-8"))
+    )
+
+
+@pytest.mark.parametrize(
+    "scenario", sorted(PREPARED_STRING_DIR.glob("*.yaml")), ids=lambda value: value.stem
+)
+def test_prepared_string_scenario_validates(scenario: Path) -> None:
+    document = yaml.safe_load(scenario.read_text(encoding="utf-8"))
+    assert "prepared_string" in document
+    errors = sorted(_prepared_string_validator().iter_errors(document), key=lambda e: list(e.path))
+    assert not errors, "\n".join(
+        f"{'/'.join(str(part) for part in error.path)}: {error.message}" for error in errors
+    )
+
+
+def test_prepared_string_preflight_holds_for_every_case() -> None:
+    """The schema's language-neutral PREFLIGHT (L0506-D002)."""
+    from .prepared_string_runner import preflight
+
+    cases = [c for d in _prepared_string_documents() for c in d["prepared_string"]["cases"]]
+    assert len(cases) == 202
+    for case in cases:
+        preflight(case)
+
+
+def _string_case(name: str) -> dict[str, Any]:
+    document = next(d for d in _prepared_string_documents() if d["name"] == name)
+    return copy.deepcopy(document)
+
+
+@pytest.mark.parametrize(
+    ("name", "mutation"),
+    [
+        ("prepared-string-undeclared-field", lambda c: c.pop("schema")),
+        ("prepared-string-undeclared-field", lambda c: c.pop("prepare_set")),
+        ("prepared-string-undeclared-field", lambda c: c["expect"].pop("observed")),
+        ("prepared-string-undeclared-field", lambda c: c.__setitem__("schema", "number")),
+        (
+            "prepared-string-undeclared-field",
+            lambda c: c["prepare_set"]["/extra"]["utf16"].append(65536),
+        ),
+        (
+            "prepared-string-undeclared-field",
+            lambda c: c["prepare_set"]["/extra"]["utf16"].append(-1),
+        ),
+        (
+            "prepared-string-undeclared-field",
+            lambda c: c["prepare_set"]["/extra"].__setitem__("x", 1),
+        ),
+        ("prepared-string-undeclared-field", lambda c: c["prepare_set"].__setitem__("/a/b", 1)),
+        (
+            "prepared-string-undeclared-field",
+            lambda c: c.__setitem__("execute_observe", ["/extra"]),
+        ),
+        (
+            "prepared-string-declared-type",
+            lambda c: c["expect"].__setitem__("outcome", "argument_validation_failure"),
+        ),
+        ("prepared-string-edit-json-string", lambda c: c["expect"].pop("file_utf8_hex")),
+        (
+            "prepared-string-edit-json-string",
+            lambda c: c["expect"].__setitem__("file_utf8_hex", "0A"),
+        ),
+    ],
+    ids=[
+        "custom-without-schema",
+        "custom-without-prepare_set",
+        "prepared-without-observed",
+        "unknown-schema-kind",
+        "code-unit-above-ffff",
+        "negative-code-unit",
+        "utf16-with-extra-key",
+        "nested-prepare-pointer",
+        "execute-observe-without-replacement",
+        "failure-with-observed",
+        "edit-without-file-bytes",
+        "uppercase-file-hex",
+    ],
+)
+def test_prepared_string_schema_rejects_undispatchable_cases(name: str, mutation: Any) -> None:
+    document = _string_case(name)
+    mutation(document["prepared_string"]["cases"][0])
+    assert list(_prepared_string_validator().iter_errors(document))
+
+
+def test_prepared_string_gates_are_explicit_and_acyclic() -> None:
+    """Every document names its gate; a delta-gated (L0506-D002) document holds only custom cases;
+    the real-edit document is gated to WP-13.2. A missing gate, or an edit case inside the delta
+    gate, is rejected by the schema."""
+    documents = _prepared_string_documents()
+    gates = {document["name"]: document["gate"] for document in documents}
+    assert gates["prepared-string-edit-json-string"] == "WP-13.2"
+    for document in documents:
+        if document["gate"] == "L0506-D002":
+            assert {case["tool"] for case in document["prepared_string"]["cases"]} == {"custom"}
+    validator = _prepared_string_validator()
+    edit_document = _string_case("prepared-string-edit-json-string")
+    moved = copy.deepcopy(edit_document)
+    moved["gate"] = "L0506-D002"
+    assert list(validator.iter_errors(moved))
+    edit_document.pop("gate")
+    assert list(validator.iter_errors(edit_document))
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        lambda c: c["expect"]["observed"].pop("/extra"),
+        lambda c: c["expect"].__setitem__("execute_observed", {}),
+    ],
+    ids=["observed-pointer-missing", "execute-observed-without-replacement"],
+)
+def test_prepared_string_preflight_rejects_mismatched_observations(mutation: Any) -> None:
+    from .prepared_string_runner import preflight
+
+    case = _string_case("prepared-string-undeclared-field")["prepared_string"]["cases"][0]
+    mutation(case)
+    with pytest.raises(AssertionError):
+        preflight(case)
+
+
+def _raw_validator() -> Draft202012Validator:
+    return Draft202012Validator(json.loads(RAW_ARGUMENTS_SCHEMA.read_text(encoding="utf-8")))
+
+
+def test_raw_arguments_schema_is_wellformed() -> None:
+    Draft202012Validator.check_schema(json.loads(RAW_ARGUMENTS_SCHEMA.read_text(encoding="utf-8")))
+
+
+@pytest.mark.parametrize(
+    "scenario", sorted(RAW_ARGUMENTS_DIR.glob("*.json")), ids=lambda value: value.stem
+)
+def test_raw_arguments_scenario_validates(scenario: Path) -> None:
+    document = json.loads(scenario.read_text(encoding="utf-8"))
+    assert "raw_arguments" in document
+    assert not list(_raw_validator().iter_errors(document))
+
+
+def _raw_case() -> dict[str, Any]:
+    path = RAW_ARGUMENTS_DIR / "raw-arguments-string-domain.json"
+    return copy.deepcopy(json.loads(path.read_text(encoding="utf-8")))
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        lambda c: c.pop("arguments"),
+        lambda c: c.pop("provider_text"),
+        lambda c: c.__setitem__("arguments", {"utf16": [65]}),
+        lambda c: c["arguments"]["s"]["utf16"].append(65536),
+        lambda c: c["arguments"].__setitem__("n", {"number": "1garbage"}),
+        lambda c: c["arguments"].__setitem__("n", 1),
+        lambda c: c["arguments"].__setitem__("é", True),
+        lambda c: c["arguments"]["s"].__setitem__("x", 1),
+    ],
+    ids=[
+        "no-arguments",
+        "no-provider-text",
+        "arguments-not-an-object",
+        "code-unit-above-ffff",
+        "malformed-number-token",
+        "bare-number",
+        "non-ascii-plain-key",
+        "utf16-with-extra-key",
+    ],
+)
+def test_raw_arguments_schema_rejects_malformed_cases(mutation: Any) -> None:
+    document = _raw_case()
+    mutation(document["raw_arguments"]["cases"][0])
+    assert list(_raw_validator().iter_errors(document))
 
 
 def _session_document(append: dict[str, Any]) -> dict[str, Any]:
@@ -691,6 +883,16 @@ def test_agent_inbox_action_rejects_a_second_operation_alongside_claim_or_pendin
     schema = json.loads(AGENT_INBOX_SCHEMA.read_text(encoding="utf-8"))
     errors = list(Draft202012Validator(schema).iter_errors(_agent_inbox_document(action)))
     assert errors, f"expected this action to be rejected: {action}"
+
+
+@pytest.mark.parametrize(
+    "token", ["NaN", "Infinity", "1garbage", "+1", "01"], ids=lambda token: f"token-{token}"
+)
+def test_raw_arguments_schema_refuses_out_of_grammar_number_tokens(token: str) -> None:
+    """L0206-D002-R002: NaN is outside the raw domain; non-literal spellings are refused."""
+    document = _raw_case()
+    document["raw_arguments"]["cases"][0]["arguments"]["n"] = {"number": token}
+    assert list(_raw_validator().iter_errors(document))
 
 
 def _schema_domain_validator() -> Draft202012Validator:

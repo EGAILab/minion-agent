@@ -1,0 +1,516 @@
+name: "prepared-string-length-keywords"
+family: "agent"
+authority: "pinned Pi b7bb00b9 agent-loop.ts prepareToolCall/executePreparedToolCall/finalizeExecutedToolCall (sliced from source) + ai/src/utils/validation.ts validateToolArguments (typebox 1.3.7) + edit.ts prepareEditArguments, under Node 22.15.1 (L0506-D002 authority)"
+pi_revision: "b7bb00b936dbe21b8e160b3e89efdec361846699"
+requirements:
+  - "TOOL-041"
+witnesses:
+  - "prepared_runtime_string_domain"
+notes: "minLength/maxLength count CODE POINTS (pinned Pi, typebox 1.3.7): a valid surrogate pair counts 1, and each unpaired surrogate code unit counts 1 -- so the pair passes maxLength 1, adjacent highs fail it. GENERATED from the pinned-Pi authority run; regenerate with harness/make_scenarios.py."
+gate: "L0506-D002"
+prepared_string:
+  cases:
+    - id: "min-length-2/ascii"
+      tool: "custom"
+      schema: "min-length-2"
+      prepare_set:
+        "/text": {"utf16": [65, 66]}
+      arguments:
+        seed: "raw"
+      observe:
+        - "/text"
+      expect:
+        outcome: "prepared"
+        observed:
+          "/text": [65, 66]
+    - id: "max-length-1/ascii"
+      tool: "custom"
+      schema: "max-length-1"
+      prepare_set:
+        "/text": {"utf16": [65, 66]}
+      arguments:
+        seed: "raw"
+      observe:
+        - "/text"
+      expect:
+        outcome: "argument_validation_failure"
+    - id: "min-length-2/bmp"
+      tool: "custom"
+      schema: "min-length-2"
+      prepare_set:
+        "/text": {"utf16": [233, 20013]}
+      arguments:
+        seed: "raw"
+      observe:
+        - "/text"
+      expect:
+        outcome: "prepared"
+        observed:
+          "/text": [233, 20013]
+    - id: "max-length-1/bmp"
+      tool: "custom"
+      schema: "max-length-1"
+      prepare_set:
+        "/text": {"utf16": [233, 20013]}
+      arguments:
+        seed: "raw"
+      observe:
+        - "/text"
+      expect:
+        outcome: "argument_validation_failure"
+    - id: "min-length-2/pair"
+      tool: "custom"
+      schema: "min-length-2"
+      prepare_set:
+        "/text": {"utf16": [55357, 56832]}
+      arguments:
+        seed: "raw"
+      observe:
+        - "/text"
+      expect:
+        outcome: "argument_validation_failure"
+    - id: "max-length-1/pair"
+      tool: "custom"
+      schema: "max-length-1"
+      prepare_set:
+        "/text": {"utf16": [55357, 56832]}
+      arguments:
+        seed: "raw"
+      observe:
+        - "/text"
+      expect:
+        outcome: "prepared"
+        observed:
+          "/text": [55357, 56832]
+    - id: "min-length-2/lone-high-start"
+      tool: "custom"
+      schema: "min-length-2"
+      prepare_set:
+        "/text": {"utf16": [55296, 65]}
+      arguments:
+        seed: "raw"
+      observe:
+        - "/text"
+      expect:
+        outcome: "prepared"
+        observed:
+          "/text": [55296, 65]
+    - id: "max-length-1/lone-high-start"
+      tool: "custom"
+      schema: "max-length-1"
+      prepare_set:
+        "/text": {"utf16": [55296, 65]}
+      arguments:
+        seed: "raw"
+      observe:
+        - "/text"
+      expect:
+        outcome: "argument_validation_failure"
+    - id: "min-length-2/lone-high-middle"
+      tool: "custom"
+      schema: "min-length-2"
+      prepare_set:
+        "/text": {"utf16": [65, 55296, 66]}
+      arguments:
+        seed: "raw"
+      observe:
+        - "/text"
+      expect:
+        outcome: "prepared"
+        observed:
+          "/text": [65, 55296, 66]
+    - id: "max-length-1/lone-high-middle"
+      tool: "custom"
+      schema: "max-length-1"
+      prepare_set:
+        "/text": {"utf16": [65, 55296, 66]}
+      arguments:
+        seed: "raw"
+      observe:
+        - "/text"
+      expect:
+        outcome: "argument_validation_failure"
+    - id: "min-length-2/lone-high-end"
+      tool: "custom"
+      schema: "min-length-2"
+      prepare_set:
+        "/text": {"utf16": [65, 55296]}
+      arguments:
+        seed: "raw"
+      observe:
+        - "/text"
+      expect:
+        outcome: "prepared"
+        observed:
+          "/text": [65, 55296]
+    - id: "max-length-1/lone-high-end"
+      tool: "custom"
+      schema: "max-length-1"
+      prepare_set:
+        "/text": {"utf16": [65, 55296]}
+      arguments:
+        seed: "raw"
+      observe:
+        - "/text"
+      expect:
+        outcome: "argument_validation_failure"
+    - id: "min-length-2/lone-high-only"
+      tool: "custom"
+      schema: "min-length-2"
+      prepare_set:
+        "/text": {"utf16": [55296]}
+      arguments:
+        seed: "raw"
+      observe:
+        - "/text"
+      expect:
+        outcome: "argument_validation_failure"
+    - id: "max-length-1/lone-high-only"
+      tool: "custom"
+      schema: "max-length-1"
+      prepare_set:
+        "/text": {"utf16": [55296]}
+      arguments:
+        seed: "raw"
+      observe:
+        - "/text"
+      expect:
+        outcome: "prepared"
+        observed:
+          "/text": [55296]
+    - id: "min-length-2/lone-low-start"
+      tool: "custom"
+      schema: "min-length-2"
+      prepare_set:
+        "/text": {"utf16": [56320, 65]}
+      arguments:
+        seed: "raw"
+      observe:
+        - "/text"
+      expect:
+        outcome: "prepared"
+        observed:
+          "/text": [56320, 65]
+    - id: "max-length-1/lone-low-start"
+      tool: "custom"
+      schema: "max-length-1"
+      prepare_set:
+        "/text": {"utf16": [56320, 65]}
+      arguments:
+        seed: "raw"
+      observe:
+        - "/text"
+      expect:
+        outcome: "argument_validation_failure"
+    - id: "min-length-2/lone-low-middle"
+      tool: "custom"
+      schema: "min-length-2"
+      prepare_set:
+        "/text": {"utf16": [65, 56320, 66]}
+      arguments:
+        seed: "raw"
+      observe:
+        - "/text"
+      expect:
+        outcome: "prepared"
+        observed:
+          "/text": [65, 56320, 66]
+    - id: "max-length-1/lone-low-middle"
+      tool: "custom"
+      schema: "max-length-1"
+      prepare_set:
+        "/text": {"utf16": [65, 56320, 66]}
+      arguments:
+        seed: "raw"
+      observe:
+        - "/text"
+      expect:
+        outcome: "argument_validation_failure"
+    - id: "min-length-2/lone-low-end"
+      tool: "custom"
+      schema: "min-length-2"
+      prepare_set:
+        "/text": {"utf16": [65, 56320]}
+      arguments:
+        seed: "raw"
+      observe:
+        - "/text"
+      expect:
+        outcome: "prepared"
+        observed:
+          "/text": [65, 56320]
+    - id: "max-length-1/lone-low-end"
+      tool: "custom"
+      schema: "max-length-1"
+      prepare_set:
+        "/text": {"utf16": [65, 56320]}
+      arguments:
+        seed: "raw"
+      observe:
+        - "/text"
+      expect:
+        outcome: "argument_validation_failure"
+    - id: "min-length-2/lone-low-only"
+      tool: "custom"
+      schema: "min-length-2"
+      prepare_set:
+        "/text": {"utf16": [56320]}
+      arguments:
+        seed: "raw"
+      observe:
+        - "/text"
+      expect:
+        outcome: "argument_validation_failure"
+    - id: "max-length-1/lone-low-only"
+      tool: "custom"
+      schema: "max-length-1"
+      prepare_set:
+        "/text": {"utf16": [56320]}
+      arguments:
+        seed: "raw"
+      observe:
+        - "/text"
+      expect:
+        outcome: "prepared"
+        observed:
+          "/text": [56320]
+    - id: "min-length-2/adjacent-highs"
+      tool: "custom"
+      schema: "min-length-2"
+      prepare_set:
+        "/text": {"utf16": [55296, 55296]}
+      arguments:
+        seed: "raw"
+      observe:
+        - "/text"
+      expect:
+        outcome: "prepared"
+        observed:
+          "/text": [55296, 55296]
+    - id: "max-length-1/adjacent-highs"
+      tool: "custom"
+      schema: "max-length-1"
+      prepare_set:
+        "/text": {"utf16": [55296, 55296]}
+      arguments:
+        seed: "raw"
+      observe:
+        - "/text"
+      expect:
+        outcome: "argument_validation_failure"
+    - id: "min-length-2/adjacent-lows"
+      tool: "custom"
+      schema: "min-length-2"
+      prepare_set:
+        "/text": {"utf16": [56320, 56320]}
+      arguments:
+        seed: "raw"
+      observe:
+        - "/text"
+      expect:
+        outcome: "prepared"
+        observed:
+          "/text": [56320, 56320]
+    - id: "max-length-1/adjacent-lows"
+      tool: "custom"
+      schema: "max-length-1"
+      prepare_set:
+        "/text": {"utf16": [56320, 56320]}
+      arguments:
+        seed: "raw"
+      observe:
+        - "/text"
+      expect:
+        outcome: "argument_validation_failure"
+    - id: "min-length-2/high-then-non-low"
+      tool: "custom"
+      schema: "min-length-2"
+      prepare_set:
+        "/text": {"utf16": [55296, 65]}
+      arguments:
+        seed: "raw"
+      observe:
+        - "/text"
+      expect:
+        outcome: "prepared"
+        observed:
+          "/text": [55296, 65]
+    - id: "max-length-1/high-then-non-low"
+      tool: "custom"
+      schema: "max-length-1"
+      prepare_set:
+        "/text": {"utf16": [55296, 65]}
+      arguments:
+        seed: "raw"
+      observe:
+        - "/text"
+      expect:
+        outcome: "argument_validation_failure"
+    - id: "min-length-2/low-then-high"
+      tool: "custom"
+      schema: "min-length-2"
+      prepare_set:
+        "/text": {"utf16": [56320, 55296]}
+      arguments:
+        seed: "raw"
+      observe:
+        - "/text"
+      expect:
+        outcome: "prepared"
+        observed:
+          "/text": [56320, 55296]
+    - id: "max-length-1/low-then-high"
+      tool: "custom"
+      schema: "max-length-1"
+      prepare_set:
+        "/text": {"utf16": [56320, 55296]}
+      arguments:
+        seed: "raw"
+      observe:
+        - "/text"
+      expect:
+        outcome: "argument_validation_failure"
+    - id: "min-length-2/pair-then-lone-high"
+      tool: "custom"
+      schema: "min-length-2"
+      prepare_set:
+        "/text": {"utf16": [55357, 56832, 55296]}
+      arguments:
+        seed: "raw"
+      observe:
+        - "/text"
+      expect:
+        outcome: "prepared"
+        observed:
+          "/text": [55357, 56832, 55296]
+    - id: "max-length-1/pair-then-lone-high"
+      tool: "custom"
+      schema: "max-length-1"
+      prepare_set:
+        "/text": {"utf16": [55357, 56832, 55296]}
+      arguments:
+        seed: "raw"
+      observe:
+        - "/text"
+      expect:
+        outcome: "argument_validation_failure"
+    - id: "min-length-2/lone-low-then-pair"
+      tool: "custom"
+      schema: "min-length-2"
+      prepare_set:
+        "/text": {"utf16": [56320, 55357, 56832]}
+      arguments:
+        seed: "raw"
+      observe:
+        - "/text"
+      expect:
+        outcome: "prepared"
+        observed:
+          "/text": [56320, 55357, 56832]
+    - id: "max-length-1/lone-low-then-pair"
+      tool: "custom"
+      schema: "max-length-1"
+      prepare_set:
+        "/text": {"utf16": [56320, 55357, 56832]}
+      arguments:
+        seed: "raw"
+      observe:
+        - "/text"
+      expect:
+        outcome: "argument_validation_failure"
+    - id: "min-length-2/empty"
+      tool: "custom"
+      schema: "min-length-2"
+      prepare_set:
+        "/text": {"utf16": []}
+      arguments:
+        seed: "raw"
+      observe:
+        - "/text"
+      expect:
+        outcome: "argument_validation_failure"
+    - id: "max-length-1/empty"
+      tool: "custom"
+      schema: "max-length-1"
+      prepare_set:
+        "/text": {"utf16": []}
+      arguments:
+        seed: "raw"
+      observe:
+        - "/text"
+      expect:
+        outcome: "prepared"
+        observed:
+          "/text": []
+    - id: "min-length-2/nul"
+      tool: "custom"
+      schema: "min-length-2"
+      prepare_set:
+        "/text": {"utf16": [0]}
+      arguments:
+        seed: "raw"
+      observe:
+        - "/text"
+      expect:
+        outcome: "argument_validation_failure"
+    - id: "max-length-1/nul"
+      tool: "custom"
+      schema: "max-length-1"
+      prepare_set:
+        "/text": {"utf16": [0]}
+      arguments:
+        seed: "raw"
+      observe:
+        - "/text"
+      expect:
+        outcome: "prepared"
+        observed:
+          "/text": [0]
+    - id: "min-length-2/nul-middle"
+      tool: "custom"
+      schema: "min-length-2"
+      prepare_set:
+        "/text": {"utf16": [65, 0, 66]}
+      arguments:
+        seed: "raw"
+      observe:
+        - "/text"
+      expect:
+        outcome: "prepared"
+        observed:
+          "/text": [65, 0, 66]
+    - id: "max-length-1/nul-middle"
+      tool: "custom"
+      schema: "max-length-1"
+      prepare_set:
+        "/text": {"utf16": [65, 0, 66]}
+      arguments:
+        seed: "raw"
+      observe:
+        - "/text"
+      expect:
+        outcome: "argument_validation_failure"
+    - id: "min-length-2/replacement-char"
+      tool: "custom"
+      schema: "min-length-2"
+      prepare_set:
+        "/text": {"utf16": [65533]}
+      arguments:
+        seed: "raw"
+      observe:
+        - "/text"
+      expect:
+        outcome: "argument_validation_failure"
+    - id: "max-length-1/replacement-char"
+      tool: "custom"
+      schema: "max-length-1"
+      prepare_set:
+        "/text": {"utf16": [65533]}
+      arguments:
+        seed: "raw"
+      observe:
+        - "/text"
+      expect:
+        outcome: "prepared"
+        observed:
+          "/text": [65533]

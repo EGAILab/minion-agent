@@ -1,0 +1,94 @@
+name: "prepared-string-hook-replacement"
+family: "agent"
+authority: "Minion contract: spec/tools.md Layer 06 TOOL-041 (L0506-D002), Proceed(arguments=...) extension"
+pi_revision: "b7bb00b936dbe21b8e160b3e89efdec361846699"
+requirements:
+  - "TOOL-041"
+witnesses:
+  - "prepared_runtime_string_domain"
+  - "pre_execute_replacement_string_domain"
+notes: "Minion's own tools/pre-execute Proceed(arguments=...) replacement (spec/tools.md Layer 06; an intentional Minion extension pinned Pi's BeforeToolCallResult has no equivalent for) carries the same string domain: the hook observes the prepared value, and execute observes the replacement's exact code units, including unpaired surrogates in values and keys. CONTRACT expectations, not Pi's."
+gate: "L0506-D002"
+prepared_string:
+  cases:
+    - id: "replace/lone-high-into-execute"
+      tool: "custom"
+      schema: "open"
+      prepare_set:
+        "/extra": {"utf16": [65]}
+      hook_replace_set:
+        "/extra": {"utf16": [65, 55296]}
+      arguments:
+        seed: "raw"
+      observe:
+        - "/extra"
+      execute_observe:
+        - "/extra"
+      expect:
+        outcome: "prepared"
+        observed:
+          "/extra": [65]
+        execute_observed:
+          "/extra": [65, 55296]
+    - id: "replace/lone-low-into-execute"
+      tool: "custom"
+      schema: "open"
+      prepare_set:
+        "/extra": {"utf16": [65]}
+      hook_replace_set:
+        "/extra": {"utf16": [56320]}
+      arguments:
+        seed: "raw"
+      observe:
+        - "/extra"
+      execute_observe:
+        - "/extra"
+      expect:
+        outcome: "prepared"
+        observed:
+          "/extra": [65]
+        execute_observed:
+          "/extra": [56320]
+    - id: "replace/pair-into-execute"
+      tool: "custom"
+      schema: "open"
+      prepare_set:
+        "/extra": {"utf16": [55296]}
+      hook_replace_set:
+        "/extra": {"utf16": [55357, 56832]}
+      arguments:
+        seed: "raw"
+      observe:
+        - "/extra"
+      execute_observe:
+        - "/extra"
+      expect:
+        outcome: "prepared"
+        observed:
+          "/extra": [55296]
+        execute_observed:
+          "/extra": [55357, 56832]
+    - id: "replace/lone-key-into-execute"
+      tool: "custom"
+      schema: "open"
+      prepare_set:
+        "/extra": {"utf16": [65]}
+      hook_replace_set:
+        "/extra": {"utf16": [65]}
+        "/bag": {"$key": [56320, 55296], "value": 1}
+      arguments:
+        seed: "raw"
+      observe:
+        - "/extra"
+      execute_observe_keys:
+        - "/bag"
+      execute_observe:
+        - "/extra"
+      expect:
+        outcome: "prepared"
+        observed:
+          "/extra": [65]
+        execute_observed:
+          "/extra": [65]
+        execute_observed_keys:
+          "/bag": [[56320, 55296]]

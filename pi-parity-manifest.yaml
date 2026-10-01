@@ -34,8 +34,8 @@ rows:
   pi: packages/ai/src/types.ts::ToolCall
   surface: tool call + thoughtSignature + namespace
   rule: 'ToolCall{id,name,arguments,thought_signature?,namespace?}. L0206-D002 (minion-agent#103; Owner decision
-    L0506-D002-Q001 Option 1, minion-agent#99 issuecomment-5926162818; intentional divergence NONE) -- AGREED (contract #105 -> c9b6e910; Python implementation review pending;
-    Rust implementation candidate awaiting CLOSURE_REVIEW):
+    L0506-D002-Q001 Option 1, minion-agent#99 issuecomment-5926162818; intentional divergence NONE) -- CERTIFIED_CLOSED (contract #105 -> c9b6e910; Python implementation review APPROVED;
+    Rust #110 -> 2ec46f4b, closure review minion-agent-docs#215):
     arguments hold pinned Pi''s JSON.parse JavaScript value domain -- strings of any UTF-16 code units (unpaired
     surrogates in values and keys), numbers incl. -0 and +/-Infinity, binary64-rounded -- unchanged through
     construction, session append/replay (MINION-002), tool_execution_* arguments and the Layer-06 input of a tool
@@ -51,13 +51,13 @@ rows:
     on_execution_update delivery (L0206-D002-R001); canonical number tokens only (R002)
   python: 'src/minion_agent/llm/content.py (rewrite). L0206-D002: conforms with no production change --
     tests/conformance/raw_arguments_runner.py, test_raw_arguments_conformance.py (38),
-    tests/session/test_raw_arguments_negative_controls.py (Owner decision section 11 mutants) -- contract APPROVED (#105); implementation review pending.'
+    tests/session/test_raw_arguments_negative_controls.py (Owner decision section 11 mutants) -- contract APPROVED (#105); implementation review APPROVED (minion-agent-docs#210 issuecomment-5930277399).'
   rust: 'L0206-D002 Rust candidate: llm/raw.rs RawValue/RawNumber/RawString, ToolCall::new_raw,
     javascript.rs reused certified JSON.parse-equivalent decoder; session/mod.rs SessionField::Message live payload;
     tools/execution.rs raw start/update payloads and tools/definition.rs raw preparation capability.
     tests/raw_arguments_conformance.rs (38 canonical cases, every live boundary and exactly one update event/delivery);
     tests/raw_arguments.rs (decoder, typed session fork/compaction, explicit JSON projection, raw preparation).
-    Implementation candidate awaiting independent CLOSURE_REVIEW; not cross-language certified.'
+    CERTIFIED (#110 -> 2ec46f4b; independent closure review minion-agent-docs#215 issuecomment-5934307103).'
   disposition: adopted
 - id: AI-004
   phase: 2
@@ -5608,7 +5608,7 @@ rows:
   pi: N/A — Minion persistence architecture
   surface: append-only session log
   rule: 'model-visible means logged; request reconstructable; same Pi model-visible history. L0206-D002
-    (AGREED; Rust implementation candidate awaiting CLOSURE_REVIEW): event data carries the raw JavaScript value domain (AI-003) -- append accepts and replay returns
+    (CERTIFIED_CLOSED; Rust #110 -> 2ec46f4b): event data carries the raw JavaScript value domain (AI-003) -- append accepts and replay returns
     unpaired surrogates, -0 and +/-Infinity unchanged; the log is not a byte form, so no JSON projection applies.'
   tests:
   - session derivation/reconstruction suite
@@ -5617,9 +5617,9 @@ rows:
     post-certification delta fixes for SES-F004/F006/F007/F008 in PR #5 @ 7e45cd1; SES-F009
     evidence -- already-conforming Session confirmed, canonical adapter remediated -- in PR #6
     @ 54928e2); tests/session.rs, tests/session_conformance.rs.
-    L0206-D002 candidate: SessionField::Message retains typed live messages without JSON projection;
+    L0206-D002 (CERTIFIED, #110): SessionField::Message retains typed live messages without JSON projection;
     tests/raw_arguments.rs and tests/raw_arguments_conformance.rs cover exact values/keys, signed zero and infinities
-    through append/replay, fork/compaction and real Layer-06 boundaries. CLOSURE_REVIEW pending.'
+    through append/replay, fork/compaction and real Layer-06 boundaries.'
   disposition: intentional divergence
 - id: MINION-003
   phase: 2

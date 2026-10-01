@@ -1,0 +1,289 @@
+{
+ "name": "raw-arguments-string-domain",
+ "family": "agent",
+ "authority": "pinned Pi b7bb00b9 ai/src/utils/json-parse.ts parseJsonWithRepair (sliced) + agent-loop.ts prepareToolCall/executePreparedToolCall/finalizeExecutedToolCall (sliced; a tool without prepareArguments) + validation.ts validateToolArguments (typebox 1.3.7), under Node 22.15.1 (L0206-D002 raw-boundary probe)",
+ "pi_revision": "b7bb00b936dbe21b8e160b3e89efdec361846699",
+ "requirements": [
+  "AI-003"
+ ],
+ "witnesses": [
+  "raw_tool_call_argument_value_domain"
+ ],
+ "notes": "Raw string leaves: pinned Pi's JSON.parse keeps every member of the Owner decision's neighborhood (L0506-D002-Q001 section 6) as exact UTF-16 code units -- unpaired highs and lows at every position, adjacent/reversed/mixed, a valid pair (escaped or literal), empty, NUL, nested-object and array strings -- and carries them to tool_execution_start, beforeToolCall and execute with no prepareArguments. GENERATED from the pinned-Pi raw-boundary probe; regenerate with harness/make_scenarios.py.",
+ "raw_arguments": {
+  "cases": [
+   {
+    "id": "string/ascii",
+    "provider_text": "{\"s\":\"\\u0041\\u0042\"}",
+    "arguments": {
+     "s": {
+      "utf16": [
+       65,
+       66
+      ]
+     }
+    }
+   },
+   {
+    "id": "string/bmp",
+    "provider_text": "{\"s\":\"\\u00e9\\u4e2d\"}",
+    "arguments": {
+     "s": {
+      "utf16": [
+       233,
+       20013
+      ]
+     }
+    }
+   },
+   {
+    "id": "string/pair",
+    "provider_text": "{\"s\":\"\\ud83d\\ude00\"}",
+    "arguments": {
+     "s": {
+      "utf16": [
+       55357,
+       56832
+      ]
+     }
+    }
+   },
+   {
+    "id": "string/lone-high-start",
+    "provider_text": "{\"s\":\"\\ud800\\u0041\"}",
+    "arguments": {
+     "s": {
+      "utf16": [
+       55296,
+       65
+      ]
+     }
+    }
+   },
+   {
+    "id": "string/lone-high-middle",
+    "provider_text": "{\"s\":\"\\u0041\\ud800\\u0042\"}",
+    "arguments": {
+     "s": {
+      "utf16": [
+       65,
+       55296,
+       66
+      ]
+     }
+    }
+   },
+   {
+    "id": "string/lone-high-end",
+    "provider_text": "{\"s\":\"\\u0041\\ud800\"}",
+    "arguments": {
+     "s": {
+      "utf16": [
+       65,
+       55296
+      ]
+     }
+    }
+   },
+   {
+    "id": "string/lone-high-only",
+    "provider_text": "{\"s\":\"\\ud800\"}",
+    "arguments": {
+     "s": {
+      "utf16": [
+       55296
+      ]
+     }
+    }
+   },
+   {
+    "id": "string/lone-low-start",
+    "provider_text": "{\"s\":\"\\udc00\\u0041\"}",
+    "arguments": {
+     "s": {
+      "utf16": [
+       56320,
+       65
+      ]
+     }
+    }
+   },
+   {
+    "id": "string/lone-low-middle",
+    "provider_text": "{\"s\":\"\\u0041\\udc00\\u0042\"}",
+    "arguments": {
+     "s": {
+      "utf16": [
+       65,
+       56320,
+       66
+      ]
+     }
+    }
+   },
+   {
+    "id": "string/lone-low-end",
+    "provider_text": "{\"s\":\"\\u0041\\udc00\"}",
+    "arguments": {
+     "s": {
+      "utf16": [
+       65,
+       56320
+      ]
+     }
+    }
+   },
+   {
+    "id": "string/lone-low-only",
+    "provider_text": "{\"s\":\"\\udc00\"}",
+    "arguments": {
+     "s": {
+      "utf16": [
+       56320
+      ]
+     }
+    }
+   },
+   {
+    "id": "string/adjacent-highs",
+    "provider_text": "{\"s\":\"\\ud800\\ud800\"}",
+    "arguments": {
+     "s": {
+      "utf16": [
+       55296,
+       55296
+      ]
+     }
+    }
+   },
+   {
+    "id": "string/adjacent-lows",
+    "provider_text": "{\"s\":\"\\udc00\\udc00\"}",
+    "arguments": {
+     "s": {
+      "utf16": [
+       56320,
+       56320
+      ]
+     }
+    }
+   },
+   {
+    "id": "string/low-then-high",
+    "provider_text": "{\"s\":\"\\udc00\\ud800\"}",
+    "arguments": {
+     "s": {
+      "utf16": [
+       56320,
+       55296
+      ]
+     }
+    }
+   },
+   {
+    "id": "string/pair-then-lone-high",
+    "provider_text": "{\"s\":\"\\ud83d\\ude00\\ud800\"}",
+    "arguments": {
+     "s": {
+      "utf16": [
+       55357,
+       56832,
+       55296
+      ]
+     }
+    }
+   },
+   {
+    "id": "string/lone-low-then-pair",
+    "provider_text": "{\"s\":\"\\udc00\\ud83d\\ude00\"}",
+    "arguments": {
+     "s": {
+      "utf16": [
+       56320,
+       55357,
+       56832
+      ]
+     }
+    }
+   },
+   {
+    "id": "string/empty",
+    "provider_text": "{\"s\":\"\"}",
+    "arguments": {
+     "s": {
+      "utf16": []
+     }
+    }
+   },
+   {
+    "id": "string/nul",
+    "provider_text": "{\"s\":\"\\u0000\"}",
+    "arguments": {
+     "s": {
+      "utf16": [
+       0
+      ]
+     }
+    }
+   },
+   {
+    "id": "string/nul-middle",
+    "provider_text": "{\"s\":\"\\u0041\\u0000\\u0042\"}",
+    "arguments": {
+     "s": {
+      "utf16": [
+       65,
+       0,
+       66
+      ]
+     }
+    }
+   },
+   {
+    "id": "string/nested-object",
+    "provider_text": "{\"o\":{\"s\":\"A\\ud800\"}}",
+    "arguments": {
+     "o": {
+      "s": {
+       "utf16": [
+        65,
+        55296
+       ]
+      }
+     }
+    }
+   },
+   {
+    "id": "string/array",
+    "provider_text": "{\"a\":[\"x\",\"\\udc00B\"]}",
+    "arguments": {
+     "a": [
+      {
+       "utf16": [
+        120
+       ]
+      },
+      {
+       "utf16": [
+        56320,
+        66
+       ]
+      }
+     ]
+    }
+   },
+   {
+    "id": "string/literal-pair",
+    "provider_text": "{\"s\":\"\ud83d\ude00\"}",
+    "arguments": {
+     "s": {
+      "utf16": [
+       55357,
+       56832
+      ]
+     }
+    }
+   }
+  ]
+ }
+}

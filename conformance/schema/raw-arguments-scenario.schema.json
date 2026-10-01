@@ -1,0 +1,228 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$comment": "Cross-layer delta L0206-D002 (AI-003 raw ToolCall.arguments JavaScript value domain). Scenarios live in conformance/agent/raw-arguments/*.json, discriminated by a top-level `raw_arguments` key. For each case a runner builds ONE ToolCall whose arguments are the case's value (fixture input, decoded from the value grammar), then observes that value -- by value, never by identity -- at every certified boundary: the constructed ToolCall.arguments; an AssistantMessage holding the call appended to a fresh session log and replayed from it (decode of the logged event); the tools/execution-start payload; the tools/pre-execute listener; execute; and, the tool reporting exactly one partial result through its update callback, the tools/update payload and the on-execution-update delivery (tool_execution_end carries no arguments: N/A), for a tool WITHOUT prepare_arguments whose schema is {type: object, properties: {}}. Every boundary must observe exactly `arguments`. The runner performs no decoding, normalization or conversion on the pipeline's behalf. VALUE GRAMMAR: {\"utf16\": units} is a string (units = UTF-16 code units 0..65535, so unpaired surrogates survive the file); {\"number\": token} is a number (see $defs.token: a named +Infinity/-Infinity/-0, or a canonical finite literal -- the PREFLIGHT there); {\"$keys\": [[units, value], ...]} is an object whose keys need code units; any other object is an object with those (ASCII) keys; an array is an array; true/false/null are themselves. OBJECTS COMPARE AS KEY SETS: enumeration order is L0206-D001's (K1), not this shape's. `provider_text` is the provider's argument text pinned Pi decoded (evidence only: Minion has no certified raw decoder; a future decoder must produce `arguments` from it).",
+  "type": "object",
+  "required": [
+    "name",
+    "family",
+    "authority",
+    "pi_revision",
+    "requirements",
+    "witnesses",
+    "raw_arguments"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "family": {
+      "const": "agent"
+    },
+    "authority": {
+      "type": "string",
+      "minLength": 1
+    },
+    "pi_revision": {
+      "type": "string",
+      "minLength": 1
+    },
+    "requirements": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string",
+        "pattern": "^[A-Z]+-[0-9]{3}$"
+      }
+    },
+    "witnesses": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "notes": {
+      "type": "string"
+    },
+    "raw_arguments": {
+      "type": "object",
+      "required": [
+        "cases"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "cases": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/case"
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "units": {
+      "type": "array",
+      "items": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 65535
+      }
+    },
+    "token": {
+      "anyOf": [
+        {
+          "enum": [
+            "+Infinity",
+            "-Infinity",
+            "-0"
+          ]
+        },
+        {
+          "type": "string",
+          "pattern": "^-?(0|[1-9][0-9]*)(\\.[0-9]+)?([eE][+-]?[0-9]+)?$"
+        }
+      ],
+      "$comment": "L0206-D002-R002: a NAMED token (+Infinity, -Infinity, -0) or a FINITE LITERAL. NaN is not in the raw domain (JSON.parse cannot produce it). PREFLIGHT (language-neutral, before dispatch; a violation fails the document, never defaulted): a finite literal must denote a finite binary64 value AND be exactly that value's ECMAScript Number::toString -- so it names one binary64 value with no rounding or widening left to a binding (9007199254740993 and 1e999 are refused; write 9007199254740992 and +Infinity). An integral finite literal is the binding's integer representation of that exact value. CE-L0206-D002-01 (agreed): a token names the binary64 VALUE it parses to (correctly rounded, = JSON.parse), not its spelled digits -- e.g. 1000000000000000100 names 1000000000000000128; a binding decodes through binary64 and an integral spelling is that value's exact integer (N1/N2). Observation is strict and total: an out-of-domain integer is a controlled marker, never rounded, never raising (N3'). The expected observation is computed from the scenario text, never through the fixture decoder (N4)."
+    },
+    "value": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": [
+            "utf16"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "utf16": {
+              "$ref": "#/$defs/units"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "number"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "number": {
+              "$ref": "#/$defs/token"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "$keys"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "$keys": {
+              "type": "array",
+              "items": {
+                "type": "array",
+                "prefixItems": [
+                  {
+                    "$ref": "#/$defs/units"
+                  },
+                  {
+                    "$ref": "#/$defs/value"
+                  }
+                ],
+                "minItems": 2,
+                "maxItems": 2
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "not": {
+            "anyOf": [
+              {
+                "required": [
+                  "utf16"
+                ]
+              },
+              {
+                "required": [
+                  "number"
+                ]
+              },
+              {
+                "required": [
+                  "$keys"
+                ]
+              }
+            ]
+          },
+          "propertyNames": {
+            "pattern": "^[ -~]*$"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/value"
+          }
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/value"
+          }
+        },
+        {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        }
+      ]
+    },
+    "case": {
+      "type": "object",
+      "required": [
+        "id",
+        "provider_text",
+        "arguments"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "provider_text": {
+          "type": "string"
+        },
+        "arguments": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/value"
+            },
+            {
+              "type": "object",
+              "not": {
+                "anyOf": [
+                  {
+                    "required": [
+                      "utf16"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "number"
+                    ]
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+}

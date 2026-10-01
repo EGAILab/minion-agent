@@ -59,6 +59,9 @@ PREPARED_RUNTIME_DIR = CONFORMANCE / "agent" / "prepared-runtime"
 PREPARED_STRING_SCHEMA = CONFORMANCE / "schema" / "prepared-string-scenario.schema.json"
 # Layer 05/06 delta L0506-D002 (TOOL-041 string domain): its own directory and shape.
 PREPARED_STRING_DIR = CONFORMANCE / "agent" / "prepared-runtime-string"
+RAW_ARGUMENTS_SCHEMA = CONFORMANCE / "schema" / "raw-arguments-scenario.schema.json"
+# Cross-layer delta L0206-D002 (AI-003 raw value domain): its own directory and JSON shape.
+RAW_ARGUMENTS_DIR = CONFORMANCE / "agent" / "raw-arguments"
 
 # Families whose scenarios arrive in a later plan. Their schema must still exist
 # and must still be a valid JSON Schema. Empty now that every family is
@@ -394,6 +397,57 @@ def test_prepared_string_preflight_rejects_mismatched_observations(mutation: Any
     mutation(case)
     with pytest.raises(AssertionError):
         preflight(case)
+
+
+def _raw_validator() -> Draft202012Validator:
+    return Draft202012Validator(json.loads(RAW_ARGUMENTS_SCHEMA.read_text(encoding="utf-8")))
+
+
+def test_raw_arguments_schema_is_wellformed() -> None:
+    Draft202012Validator.check_schema(json.loads(RAW_ARGUMENTS_SCHEMA.read_text(encoding="utf-8")))
+
+
+@pytest.mark.parametrize(
+    "scenario", sorted(RAW_ARGUMENTS_DIR.glob("*.json")), ids=lambda value: value.stem
+)
+def test_raw_arguments_scenario_validates(scenario: Path) -> None:
+    document = json.loads(scenario.read_text(encoding="utf-8"))
+    assert "raw_arguments" in document
+    assert not list(_raw_validator().iter_errors(document))
+
+
+def _raw_case() -> dict[str, Any]:
+    path = RAW_ARGUMENTS_DIR / "raw-arguments-string-domain.json"
+    return copy.deepcopy(json.loads(path.read_text(encoding="utf-8")))
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        lambda c: c.pop("arguments"),
+        lambda c: c.pop("provider_text"),
+        lambda c: c.__setitem__("arguments", {"utf16": [65]}),
+        lambda c: c["arguments"]["s"]["utf16"].append(65536),
+        lambda c: c["arguments"].__setitem__("n", {"number": "1garbage"}),
+        lambda c: c["arguments"].__setitem__("n", 1),
+        lambda c: c["arguments"].__setitem__("é", True),
+        lambda c: c["arguments"]["s"].__setitem__("x", 1),
+    ],
+    ids=[
+        "no-arguments",
+        "no-provider-text",
+        "arguments-not-an-object",
+        "code-unit-above-ffff",
+        "malformed-number-token",
+        "bare-number",
+        "non-ascii-plain-key",
+        "utf16-with-extra-key",
+    ],
+)
+def test_raw_arguments_schema_rejects_malformed_cases(mutation: Any) -> None:
+    document = _raw_case()
+    mutation(document["raw_arguments"]["cases"][0])
+    assert list(_raw_validator().iter_errors(document))
 
 
 def _session_document(append: dict[str, Any]) -> dict[str, Any]:
@@ -826,3 +880,13 @@ def test_agent_inbox_action_rejects_a_second_operation_alongside_claim_or_pendin
     schema = json.loads(AGENT_INBOX_SCHEMA.read_text(encoding="utf-8"))
     errors = list(Draft202012Validator(schema).iter_errors(_agent_inbox_document(action)))
     assert errors, f"expected this action to be rejected: {action}"
+
+
+@pytest.mark.parametrize(
+    "token", ["NaN", "Infinity", "1garbage", "+1", "01"], ids=lambda token: f"token-{token}"
+)
+def test_raw_arguments_schema_refuses_out_of_grammar_number_tokens(token: str) -> None:
+    """L0206-D002-R002: NaN is outside the raw domain; non-literal spellings are refused."""
+    document = _raw_case()
+    document["raw_arguments"]["cases"][0]["arguments"]["n"] = {"number": token}
+    assert list(_raw_validator().iter_errors(document))

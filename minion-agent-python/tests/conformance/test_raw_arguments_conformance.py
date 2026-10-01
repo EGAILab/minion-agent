@@ -16,7 +16,7 @@ CASES = [case for document in DOCUMENTS for case in document["raw_arguments"]["c
 
 
 def test_raw_arguments_cases_exist() -> None:
-    assert len(CASES) == 33  # 22 strings + 10 numbers + 1 key case
+    assert len(CASES) == 38  # 22 strings + 15 numbers (CE-L0206-D002-01 added 5) + 1 key case
 
 
 @pytest.mark.parametrize("case", CASES, ids=lambda case: case["id"])

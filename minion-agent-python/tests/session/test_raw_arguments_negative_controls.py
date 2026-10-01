@@ -258,13 +258,180 @@ def test_named_tokens_are_exactly_the_non_finite_and_negative_zero_values() -> N
     assert set(runner.NAMED) == {"+Infinity", "-Infinity", "-0"}
 
 
-def test_an_integer_outside_binary64_is_observed_as_such_never_rounded() -> None:
-    """A binding delivering the unrounded 9007199254740993 at a boundary is distinguishable from
-    the binary64 value 9007199254740992 the case expects."""
-    assert runner.observe(9007199254740993) == {"non_binary64_int": "9007199254740993"}
-    assert runner.observe(9007199254740992) == {"number": "9007199254740992"}
-    assert runner.observe(9007199254740993) != runner.observe(9007199254740992)
-    assert runner.observe(10**400) == {"non_binary64_int": str(10**400)}
+MIDPOINT = 2**1024 - 2**970  # the smallest int whose float conversion overflows
+INVALID_INTS = [
+    9007199254740993,
+    1000000000000000100,
+    -1000000000000000100,
+    MIDPOINT - 1,  # rounds to the largest finite double, but is not one
+    MIDPOINT,
+    2**1024,
+    2**1024 + 1,
+    10**4299,
+    -(10**4299),
+    10**4300,  # str() raises at the interpreter's 4300-digit limit
+    -(10**4300),
+    10**5000,
+]
+
+
+@pytest.mark.parametrize(
+    "value", INVALID_INTS, ids=lambda v: f"bits{v.bit_length()}{'neg' if v < 0 else ''}"
+)
+def test_observation_is_strict_and_total_for_every_out_of_domain_int(value: int) -> None:
+    """CE-L0206-D002-01 N3': both exception boundaries (float overflow, decimal digit limit) observe
+    as the controlled hex marker without raising, and no process-wide setting changes."""
+    before = sys.get_int_max_str_digits()
+    assert runner.observe(value) == {"non_binary64_int": hex(value)}
+    assert sys.get_int_max_str_digits() == before
+
+
+@pytest.mark.parametrize(
+    ("value", "token"),
+    [
+        (1000000000000000128, "1000000000000000100"),
+        (-1000000000000000128, "-1000000000000000100"),
+        (2**53, "9007199254740992"),
+        (10**18, "1000000000000000000"),
+    ],
+)
+def test_exact_binary64_ints_observe_as_their_number_token(value: int, token: str) -> None:
+    assert runner.observe(value) == {"number": token}
+
+
+_STRICT_OBSERVE = runner.observe
+
+
+def _lossy_observe(value: Any) -> Any:
+    """The rejected observer: renders an int through float(), rounding a wrong value away."""
+    if isinstance(value, int) and not isinstance(value, bool):
+        return {"number": runner.render(float(value))}
+    if isinstance(value, list):
+        return [_lossy_observe(item) for item in value]
+    if isinstance(value, dict):
+        return {tuple(runner.units(k)): _lossy_observe(v) for k, v in value.items()}
+    return _STRICT_OBSERVE(value)
+
+
+@pytest.mark.parametrize("value", [1000000000000000100, -1000000000000000100, 9007199254740993])
+def test_the_lossy_observer_is_killed_by_direct_units(value: int) -> None:
+    """C-L0206-D002-01-02: the float-coercing observer is distinguishable only on a malformed
+    runtime int -- the strict observer marks it, the lossy one renders a valid-looking token."""
+    assert runner.observe(value) == {"non_binary64_int": hex(value)}
+    assert _lossy_observe(value) != runner.observe(value)
+
+
+NON_EXACT = ("number/non-exact-integer-spelling", "number/non-exact-integer-spelling-negative")
+
+
+def test_the_number_decoder_goes_through_binary64() -> None:
+    """N1/N2: a canonical integer spelling is decoded as its exact binary64 integer."""
+    assert runner.number("1000000000000000100") == 1000000000000000128
+    assert runner.number("-1000000000000000100") == -1000000000000000128
+    assert runner.number("1e+21") == 1e21 and isinstance(runner.number("1e+21"), float)
+
+
+async def test_the_spelled_digits_decoder_is_killed(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The old `int(token)` decoder delivers 1000000000000000100, which is not a binary64 value: the
+    strict observer marks it and the independent expectation (the token) refuses it."""
+    assert await _killed(*NON_EXACT) == []
+
+    def spelled(token: str) -> Any:
+        return (
+            runner.NAMED[token]
+            if token in runner.NAMED
+            else (int(token) if not any(m in token for m in ".eE") else float(token))
+        )
+
+    monkeypatch.setattr(runner, "number", spelled)
+    assert await _killed(*NON_EXACT) == sorted(NON_EXACT)
+
+
+def _wrong(value: Any) -> Any:
+    """Deliver the spelled (non-binary64) integer where its binary64 value is due."""
+    return _map(
+        value, lambda s: s, lambda n: 1000000000000000100 if n == 1000000000000000128 else n
+    )
+
+
+def _seam(old: str, target: str, seam: str) -> tuple[str, str, str]:
+    """A single-point mutant: `target` inside the real source line `old` becomes `_project(...)`."""
+    return old, old.replace(target, f"_project({target})", 1), seam
+
+
+SEAMS = [
+    _seam(
+        "validated_arguments,\n            signal,\n            terminal=",
+        "validated_arguments",
+        "hook",
+    ),
+    _seam("arguments=decision.arguments)", "decision.arguments", "execute"),
+    _seam(
+        "ctx.events.emit(TOOLS_EXECUTION_START, call.id, call.name, call.arguments, scope=scope)",
+        "call.arguments",
+        "execution_start",
+    ),
+    _seam(
+        "ctx.events.emit(TOOLS_UPDATE, call.id, call.name, call.arguments, partial, scope=scope)",
+        "call.arguments",
+        "update_event",
+    ),
+    _seam(
+        "on_execution_update(call.id, call.name, call.arguments, partial),",
+        "call.arguments",
+        "update_delivery",
+    ),
+]
+
+
+def _seam_mutant(old: str, new: str) -> types.ModuleType:
+    source = inspect.getsource(execute_module)
+    assert source.count(old) == 1, old
+    clone = types.ModuleType(execute_module.__name__ + "_number_mutant")
+    clone.__package__ = execute_module.__package__
+    sys.modules[clone.__name__] = clone
+    exec(compile(source.replace(old, new), clone.__name__, "exec"), clone.__dict__)
+    clone._project = _wrong  # type: ignore[attr-defined]
+    return clone
+
+
+@pytest.mark.parametrize(("old", "new", "seam"), SEAMS, ids=[s[2] for s in SEAMS])
+async def test_a_wrong_number_at_one_seam_is_refused(
+    monkeypatch: pytest.MonkeyPatch, old: str, new: str, seam: str
+) -> None:
+    clone = _seam_mutant(old, new)
+    try:
+        monkeypatch.setattr(runner, "execute_call", clone.execute_call)
+        case = _cases(NON_EXACT[0])[0]
+        seen = await runner.run_case(case)
+        want = runner.expect(case["arguments"])
+        got = seen[seam][0] if seam.startswith("update") else seen[seam]
+        assert got != want, seam
+        assert await _killed(NON_EXACT[0]) == [NON_EXACT[0]]
+    finally:
+        del sys.modules[clone.__name__]
+
+
+async def test_a_wrong_number_at_replay_is_refused(monkeypatch: pytest.MonkeyPatch) -> None:
+    wrap = _arguments_mutant(_wrong)
+    monkeypatch.setattr(runner, "decode_message", wrap(derive_module.decode_message, False))
+    assert await _killed(NON_EXACT[0]) == [NON_EXACT[0]]
+
+
+async def test_only_the_strict_observer_refuses_a_wrong_number(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Demonstration (C-L0206-D002-01-02): the hook-seam wrong value is refused with the strict
+    observer and silently accepted with the lossy one -- strictness is what does the refusing."""
+    old, new, _ = SEAMS[0]
+    clone = _seam_mutant(old, new)
+    try:
+        monkeypatch.setattr(runner, "execute_call", clone.execute_call)
+        assert await _killed(NON_EXACT[0]) == [NON_EXACT[0]]
+        monkeypatch.setattr(runner, "observe", _lossy_observe)
+        assert await _killed(NON_EXACT[0]) == []
+    finally:
+        del sys.modules[clone.__name__]
 
 
 async def test_a_hook_receiving_an_unrounded_integer_is_killed(

@@ -45,11 +45,11 @@ rows:
   tests:
   - public-llm-vocabulary-schema
   - raw_tool_call_argument_value_domain -- conformance/agent/raw-arguments/ (shape raw-arguments-scenario.schema.json,
-    33 cases -- 22 string, 10 number, 1 key -- generated from the pinned-Pi raw-boundary probe in minion-agent-docs
+    38 cases -- 22 string, 15 number, 1 key -- generated from the pinned-Pi raw-boundary probe in minion-agent-docs
     assurance/layers/data/l0206-raw-boundaries), every boundary per case incl. the tools/update payload and
     on_execution_update delivery (L0206-D002-R001); canonical number tokens only (R002)
   python: 'src/minion_agent/llm/content.py (rewrite). L0206-D002: conforms with no production change --
-    tests/conformance/raw_arguments_runner.py, test_raw_arguments_conformance.py (33),
+    tests/conformance/raw_arguments_runner.py, test_raw_arguments_conformance.py (38),
     tests/session/test_raw_arguments_negative_controls.py (Owner decision section 11 mutants) -- PENDING contract review.'
   rust: 'Phase 2 llm vocabulary (new). L0206-D002: NOT_IMPLEMENTED (serde_json::Value cannot hold an unpaired surrogate
     or +/-Infinity; a raw runtime value representation is required).'

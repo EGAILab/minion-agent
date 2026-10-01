@@ -101,6 +101,51 @@
       "number": "5e-324"
      }
     }
+   },
+   {
+    "id": "number/exact-1e18",
+    "provider_text": "{\"n\":1000000000000000000}",
+    "arguments": {
+     "n": {
+      "number": "1000000000000000000"
+     }
+    }
+   },
+   {
+    "id": "number/non-exact-integer-spelling",
+    "provider_text": "{\"n\":1000000000000000100}",
+    "arguments": {
+     "n": {
+      "number": "1000000000000000100"
+     }
+    }
+   },
+   {
+    "id": "number/non-exact-integer-spelling-negative",
+    "provider_text": "{\"n\":-1000000000000000100}",
+    "arguments": {
+     "n": {
+      "number": "-1000000000000000100"
+     }
+    }
+   },
+   {
+    "id": "number/integral-exponent-1e21",
+    "provider_text": "{\"n\":1e21}",
+    "arguments": {
+     "n": {
+      "number": "1e+21"
+     }
+    }
+   },
+   {
+    "id": "number/fraction-0.1",
+    "provider_text": "{\"n\":0.1}",
+    "arguments": {
+     "n": {
+      "number": "0.1"
+     }
+    }
    }
   ]
  }

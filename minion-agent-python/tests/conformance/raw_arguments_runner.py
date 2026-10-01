@@ -81,14 +81,14 @@ def preflight(value: Any) -> None:
 
 
 def number(token: str) -> int | float:
-    """A (preflighted) number token as the binding value: an integral literal is an `int`
-    (Layer 02's JSON integer decoding, D001's representation rule) -- exactly a binary64 value by
-    the preflight; every other number is a `float`."""
+    """A (preflighted) number token as the binding value, decoded THROUGH binary64 (CE-L0206-D002-01
+    N1/N2): the token names `float(token)`, the correctly rounded value `JSON.parse` yields. An
+    integral spelling is that value's EXACT integer (D001's integral-int representation) -- never
+    the spelled digits: `1000000000000000100` is the int 1000000000000000128."""
     if token in NAMED:
         return NAMED[token]
-    if not any(mark in token for mark in ".eE"):
-        return int(token)
-    return float(token)
+    value = float(token)
+    return int(value) if not any(mark in token for mark in ".eE") else value
 
 
 def decode(value: Any) -> Any:
@@ -106,16 +106,27 @@ def decode(value: Any) -> Any:
     return value
 
 
+def is_binary64_int(value: int) -> bool:
+    """Whether an int IS a binary64 value: its float conversion succeeds and is exact."""
+    try:
+        return int(float(value)) == value
+    except OverflowError:
+        return False
+
+
 def observe(value: Any) -> Any:
-    """A runtime value in the grammar, objects as key->observation maps (compared as sets). An
-    integer that is not exactly a binary64 value is outside the raw domain and renders as such,
-    never through a lossy float conversion (L0206-D002-R002)."""
+    """A runtime value in the grammar, objects as key->observation maps (compared as sets).
+
+    Strict and total (CE-L0206-D002-01 N3'): an int that is not exactly a binary64 value observes as
+    a controlled `{"non_binary64_int": hex(value)}` -- never rounded through a float, never raising
+    (the float conversion's OverflowError is caught; hex, unlike decimal, is not subject to the
+    interpreter's int-string digit limit, so no process-wide setting is touched)."""
     if isinstance(value, str):
         return {"utf16": units(value)}
     if isinstance(value, bool) or value is None:
         return value
-    if isinstance(value, int) and (abs(value) > 2**1024 or int(float(value)) != value):
-        return {"non_binary64_int": str(value)}
+    if isinstance(value, int) and not is_binary64_int(value):
+        return {"non_binary64_int": hex(value)}
     if isinstance(value, int | float):
         return {"number": render(value)}
     if isinstance(value, list):
@@ -196,8 +207,26 @@ BOUNDARIES = ("construction", "replay", "execution_start", "hook", "execute")
 UPDATE_BOUNDARIES = ("update_event", "update_delivery")  # exactly one partial result each
 
 
+def expect(value: Any) -> Any:
+    """A case's expected observation, computed from the scenario TEXT (CE-L0206-D002-01 N4) -- never
+    through the fixture decoder: a number leaf expects its (canonical, preflighted) token itself, a
+    string leaf its code units. A `non_binary64_int` marker can therefore never satisfy a valid
+    number fixture."""
+    if isinstance(value, list):
+        return [expect(item) for item in value]
+    if isinstance(value, dict):
+        if "utf16" in value:
+            return {"utf16": list(value["utf16"])}
+        if "number" in value:
+            return {"number": value["number"]}
+        if "$keys" in value:
+            return {tuple(key): expect(item) for key, item in value["$keys"]}
+        return {tuple(units(key)): expect(item) for key, item in value.items()}
+    return value
+
+
 def check(case: dict[str, Any], seen: dict[str, Any]) -> None:
-    want = observe(decode(case["arguments"]))
+    want = expect(case["arguments"])
     assert seen["result"] == (False, "ok"), (case["id"], seen["result"])
     for boundary in BOUNDARIES:
         assert seen.get(boundary) == want, (case["id"], boundary, seen.get(boundary))

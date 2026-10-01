@@ -1,0 +1,128 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$comment": "Layer 05/06 delta L0506-D002 (TOOL-041): the prepared runtime JavaScript STRING domain (a string is a sequence of UTF-16 code units, including unpaired surrogates). Scenarios live in conformance/agent/prepared-runtime-string/, discriminated by a top-level `prepared_string` key. For each case a runner makes ONE tool call through the REAL Layer 06 pipeline (resolve, prepare_arguments, validation, the tools/pre-execute hook, execute) with a pre-execute listener that records the prepared value at each `observe` JSON pointer (and the keys of the object at each `observe_keys` pointer), and (custom tools) an execute that records the same. It performs no preparation, validation or string conversion itself. STRINGS are written as `units`: arrays of UTF-16 code units (integers 0..65535), so unpaired surrogates survive the scenario file; an observation renders the observed binding string back to its UTF-16 code units. A `prepare_set` VALUE is {\"utf16\": units} (a string), {\"$key\": units, \"value\": V} (an object with exactly that one key), an array or object of values, or a plain JSON scalar. HOOK REPLACEMENT (`hook_replace_set`, Minion's own Proceed(arguments=...) extension -- not a Pi behavior): the listener records its observations, then proceeds with the prepared arguments merged with these top-level values; execute's observations use `execute_observe`/`execute_observe_keys`. PREFLIGHT (language-neutral, before running a case; a violation fails the document, it is never defaulted): for outcome `prepared`, the keys of `observed` are exactly `observe`, the keys of `observed_keys` are exactly `observe_keys` (both absent or both present), `execute_observed` is present exactly when `hook_replace_set` is, with keys exactly `execute_observe`, and `execute_observed_keys` exactly when `execute_observe_keys` is, with keys exactly those pointers.",
+  "type": "object",
+  "required": ["name", "family", "authority", "pi_revision", "requirements", "witnesses", "gate", "prepared_string"],
+  "additionalProperties": false,
+  "properties": {
+    "name": {"type": "string", "minLength": 1},
+    "family": {"const": "agent"},
+    "authority": {"type": "string", "minLength": 1},
+    "pi_revision": {"type": "string", "minLength": 1},
+    "requirements": {"type": "array", "minItems": 1, "items": {"type": "string", "pattern": "^TOOL-0[0-9]{2}$"}},
+    "witnesses": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+    "notes": {"type": "string"},
+    "gate": {
+      "enum": ["L0506-D002", "WP-13.2"],
+      "$comment": "Evidence staging, as L0506-D001-R003. `L0506-D002`: the delta's certification gate -- custom cases only, runnable from the accepted Layer 05/06 baseline in every binding. `WP-13.2`: an integration witness through the real built-in edit tool (TOOL-030), run by WP-13.2's Rust implementation review once the delta is certified; NOT part of the delta's certification. A runner never skips, aliases or simulates a document of the other gate; it filters by `gate` explicitly."
+    },
+    "prepared_string": {
+      "type": "object",
+      "required": ["cases"],
+      "additionalProperties": false,
+      "properties": {"cases": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/case"}}}
+    }
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"gate": {"const": "L0506-D002"}}, "required": ["gate"]},
+      "then": {"properties": {"prepared_string": {"properties": {"cases": {"items": {"$ref": "#/$defs/customCase"}}}}}}
+    }
+  ],
+  "$defs": {
+    "units": {"type": "array", "items": {"type": "integer", "minimum": 0, "maximum": 65535}},
+    "pointer": {"type": "string", "pattern": "^(/[^/]+)+$"},
+    "topPointer": {"type": "string", "pattern": "^/[^/]+$"},
+    "pointers": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/pointer"}},
+    "value": {
+      "oneOf": [
+        {"type": "object", "required": ["utf16"], "additionalProperties": false, "properties": {"utf16": {"$ref": "#/$defs/units"}}},
+        {"type": "object", "required": ["$key", "value"], "additionalProperties": false,
+         "properties": {"$key": {"$ref": "#/$defs/units"}, "value": {"$ref": "#/$defs/value"}}},
+        {"type": "object", "not": {"anyOf": [{"required": ["utf16"]}, {"required": ["$key"]}]},
+         "additionalProperties": {"$ref": "#/$defs/value"}},
+        {"type": "array", "items": {"$ref": "#/$defs/value"}},
+        {"type": ["string", "number", "boolean", "null"]}
+      ]
+    },
+    "set": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": {"$ref": "#/$defs/topPointer"},
+      "additionalProperties": {"$ref": "#/$defs/value"}
+    },
+    "observedValues": {"type": "object", "propertyNames": {"$ref": "#/$defs/pointer"}, "additionalProperties": {"$ref": "#/$defs/units"}},
+    "observedKeys": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": {"$ref": "#/$defs/pointer"},
+      "additionalProperties": {"type": "array", "items": {"$ref": "#/$defs/units"}}
+    },
+    "failure": {
+      "type": "object",
+      "required": ["outcome"],
+      "additionalProperties": false,
+      "properties": {"outcome": {"const": "argument_validation_failure"}}
+    },
+    "case": {"oneOf": [{"$ref": "#/$defs/editCase"}, {"$ref": "#/$defs/customCase"}]},
+    "customCase": {
+      "type": "object",
+      "$comment": "a tool whose own prepare_arguments returns the raw arguments merged with `prepare_set` (top-level keys), against the named schema kind: open = {type: object, properties: {}}; string = {text: {type: string}} required; min-length-2 / max-length-1 = {text: {type: string, minLength: 2 | maxLength: 1}}; pattern-one-char / pattern-two-chars = {text: {type: string, pattern: \"^.$\" | \"^..$\"}}; const-pair = {text: {const: U+1F600 (units [55357, 56832])}}; enum-lone = {text: {enum: [units [55296]]}}",
+      "required": ["id", "tool", "schema", "prepare_set", "arguments", "observe", "expect"],
+      "additionalProperties": false,
+      "dependentRequired": {"hook_replace_set": ["execute_observe"], "execute_observe": ["hook_replace_set"], "execute_observe_keys": ["hook_replace_set"]},
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "tool": {"const": "custom"},
+        "schema": {"enum": ["open", "string", "min-length-2", "max-length-1", "pattern-one-char", "pattern-two-chars", "const-pair", "enum-lone"]},
+        "prepare_set": {"$ref": "#/$defs/set"},
+        "hook_replace_set": {"$ref": "#/$defs/set"},
+        "arguments": {"type": "object"},
+        "observe": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/pointer"}},
+        "observe_keys": {"$ref": "#/$defs/pointers"},
+        "execute_observe": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/pointer"}},
+        "execute_observe_keys": {"$ref": "#/$defs/pointers"},
+        "expect": {
+          "oneOf": [
+            {
+              "type": "object",
+              "required": ["outcome", "observed"],
+              "additionalProperties": false,
+              "properties": {
+                "outcome": {"const": "prepared"},
+                "observed": {"$ref": "#/$defs/observedValues"},
+                "observed_keys": {"$ref": "#/$defs/observedKeys"},
+                "execute_observed": {"$ref": "#/$defs/observedValues"},
+                "execute_observed_keys": {"$ref": "#/$defs/observedKeys"}
+              }
+            },
+            {"$ref": "#/$defs/failure"}
+          ]
+        }
+      }
+    },
+    "editCase": {
+      "type": "object",
+      "$comment": "the REAL built-in edit tool over a fresh root holding f.txt = \"a\\n\" (its own prepare_arguments, prepareEditArguments); `file_utf8_hex` is the final f.txt bytes",
+      "required": ["id", "tool", "arguments", "observe", "expect"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "tool": {"const": "edit"},
+        "arguments": {"type": "object"},
+        "observe": {"$ref": "#/$defs/pointers"},
+        "expect": {
+          "type": "object",
+          "required": ["outcome", "observed", "result_text", "file_utf8_hex"],
+          "additionalProperties": false,
+          "properties": {
+            "outcome": {"const": "prepared"},
+            "observed": {"$ref": "#/$defs/observedValues"},
+            "result_text": {"type": "string"},
+            "file_utf8_hex": {"type": "string", "pattern": "^([0-9a-f]{2})*$"}
+          }
+        }
+      }
+    }
+  }
+}

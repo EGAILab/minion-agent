@@ -406,7 +406,7 @@ impl AgentLoop {
                         .tools
                         .iter()
                         .map(|tool| tool.schema())
-                        .collect(),
+                        .collect::<Result<_, _>>()?,
                 ),
             },
             options: SimpleStreamOptions {
@@ -993,7 +993,7 @@ mod tests {
         Message::ToolResult(Box::new(ToolResultMessage::new(
             "call-1",
             "lookup",
-            vec![ToolResultContentBlock::Text(TextBlock::new(text))],
+            vec![ToolResultContentBlock::Text(TextBlock::new(text).into())],
             false,
             3.0,
         )))
@@ -1030,7 +1030,7 @@ mod tests {
                 Box::pin(async {
                     Ok(AgentToolResult {
                         content: vec![],
-                        details: Value::Null,
+                        details: Value::Null.into(),
                         usage: None,
                         added_tool_names: None,
                         terminate: None,
@@ -1375,8 +1375,8 @@ mod tests {
 
     fn tool_output(text: &str) -> AgentToolResult {
         AgentToolResult {
-            content: vec![ToolResultContentBlock::Text(TextBlock::new(text))],
-            details: Value::Null,
+            content: vec![ToolResultContentBlock::Text(TextBlock::new(text).into())],
+            details: Value::Null.into(),
             usage: None,
             added_tool_names: None,
             terminate: None,
@@ -2096,9 +2096,9 @@ mod tests {
                                     executions.fetch_add(1, Ordering::SeqCst);
                                     request.on_update.unwrap()(AgentToolResult {
                                         content: vec![ToolResultContentBlock::Text(
-                                            TextBlock::new("partial"),
+                                            TextBlock::new("partial").into(),
                                         )],
-                                        details: json!({"progress": 1}),
+                                        details: json!({"progress": 1}).into(),
                                         usage: None,
                                         added_tool_names: None,
                                         terminate: None,
@@ -2106,9 +2106,9 @@ mod tests {
                                     trace.lock().push("tool-continued");
                                     Ok(AgentToolResult {
                                         content: vec![ToolResultContentBlock::Text(
-                                            TextBlock::new("done"),
+                                            TextBlock::new("done").into(),
                                         )],
-                                        details: Value::Null,
+                                        details: Value::Null.into(),
                                         usage: None,
                                         added_tool_names: None,
                                         terminate: None,
@@ -2200,7 +2200,7 @@ mod tests {
                                 Box::pin(async {
                                     Ok(AgentToolResult {
                                         content: vec![],
-                                        details: Value::Null,
+                                        details: Value::Null.into(),
                                         usage: None,
                                         added_tool_names: None,
                                         terminate: None,
@@ -2262,7 +2262,7 @@ mod tests {
                             Box::pin(async {
                                 Ok(AgentToolResult {
                                     content: vec![],
-                                    details: Value::Null,
+                                    details: Value::Null.into(),
                                     usage: None,
                                     added_tool_names: Some(vec![
                                         "introduced".into(),
@@ -2360,9 +2360,9 @@ mod tests {
                                     old_executions.fetch_add(1, Ordering::SeqCst);
                                     Ok(AgentToolResult {
                                         content: vec![ToolResultContentBlock::Text(
-                                            TextBlock::new("old"),
+                                            TextBlock::new("old").into(),
                                         )],
-                                        details: Value::Null,
+                                        details: Value::Null.into(),
                                         usage: None,
                                         added_tool_names: None,
                                         terminate: None,
@@ -2398,9 +2398,9 @@ mod tests {
                                     new_executions.fetch_add(1, Ordering::SeqCst);
                                     Ok(AgentToolResult {
                                         content: vec![ToolResultContentBlock::Text(
-                                            TextBlock::new("new"),
+                                            TextBlock::new("new").into(),
                                         )],
-                                        details: Value::Null,
+                                        details: Value::Null.into(),
                                         usage: None,
                                         added_tool_names: None,
                                         terminate: None,

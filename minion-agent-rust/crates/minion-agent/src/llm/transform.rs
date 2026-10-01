@@ -235,9 +235,9 @@ fn flush_orphans(
             output.push(Message::ToolResult(Box::new(ToolResultMessage::new(
                 call.id,
                 call.name,
-                vec![ToolResultContentBlock::Text(TextBlock::new(
-                    "No result provided",
-                ))],
+                vec![ToolResultContentBlock::Text(
+                    TextBlock::new("No result provided").into(),
+                )],
                 true,
                 now_millis(),
             ))));
@@ -298,9 +298,9 @@ fn downgrade_tool_blocks(blocks: Vec<ToolResultContentBlock>) -> Vec<ToolResultC
         match block {
             ToolResultContentBlock::Image(_) => {
                 if !previous_was_placeholder {
-                    output.push(ToolResultContentBlock::Text(TextBlock::new(
-                        TOOL_IMAGE_PLACEHOLDER,
-                    )));
+                    output.push(ToolResultContentBlock::Text(
+                        TextBlock::new(TOOL_IMAGE_PLACEHOLDER).into(),
+                    ));
                 }
                 previous_was_placeholder = true;
             }

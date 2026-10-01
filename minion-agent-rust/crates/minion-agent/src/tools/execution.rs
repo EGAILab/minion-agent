@@ -1,5 +1,4 @@
 use std::{
-    collections::BTreeMap,
     future::Future,
     mem,
     sync::Arc,
@@ -18,13 +17,12 @@ use thiserror::Error;
 use crate::{
     Context, DispatchMode, EventBus, EventError, EventListenerHandle, EventName, EventSpec,
     RuntimeError, ScopeHandle,
-    llm::{StopReason, TextBlock, ToolCall, ToolResultContentBlock, ToolResultMessage, Usage},
+    llm::{StopReason, ToolCall, ToolResultContentBlock, ToolResultMessage, Usage},
 };
 
 use super::{
     AgentToolResult, ExecutionMode, ExecutionSignal, PreparedValue, ToolDefinition,
-    ToolExecutionRequest, ToolExecutionSignal,
-    prepared_validation::{PreparedValidationError, validate_prepared},
+    ToolExecutionRequest, ToolExecutionSignal, prepared_validation::PreparedValidationError,
 };
 
 /// Batch-level execution inputs owned by Layer 06.
@@ -158,7 +156,7 @@ pub enum ToolExecutionError {
 pub struct ToolExecutionStart {
     pub tool_call_id: String,
     pub tool_name: String,
-    pub arguments: Value,
+    pub arguments: crate::llm::RawValue,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -172,7 +170,7 @@ pub struct ToolExecutionEnd {
 pub struct ToolExecutionUpdate {
     pub tool_call_id: String,
     pub tool_name: String,
-    pub arguments: Value,
+    pub arguments: crate::llm::RawValue,
     pub update: AgentToolResult,
 }
 
@@ -226,7 +224,7 @@ pub enum BeforeToolCallAction {
 enum BeforeHookOutcome {
     Proceed(BeforeToolCallContext),
     Blocked { message: String, terminate: bool },
-    Failed(String),
+    Failed(crate::llm::ResultString),
 }
 
 fn before_tool_call_spec() -> EventSpec<BeforeToolCallHookContext, BeforeHookOutcome> {
@@ -292,7 +290,7 @@ pub struct AfterToolCallResult {
     pub tool_call_id: String,
     pub tool_name: String,
     pub content: Vec<ToolResultContentBlock>,
-    pub details: Option<Value>,
+    pub details: Option<crate::llm::ResultValue>,
     pub usage: Option<Usage>,
     pub added_tool_names: Option<Vec<String>>,
     pub is_error: bool,
@@ -309,7 +307,7 @@ pub struct AfterToolCallContext {
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct AfterToolCallOverride {
     content: Option<Vec<ToolResultContentBlock>>,
-    details: Option<Value>,
+    details: Option<crate::llm::ResultValue>,
     usage: Option<Usage>,
     is_error: Option<bool>,
     terminate: Option<bool>,
@@ -481,8 +479,9 @@ impl AfterToolCallOverride {
         self
     }
 
-    pub fn with_details(mut self, details: Value) -> Self {
-        self.details = Some(details);
+    pub fn with_details(mut self, details: impl Into<crate::llm::ResultValue>) -> Self {
+        let details = details.into();
+        self.details = (!details.is_null()).then_some(details);
         self
     }
 
@@ -574,8 +573,8 @@ where
                     }))
                     .await
                 }
-                Err(error) => Err(crate::runtime::WaterfallError::ListenerFailed(
-                    error.message().to_owned(),
+                Err(error) => Err(crate::runtime::WaterfallError::ListenerFailedUtf16(
+                    error.message().into(),
                 )),
             }
         }
@@ -826,8 +825,9 @@ async fn preflight_one(
     } else {
         PreparedValue::from(raw)
     };
-    let schema = Value::from(tool.schema().parameters);
-    if let Err(error) = validate_prepared(&schema, &params) {
+    if let Err(error) =
+        super::prepared_validation::validate_runtime_schema(tool.parameters().as_value(), &params)
+    {
         let message = match error {
             PreparedValidationError::Schema(error) => format!(
                 "invalid arguments for tool \"{}\": invalid schema: {error}",
@@ -993,7 +993,7 @@ async fn execute_and_finalize_prepared(
                 tool_call_id: call.id.clone(),
                 tool_name: call.name.clone(),
                 content: result.content,
-                details: (result.details != Value::Null).then_some(result.details),
+                details: (!result.details.is_null()).then_some(result.details),
                 usage: result.usage,
                 added_tool_names: result.added_tool_names,
                 is_error: false,
@@ -1033,7 +1033,10 @@ async fn execute_and_finalize_prepared(
         Ok(finalized) => {
             normalize_successful_after_result(finalized, &normalization_state.lock(), &protected)
         }
-        Err(EventError::Waterfall(error)) => immediate_error(&call, &error.to_string()),
+        Err(EventError::Waterfall(crate::runtime::WaterfallError::ListenerFailedUtf16(
+            message,
+        ))) => immediate_error(&call, message),
+        Err(EventError::Waterfall(error)) => immediate_error(&call, error.to_string()),
         Err(error) => return Err(error.into()),
     };
     emit_end(
@@ -1120,7 +1123,7 @@ async fn emit_end(
 async fn finish_immediate(
     index: usize,
     call: ToolCall,
-    message: &str,
+    message: impl Into<crate::llm::ResultString>,
     events: EventBus,
     scope: Option<ScopeHandle>,
     end_spec: EventSpec<ToolExecutionEnd, ()>,
@@ -1145,7 +1148,10 @@ async fn finish_immediate(
     Ok((index, result.into_message(timestamp), terminate))
 }
 
-fn immediate_error(call: &ToolCall, message: &str) -> AfterToolCallResult {
+fn immediate_error(
+    call: &ToolCall,
+    message: impl Into<crate::llm::ResultString>,
+) -> AfterToolCallResult {
     AfterToolCallResult {
         tool_call_id: call.id.clone(),
         tool_name: call.name.clone(),
@@ -1158,8 +1164,8 @@ fn immediate_error(call: &ToolCall, message: &str) -> AfterToolCallResult {
     }
 }
 
-fn empty_error_details() -> Option<Value> {
-    Some(Value::Object(serde_json::Map::new()))
+fn empty_error_details() -> Option<crate::llm::ResultValue> {
+    Some(Value::Object(serde_json::Map::new()).into())
 }
 
 fn restore_protected(
@@ -1181,7 +1187,11 @@ fn normalize_successful_after_result(
     previous: &AfterToolCallResult,
     authoritative: &AfterToolCallResult,
 ) -> AfterToolCallResult {
-    if candidate.details.is_none() {
+    if candidate
+        .details
+        .as_ref()
+        .is_none_or(crate::llm::ResultValue::is_null)
+    {
         candidate.details.clone_from(&previous.details);
     }
     if candidate.usage.is_none() {
@@ -1193,12 +1203,14 @@ fn normalize_successful_after_result(
     restore_protected(candidate, authoritative)
 }
 
-fn arguments_value(arguments: &BTreeMap<String, Value>) -> Value {
-    Value::Object(arguments.clone().into_iter().collect())
+fn arguments_value(arguments: &crate::llm::RawValue) -> crate::llm::RawValue {
+    arguments.clone()
 }
 
-fn error_content(message: &str) -> Vec<ToolResultContentBlock> {
-    vec![ToolResultContentBlock::Text(TextBlock::new(message))]
+fn error_content(message: impl Into<crate::llm::ResultString>) -> Vec<ToolResultContentBlock> {
+    vec![ToolResultContentBlock::Text(
+        crate::llm::ResultTextBlock::new(message),
+    )]
 }
 
 impl AfterToolCallResult {

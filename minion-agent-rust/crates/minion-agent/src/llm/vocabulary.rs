@@ -150,7 +150,7 @@ pub struct ToolCall {
     kind: ToolCallKind,
     pub id: String,
     pub name: String,
-    pub arguments: BTreeMap<String, Value>,
+    pub arguments: super::RawValue,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub thought_signature: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -158,6 +158,17 @@ pub struct ToolCall {
 }
 
 impl ToolCall {
+    /// Construct directly from the lossless live raw domain.
+    pub fn new_raw(
+        id: impl Into<String>,
+        name: impl Into<String>,
+        arguments: super::RawValue,
+    ) -> Self {
+        let mut call = Self::new(id, name, BTreeMap::new());
+        call.arguments = arguments;
+        call
+    }
+
     pub fn new(
         id: impl Into<String>,
         name: impl Into<String>,
@@ -167,7 +178,7 @@ impl ToolCall {
             kind: ToolCallKind::ToolCall,
             id: id.into(),
             name: name.into(),
-            arguments,
+            arguments: arguments.into(),
             thought_signature: None,
             namespace: None,
         }
@@ -210,7 +221,7 @@ pub enum AssistantContentBlock {
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(untagged)]
 pub enum ToolResultContentBlock {
-    Text(TextBlock),
+    Text(super::ResultTextBlock),
     Image(ImageBlock),
 }
 
@@ -392,7 +403,7 @@ pub struct ToolResultMessage {
     pub tool_name: String,
     pub content: Vec<ToolResultContentBlock>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub details: Option<Value>,
+    pub details: Option<super::ResultValue>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub usage: Option<Usage>,
     #[serde(skip_serializing_if = "Option::is_none")]

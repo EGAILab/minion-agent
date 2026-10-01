@@ -56,11 +56,11 @@ fn tool_result(text: &str) -> ToolResultMessage {
     let mut message = ToolResultMessage::new(
         "call-1",
         "lookup",
-        vec![ToolResultContentBlock::Text(TextBlock::new(text))],
+        vec![ToolResultContentBlock::Text(TextBlock::new(text).into())],
         false,
         8.0,
     );
-    message.details = Some(json!({"source": "fixture"}));
+    message.details = Some(json!({"source": "fixture"}).into());
     message.added_tool_names = Some(vec!["introduced".into()]);
     message
 }
@@ -75,7 +75,7 @@ fn tool() -> Arc<ToolDefinition> {
             Box::pin(async {
                 Ok(AgentToolResult {
                     content: vec![],
-                    details: Value::Null,
+                    details: Value::Null.into(),
                     usage: None,
                     added_tool_names: None,
                     terminate: None,
@@ -231,15 +231,15 @@ fn every_agent_event_variant_preserves_its_complete_typed_payload() {
     let start = ToolExecutionStart {
         tool_call_id: "call-1".into(),
         tool_name: "lookup".into(),
-        arguments: json!({"query": "rust"}),
+        arguments: json!({"query": "rust"}).into(),
     };
     let update = ToolExecutionUpdate {
         tool_call_id: "call-1".into(),
         tool_name: "lookup".into(),
-        arguments: json!({"query": "rust"}),
+        arguments: json!({"query": "rust"}).into(),
         update: AgentToolResult {
-            content: vec![ToolResultContentBlock::Text(TextBlock::new("half"))],
-            details: json!({"progress": 0.5}),
+            content: vec![ToolResultContentBlock::Text(TextBlock::new("half").into())],
+            details: json!({"progress": 0.5}).into(),
             usage: Some(Usage::default()),
             added_tool_names: Some(vec!["introduced".into()]),
             terminate: Some(false),
@@ -251,8 +251,8 @@ fn every_agent_event_variant_preserves_its_complete_typed_payload() {
         result: AfterToolCallResult {
             tool_call_id: "call-1".into(),
             tool_name: "lookup".into(),
-            content: vec![ToolResultContentBlock::Text(TextBlock::new("done"))],
-            details: Some(json!({"complete": true})),
+            content: vec![ToolResultContentBlock::Text(TextBlock::new("done").into())],
+            details: Some(json!({"complete": true}).into()),
             usage: Some(Usage::default()),
             added_tool_names: Some(vec!["introduced".into()]),
             is_error: false,

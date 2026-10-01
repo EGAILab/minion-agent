@@ -31,8 +31,8 @@ fn root() -> PathBuf {
 
 fn text_result(text: impl Into<String>) -> AgentToolResult {
     AgentToolResult {
-        content: vec![ToolResultContentBlock::Text(TextBlock::new(text))],
-        details: Value::Null,
+        content: vec![ToolResultContentBlock::Text(TextBlock::new(text).into())],
+        details: Value::Null.into(),
         usage: None,
         added_tool_names: None,
         terminate: None,
@@ -57,10 +57,10 @@ fn partial_result(spec: &Value) -> AgentToolResult {
         }
     });
     AgentToolResult {
-        content: vec![ToolResultContentBlock::Text(TextBlock::new(
-            spec["text"].as_str().unwrap(),
-        ))],
-        details: spec["details"].clone(),
+        content: vec![ToolResultContentBlock::Text(
+            TextBlock::new(spec["text"].as_str().unwrap()).into(),
+        )],
+        details: spec["details"].clone().into(),
         usage,
         added_tool_names: spec.get("added_tool_names").map(|names| {
             names
@@ -109,7 +109,7 @@ fn encode_partial(partial: &AgentToolResult) -> Value {
 
 fn content_text(content: &[ToolResultContentBlock]) -> &str {
     match &content[0] {
-        ToolResultContentBlock::Text(block) => &block.text,
+        ToolResultContentBlock::Text(block) => block.text.as_str().expect("scalar fixture"),
         ToolResultContentBlock::Image(_) => panic!("Layer-06 fixtures expect text"),
     }
 }
@@ -368,14 +368,16 @@ fn observation_plugin(
                             async move {
                                 match action.as_str() {
                                     "raise" => Err(ToolCapabilityError::new(message)),
-                                    "annotate_result" => Ok(Some(
-                                        AfterToolCallOverride::default().with_content(vec![
+                                    "annotate_result" => {
+                                        Ok(Some(AfterToolCallOverride::default().with_content(
+                                            vec![
                                             ToolResultContentBlock::Text(TextBlock::new(format!(
                                                 "{}-{label}",
                                                 content_text(&current.content)
-                                            ))),
-                                        ]),
-                                    )),
+                                            )).into()),
+                                        ],
+                                        )))
+                                    }
                                     _ => Ok(None),
                                 }
                             }
@@ -446,7 +448,7 @@ fn run_scenario(document: &Value) -> bool {
             );
         }
         if let Some(details) = expected.get("details") {
-            assert_eq!(actual.details.as_ref(), Some(details));
+            assert_eq!(actual.details.as_ref(), Some(&details.clone().into()));
         }
     }
     if let Some(expected) = document.get("expect_tool_completion_order") {

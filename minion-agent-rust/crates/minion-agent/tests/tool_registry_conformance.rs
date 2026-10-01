@@ -333,6 +333,7 @@ fn run_scenario(document: &Value) -> Result<Value, String> {
                     runtime
                         .tools()
                         .schemas(scope)
+                        .unwrap()
                         .iter()
                         .map(|schema| schema.as_json())
                         .collect(),

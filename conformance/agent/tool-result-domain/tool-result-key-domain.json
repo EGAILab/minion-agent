@@ -1,0 +1,2474 @@
+{
+ "name": "tool-result-key-domain",
+ "family": "agent",
+ "authority": "pinned Pi b7bb00b9 agent-loop.ts executeToolCalls/executeToolCallsSequential .. emitToolResultMessage (sliced, toolExecution sequential; a custom tool + afterToolCall) + coding-agent session-manager.ts `${JSON.stringify(entry)}\\n` / parseSessionEntries, under Node 22.15.1 (L0506-D003 result-domain probe)",
+ "pi_revision": "b7bb00b936dbe21b8e160b3e89efdec361846699",
+ "requirements": [
+  "AI-006",
+  "TOOL-005",
+  "TOOL-017",
+  "MINION-002"
+ ],
+ "witnesses": [
+  "tool_result_runtime_value_domain"
+ ],
+ "notes": "Details object KEYS share the string domain (folded under the Owner decision's section 6). Enumeration ORDER is L0206-D001's (K1) and is not asserted: objects compare as key sets. GENERATED from the pinned-Pi L0506-D003 probe; regenerate with harness/make_scenarios.py.",
+ "tool_result_domain": {
+  "cases": [
+   {
+    "id": "details-key/ascii",
+    "tool": {
+     "returns": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          97,
+          98
+         ],
+         true
+        ]
+       ]
+      }
+     }
+    },
+    "hook": {
+     "mode": "observe"
+    },
+    "expect": {
+     "hook": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          97,
+          98
+         ],
+         true
+        ]
+       ]
+      },
+      "is_error": false
+     },
+     "execution_end": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          97,
+          98
+         ],
+         true
+        ]
+       ]
+      },
+      "is_error": false
+     },
+     "message": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          97,
+          98
+         ],
+         true
+        ]
+       ]
+      },
+      "is_error": false
+     },
+     "session": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          97,
+          98
+         ],
+         true
+        ]
+       ]
+      }
+     }
+    },
+    "pi_session_file": {
+     "line_utf8_hex": "7b2274797065223a226d657373616765222c226964223a226531222c22706172656e744964223a6e756c6c2c2274696d657374616d70223a2274222c226d657373616765223a7b22726f6c65223a22746f6f6c526573756c74222c22746f6f6c43616c6c4964223a2263616c6c2d31222c22746f6f6c4e616d65223a2270726f6265222c22636f6e74656e74223a5b7b2274797065223a2274657874222c2274657874223a226f6b227d5d2c2264657461696c73223a7b226162223a747275657d2c2269734572726f72223a66616c73652c2274696d657374616d70223a307d7d0a",
+     "reload": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          97,
+          98
+         ],
+         true
+        ]
+       ]
+      }
+     }
+    }
+   },
+   {
+    "id": "details-key/bmp",
+    "tool": {
+     "returns": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          233,
+          20013
+         ],
+         true
+        ]
+       ]
+      }
+     }
+    },
+    "hook": {
+     "mode": "observe"
+    },
+    "expect": {
+     "hook": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          233,
+          20013
+         ],
+         true
+        ]
+       ]
+      },
+      "is_error": false
+     },
+     "execution_end": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          233,
+          20013
+         ],
+         true
+        ]
+       ]
+      },
+      "is_error": false
+     },
+     "message": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          233,
+          20013
+         ],
+         true
+        ]
+       ]
+      },
+      "is_error": false
+     },
+     "session": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          233,
+          20013
+         ],
+         true
+        ]
+       ]
+      }
+     }
+    },
+    "pi_session_file": {
+     "line_utf8_hex": "7b2274797065223a226d657373616765222c226964223a226531222c22706172656e744964223a6e756c6c2c2274696d657374616d70223a2274222c226d657373616765223a7b22726f6c65223a22746f6f6c526573756c74222c22746f6f6c43616c6c4964223a2263616c6c2d31222c22746f6f6c4e616d65223a2270726f6265222c22636f6e74656e74223a5b7b2274797065223a2274657874222c2274657874223a226f6b227d5d2c2264657461696c73223a7b22c3a9e4b8ad223a747275657d2c2269734572726f72223a66616c73652c2274696d657374616d70223a307d7d0a",
+     "reload": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          233,
+          20013
+         ],
+         true
+        ]
+       ]
+      }
+     }
+    }
+   },
+   {
+    "id": "details-key/pair",
+    "tool": {
+     "returns": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          55357,
+          56832
+         ],
+         true
+        ]
+       ]
+      }
+     }
+    },
+    "hook": {
+     "mode": "observe"
+    },
+    "expect": {
+     "hook": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          55357,
+          56832
+         ],
+         true
+        ]
+       ]
+      },
+      "is_error": false
+     },
+     "execution_end": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          55357,
+          56832
+         ],
+         true
+        ]
+       ]
+      },
+      "is_error": false
+     },
+     "message": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          55357,
+          56832
+         ],
+         true
+        ]
+       ]
+      },
+      "is_error": false
+     },
+     "session": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          55357,
+          56832
+         ],
+         true
+        ]
+       ]
+      }
+     }
+    },
+    "pi_session_file": {
+     "line_utf8_hex": "7b2274797065223a226d657373616765222c226964223a226531222c22706172656e744964223a6e756c6c2c2274696d657374616d70223a2274222c226d657373616765223a7b22726f6c65223a22746f6f6c526573756c74222c22746f6f6c43616c6c4964223a2263616c6c2d31222c22746f6f6c4e616d65223a2270726f6265222c22636f6e74656e74223a5b7b2274797065223a2274657874222c2274657874223a226f6b227d5d2c2264657461696c73223a7b22f09f9880223a747275657d2c2269734572726f72223a66616c73652c2274696d657374616d70223a307d7d0a",
+     "reload": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          55357,
+          56832
+         ],
+         true
+        ]
+       ]
+      }
+     }
+    }
+   },
+   {
+    "id": "details-key/lone-high-start",
+    "tool": {
+     "returns": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          55296,
+          65
+         ],
+         true
+        ]
+       ]
+      }
+     }
+    },
+    "hook": {
+     "mode": "observe"
+    },
+    "expect": {
+     "hook": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          55296,
+          65
+         ],
+         true
+        ]
+       ]
+      },
+      "is_error": false
+     },
+     "execution_end": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          55296,
+          65
+         ],
+         true
+        ]
+       ]
+      },
+      "is_error": false
+     },
+     "message": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          55296,
+          65
+         ],
+         true
+        ]
+       ]
+      },
+      "is_error": false
+     },
+     "session": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          55296,
+          65
+         ],
+         true
+        ]
+       ]
+      }
+     }
+    },
+    "pi_session_file": {
+     "line_utf8_hex": "7b2274797065223a226d657373616765222c226964223a226531222c22706172656e744964223a6e756c6c2c2274696d657374616d70223a2274222c226d657373616765223a7b22726f6c65223a22746f6f6c526573756c74222c22746f6f6c43616c6c4964223a2263616c6c2d31222c22746f6f6c4e616d65223a2270726f6265222c22636f6e74656e74223a5b7b2274797065223a2274657874222c2274657874223a226f6b227d5d2c2264657461696c73223a7b225c756438303041223a747275657d2c2269734572726f72223a66616c73652c2274696d657374616d70223a307d7d0a",
+     "reload": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          55296,
+          65
+         ],
+         true
+        ]
+       ]
+      }
+     }
+    }
+   },
+   {
+    "id": "details-key/lone-high-middle",
+    "tool": {
+     "returns": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          65,
+          55296,
+          66
+         ],
+         true
+        ]
+       ]
+      }
+     }
+    },
+    "hook": {
+     "mode": "observe"
+    },
+    "expect": {
+     "hook": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          65,
+          55296,
+          66
+         ],
+         true
+        ]
+       ]
+      },
+      "is_error": false
+     },
+     "execution_end": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          65,
+          55296,
+          66
+         ],
+         true
+        ]
+       ]
+      },
+      "is_error": false
+     },
+     "message": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          65,
+          55296,
+          66
+         ],
+         true
+        ]
+       ]
+      },
+      "is_error": false
+     },
+     "session": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          65,
+          55296,
+          66
+         ],
+         true
+        ]
+       ]
+      }
+     }
+    },
+    "pi_session_file": {
+     "line_utf8_hex": "7b2274797065223a226d657373616765222c226964223a226531222c22706172656e744964223a6e756c6c2c2274696d657374616d70223a2274222c226d657373616765223a7b22726f6c65223a22746f6f6c526573756c74222c22746f6f6c43616c6c4964223a2263616c6c2d31222c22746f6f6c4e616d65223a2270726f6265222c22636f6e74656e74223a5b7b2274797065223a2274657874222c2274657874223a226f6b227d5d2c2264657461696c73223a7b22415c756438303042223a747275657d2c2269734572726f72223a66616c73652c2274696d657374616d70223a307d7d0a",
+     "reload": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          65,
+          55296,
+          66
+         ],
+         true
+        ]
+       ]
+      }
+     }
+    }
+   },
+   {
+    "id": "details-key/lone-high-end",
+    "tool": {
+     "returns": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          65,
+          55296
+         ],
+         true
+        ]
+       ]
+      }
+     }
+    },
+    "hook": {
+     "mode": "observe"
+    },
+    "expect": {
+     "hook": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          65,
+          55296
+         ],
+         true
+        ]
+       ]
+      },
+      "is_error": false
+     },
+     "execution_end": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          65,
+          55296
+         ],
+         true
+        ]
+       ]
+      },
+      "is_error": false
+     },
+     "message": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          65,
+          55296
+         ],
+         true
+        ]
+       ]
+      },
+      "is_error": false
+     },
+     "session": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          65,
+          55296
+         ],
+         true
+        ]
+       ]
+      }
+     }
+    },
+    "pi_session_file": {
+     "line_utf8_hex": "7b2274797065223a226d657373616765222c226964223a226531222c22706172656e744964223a6e756c6c2c2274696d657374616d70223a2274222c226d657373616765223a7b22726f6c65223a22746f6f6c526573756c74222c22746f6f6c43616c6c4964223a2263616c6c2d31222c22746f6f6c4e616d65223a2270726f6265222c22636f6e74656e74223a5b7b2274797065223a2274657874222c2274657874223a226f6b227d5d2c2264657461696c73223a7b22415c7564383030223a747275657d2c2269734572726f72223a66616c73652c2274696d657374616d70223a307d7d0a",
+     "reload": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          65,
+          55296
+         ],
+         true
+        ]
+       ]
+      }
+     }
+    }
+   },
+   {
+    "id": "details-key/lone-high-only",
+    "tool": {
+     "returns": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          55296
+         ],
+         true
+        ]
+       ]
+      }
+     }
+    },
+    "hook": {
+     "mode": "observe"
+    },
+    "expect": {
+     "hook": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          55296
+         ],
+         true
+        ]
+       ]
+      },
+      "is_error": false
+     },
+     "execution_end": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          55296
+         ],
+         true
+        ]
+       ]
+      },
+      "is_error": false
+     },
+     "message": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          55296
+         ],
+         true
+        ]
+       ]
+      },
+      "is_error": false
+     },
+     "session": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          55296
+         ],
+         true
+        ]
+       ]
+      }
+     }
+    },
+    "pi_session_file": {
+     "line_utf8_hex": "7b2274797065223a226d657373616765222c226964223a226531222c22706172656e744964223a6e756c6c2c2274696d657374616d70223a2274222c226d657373616765223a7b22726f6c65223a22746f6f6c526573756c74222c22746f6f6c43616c6c4964223a2263616c6c2d31222c22746f6f6c4e616d65223a2270726f6265222c22636f6e74656e74223a5b7b2274797065223a2274657874222c2274657874223a226f6b227d5d2c2264657461696c73223a7b225c7564383030223a747275657d2c2269734572726f72223a66616c73652c2274696d657374616d70223a307d7d0a",
+     "reload": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          55296
+         ],
+         true
+        ]
+       ]
+      }
+     }
+    }
+   },
+   {
+    "id": "details-key/lone-low-start",
+    "tool": {
+     "returns": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          56320,
+          65
+         ],
+         true
+        ]
+       ]
+      }
+     }
+    },
+    "hook": {
+     "mode": "observe"
+    },
+    "expect": {
+     "hook": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          56320,
+          65
+         ],
+         true
+        ]
+       ]
+      },
+      "is_error": false
+     },
+     "execution_end": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          56320,
+          65
+         ],
+         true
+        ]
+       ]
+      },
+      "is_error": false
+     },
+     "message": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          56320,
+          65
+         ],
+         true
+        ]
+       ]
+      },
+      "is_error": false
+     },
+     "session": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          56320,
+          65
+         ],
+         true
+        ]
+       ]
+      }
+     }
+    },
+    "pi_session_file": {
+     "line_utf8_hex": "7b2274797065223a226d657373616765222c226964223a226531222c22706172656e744964223a6e756c6c2c2274696d657374616d70223a2274222c226d657373616765223a7b22726f6c65223a22746f6f6c526573756c74222c22746f6f6c43616c6c4964223a2263616c6c2d31222c22746f6f6c4e616d65223a2270726f6265222c22636f6e74656e74223a5b7b2274797065223a2274657874222c2274657874223a226f6b227d5d2c2264657461696c73223a7b225c756463303041223a747275657d2c2269734572726f72223a66616c73652c2274696d657374616d70223a307d7d0a",
+     "reload": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          56320,
+          65
+         ],
+         true
+        ]
+       ]
+      }
+     }
+    }
+   },
+   {
+    "id": "details-key/lone-low-only",
+    "tool": {
+     "returns": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          56320
+         ],
+         true
+        ]
+       ]
+      }
+     }
+    },
+    "hook": {
+     "mode": "observe"
+    },
+    "expect": {
+     "hook": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          56320
+         ],
+         true
+        ]
+       ]
+      },
+      "is_error": false
+     },
+     "execution_end": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          56320
+         ],
+         true
+        ]
+       ]
+      },
+      "is_error": false
+     },
+     "message": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          56320
+         ],
+         true
+        ]
+       ]
+      },
+      "is_error": false
+     },
+     "session": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          56320
+         ],
+         true
+        ]
+       ]
+      }
+     }
+    },
+    "pi_session_file": {
+     "line_utf8_hex": "7b2274797065223a226d657373616765222c226964223a226531222c22706172656e744964223a6e756c6c2c2274696d657374616d70223a2274222c226d657373616765223a7b22726f6c65223a22746f6f6c526573756c74222c22746f6f6c43616c6c4964223a2263616c6c2d31222c22746f6f6c4e616d65223a2270726f6265222c22636f6e74656e74223a5b7b2274797065223a2274657874222c2274657874223a226f6b227d5d2c2264657461696c73223a7b225c7564633030223a747275657d2c2269734572726f72223a66616c73652c2274696d657374616d70223a307d7d0a",
+     "reload": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          56320
+         ],
+         true
+        ]
+       ]
+      }
+     }
+    }
+   },
+   {
+    "id": "details-key/adjacent-highs",
+    "tool": {
+     "returns": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          55296,
+          55296
+         ],
+         true
+        ]
+       ]
+      }
+     }
+    },
+    "hook": {
+     "mode": "observe"
+    },
+    "expect": {
+     "hook": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          55296,
+          55296
+         ],
+         true
+        ]
+       ]
+      },
+      "is_error": false
+     },
+     "execution_end": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          55296,
+          55296
+         ],
+         true
+        ]
+       ]
+      },
+      "is_error": false
+     },
+     "message": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          55296,
+          55296
+         ],
+         true
+        ]
+       ]
+      },
+      "is_error": false
+     },
+     "session": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          55296,
+          55296
+         ],
+         true
+        ]
+       ]
+      }
+     }
+    },
+    "pi_session_file": {
+     "line_utf8_hex": "7b2274797065223a226d657373616765222c226964223a226531222c22706172656e744964223a6e756c6c2c2274696d657374616d70223a2274222c226d657373616765223a7b22726f6c65223a22746f6f6c526573756c74222c22746f6f6c43616c6c4964223a2263616c6c2d31222c22746f6f6c4e616d65223a2270726f6265222c22636f6e74656e74223a5b7b2274797065223a2274657874222c2274657874223a226f6b227d5d2c2264657461696c73223a7b225c75643830305c7564383030223a747275657d2c2269734572726f72223a66616c73652c2274696d657374616d70223a307d7d0a",
+     "reload": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          55296,
+          55296
+         ],
+         true
+        ]
+       ]
+      }
+     }
+    }
+   },
+   {
+    "id": "details-key/low-then-high",
+    "tool": {
+     "returns": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          56320,
+          55296
+         ],
+         true
+        ]
+       ]
+      }
+     }
+    },
+    "hook": {
+     "mode": "observe"
+    },
+    "expect": {
+     "hook": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          56320,
+          55296
+         ],
+         true
+        ]
+       ]
+      },
+      "is_error": false
+     },
+     "execution_end": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          56320,
+          55296
+         ],
+         true
+        ]
+       ]
+      },
+      "is_error": false
+     },
+     "message": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          56320,
+          55296
+         ],
+         true
+        ]
+       ]
+      },
+      "is_error": false
+     },
+     "session": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          56320,
+          55296
+         ],
+         true
+        ]
+       ]
+      }
+     }
+    },
+    "pi_session_file": {
+     "line_utf8_hex": "7b2274797065223a226d657373616765222c226964223a226531222c22706172656e744964223a6e756c6c2c2274696d657374616d70223a2274222c226d657373616765223a7b22726f6c65223a22746f6f6c526573756c74222c22746f6f6c43616c6c4964223a2263616c6c2d31222c22746f6f6c4e616d65223a2270726f6265222c22636f6e74656e74223a5b7b2274797065223a2274657874222c2274657874223a226f6b227d5d2c2264657461696c73223a7b225c75646330305c7564383030223a747275657d2c2269734572726f72223a66616c73652c2274696d657374616d70223a307d7d0a",
+     "reload": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          56320,
+          55296
+         ],
+         true
+        ]
+       ]
+      }
+     }
+    }
+   },
+   {
+    "id": "details-key/pair-then-lone-high",
+    "tool": {
+     "returns": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          55357,
+          56832,
+          55296
+         ],
+         true
+        ]
+       ]
+      }
+     }
+    },
+    "hook": {
+     "mode": "observe"
+    },
+    "expect": {
+     "hook": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          55357,
+          56832,
+          55296
+         ],
+         true
+        ]
+       ]
+      },
+      "is_error": false
+     },
+     "execution_end": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          55357,
+          56832,
+          55296
+         ],
+         true
+        ]
+       ]
+      },
+      "is_error": false
+     },
+     "message": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          55357,
+          56832,
+          55296
+         ],
+         true
+        ]
+       ]
+      },
+      "is_error": false
+     },
+     "session": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          55357,
+          56832,
+          55296
+         ],
+         true
+        ]
+       ]
+      }
+     }
+    },
+    "pi_session_file": {
+     "line_utf8_hex": "7b2274797065223a226d657373616765222c226964223a226531222c22706172656e744964223a6e756c6c2c2274696d657374616d70223a2274222c226d657373616765223a7b22726f6c65223a22746f6f6c526573756c74222c22746f6f6c43616c6c4964223a2263616c6c2d31222c22746f6f6c4e616d65223a2270726f6265222c22636f6e74656e74223a5b7b2274797065223a2274657874222c2274657874223a226f6b227d5d2c2264657461696c73223a7b22f09f98805c7564383030223a747275657d2c2269734572726f72223a66616c73652c2274696d657374616d70223a307d7d0a",
+     "reload": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          55357,
+          56832,
+          55296
+         ],
+         true
+        ]
+       ]
+      }
+     }
+    }
+   },
+   {
+    "id": "details-key/lone-low-then-pair",
+    "tool": {
+     "returns": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          56320,
+          55357,
+          56832
+         ],
+         true
+        ]
+       ]
+      }
+     }
+    },
+    "hook": {
+     "mode": "observe"
+    },
+    "expect": {
+     "hook": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          56320,
+          55357,
+          56832
+         ],
+         true
+        ]
+       ]
+      },
+      "is_error": false
+     },
+     "execution_end": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          56320,
+          55357,
+          56832
+         ],
+         true
+        ]
+       ]
+      },
+      "is_error": false
+     },
+     "message": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          56320,
+          55357,
+          56832
+         ],
+         true
+        ]
+       ]
+      },
+      "is_error": false
+     },
+     "session": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          56320,
+          55357,
+          56832
+         ],
+         true
+        ]
+       ]
+      }
+     }
+    },
+    "pi_session_file": {
+     "line_utf8_hex": "7b2274797065223a226d657373616765222c226964223a226531222c22706172656e744964223a6e756c6c2c2274696d657374616d70223a2274222c226d657373616765223a7b22726f6c65223a22746f6f6c526573756c74222c22746f6f6c43616c6c4964223a2263616c6c2d31222c22746f6f6c4e616d65223a2270726f6265222c22636f6e74656e74223a5b7b2274797065223a2274657874222c2274657874223a226f6b227d5d2c2264657461696c73223a7b225c7564633030f09f9880223a747275657d2c2269734572726f72223a66616c73652c2274696d657374616d70223a307d7d0a",
+     "reload": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          56320,
+          55357,
+          56832
+         ],
+         true
+        ]
+       ]
+      }
+     }
+    }
+   },
+   {
+    "id": "details-key/empty",
+    "tool": {
+     "returns": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [],
+         true
+        ]
+       ]
+      }
+     }
+    },
+    "hook": {
+     "mode": "observe"
+    },
+    "expect": {
+     "hook": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [],
+         true
+        ]
+       ]
+      },
+      "is_error": false
+     },
+     "execution_end": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [],
+         true
+        ]
+       ]
+      },
+      "is_error": false
+     },
+     "message": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [],
+         true
+        ]
+       ]
+      },
+      "is_error": false
+     },
+     "session": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [],
+         true
+        ]
+       ]
+      }
+     }
+    },
+    "pi_session_file": {
+     "line_utf8_hex": "7b2274797065223a226d657373616765222c226964223a226531222c22706172656e744964223a6e756c6c2c2274696d657374616d70223a2274222c226d657373616765223a7b22726f6c65223a22746f6f6c526573756c74222c22746f6f6c43616c6c4964223a2263616c6c2d31222c22746f6f6c4e616d65223a2270726f6265222c22636f6e74656e74223a5b7b2274797065223a2274657874222c2274657874223a226f6b227d5d2c2264657461696c73223a7b22223a747275657d2c2269734572726f72223a66616c73652c2274696d657374616d70223a307d7d0a",
+     "reload": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [],
+         true
+        ]
+       ]
+      }
+     }
+    }
+   },
+   {
+    "id": "details-key/nul",
+    "tool": {
+     "returns": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          0
+         ],
+         true
+        ]
+       ]
+      }
+     }
+    },
+    "hook": {
+     "mode": "observe"
+    },
+    "expect": {
+     "hook": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          0
+         ],
+         true
+        ]
+       ]
+      },
+      "is_error": false
+     },
+     "execution_end": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          0
+         ],
+         true
+        ]
+       ]
+      },
+      "is_error": false
+     },
+     "message": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          0
+         ],
+         true
+        ]
+       ]
+      },
+      "is_error": false
+     },
+     "session": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          0
+         ],
+         true
+        ]
+       ]
+      }
+     }
+    },
+    "pi_session_file": {
+     "line_utf8_hex": "7b2274797065223a226d657373616765222c226964223a226531222c22706172656e744964223a6e756c6c2c2274696d657374616d70223a2274222c226d657373616765223a7b22726f6c65223a22746f6f6c526573756c74222c22746f6f6c43616c6c4964223a2263616c6c2d31222c22746f6f6c4e616d65223a2270726f6265222c22636f6e74656e74223a5b7b2274797065223a2274657874222c2274657874223a226f6b227d5d2c2264657461696c73223a7b225c7530303030223a747275657d2c2269734572726f72223a66616c73652c2274696d657374616d70223a307d7d0a",
+     "reload": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          0
+         ],
+         true
+        ]
+       ]
+      }
+     }
+    }
+   },
+   {
+    "id": "details-key/replacement-char",
+    "tool": {
+     "returns": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          65533
+         ],
+         true
+        ]
+       ]
+      }
+     }
+    },
+    "hook": {
+     "mode": "observe"
+    },
+    "expect": {
+     "hook": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          65533
+         ],
+         true
+        ]
+       ]
+      },
+      "is_error": false
+     },
+     "execution_end": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          65533
+         ],
+         true
+        ]
+       ]
+      },
+      "is_error": false
+     },
+     "message": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          65533
+         ],
+         true
+        ]
+       ]
+      },
+      "is_error": false
+     },
+     "session": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          65533
+         ],
+         true
+        ]
+       ]
+      }
+     }
+    },
+    "pi_session_file": {
+     "line_utf8_hex": "7b2274797065223a226d657373616765222c226964223a226531222c22706172656e744964223a6e756c6c2c2274696d657374616d70223a2274222c226d657373616765223a7b22726f6c65223a22746f6f6c526573756c74222c22746f6f6c43616c6c4964223a2263616c6c2d31222c22746f6f6c4e616d65223a2270726f6265222c22636f6e74656e74223a5b7b2274797065223a2274657874222c2274657874223a226f6b227d5d2c2264657461696c73223a7b22efbfbd223a747275657d2c2269734572726f72223a66616c73652c2274696d657374616d70223a307d7d0a",
+     "reload": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          65533
+         ],
+         true
+        ]
+       ]
+      }
+     }
+    }
+   },
+   {
+    "id": "details-key-order",
+    "tool": {
+     "returns": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          98
+         ],
+         true
+        ],
+        [
+         [
+          50
+         ],
+         true
+        ],
+        [
+         [
+          97
+         ],
+         true
+        ],
+        [
+         [
+          49
+         ],
+         true
+        ]
+       ]
+      }
+     }
+    },
+    "hook": {
+     "mode": "none"
+    },
+    "expect": {
+     "hook": null,
+     "execution_end": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          49
+         ],
+         true
+        ],
+        [
+         [
+          50
+         ],
+         true
+        ],
+        [
+         [
+          98
+         ],
+         true
+        ],
+        [
+         [
+          97
+         ],
+         true
+        ]
+       ]
+      },
+      "is_error": false
+     },
+     "message": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          49
+         ],
+         true
+        ],
+        [
+         [
+          50
+         ],
+         true
+        ],
+        [
+         [
+          98
+         ],
+         true
+        ],
+        [
+         [
+          97
+         ],
+         true
+        ]
+       ]
+      },
+      "is_error": false
+     },
+     "session": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          49
+         ],
+         true
+        ],
+        [
+         [
+          50
+         ],
+         true
+        ],
+        [
+         [
+          98
+         ],
+         true
+        ],
+        [
+         [
+          97
+         ],
+         true
+        ]
+       ]
+      }
+     }
+    },
+    "pi_session_file": {
+     "line_utf8_hex": "7b2274797065223a226d657373616765222c226964223a226531222c22706172656e744964223a6e756c6c2c2274696d657374616d70223a2274222c226d657373616765223a7b22726f6c65223a22746f6f6c526573756c74222c22746f6f6c43616c6c4964223a2263616c6c2d31222c22746f6f6c4e616d65223a2270726f6265222c22636f6e74656e74223a5b7b2274797065223a2274657874222c2274657874223a226f6b227d5d2c2264657461696c73223a7b2231223a747275652c2232223a747275652c2262223a747275652c2261223a747275657d2c2269734572726f72223a66616c73652c2274696d657374616d70223a307d7d0a",
+     "reload": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          49
+         ],
+         true
+        ],
+        [
+         [
+          50
+         ],
+         true
+        ],
+        [
+         [
+          98
+         ],
+         true
+        ],
+        [
+         [
+          97
+         ],
+         true
+        ]
+       ]
+      }
+     }
+    }
+   }
+  ]
+ }
+}

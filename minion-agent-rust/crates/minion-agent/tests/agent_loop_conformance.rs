@@ -299,7 +299,7 @@ fn result_text(content: &[ToolResultContentBlock]) -> String {
     content
         .iter()
         .filter_map(|block| match block {
-            ToolResultContentBlock::Text(block) => Some(block.text.as_str()),
+            ToolResultContentBlock::Text(block) => block.text.as_str(),
             ToolResultContentBlock::Image(_) => None,
         })
         .collect()
@@ -331,10 +331,14 @@ fn message_text(message: &Message) -> String {
 
 fn partial_result(raw: &Value) -> AgentToolResult {
     AgentToolResult {
-        content: vec![ToolResultContentBlock::Text(TextBlock::new(
-            raw.get("text").and_then(Value::as_str).unwrap_or(""),
-        ))],
-        details: raw.get("details").cloned().unwrap_or_else(|| json!({})),
+        content: vec![ToolResultContentBlock::Text(
+            TextBlock::new(raw.get("text").and_then(Value::as_str).unwrap_or("")).into(),
+        )],
+        details: raw
+            .get("details")
+            .cloned()
+            .unwrap_or_else(|| json!({}))
+            .into(),
         usage: raw.get("usage").map(|value| usage(Some(value))),
         added_tool_names: raw.get("added_tool_names").map(|names| {
             names
@@ -367,8 +371,8 @@ fn encode_partial(partial: &AgentToolResult) -> Value {
 
 fn text_result(text: impl Into<String>) -> AgentToolResult {
     AgentToolResult {
-        content: vec![ToolResultContentBlock::Text(TextBlock::new(text))],
-        details: Value::Null,
+        content: vec![ToolResultContentBlock::Text(TextBlock::new(text).into())],
+        details: Value::Null.into(),
         usage: None,
         added_tool_names: None,
         terminate: Some(false),
@@ -650,7 +654,7 @@ fn normalize_message(message: &Message) -> Value {
         Message::ToolResult(message) => {
             let mut value = json!({"role": "tool_result", "text": result_text(&message.content)});
             if let Some(details) = &message.details {
-                value["details"] = details.clone();
+                value["details"] = details.try_to_json().expect("scalar finite fixture");
             }
             value
         }
@@ -804,7 +808,7 @@ fn install_tool_listener(
                                 ToolResultContentBlock::Text(TextBlock::new(format!(
                                     "{}-{label}",
                                     result_text(&result.content)
-                                ))),
+                                )).into()),
                             ])))
                         }
                         "abstain" => Ok(None),

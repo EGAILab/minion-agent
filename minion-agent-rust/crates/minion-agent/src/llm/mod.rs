@@ -6,6 +6,8 @@
 mod adapter;
 mod assistant_stream;
 mod model;
+mod raw;
+mod result_value;
 mod scripted;
 mod service;
 mod transform;
@@ -16,6 +18,8 @@ mod vocabulary;
 pub use adapter::*;
 pub use assistant_stream::AssistantStream;
 pub use model::{ModelIdentity, ModelIdentityError};
+pub use raw::*;
+pub use result_value::*;
 pub use scripted::{Script, ScriptItem, ScriptedAdapter};
 pub use service::{LlmRegistration, LlmService, LlmStartError};
 pub use transform::{ToolCallIdNormalizer, TransformTarget, transform_messages};

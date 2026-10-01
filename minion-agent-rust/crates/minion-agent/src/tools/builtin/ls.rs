@@ -122,8 +122,8 @@ async fn list(
         (text, Value::Object(details))
     };
     Ok(AgentToolResult {
-        content: vec![ToolResultContentBlock::Text(TextBlock::new(text))],
-        details,
+        content: vec![ToolResultContentBlock::Text(TextBlock::new(text).into())],
+        details: details.into(),
         usage: None,
         added_tool_names: None,
         terminate: None,

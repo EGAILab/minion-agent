@@ -126,10 +126,10 @@ fn mutate(value: PreparedValue, mutation: Mutation) -> Result<PreparedValue, Too
 
 fn result() -> AgentToolResult {
     AgentToolResult {
-        content: vec![ToolResultContentBlock::Text(TextBlock::new(
-            "probe success",
-        ))],
-        details: json!({}),
+        content: vec![ToolResultContentBlock::Text(
+            TextBlock::new("probe success").into(),
+        )],
+        details: json!({}).into(),
         usage: None,
         added_tool_names: None,
         terminate: None,
@@ -140,7 +140,7 @@ struct Observation {
     error: bool,
     hook: Option<PreparedValue>,
     execute: Option<PreparedValue>,
-    raw_events: Vec<Value>,
+    raw_events: Vec<minion_agent::llm::RawValue>,
 }
 
 fn run_case(case: &Value, mutation: Mutation) -> Observation {

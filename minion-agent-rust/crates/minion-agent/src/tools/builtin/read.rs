@@ -46,7 +46,7 @@ fn is_aborted(signal: Option<&Arc<dyn ToolExecutionSignal>>) -> bool {
 fn result(content: Vec<ToolResultContentBlock>, details: Value) -> AgentToolResult {
     AgentToolResult {
         content,
-        details,
+        details: details.into(),
         usage: None,
         added_tool_names: None,
         terminate: None,
@@ -113,7 +113,7 @@ async fn read(
     }
     let (text, details) = read_text(&bytes, &path, offset, limit)?;
     Ok(result(
-        vec![ToolResultContentBlock::Text(TextBlock::new(text))],
+        vec![ToolResultContentBlock::Text(TextBlock::new(text).into())],
         details,
     ))
 }

@@ -21,7 +21,11 @@ use minion_agent::{
 use serde_json::{Value, json};
 
 type ProtectedObservation = (String, String, Option<Vec<String>>);
-type NullishObservation = (Option<Value>, Option<Usage>, Option<bool>);
+type NullishObservation = (
+    Option<minion_agent::llm::ResultValue>,
+    Option<Usage>,
+    Option<bool>,
+);
 
 struct TestSignal;
 
@@ -175,7 +179,7 @@ fn plugin_with_after_hooks(
                     .map_err(|error| PluginInitError::new(error.to_string()))?;
                 register_after_tool_call_hook(&context, |_current| async {
                     Ok(Some(AfterToolCallOverride::default().with_content(vec![
-                        ToolResultContentBlock::Text(TextBlock::new("changed")),
+                        ToolResultContentBlock::Text(TextBlock::new("changed").into()),
                     ])))
                 })
                 .map_err(|error| PluginInitError::new(error.to_string()))?;
@@ -245,8 +249,9 @@ fn plugin_with_raw_after_attack(
                             current.result.tool_call_id = "evil-id".into();
                             current.result.tool_name = "evil-name".into();
                             current.result.added_tool_names = Some(vec!["evil".into()]);
-                            current.result.content =
-                                vec![ToolResultContentBlock::Text(TextBlock::new("allowed"))];
+                            current.result.content = vec![ToolResultContentBlock::Text(
+                                TextBlock::new("allowed").into(),
+                            )];
                             next.call(Some(current)).await
                         },
                     )
@@ -293,7 +298,7 @@ fn plugin_with_nullish_after_waterfall(
                             |_request| {
                                 Box::pin(async {
                                     let mut output = result("original");
-                                    output.details = json!({"original": true});
+                                    output.details = json!({"original": true}).into();
                                     output.usage = Some(Usage {
                                         input: 1,
                                         total_tokens: 1,
@@ -391,8 +396,8 @@ fn call(id: &str, name: &str, arguments: Value) -> ToolCall {
 
 fn result(text: &str) -> AgentToolResult {
     AgentToolResult {
-        content: vec![ToolResultContentBlock::Text(TextBlock::new(text))],
-        details: Value::Null,
+        content: vec![ToolResultContentBlock::Text(TextBlock::new(text).into())],
+        details: Value::Null.into(),
         usage: None,
         added_tool_names: None,
         terminate: None,
@@ -411,7 +416,7 @@ fn tool(name: &str) -> ToolDefinition {
 
 fn text(message: &minion_agent::llm::ToolResultMessage) -> &str {
     match &message.content[0] {
-        ToolResultContentBlock::Text(block) => &block.text,
+        ToolResultContentBlock::Text(block) => block.text.as_str().expect("scalar fixture"),
         ToolResultContentBlock::Image(_) => panic!("expected text result"),
     }
 }
@@ -544,7 +549,7 @@ fn every_generated_error_has_empty_object_details_and_success_preserves_its_deta
             |_request| {
                 Box::pin(async {
                     let mut output = result("success");
-                    output.details = json!({"source": "rust-tool"});
+                    output.details = json!({"source": "rust-tool"}).into();
                     Ok(output)
                 })
             },
@@ -580,16 +585,21 @@ fn every_generated_error_has_empty_object_details_and_success_preserves_its_deta
         .unwrap();
 
         for message in &batch.messages[..6] {
-            assert_eq!(message.details, Some(json!({})), "{}", message.tool_name);
+            assert_eq!(
+                message.details,
+                Some(json!({}).into()),
+                "{}",
+                message.tool_name
+            );
         }
         assert_eq!(
             *execute_failure_seen.lock(),
-            Some(Some(json!({}))),
+            Some(Some(json!({}).into())),
             "execute errors reach after hooks with explicit empty details"
         );
         assert_eq!(
             batch.messages[6].details,
-            Some(json!({"source": "rust-tool"}))
+            Some(json!({"source": "rust-tool"}).into())
         );
 
         let length = execute_tool_calls(
@@ -599,7 +609,7 @@ fn every_generated_error_has_empty_object_details_and_success_preserves_its_deta
         )
         .await
         .unwrap();
-        assert_eq!(length.messages[0].details, Some(json!({})));
+        assert_eq!(length.messages[0].details, Some(json!({}).into()));
     });
 }
 
@@ -687,7 +697,7 @@ fn prepare_runs_before_validation_and_can_repair_raw_arguments() {
         assert!(!batch.messages[0].is_error);
         assert_eq!(
             source_copy.arguments,
-            BTreeMap::from([("x".into(), json!(123))])
+            minion_agent::llm::RawValue::from(BTreeMap::from([("x".into(), json!(123))]))
         );
     });
 }
@@ -841,7 +851,7 @@ fn raw_nullish_after_replacements_preserve_accumulated_values_between_listeners(
             seen.lock().as_slice(),
             &[
                 (
-                    Some(json!({"original": true})),
+                    Some(json!({"original": true}).into()),
                     Some(Usage {
                         input: 1,
                         total_tokens: 1,
@@ -850,7 +860,7 @@ fn raw_nullish_after_replacements_preserve_accumulated_values_between_listeners(
                     Some(true),
                 ),
                 (
-                    Some(json!({"replacement": true})),
+                    Some(json!({"replacement": true}).into()),
                     Some(replacement_usage.clone()),
                     Some(false),
                 ),
@@ -858,7 +868,7 @@ fn raw_nullish_after_replacements_preserve_accumulated_values_between_listeners(
         );
         assert_eq!(
             batch.messages[0].details,
-            Some(json!({"replacement": true}))
+            Some(json!({"replacement": true}).into())
         );
         assert_eq!(batch.messages[0].usage, Some(replacement_usage));
         assert!(!batch.terminate);
@@ -1451,7 +1461,7 @@ fn aborted_block_is_aborted_but_hook_failure_still_wins() {
                 panic!("generated error is text")
             };
             assert!(
-                text.text.contains(expected_fragment),
+                text.text.as_str().unwrap().contains(expected_fragment),
                 "{name} must beat abort, got {:?}",
                 text.text
             );
@@ -1743,7 +1753,7 @@ fn updates_are_emitted_live_and_ignored_after_execute_settles() {
             [(
                 "t1".to_owned(),
                 "chatty".to_owned(),
-                json!({"raw": 1}),
+                json!({"raw": 1}).into(),
                 result("live").content,
             )]
         );
@@ -1911,7 +1921,7 @@ fn signal_and_execution_metadata_pass_through_without_namespace_lookup_semantics
                         Box::pin(async move {
                             assert!(!request.signal.unwrap().is_cancelled());
                             let mut output = result("done");
-                            output.details = json!({"trace": 1});
+                            output.details = json!({"trace": 1}).into();
                             output.usage = Some(Usage::default());
                             output.added_tool_names = Some(vec!["alpha".into()]);
                             output.terminate = Some(true);
@@ -1931,7 +1941,7 @@ fn signal_and_execution_metadata_pass_through_without_namespace_lookup_semantics
         .await
         .unwrap();
 
-        assert_eq!(batch.messages[0].details, Some(json!({"trace": 1})));
+        assert_eq!(batch.messages[0].details, Some(json!({"trace": 1}).into()));
         assert_eq!(batch.messages[0].usage, Some(Usage::default()));
         assert_eq!(
             batch.messages[0].added_tool_names.as_deref(),
@@ -2042,7 +2052,7 @@ fn before_hook_block_termination_reaches_end_events_and_the_nonempty_batch_fold(
         assert_eq!(ended[0].tool_call_id, "hard-1");
         assert_eq!(ended[0].result.terminate, Some(true));
         assert!(ended[0].result.is_error);
-        assert_eq!(ended[0].result.details, Some(json!({})));
+        assert_eq!(ended[0].result.details, Some(json!({}).into()));
         assert_eq!(executions.load(Ordering::SeqCst), 0);
         assert_eq!(after_calls.load(Ordering::SeqCst), 0);
     });

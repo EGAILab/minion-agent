@@ -180,14 +180,17 @@ def _tool_result_from_message(message: ToolResultMessage, *, terminate: bool) ->
     projected from (Layer 08, PASS 6, `L08-R002`): `ToolResult.to_message()` (`tools/result.py`)
     copies every field onto `ToolResultMessage` verbatim except `terminate`, which never reaches
     the model by design -- the one extra field `_run_step` now logs alongside the message for
-    exactly this reconstruction. `details or {}`/`added_tool_names or ()` restore each field's
-    own `ToolResult` default; every other field round-trips exactly."""
+    exactly this reconstruction. An absent (`None`) `details` restores `ToolResult`'s own `{}`
+    default (the certified `IR-L06-004` host mapping); every other `details` value -- including
+    a falsy one such as `0`, `-0.0`, `False`, `""` or `[]` -- round-trips exactly
+    (`L0506-D003-R001`: a truthiness default lost them). `added_tool_names or ()` restores its
+    own default; every other field round-trips exactly."""
     return ToolResult(
         tool_call_id=message.tool_call_id,
         content=message.content,
         tool_name=message.tool_name,
         is_error=message.is_error,
-        details=message.details or {},
+        details={} if message.details is None else message.details,
         terminate=terminate,
         added_tool_names=tuple(message.added_tool_names) if message.added_tool_names else (),
         usage=message.usage,

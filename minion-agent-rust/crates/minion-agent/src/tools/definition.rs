@@ -1,6 +1,6 @@
 use std::{fmt, sync::Arc};
 
-use super::PreparedValue;
+use super::{PreparedValue, RuntimeSchemaError, RuntimeSchemaObject};
 use futures::future::BoxFuture;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -20,7 +20,7 @@ pub enum ExecutionMode {
 #[derive(Clone, Debug, PartialEq)]
 pub struct AgentToolResult {
     pub content: Vec<ToolResultContentBlock>,
-    pub details: Value,
+    pub details: crate::llm::ResultValue,
     pub usage: Option<Usage>,
     pub added_tool_names: Option<Vec<String>>,
     pub terminate: Option<bool>,
@@ -70,8 +70,12 @@ pub struct ToolExecutionRequest {
     pub on_update: Option<ToolUpdateCallback>,
 }
 
-pub type PrepareArguments =
-    Arc<dyn Fn(Value) -> Result<PreparedValue, ToolCapabilityError> + Send + Sync + 'static>;
+pub type PrepareArguments = Arc<
+    dyn Fn(crate::llm::RawValue) -> Result<PreparedValue, ToolCapabilityError>
+        + Send
+        + Sync
+        + 'static,
+>;
 pub type ExecuteTool = Arc<
     dyn Fn(ToolExecutionRequest) -> BoxFuture<'static, Result<AgentToolResult, ToolCapabilityError>>
         + Send
@@ -82,18 +86,18 @@ pub type ExecuteTool = Arc<
 #[derive(Clone, Debug, Error, Eq, PartialEq)]
 #[error("tool capability failed: {message}")]
 pub struct ToolCapabilityError {
-    message: String,
+    message: crate::llm::ResultString,
 }
 
 impl ToolCapabilityError {
-    pub fn new(message: impl Into<String>) -> Self {
+    pub fn new(message: impl Into<crate::llm::ResultString>) -> Self {
         Self {
             message: message.into(),
         }
     }
 
     /// Returns the semantic capability error message without a Rust error-type prefix.
-    pub fn message(&self) -> &str {
+    pub fn message(&self) -> &crate::llm::ResultString {
         &self.message
     }
 }
@@ -102,7 +106,7 @@ impl ToolCapabilityError {
 pub struct ToolDefinition {
     name: String,
     description: String,
-    parameters: JsonSchemaObject,
+    parameters: RuntimeSchemaObject,
     constrained_sampling: Option<ConstrainedSampling>,
     label: String,
     prepare_arguments: Option<PrepareArguments>,
@@ -115,6 +119,26 @@ impl ToolDefinition {
         name: impl Into<String>,
         description: impl Into<String>,
         parameters: JsonSchemaObject,
+        label: impl Into<String>,
+        execute: F,
+    ) -> Self
+    where
+        F: Fn(
+                ToolExecutionRequest,
+            ) -> BoxFuture<'static, Result<AgentToolResult, ToolCapabilityError>>
+            + Send
+            + Sync
+            + 'static,
+    {
+        Self::new_with_runtime_schema(name, description, parameters.into(), label, execute)
+    }
+
+    /// Register a lossless JavaScript-string schema for runtime validation.
+    /// No scalar projection or surrogate normalization occurs here.
+    pub fn new_with_runtime_schema<F>(
+        name: impl Into<String>,
+        description: impl Into<String>,
+        parameters: RuntimeSchemaObject,
         label: impl Into<String>,
         execute: F,
     ) -> Self
@@ -147,15 +171,38 @@ impl ToolDefinition {
     where
         F: Fn(Value) -> Result<Value, ToolCapabilityError> + Send + Sync + 'static,
     {
-        self.prepare_arguments = Some(Arc::new(move |raw| prepare(raw).map(PreparedValue::from)));
+        self.prepare_arguments = Some(Arc::new(move |raw| {
+            let json = raw
+                .try_to_json()
+                .map_err(|error| ToolCapabilityError::new(error.to_string()))?;
+            prepare(json).map(PreparedValue::from)
+        }));
         self
     }
 
-    /// Preparation receives the unchanged raw JSON domain and may return the
-    /// wider in-memory runtime domain, including non-finite numbers.
+    /// JSON-input compatibility adapter. Use `with_prepare_raw_arguments` for
+    /// a callback accepting the full UTF-16/binary64 raw domain.
     pub fn with_prepare_runtime_arguments<F>(mut self, prepare: F) -> Self
     where
         F: Fn(Value) -> Result<PreparedValue, ToolCapabilityError> + Send + Sync + 'static,
+    {
+        self.prepare_arguments = Some(Arc::new(move |raw| {
+            let json = raw
+                .try_to_json()
+                .map_err(|error| ToolCapabilityError::new(error.to_string()))?;
+            prepare(json)
+        }));
+        self
+    }
+
+    /// Receive raw arguments unchanged, including non-scalar strings/keys,
+    /// signed zero and infinities. Preparation owns any subsequent conversion.
+    pub fn with_prepare_raw_arguments<F>(mut self, prepare: F) -> Self
+    where
+        F: Fn(crate::llm::RawValue) -> Result<PreparedValue, ToolCapabilityError>
+            + Send
+            + Sync
+            + 'static,
     {
         self.prepare_arguments = Some(Arc::new(prepare));
         self
@@ -186,13 +233,19 @@ impl ToolDefinition {
         self.execution_mode
     }
 
-    pub fn schema(&self) -> ToolSchema {
-        ToolSchema {
+    pub fn parameters(&self) -> &RuntimeSchemaObject {
+        &self.parameters
+    }
+
+    /// Scalar-only provider projection. Non-scalar schemas remain fully usable
+    /// by the runtime, but cannot silently pass through a serde_json boundary.
+    pub fn schema(&self) -> Result<ToolSchema, RuntimeSchemaError> {
+        Ok(ToolSchema {
             name: self.name.clone(),
             description: self.description.clone(),
-            parameters: self.parameters.clone(),
+            parameters: self.parameters.try_to_json()?,
             constrained_sampling: self.constrained_sampling.clone(),
-        }
+        })
     }
 }
 

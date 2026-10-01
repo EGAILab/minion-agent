@@ -150,7 +150,7 @@ fn make_message(role: &str, spec: &Map<String, Value>) -> Message {
         false,
         timestamp,
     );
-    message.details = spec.get("details").cloned();
+    message.details = spec.get("details").cloned().map(Into::into);
     message.usage = spec.get("usage").map(|v| usage(Some(v)));
     message.added_tool_names = spec
         .get("added_tool_names")

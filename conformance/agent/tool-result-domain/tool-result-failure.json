@@ -1,0 +1,242 @@
+{
+ "name": "tool-result-failure",
+ "family": "agent",
+ "authority": "pinned Pi b7bb00b9 agent-loop.ts executeToolCalls/executeToolCallsSequential .. emitToolResultMessage (sliced, toolExecution sequential; a custom tool + afterToolCall) + coding-agent session-manager.ts `${JSON.stringify(entry)}\\n` / parseSessionEntries, under Node 22.15.1 (L0506-D003 result-domain probe)",
+ "pi_revision": "b7bb00b936dbe21b8e160b3e89efdec361846699",
+ "requirements": [
+  "AI-006",
+  "TOOL-005",
+  "TOOL-017",
+  "MINION-002"
+ ],
+ "witnesses": [
+  "tool_result_runtime_value_domain"
+ ],
+ "notes": "Failure conversion: a tool's thrown message becomes the result text (createErrorToolResult), code units kept, details {}. GENERATED from the pinned-Pi L0506-D003 probe; regenerate with harness/make_scenarios.py.",
+ "tool_result_domain": {
+  "cases": [
+   {
+    "id": "tool-throws/lone-high-middle",
+    "tool": {
+     "throws": {
+      "utf16": [
+       65,
+       55296,
+       66
+      ]
+     }
+    },
+    "hook": {
+     "mode": "none"
+    },
+    "expect": {
+     "hook": null,
+     "execution_end": {
+      "content": [
+       {
+        "utf16": [
+         65,
+         55296,
+         66
+        ]
+       }
+      ],
+      "details": {
+       "$keys": []
+      },
+      "is_error": true
+     },
+     "message": {
+      "content": [
+       {
+        "utf16": [
+         65,
+         55296,
+         66
+        ]
+       }
+      ],
+      "details": {
+       "$keys": []
+      },
+      "is_error": true
+     },
+     "session": {
+      "content": [
+       {
+        "utf16": [
+         65,
+         55296,
+         66
+        ]
+       }
+      ],
+      "details": {
+       "$keys": []
+      }
+     }
+    },
+    "pi_session_file": {
+     "line_utf8_hex": "7b2274797065223a226d657373616765222c226964223a226531222c22706172656e744964223a6e756c6c2c2274696d657374616d70223a2274222c226d657373616765223a7b22726f6c65223a22746f6f6c526573756c74222c22746f6f6c43616c6c4964223a2263616c6c2d31222c22746f6f6c4e616d65223a2270726f6265222c22636f6e74656e74223a5b7b2274797065223a2274657874222c2274657874223a22415c756438303042227d5d2c2264657461696c73223a7b7d2c2269734572726f72223a747275652c2274696d657374616d70223a307d7d0a",
+     "reload": {
+      "content": [
+       {
+        "utf16": [
+         65,
+         55296,
+         66
+        ]
+       }
+      ],
+      "details": {
+       "$keys": []
+      }
+     }
+    }
+   },
+   {
+    "id": "tool-throws/lone-low-only",
+    "tool": {
+     "throws": {
+      "utf16": [
+       56320
+      ]
+     }
+    },
+    "hook": {
+     "mode": "none"
+    },
+    "expect": {
+     "hook": null,
+     "execution_end": {
+      "content": [
+       {
+        "utf16": [
+         56320
+        ]
+       }
+      ],
+      "details": {
+       "$keys": []
+      },
+      "is_error": true
+     },
+     "message": {
+      "content": [
+       {
+        "utf16": [
+         56320
+        ]
+       }
+      ],
+      "details": {
+       "$keys": []
+      },
+      "is_error": true
+     },
+     "session": {
+      "content": [
+       {
+        "utf16": [
+         56320
+        ]
+       }
+      ],
+      "details": {
+       "$keys": []
+      }
+     }
+    },
+    "pi_session_file": {
+     "line_utf8_hex": "7b2274797065223a226d657373616765222c226964223a226531222c22706172656e744964223a6e756c6c2c2274696d657374616d70223a2274222c226d657373616765223a7b22726f6c65223a22746f6f6c526573756c74222c22746f6f6c43616c6c4964223a2263616c6c2d31222c22746f6f6c4e616d65223a2270726f6265222c22636f6e74656e74223a5b7b2274797065223a2274657874222c2274657874223a225c7564633030227d5d2c2264657461696c73223a7b7d2c2269734572726f72223a747275652c2274696d657374616d70223a307d7d0a",
+     "reload": {
+      "content": [
+       {
+        "utf16": [
+         56320
+        ]
+       }
+      ],
+      "details": {
+       "$keys": []
+      }
+     }
+    }
+   },
+   {
+    "id": "tool-throws/pair",
+    "tool": {
+     "throws": {
+      "utf16": [
+       55357,
+       56832
+      ]
+     }
+    },
+    "hook": {
+     "mode": "none"
+    },
+    "expect": {
+     "hook": null,
+     "execution_end": {
+      "content": [
+       {
+        "utf16": [
+         55357,
+         56832
+        ]
+       }
+      ],
+      "details": {
+       "$keys": []
+      },
+      "is_error": true
+     },
+     "message": {
+      "content": [
+       {
+        "utf16": [
+         55357,
+         56832
+        ]
+       }
+      ],
+      "details": {
+       "$keys": []
+      },
+      "is_error": true
+     },
+     "session": {
+      "content": [
+       {
+        "utf16": [
+         55357,
+         56832
+        ]
+       }
+      ],
+      "details": {
+       "$keys": []
+      }
+     }
+    },
+    "pi_session_file": {
+     "line_utf8_hex": "7b2274797065223a226d657373616765222c226964223a226531222c22706172656e744964223a6e756c6c2c2274696d657374616d70223a2274222c226d657373616765223a7b22726f6c65223a22746f6f6c526573756c74222c22746f6f6c43616c6c4964223a2263616c6c2d31222c22746f6f6c4e616d65223a2270726f6265222c22636f6e74656e74223a5b7b2274797065223a2274657874222c2274657874223a22f09f9880227d5d2c2264657461696c73223a7b7d2c2269734572726f72223a747275652c2274696d657374616d70223a307d7d0a",
+     "reload": {
+      "content": [
+       {
+        "utf16": [
+         55357,
+         56832
+        ]
+       }
+      ],
+      "details": {
+       "$keys": []
+      }
+     }
+    }
+   }
+  ]
+ }
+}

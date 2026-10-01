@@ -50,6 +50,8 @@ pub enum AgentLoopError {
     LlmStart(#[from] LlmStartError),
     #[error(transparent)]
     ToolExecution(#[from] ToolExecutionError),
+    #[error(transparent)]
+    SchemaProjection(#[from] crate::tools::RuntimeSchemaError),
 }
 
 impl AgentLoopError {
@@ -65,7 +67,8 @@ impl AgentLoopError {
             | Self::Runtime(_)
             | Self::Event(_)
             | Self::LlmStart(_)
-            | Self::ToolExecution(_) => None,
+            | Self::ToolExecution(_)
+            | Self::SchemaProjection(_) => None,
         }
     }
 
@@ -88,7 +91,8 @@ impl AgentLoopError {
             | Self::Runtime(_)
             | Self::Event(_)
             | Self::LlmStart(_)
-            | Self::ToolExecution(_) => self.to_string(),
+            | Self::ToolExecution(_)
+            | Self::SchemaProjection(_) => self.to_string(),
         }
     }
 }

@@ -9,8 +9,10 @@ mod execution;
 mod prepared;
 mod prepared_validation;
 mod registry;
+mod schema;
 
 pub use definition::*;
 pub use execution::*;
 pub use prepared::{NonJsonPreparedValue, PreparedNumber, PreparedString, PreparedValue};
 pub use registry::ToolRegistry;
+pub use schema::{RuntimeSchemaError, RuntimeSchemaObject};

@@ -32,17 +32,7 @@ struct NumericCarrier {
 }
 
 impl NumericCarrier {
-    fn new(schema: &Value, value: &PreparedValue) -> Self {
-        fn collect(value: &Value, used: &mut BTreeSet<u64>) {
-            match value {
-                Value::Number(n) => {
-                    used.insert(n.as_f64().unwrap().to_bits());
-                }
-                Value::Array(a) => a.iter().for_each(|v| collect(v, used)),
-                Value::Object(o) => o.values().for_each(|v| collect(v, used)),
-                _ => {}
-            }
-        }
+    fn new(schema: &PreparedValue, value: &PreparedValue) -> Self {
         fn collect_runtime(value: &PreparedValue, used: &mut BTreeSet<u64>) {
             match value {
                 PreparedValue::Number(PreparedNumber::Finite(n)) => {
@@ -54,7 +44,7 @@ impl NumericCarrier {
             }
         }
         let mut used = BTreeSet::new();
-        collect(schema, &mut used);
+        collect_runtime(schema, &mut used);
         collect_runtime(value, &mut used);
         let mut bits = f64::MAX.to_bits();
         let tags = std::array::from_fn(|_| {
@@ -65,21 +55,6 @@ impl NumericCarrier {
             bits -= 1;
             n
         });
-        fn schema_strings(value: &Value, used: &mut BTreeSet<String>) {
-            match value {
-                Value::String(s) => {
-                    used.insert(s.clone());
-                }
-                Value::Array(a) => a.iter().for_each(|v| schema_strings(v, used)),
-                Value::Object(o) => {
-                    for (k, v) in o {
-                        used.insert(k.clone());
-                        schema_strings(v, used);
-                    }
-                }
-                _ => {}
-            }
-        }
         fn runtime_strings(
             value: &PreparedValue,
             used: &mut BTreeSet<String>,
@@ -110,8 +85,32 @@ impl NumericCarrier {
         }
         let mut used_strings = BTreeSet::new();
         let mut special_strings = BTreeSet::new();
-        schema_strings(schema, &mut used_strings);
+        runtime_strings(schema, &mut used_strings, &mut special_strings);
         runtime_strings(value, &mut used_strings, &mut special_strings);
+        fn reference_segments(
+            value: &PreparedValue,
+            used: &mut BTreeSet<String>,
+            special: &mut BTreeSet<PreparedString>,
+        ) {
+            match value {
+                PreparedValue::String(s) if s.code_units().starts_with(&[35, 47]) => {
+                    for segment in s.code_units()[2..].split(|unit| *unit == 47) {
+                        let key = PreparedValue::String(PreparedString::from_code_units(
+                            decode_pointer_segment(segment),
+                        ));
+                        runtime_strings(&key, used, special);
+                    }
+                }
+                PreparedValue::Array(a) => {
+                    a.iter().for_each(|v| reference_segments(v, used, special))
+                }
+                PreparedValue::Object(o) => o
+                    .values()
+                    .for_each(|v| reference_segments(v, used, special)),
+                _ => {}
+            }
+        }
+        reference_segments(schema, &mut used_strings, &mut special_strings);
         let mut strings = BTreeMap::new();
         let mut index = 0;
         for value in special_strings {
@@ -143,6 +142,19 @@ impl NumericCarrier {
             .get(value)
             .cloned()
             .unwrap_or_else(|| value.into())
+    }
+
+    fn regex_source(&self, value: &str) -> String {
+        use std::fmt::Write;
+        let original = self.string(value);
+        let mut source = String::new();
+        for ch in char::decode_utf16(original.code_units().iter().copied()) {
+            match ch {
+                Ok(ch) => source.push(ch),
+                Err(ch) => write!(source, "\\u{:04x}", ch.unpaired_surrogate()).unwrap(),
+            }
+        }
+        source
     }
 
     fn special(&self, value: &Value) -> Option<f64> {
@@ -181,6 +193,79 @@ impl NumericCarrier {
             ),
         }
     }
+
+    // Local JSON pointers address schema keys, not their private carrier tags.
+    // Rewrite only reference locations, never literal const/enum contents.
+    fn encode_schema(&self, value: &PreparedValue) -> Value {
+        match value {
+            PreparedValue::Array(a) => {
+                Value::Array(a.iter().map(|v| self.encode_schema(v)).collect())
+            }
+            PreparedValue::Object(o) => Value::Object(
+                o.iter()
+                    .map(|(k, v)| {
+                        let encoded = if matches!(k.as_str(), Some("$ref" | "$dynamicRef"))
+                            && let PreparedValue::String(s) = v
+                            && s.code_units().starts_with(&[35, 47])
+                        {
+                            let mut pointer = String::from("#");
+                            for segment in s.code_units()[2..].split(|unit| *unit == 47) {
+                                let key = self.encode_string(&PreparedString::from_code_units(
+                                    decode_pointer_segment(segment),
+                                ));
+                                pointer.push('/');
+                                pointer.push_str(&key.replace('~', "~0").replace('/', "~1"));
+                            }
+                            Value::String(pointer)
+                        } else if matches!(
+                            k.as_str(),
+                            Some(
+                                "properties"
+                                    | "patternProperties"
+                                    | "$defs"
+                                    | "definitions"
+                                    | "dependentSchemas"
+                            )
+                        ) && let PreparedValue::Object(entries) = v
+                        {
+                            Value::Object(
+                                entries
+                                    .iter()
+                                    .map(|(name, subschema)| {
+                                        (self.encode_string(name), self.encode_schema(subschema))
+                                    })
+                                    .collect(),
+                            )
+                        } else if matches!(
+                            k.as_str(),
+                            Some("const" | "enum" | "default" | "examples")
+                        ) {
+                            self.encode(v)
+                        } else {
+                            self.encode_schema(v)
+                        };
+                        (self.encode_string(k), encoded)
+                    })
+                    .collect(),
+            ),
+            _ => self.encode(value),
+        }
+    }
+}
+
+fn decode_pointer_segment(segment: &[u16]) -> Vec<u16> {
+    let mut decoded = Vec::new();
+    let mut i = 0;
+    while i < segment.len() {
+        if segment[i] == 126 && i + 1 < segment.len() && matches!(segment[i + 1], 48 | 49) {
+            decoded.push(if segment[i + 1] == 48 { 126 } else { 47 });
+            i += 2;
+        } else {
+            decoded.push(segment[i]);
+            i += 1;
+        }
+    }
+    decoded
 }
 
 struct RuntimeKeyword {
@@ -268,20 +353,29 @@ impl Keyword for RuntimeKeyword {
 
 // The jsonschema custom-keyword factory fixes this unboxed error signature.
 #[allow(clippy::result_large_err)]
+#[cfg(test)]
 pub(super) fn validate_prepared(
     schema: &Value,
     value: &PreparedValue,
 ) -> Result<(), PreparedValidationError> {
-    if let Ok(json) = value.try_to_json() {
-        let base = jsonschema::validator_for(schema)
+    validate_runtime_schema(&PreparedValue::from(schema.clone()), value)
+}
+
+pub(super) fn validate_runtime_schema(
+    schema: &PreparedValue,
+    value: &PreparedValue,
+) -> Result<(), PreparedValidationError> {
+    if let (Ok(schema), Ok(json)) = (schema.try_to_json(), value.try_to_json()) {
+        let base = jsonschema::validator_for(&schema)
             .map_err(|e| PreparedValidationError::Schema(e.to_string()))?;
         return base
             .validate(&json)
             .map_err(|e| PreparedValidationError::Instance(e.to_string()));
     }
     let carrier = Arc::new(NumericCarrier::new(schema, value));
+    let schema = carrier.encode_schema(schema);
     let validator =
-        runtime_validator(schema, carrier.clone()).map_err(PreparedValidationError::Schema)?;
+        runtime_validator(&schema, carrier.clone()).map_err(PreparedValidationError::Schema)?;
     validator.validate(&carrier.encode(value)).map_err(|e| {
         PreparedValidationError::Instance(format!(
             "prepared runtime arguments fail schema at {}",
@@ -383,16 +477,18 @@ fn runtime_validator_in(
                     constraint: constraint.clone(),
                     pattern: if name == "pattern" {
                         Some(
-                            regress::Regex::with_flags(constraint.as_str().unwrap(), "u").map_err(
-                                |e| {
-                                    ValidationError::custom(
-                                        path.clone(),
-                                        Location::new(),
-                                        constraint,
-                                        e.to_string(),
-                                    )
-                                },
-                            )?,
+                            regress::Regex::with_flags(
+                                &carrier.regex_source(constraint.as_str().unwrap()),
+                                "u",
+                            )
+                            .map_err(|e| {
+                                ValidationError::custom(
+                                    path.clone(),
+                                    Location::new(),
+                                    constraint,
+                                    e.to_string(),
+                                )
+                            })?,
                         )
                     } else {
                         None
@@ -414,7 +510,7 @@ fn runtime_validator_in(
                         .map(|p| {
                             p.iter()
                                 .map(|(pattern, schema)| {
-                                    regress::Regex::with_flags(pattern, "u")
+                                    regress::Regex::with_flags(&carrier.regex_source(pattern), "u")
                                         .map(|re| (re, schema.clone()))
                                 })
                                 .collect::<Result<Vec<_>, _>>()
@@ -554,6 +650,25 @@ impl Keyword for RuntimeObjectKeyword {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn schema_literals_names_regexes_and_local_refs_keep_utf16_identity() {
+        let runtime = |text: &str| PreparedValue::from(crate::llm::RawValue::decode(text).unwrap());
+        let schema = runtime(
+            r##"{"$defs":{"\ud800":{"const":"\udfff"}},"properties":{"const":{"$ref":"#/$defs/\ud800"}}}"##,
+        );
+        assert!(validate_runtime_schema(&schema, &runtime(r#"{"const":"\udfff"}"#)).is_ok());
+        assert!(validate_runtime_schema(&schema, &runtime(r#"{"const":"\ufffd"}"#)).is_err());
+        let missing =
+            runtime(r##"{"$ref":"#/$defs/\ud800","properties":{"x":{"const":"\udfff"}}}"##);
+        assert!(matches!(
+            validate_runtime_schema(&missing, &runtime("{}")),
+            Err(PreparedValidationError::Schema(_))
+        ));
+        let literal = runtime(r##"{"const":{"$ref":"#/\ud800"}}"##);
+        assert!(validate_runtime_schema(&literal, &runtime(r##"{"$ref":"#/\ud800"}"##)).is_ok());
+        assert!(validate_runtime_schema(&literal, &runtime(r##"{"$ref":"#/\ufffd"}"##)).is_err());
+    }
 
     fn utf16_object(units: Vec<u16>) -> PreparedValue {
         let mut value = PreparedValue::from(json!({"text":"raw"}));

@@ -2801,7 +2801,7 @@ rows:
   - test_the_run_level_default_serializes_the_batch_even_without_a_sequential_tool
   - test_the_run_level_default_is_parallel_when_unspecified
   python: src/minion_agent/tools/batch.py::execute_batch, _is_sequential
-  rust: minion-agent-rust/crates/minion-agent/src/tools/execution.rs::execute_tool_calls; minion-agent-rust/crates/minion-agent/tests/tool_execution.rs; minion-agent-rust/crates/minion-agent/tests/tool_execution_conformance.rs
+  rust: minion-agent-rust/crates/minion-agent/src/tools/execution.rs::execute_tool_calls; minion-agent-rust/crates/minion-agent/src/tools/prepared_validation.rs::validate_runtime_schema; minion-agent-rust/crates/minion-agent/tests/tool_execution.rs; minion-agent-rust/crates/minion-agent/tests/tool_execution_conformance.rs; minion-agent-rust/crates/minion-agent/tests/schema_domain_conformance.rs (L05-D001 candidate, 810 cases; independent closure pending)
   disposition: adopted
 - id: TOOL-002
   phase: 4
@@ -3314,7 +3314,7 @@ rows:
     generated from the pinned-Pi probe in minion-agent-docs assurance/layers/data/l05-d001-schema-domain);
     tests/conformance/test_schema_domain_conformance.py, tests/tools/test_schema_domain_negative_controls.py
   python: src/minion_agent/tools/definition.py::ToolDefinition.parameters, ToolDefinition.__post_init__
-  rust: minion-agent-rust/crates/minion-agent/src/llm/vocabulary.rs::JsonSchemaObject/ToolSchema; tests/tool_model.rs; tests/tool_registry_conformance.rs
+  rust: minion-agent-rust/crates/minion-agent/src/tools/schema.rs::RuntimeSchemaObject; minion-agent-rust/crates/minion-agent/src/tools/definition.rs::ToolDefinition::new_with_runtime_schema/parameters; minion-agent-rust/crates/minion-agent/src/tools/prepared_validation.rs::validate_runtime_schema; minion-agent-rust/crates/minion-agent/tests/schema_domain_conformance.rs (810 cases); minion-agent-rust/crates/minion-agent/tests/runtime_schema.rs; tests/tool_model.rs; tests/tool_registry_conformance.rs (L05-D001 implemented candidate; CLOSURE_REVIEW pending; provider schema transport unchanged/out of scope)
   disposition: adopted
 - id: TOOL-017
   phase: 4

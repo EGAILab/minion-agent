@@ -1,6 +1,6 @@
 use std::{fmt, sync::Arc};
 
-use super::PreparedValue;
+use super::{PreparedValue, RuntimeSchemaError, RuntimeSchemaObject};
 use futures::future::BoxFuture;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -106,7 +106,7 @@ impl ToolCapabilityError {
 pub struct ToolDefinition {
     name: String,
     description: String,
-    parameters: JsonSchemaObject,
+    parameters: RuntimeSchemaObject,
     constrained_sampling: Option<ConstrainedSampling>,
     label: String,
     prepare_arguments: Option<PrepareArguments>,
@@ -119,6 +119,26 @@ impl ToolDefinition {
         name: impl Into<String>,
         description: impl Into<String>,
         parameters: JsonSchemaObject,
+        label: impl Into<String>,
+        execute: F,
+    ) -> Self
+    where
+        F: Fn(
+                ToolExecutionRequest,
+            ) -> BoxFuture<'static, Result<AgentToolResult, ToolCapabilityError>>
+            + Send
+            + Sync
+            + 'static,
+    {
+        Self::new_with_runtime_schema(name, description, parameters.into(), label, execute)
+    }
+
+    /// Register a lossless JavaScript-string schema for runtime validation.
+    /// No scalar projection or surrogate normalization occurs here.
+    pub fn new_with_runtime_schema<F>(
+        name: impl Into<String>,
+        description: impl Into<String>,
+        parameters: RuntimeSchemaObject,
         label: impl Into<String>,
         execute: F,
     ) -> Self
@@ -213,13 +233,19 @@ impl ToolDefinition {
         self.execution_mode
     }
 
-    pub fn schema(&self) -> ToolSchema {
-        ToolSchema {
+    pub fn parameters(&self) -> &RuntimeSchemaObject {
+        &self.parameters
+    }
+
+    /// Scalar-only provider projection. Non-scalar schemas remain fully usable
+    /// by the runtime, but cannot silently pass through a serde_json boundary.
+    pub fn schema(&self) -> Result<ToolSchema, RuntimeSchemaError> {
+        Ok(ToolSchema {
             name: self.name.clone(),
             description: self.description.clone(),
-            parameters: self.parameters.clone(),
+            parameters: self.parameters.try_to_json()?,
             constrained_sampling: self.constrained_sampling.clone(),
-        }
+        })
     }
 }
 

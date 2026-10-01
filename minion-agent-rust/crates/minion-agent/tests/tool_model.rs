@@ -165,7 +165,7 @@ fn agent_tool_definition_projects_metadata_without_invoking_capabilities() {
     .with_constrained_sampling(ConstrainedSampling::Disabled)
     .with_execution_mode(ExecutionMode::Parallel);
 
-    let schema = tool.schema();
+    let schema = tool.schema().unwrap();
     assert_eq!(schema.name, "lookup");
     assert_eq!(schema.description, "look up");
     assert_eq!(schema.parameters, parameters);

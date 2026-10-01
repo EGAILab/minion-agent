@@ -95,7 +95,7 @@ rows:
   surface: tool result shape
   rule: 'ToolResultMessage tool_call_id/tool_name/content/details/usage/added_tool_names/is_error; tool_name is required, not optional (delta finding A -- packages/ai/src/types.ts has no `?` on toolName, and spec/llm.md already specified it required before Python''s implementation was corrected to match).
     L0506-D003 (minion-agent#112; Owner decision WP132-RUST-C002-Q001 Option 1, minion-agent#49
-    issuecomment-5937380474; intentional divergence NONE) -- AGREED (contract #116 -> 708d93c1; Python conforms incl. the R001 replay fix; Rust NOT_IMPLEMENTED): content text
+    issuecomment-5937380474; intentional divergence NONE) -- CERTIFIED_CLOSED (contract #116 -> 708d93c1; Python conforms incl. the R001 replay fix; Rust #120 -> 2bb8e688, closure review minion-agent-docs#223): content text
     and details hold pinned Pi''s tool-result runtime value domain -- JavaScript strings of any UTF-16 code units
     in text and at any depth of details, details keys included, numbers incl. -0, +/-Infinity and NaN -- unchanged
     from the tool''s return through the after-hook (TOOL-005), tool_execution_end (TOOL-017), the
@@ -5630,7 +5630,7 @@ rows:
   rule: 'model-visible means logged; request reconstructable; same Pi model-visible history. L0206-D002
     (CERTIFIED_CLOSED; Rust #110 -> 2ec46f4b): event data carries the raw JavaScript value domain (AI-003) -- append accepts and replay returns
     unpaired surrogates, -0 and +/-Infinity unchanged; the log is not a byte form, so no JSON projection applies.
-    L0506-D003 (minion-agent#112; AGREED, Rust NOT_IMPLEMENTED): a TOOL_RESULT entry''s message carries the tool-result domain
+    L0506-D003 (minion-agent#112; CERTIFIED_CLOSED): a TOOL_RESULT entry''s message carries the tool-result domain
     (AI-006) -- additionally NaN, at any depth of details, keys included -- admitted by append and returned
     unchanged by committed-history replay (derive_messages) and by any binding''s event replay from the log
     (Python: Layer-08 project). Raw ToolCall.arguments stay NaN-free (carrier boundary, spec/session.md).'

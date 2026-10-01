@@ -7171,9 +7171,10 @@ rows:
     Full rules: spec/tools.md Layer 06, ''Prepared runtime numeric domain (TOOL-041)''.'
   tests:
   - prepared_runtime_numeric_domain -- delta certification gate L0506-D001 (L0506-D001-R003) -- canonical scenarios
-    conformance/agent/prepared-runtime/prepared-runtime-declared-number-field.yaml, prepared-runtime-declared-integer-field.yaml
-    and prepared-runtime-undeclared-field.yaml (19 custom cases), generated from the pinned-Pi authority in minion-agent-docs
-    assurance/layers/data/l0506-d001
+    conformance/agent/prepared-runtime/prepared-runtime-declared-number-field.yaml, prepared-runtime-declared-integer-field.yaml,
+    prepared-runtime-undeclared-field.yaml and prepared-runtime-numeric-keyword-applicability.yaml (50 custom cases;
+    the last added by L0506-D001-RC002 -- numeric keywords apply to finite numbers only), generated from the pinned-Pi
+    authority in minion-agent-docs assurance/layers/data/l0506-d001
   - real-edit integration witness (gate WP-13.2, NOT part of this row's certification) -- conformance/agent/prepared-runtime/prepared-runtime-edit-json-string-numbers.yaml;
     run by WP-13.2's Python approval and Rust implementation reviews once L0506-D001 is certified (see TOOL-030)
   python: 'minion_agent/tools/execute.py (PreparedArgumentsValidator: Draft 2020-12 with a finite-only number;

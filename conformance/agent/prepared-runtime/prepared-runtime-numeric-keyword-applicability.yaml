@@ -1,0 +1,356 @@
+name: "prepared-runtime-numeric-keyword-applicability"
+family: "agent"
+authority: "pinned Pi b7bb00b9 agent-loop.ts prepareToolCall + ai/src/utils/validation.ts validateToolArguments (typebox 1.3.7) + edit.ts prepareEditArguments, under Node 22.15.1 (L0506-D001 authority)"
+pi_revision: "b7bb00b936dbe21b8e160b3e89efdec361846699"
+requirements:
+  - "TOOL-041"
+witnesses:
+  - "prepared_runtime_numeric_domain"
+notes: "L0506-D001-RC002. A tool's own prepare_arguments sets `limit`, constrained only by numeric validation keywords (no declared type) or, for number-bound, by {type: number, maximum: 0}. Pinned Pi applies minimum, maximum, exclusiveMinimum, exclusiveMaximum and multipleOf to finite numbers only: a non-finite runtime number is outside them (accepted under a bare keyword; through oneOf/not the branch verdicts follow), while a finite number is constrained (the finite controls), and a declared number type still rejects non-finite values. GENERATED from the pinned-Pi authority run; regenerate with harness/make_scenarios.py."
+gate: "L0506-D001"
+prepared_runtime:
+  cases:
+    - id: "bound-maximum-pos-inf"
+      tool: "custom"
+      schema: "bound-maximum"
+      prepare_set:
+        limit: "+Infinity"
+      arguments: {}
+      observe:
+        - "/limit"
+      expect:
+        outcome: "prepared"
+        observed:
+          /limit: "+Infinity"
+    - id: "bound-maximum-neg-inf"
+      tool: "custom"
+      schema: "bound-maximum"
+      prepare_set:
+        limit: "-Infinity"
+      arguments: {}
+      observe:
+        - "/limit"
+      expect:
+        outcome: "prepared"
+        observed:
+          /limit: "-Infinity"
+    - id: "bound-maximum-nan"
+      tool: "custom"
+      schema: "bound-maximum"
+      prepare_set:
+        limit: "NaN"
+      arguments: {}
+      observe:
+        - "/limit"
+      expect:
+        outcome: "prepared"
+        observed:
+          /limit: "NaN"
+    - id: "bound-maximum-neg-zero"
+      tool: "custom"
+      schema: "bound-maximum"
+      prepare_set:
+        limit: "-0"
+      arguments: {}
+      observe:
+        - "/limit"
+      expect:
+        outcome: "prepared"
+        observed:
+          /limit: "-0"
+    - id: "bound-maximum-one"
+      tool: "custom"
+      schema: "bound-maximum"
+      prepare_set:
+        limit: "1"
+      arguments: {}
+      observe:
+        - "/limit"
+      expect:
+        outcome: "argument_validation_failure"
+    - id: "bound-minimum-pos-inf"
+      tool: "custom"
+      schema: "bound-minimum"
+      prepare_set:
+        limit: "+Infinity"
+      arguments: {}
+      observe:
+        - "/limit"
+      expect:
+        outcome: "prepared"
+        observed:
+          /limit: "+Infinity"
+    - id: "bound-minimum-neg-inf"
+      tool: "custom"
+      schema: "bound-minimum"
+      prepare_set:
+        limit: "-Infinity"
+      arguments: {}
+      observe:
+        - "/limit"
+      expect:
+        outcome: "prepared"
+        observed:
+          /limit: "-Infinity"
+    - id: "bound-minimum-nan"
+      tool: "custom"
+      schema: "bound-minimum"
+      prepare_set:
+        limit: "NaN"
+      arguments: {}
+      observe:
+        - "/limit"
+      expect:
+        outcome: "prepared"
+        observed:
+          /limit: "NaN"
+    - id: "bound-minimum-minus-one"
+      tool: "custom"
+      schema: "bound-minimum"
+      prepare_set:
+        limit: "-1"
+      arguments: {}
+      observe:
+        - "/limit"
+      expect:
+        outcome: "argument_validation_failure"
+    - id: "bound-exclusive-maximum-pos-inf"
+      tool: "custom"
+      schema: "bound-exclusive-maximum"
+      prepare_set:
+        limit: "+Infinity"
+      arguments: {}
+      observe:
+        - "/limit"
+      expect:
+        outcome: "prepared"
+        observed:
+          /limit: "+Infinity"
+    - id: "bound-exclusive-maximum-neg-inf"
+      tool: "custom"
+      schema: "bound-exclusive-maximum"
+      prepare_set:
+        limit: "-Infinity"
+      arguments: {}
+      observe:
+        - "/limit"
+      expect:
+        outcome: "prepared"
+        observed:
+          /limit: "-Infinity"
+    - id: "bound-exclusive-maximum-neg-zero"
+      tool: "custom"
+      schema: "bound-exclusive-maximum"
+      prepare_set:
+        limit: "-0"
+      arguments: {}
+      observe:
+        - "/limit"
+      expect:
+        outcome: "argument_validation_failure"
+    - id: "bound-exclusive-maximum-zero"
+      tool: "custom"
+      schema: "bound-exclusive-maximum"
+      prepare_set:
+        limit: "0"
+      arguments: {}
+      observe:
+        - "/limit"
+      expect:
+        outcome: "argument_validation_failure"
+    - id: "bound-exclusive-minimum-pos-inf"
+      tool: "custom"
+      schema: "bound-exclusive-minimum"
+      prepare_set:
+        limit: "+Infinity"
+      arguments: {}
+      observe:
+        - "/limit"
+      expect:
+        outcome: "prepared"
+        observed:
+          /limit: "+Infinity"
+    - id: "bound-exclusive-minimum-neg-inf"
+      tool: "custom"
+      schema: "bound-exclusive-minimum"
+      prepare_set:
+        limit: "-Infinity"
+      arguments: {}
+      observe:
+        - "/limit"
+      expect:
+        outcome: "prepared"
+        observed:
+          /limit: "-Infinity"
+    - id: "bound-exclusive-minimum-neg-zero"
+      tool: "custom"
+      schema: "bound-exclusive-minimum"
+      prepare_set:
+        limit: "-0"
+      arguments: {}
+      observe:
+        - "/limit"
+      expect:
+        outcome: "argument_validation_failure"
+    - id: "multiple-of-pos-inf"
+      tool: "custom"
+      schema: "multiple-of"
+      prepare_set:
+        limit: "+Infinity"
+      arguments: {}
+      observe:
+        - "/limit"
+      expect:
+        outcome: "prepared"
+        observed:
+          /limit: "+Infinity"
+    - id: "multiple-of-nan"
+      tool: "custom"
+      schema: "multiple-of"
+      prepare_set:
+        limit: "NaN"
+      arguments: {}
+      observe:
+        - "/limit"
+      expect:
+        outcome: "prepared"
+        observed:
+          /limit: "NaN"
+    - id: "multiple-of-neg-zero"
+      tool: "custom"
+      schema: "multiple-of"
+      prepare_set:
+        limit: "-0"
+      arguments: {}
+      observe:
+        - "/limit"
+      expect:
+        outcome: "prepared"
+        observed:
+          /limit: "-0"
+    - id: "multiple-of-three"
+      tool: "custom"
+      schema: "multiple-of"
+      prepare_set:
+        limit: "3"
+      arguments: {}
+      observe:
+        - "/limit"
+      expect:
+        outcome: "argument_validation_failure"
+    - id: "one-of-bounds-pos-inf"
+      tool: "custom"
+      schema: "one-of-bounds"
+      prepare_set:
+        limit: "+Infinity"
+      arguments: {}
+      observe:
+        - "/limit"
+      expect:
+        outcome: "argument_validation_failure"
+    - id: "one-of-bounds-neg-inf"
+      tool: "custom"
+      schema: "one-of-bounds"
+      prepare_set:
+        limit: "-Infinity"
+      arguments: {}
+      observe:
+        - "/limit"
+      expect:
+        outcome: "argument_validation_failure"
+    - id: "one-of-bounds-nan"
+      tool: "custom"
+      schema: "one-of-bounds"
+      prepare_set:
+        limit: "NaN"
+      arguments: {}
+      observe:
+        - "/limit"
+      expect:
+        outcome: "argument_validation_failure"
+    - id: "one-of-bounds-five"
+      tool: "custom"
+      schema: "one-of-bounds"
+      prepare_set:
+        limit: "5"
+      arguments: {}
+      observe:
+        - "/limit"
+      expect:
+        outcome: "prepared"
+        observed:
+          /limit: "5"
+    - id: "not-bound-pos-inf"
+      tool: "custom"
+      schema: "not-bound"
+      prepare_set:
+        limit: "+Infinity"
+      arguments: {}
+      observe:
+        - "/limit"
+      expect:
+        outcome: "argument_validation_failure"
+    - id: "not-bound-nan"
+      tool: "custom"
+      schema: "not-bound"
+      prepare_set:
+        limit: "NaN"
+      arguments: {}
+      observe:
+        - "/limit"
+      expect:
+        outcome: "argument_validation_failure"
+    - id: "not-bound-one"
+      tool: "custom"
+      schema: "not-bound"
+      prepare_set:
+        limit: "1"
+      arguments: {}
+      observe:
+        - "/limit"
+      expect:
+        outcome: "prepared"
+        observed:
+          /limit: "1"
+    - id: "number-bound-pos-inf"
+      tool: "custom"
+      schema: "number-bound"
+      prepare_set:
+        limit: "+Infinity"
+      arguments: {}
+      observe:
+        - "/limit"
+      expect:
+        outcome: "argument_validation_failure"
+    - id: "number-bound-neg-inf"
+      tool: "custom"
+      schema: "number-bound"
+      prepare_set:
+        limit: "-Infinity"
+      arguments: {}
+      observe:
+        - "/limit"
+      expect:
+        outcome: "argument_validation_failure"
+    - id: "number-bound-nan"
+      tool: "custom"
+      schema: "number-bound"
+      prepare_set:
+        limit: "NaN"
+      arguments: {}
+      observe:
+        - "/limit"
+      expect:
+        outcome: "argument_validation_failure"
+    - id: "number-bound-neg-zero"
+      tool: "custom"
+      schema: "number-bound"
+      prepare_set:
+        limit: "-0"
+      arguments: {}
+      observe:
+        - "/limit"
+      expect:
+        outcome: "prepared"
+        observed:
+          /limit: "-0"

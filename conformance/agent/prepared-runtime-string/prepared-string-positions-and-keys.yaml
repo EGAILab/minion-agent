@@ -1,0 +1,151 @@
+name: "prepared-string-positions-and-keys"
+family: "agent"
+authority: "pinned Pi b7bb00b9 agent-loop.ts prepareToolCall/executePreparedToolCall/finalizeExecutedToolCall (sliced from source) + ai/src/utils/validation.ts validateToolArguments (typebox 1.3.7) + edit.ts prepareEditArguments, under Node 22.15.1 (L0506-D002 authority)"
+pi_revision: "b7bb00b936dbe21b8e160b3e89efdec361846699"
+requirements:
+  - "TOOL-041"
+witnesses:
+  - "prepared_runtime_string_domain"
+notes: "Positions other than a top-level property -- a nested object value, an array element, a lone high and a lone low in one call -- and the KEY domain: an object key holding a lone high, a lone low, a pair, a reversed pair or the empty string keeps its exact code units. diagnostic/lone-surrogates is rejected (Pi then serializes the prepared value only in its failure text, escaping each unpaired surrogate as \\udXXX); no hook or execute runs. GENERATED from the pinned-Pi authority run; regenerate with harness/make_scenarios.py."
+gate: "L0506-D002"
+prepared_string:
+  cases:
+    - id: "position/nested-object-value"
+      tool: "custom"
+      schema: "open"
+      prepare_set:
+        "/outer":
+          inner: {"utf16": [65, 55296]}
+      arguments:
+        seed: "raw"
+      observe:
+        - "/outer/inner"
+      expect:
+        outcome: "prepared"
+        observed:
+          "/outer/inner": [65, 55296]
+    - id: "position/array-element"
+      tool: "custom"
+      schema: "open"
+      prepare_set:
+        "/list":
+          - "x"
+          - utf16: [56320, 66]
+      arguments:
+        seed: "raw"
+      observe:
+        - "/list/0"
+        - "/list/1"
+      expect:
+        outcome: "prepared"
+        observed:
+          "/list/0": [120]
+          "/list/1": [56320, 66]
+    - id: "position/two-strings"
+      tool: "custom"
+      schema: "open"
+      prepare_set:
+        "/high": {"utf16": [55296]}
+        "/low": {"utf16": [56320]}
+      arguments:
+        seed: "raw"
+      observe:
+        - "/high"
+        - "/low"
+      expect:
+        outcome: "prepared"
+        observed:
+          "/high": [55296]
+          "/low": [56320]
+    - id: "key/lone-high-only"
+      tool: "custom"
+      schema: "open"
+      prepare_set:
+        "/bag": {"$key": [55296], "value": 1}
+      arguments:
+        seed: "raw"
+      observe: []
+      observe_keys:
+        - "/bag"
+      expect:
+        outcome: "prepared"
+        observed: {}
+        observed_keys:
+          "/bag": [[55296]]
+    - id: "key/lone-low-only"
+      tool: "custom"
+      schema: "open"
+      prepare_set:
+        "/bag": {"$key": [56320], "value": 1}
+      arguments:
+        seed: "raw"
+      observe: []
+      observe_keys:
+        - "/bag"
+      expect:
+        outcome: "prepared"
+        observed: {}
+        observed_keys:
+          "/bag": [[56320]]
+    - id: "key/pair"
+      tool: "custom"
+      schema: "open"
+      prepare_set:
+        "/bag": {"$key": [55357, 56832], "value": 1}
+      arguments:
+        seed: "raw"
+      observe: []
+      observe_keys:
+        - "/bag"
+      expect:
+        outcome: "prepared"
+        observed: {}
+        observed_keys:
+          "/bag": [[55357, 56832]]
+    - id: "key/low-then-high"
+      tool: "custom"
+      schema: "open"
+      prepare_set:
+        "/bag": {"$key": [56320, 55296], "value": 1}
+      arguments:
+        seed: "raw"
+      observe: []
+      observe_keys:
+        - "/bag"
+      expect:
+        outcome: "prepared"
+        observed: {}
+        observed_keys:
+          "/bag": [[56320, 55296]]
+    - id: "key/empty"
+      tool: "custom"
+      schema: "open"
+      prepare_set:
+        "/bag": {"$key": [], "value": 1}
+      arguments:
+        seed: "raw"
+      observe: []
+      observe_keys:
+        - "/bag"
+      expect:
+        outcome: "prepared"
+        observed: {}
+        observed_keys:
+          "/bag": [[]]
+    - id: "diagnostic/lone-surrogates"
+      tool: "custom"
+      schema: "max-length-1"
+      prepare_set:
+        "/text": {"utf16": [55296, 55296]}
+        "/extra": {"utf16": [65, 56320]}
+        "/pair": {"utf16": [55357, 56832]}
+        "/nul": {"utf16": [0]}
+      arguments:
+        seed: "raw"
+      observe:
+        - "/text"
+        - "/extra"
+        - "/pair"
+        - "/nul"
+      expect:
+        outcome: "argument_validation_failure"

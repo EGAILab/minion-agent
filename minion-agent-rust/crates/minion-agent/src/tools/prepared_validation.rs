@@ -1,12 +1,15 @@
 //! Extends the existing JSON Schema engine's instance domain without changing
 //! prepared arguments. The engine owns traversal, references and composition.
 //!
-//! Its private instance carrier encodes three extra number categories with
-//! collision-free finite tags. Every keyword that observes numeric identity or
-//! numeric constraints decodes them; no tag is ever handed to a tool or hook.
+//! Its private instance carrier encodes extra number categories and non-scalar
+//! UTF-16 strings/keys with collision-free tags. Observing keywords decode them;
+//! no tag is ever handed to a tool or hook.
 //! The JSON-only path uses the original validator without any extension.
 
-use std::{collections::BTreeSet, sync::Arc};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    sync::Arc,
+};
 
 use jsonschema::{
     Keyword, ValidationError, Validator,
@@ -14,7 +17,7 @@ use jsonschema::{
 };
 use serde_json::{Map, Number, Value};
 
-use super::{PreparedNumber, PreparedValue};
+use super::{PreparedNumber, PreparedString, PreparedValue};
 
 #[derive(Debug)]
 pub(super) enum PreparedValidationError {
@@ -25,6 +28,7 @@ pub(super) enum PreparedValidationError {
 #[derive(Clone)]
 struct NumericCarrier {
     tags: [Number; 3],
+    strings: BTreeMap<String, PreparedString>,
 }
 
 impl NumericCarrier {
@@ -61,7 +65,84 @@ impl NumericCarrier {
             bits -= 1;
             n
         });
-        Self { tags }
+        fn schema_strings(value: &Value, used: &mut BTreeSet<String>) {
+            match value {
+                Value::String(s) => {
+                    used.insert(s.clone());
+                }
+                Value::Array(a) => a.iter().for_each(|v| schema_strings(v, used)),
+                Value::Object(o) => {
+                    for (k, v) in o {
+                        used.insert(k.clone());
+                        schema_strings(v, used);
+                    }
+                }
+                _ => {}
+            }
+        }
+        fn runtime_strings(
+            value: &PreparedValue,
+            used: &mut BTreeSet<String>,
+            special: &mut BTreeSet<PreparedString>,
+        ) {
+            fn string(
+                s: &PreparedString,
+                used: &mut BTreeSet<String>,
+                special: &mut BTreeSet<PreparedString>,
+            ) {
+                if let Some(s) = s.as_str() {
+                    used.insert(s.to_owned());
+                } else {
+                    special.insert(s.clone());
+                }
+            }
+            match value {
+                PreparedValue::String(s) => string(s, used, special),
+                PreparedValue::Array(a) => a.iter().for_each(|v| runtime_strings(v, used, special)),
+                PreparedValue::Object(o) => {
+                    for (k, v) in o {
+                        string(k, used, special);
+                        runtime_strings(v, used, special);
+                    }
+                }
+                _ => {}
+            }
+        }
+        let mut used_strings = BTreeSet::new();
+        let mut special_strings = BTreeSet::new();
+        schema_strings(schema, &mut used_strings);
+        runtime_strings(value, &mut used_strings, &mut special_strings);
+        let mut strings = BTreeMap::new();
+        let mut index = 0;
+        for value in special_strings {
+            let tag = loop {
+                let tag = format!("__minion_private_utf16_{index}__");
+                index += 1;
+                if used_strings.insert(tag.clone()) {
+                    break tag;
+                }
+            };
+            strings.insert(tag, value);
+        }
+        Self { tags, strings }
+    }
+
+    fn encode_string(&self, value: &PreparedString) -> String {
+        value.as_str().map(str::to_owned).unwrap_or_else(|| {
+            self.strings
+                .iter()
+                .find(|(_, original)| *original == value)
+                .expect("carrier collected every runtime string")
+                .0
+                .clone()
+        })
+    }
+
+    fn string(&self, value: &str) -> PreparedString {
+        self.strings
+            .get(value)
+            .cloned()
+            .unwrap_or_else(|| value.into())
     }
 
     fn special(&self, value: &Value) -> Option<f64> {
@@ -85,7 +166,7 @@ impl NumericCarrier {
         match value {
             PreparedValue::Null => Value::Null,
             PreparedValue::Bool(v) => Value::Bool(*v),
-            PreparedValue::String(v) => Value::String(v.clone()),
+            PreparedValue::String(v) => Value::String(self.encode_string(v)),
             PreparedValue::Number(n) => Value::Number(match n {
                 PreparedNumber::Finite(n) => n.clone(),
                 PreparedNumber::PositiveInfinity => self.tags[0].clone(),
@@ -93,9 +174,11 @@ impl NumericCarrier {
                 PreparedNumber::NaN => self.tags[2].clone(),
             }),
             PreparedValue::Array(a) => Value::Array(a.iter().map(|v| self.encode(v)).collect()),
-            PreparedValue::Object(o) => {
-                Value::Object(o.iter().map(|(k, v)| (k.clone(), self.encode(v))).collect())
-            }
+            PreparedValue::Object(o) => Value::Object(
+                o.iter()
+                    .map(|(k, v)| (self.encode_string(k), self.encode(v)))
+                    .collect(),
+            ),
         }
     }
 }
@@ -106,12 +189,36 @@ struct RuntimeKeyword {
     carrier: Arc<NumericCarrier>,
     path: Location,
     active: bool,
+    constraint: Value,
+    pattern: Option<regress::Regex>,
 }
 
 impl RuntimeKeyword {
     fn valid(&self, instance: &Value) -> bool {
         if !self.active {
             return true;
+        }
+        if matches!(self.name, "minLength" | "maxLength" | "pattern") {
+            let Some(s) = instance.as_str() else {
+                return true;
+            };
+            let original = self.carrier.string(s);
+            return match self.name {
+                "minLength" => {
+                    original.code_point_len() as f64 >= self.constraint.as_f64().unwrap()
+                }
+                "maxLength" => {
+                    original.code_point_len() as f64 <= self.constraint.as_f64().unwrap()
+                }
+                "pattern" => self
+                    .pattern
+                    .as_ref()
+                    .unwrap()
+                    .find_from_utf16(original.code_units(), 0)
+                    .next()
+                    .is_some(),
+                _ => unreachable!(),
+            };
         }
         if self.name == "const" || self.name == "enum" {
             return !self.carrier.contains_special(instance) && self.base.is_valid(instance);
@@ -165,15 +272,43 @@ pub(super) fn validate_prepared(
     schema: &Value,
     value: &PreparedValue,
 ) -> Result<(), PreparedValidationError> {
-    let base = jsonschema::validator_for(schema)
-        .map_err(|e| PreparedValidationError::Schema(e.to_string()))?;
     if let Ok(json) = value.try_to_json() {
+        let base = jsonschema::validator_for(schema)
+            .map_err(|e| PreparedValidationError::Schema(e.to_string()))?;
         return base
             .validate(&json)
             .map_err(|e| PreparedValidationError::Instance(e.to_string()));
     }
     let carrier = Arc::new(NumericCarrier::new(schema, value));
+    let validator =
+        runtime_validator(schema, carrier.clone()).map_err(PreparedValidationError::Schema)?;
+    validator.validate(&carrier.encode(value)).map_err(|e| {
+        PreparedValidationError::Instance(format!(
+            "prepared runtime arguments fail schema at {}",
+            e.schema_path
+        ))
+    })
+}
+
+fn runtime_validator(schema: &Value, carrier: Arc<NumericCarrier>) -> Result<Validator, String> {
+    runtime_validator_in(schema, carrier, Arc::new(schema.clone()))
+}
+
+#[allow(clippy::result_large_err)] // custom-keyword factory fixes the unboxed error signature
+fn runtime_validator_in(
+    schema: &Value,
+    carrier: Arc<NumericCarrier>,
+    root: Arc<Value>,
+) -> Result<Validator, String> {
     let mut options = jsonschema::options();
+    let uri = root
+        .get("$id")
+        .and_then(Value::as_str)
+        .unwrap_or("urn:minion:prepared-runtime");
+    options = options.with_base_uri(uri).with_resource(
+        uri,
+        jsonschema::Resource::from_contents((*root).clone()).map_err(|e| e.to_string())?,
+    );
     for name in [
         "type",
         "const",
@@ -184,9 +319,12 @@ pub(super) fn validate_prepared(
         "exclusiveMinimum",
         "exclusiveMaximum",
         "multipleOf",
+        "minLength",
+        "maxLength",
+        "pattern",
     ] {
         let carrier = carrier.clone();
-        let dialect = schema.get("$schema").cloned();
+        let dialect = root.get("$schema").cloned();
         options = options.with_keyword(
             name,
             move |parent: &Map<String, Value>, constraint: &Value, path: Location| {
@@ -223,7 +361,12 @@ pub(super) fn validate_prepared(
                 let active = name != "const"
                     || jsonschema::Draft::default().detect(&single_schema).ok()
                         != Some(jsonschema::Draft::Draft4);
-                let validator = jsonschema::validator_for(&single_schema).map_err(|e| {
+                let validator = jsonschema::validator_for(if name == "pattern" {
+                    &Value::Bool(true)
+                } else {
+                    &single_schema
+                })
+                .map_err(|e| {
                     ValidationError::custom(
                         path.clone(),
                         Location::new(),
@@ -235,31 +378,283 @@ pub(super) fn validate_prepared(
                     name,
                     base: validator,
                     carrier: carrier.clone(),
-                    path,
+                    path: path.clone(),
                     active,
+                    constraint: constraint.clone(),
+                    pattern: if name == "pattern" {
+                        Some(
+                            regress::Regex::with_flags(constraint.as_str().unwrap(), "u").map_err(
+                                |e| {
+                                    ValidationError::custom(
+                                        path.clone(),
+                                        Location::new(),
+                                        constraint,
+                                        e.to_string(),
+                                    )
+                                },
+                            )?,
+                        )
+                    } else {
+                        None
+                    },
                 }) as Box<dyn Keyword>)
             },
         );
     }
-    let validator = options
-        .build(schema)
-        .map_err(|e| PreparedValidationError::Schema(e.to_string()))?;
-    validator
-        .validate(&carrier.encode(value))
-        // Do not expose the private carrier's finite tags in a diagnostic.
-        // TOOL-003 owns binding-local text, not Pi's JSON.stringify projection.
-        .map_err(|e| {
-            PreparedValidationError::Instance(format!(
-                "prepared runtime arguments fail schema at {}",
-                e.schema_path
+    if !carrier.strings.is_empty() {
+        for name in ["patternProperties", "additionalProperties"] {
+            let carrier = carrier.clone();
+            let root = root.clone();
+            options = options.with_keyword(
+                name,
+                move |parent: &Map<String, Value>, constraint: &Value, path: Location| {
+                    let patterns = parent
+                        .get("patternProperties")
+                        .and_then(Value::as_object)
+                        .map(|p| {
+                            p.iter()
+                                .map(|(pattern, schema)| {
+                                    regress::Regex::with_flags(pattern, "u")
+                                        .map(|re| (re, schema.clone()))
+                                })
+                                .collect::<Result<Vec<_>, _>>()
+                        })
+                        .transpose()
+                        .map_err(|e| {
+                            ValidationError::custom(
+                                path.clone(),
+                                Location::new(),
+                                constraint,
+                                e.to_string(),
+                            )
+                        })?
+                        .unwrap_or_default();
+                    let properties = parent
+                        .get("properties")
+                        .and_then(Value::as_object)
+                        .map(|p| p.keys().cloned().collect())
+                        .unwrap_or_default();
+                    Ok(Box::new(RuntimeObjectKeyword {
+                        name,
+                        constraint: constraint.clone(),
+                        patterns,
+                        properties,
+                        carrier: carrier.clone(),
+                        root: root.clone(),
+                        path,
+                    }) as Box<dyn Keyword>)
+                },
+            );
+        }
+    }
+    if schema != root.as_ref() {
+        fn absolute_fragments(value: &mut Value, base: &str) {
+            match value {
+                Value::Array(a) => a.iter_mut().for_each(|v| absolute_fragments(v, base)),
+                Value::Object(o) => {
+                    let scoped_base = o.get("$id").and_then(Value::as_str).and_then(|id| {
+                        url::Url::parse(id)
+                            .or_else(|_| url::Url::parse(base)?.join(id))
+                            .ok()
+                    });
+                    let base = scoped_base.as_ref().map(url::Url::as_str).unwrap_or(base);
+                    for (key, value) in o {
+                        if matches!(key.as_str(), "$ref" | "$dynamicRef")
+                            && value.as_str().is_some_and(|s| s.starts_with('#'))
+                        {
+                            *value = Value::String(format!("{base}{}", value.as_str().unwrap()));
+                        } else {
+                            absolute_fragments(value, base);
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+        let mut nested = schema.clone();
+        absolute_fragments(&mut nested, uri);
+        options
+            .with_base_uri("urn:minion:prepared-runtime:subschema")
+            .build(&nested)
+            .map_err(|e| e.to_string())
+    } else {
+        options.build(schema).map_err(|e| e.to_string())
+    }
+}
+
+struct RuntimeObjectKeyword {
+    name: &'static str,
+    constraint: Value,
+    patterns: Vec<(regress::Regex, Value)>,
+    properties: BTreeSet<String>,
+    carrier: Arc<NumericCarrier>,
+    root: Arc<Value>,
+    path: Location,
+}
+
+impl RuntimeObjectKeyword {
+    fn valid(&self, instance: &Value) -> bool {
+        let Some(object) = instance.as_object() else {
+            return true;
+        };
+        for (key, value) in object {
+            let original = self.carrier.string(key);
+            let matches = self
+                .patterns
+                .iter()
+                .filter(|(re, _)| {
+                    re.find_from_utf16(original.code_units(), 0)
+                        .next()
+                        .is_some()
+                })
+                .collect::<Vec<_>>();
+            if self.name == "patternProperties" {
+                for (_, schema) in matches {
+                    if !runtime_validator_in(schema, self.carrier.clone(), self.root.clone())
+                        .is_ok_and(|v| v.is_valid(value))
+                    {
+                        return false;
+                    }
+                }
+            } else if !self.properties.contains(key)
+                && matches.is_empty()
+                && !runtime_validator_in(&self.constraint, self.carrier.clone(), self.root.clone())
+                    .is_ok_and(|v| v.is_valid(value))
+            {
+                return false;
+            }
+        }
+        true
+    }
+}
+
+impl Keyword for RuntimeObjectKeyword {
+    fn is_valid(&self, instance: &Value) -> bool {
+        self.valid(instance)
+    }
+    fn validate<'i>(
+        &self,
+        instance: &'i Value,
+        location: &LazyLocation,
+    ) -> Result<(), ValidationError<'i>> {
+        if self.valid(instance) {
+            Ok(())
+        } else {
+            Err(ValidationError::custom(
+                self.path.clone(),
+                location.into(),
+                instance,
+                format!("prepared runtime object fails {}", self.name),
             ))
-        })
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use serde_json::json;
+
+    fn utf16_object(units: Vec<u16>) -> PreparedValue {
+        let mut value = PreparedValue::from(json!({"text":"raw"}));
+        value["text"] = PreparedValue::String(PreparedString::from_code_units(units));
+        value
+    }
+
+    #[test]
+    fn runtime_surrogates_validate_without_scalar_normalization() {
+        let high = utf16_object(vec![0xd800]);
+        let pair = utf16_object(vec![0xd83d, 0xde00]);
+        let two = utf16_object(vec![0xd800, 0xd800]);
+        for value in [&high, &pair] {
+            assert!(
+                validate_prepared(
+                    &json!({"properties":{"text":{"type":"string","maxLength":1,"pattern":"^.$"}}}),
+                    value
+                )
+                .is_ok()
+            );
+        }
+        assert!(validate_prepared(&json!({"properties":{"text":{"maxLength":1}}}), &two).is_err());
+        assert!(
+            validate_prepared(
+                &json!({"properties":{"text":{"pattern":"^..$","minLength":2}}}),
+                &two
+            )
+            .is_ok()
+        );
+        assert!(validate_prepared(&json!({"properties":{"text":{"enum":["�"]}}}), &high).is_err());
+        assert!(
+            validate_prepared(
+                &json!({"properties":{"text":{"pattern":"^\\p{Surrogate}$"}}}),
+                &high
+            )
+            .is_ok()
+        );
+        assert!(
+            validate_prepared(
+                &json!({"properties":{"text":{"pattern":"^\\p{Letter}$"}}}),
+                &high
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn runtime_keys_use_real_unicode_patterns_and_nested_reference_validation() {
+        let key = PreparedString::from_code_units(vec![65, 0xd800]);
+        let object = PreparedValue::Object(BTreeMap::from([(key, PreparedValue::Bool(true))]));
+        assert!(validate_prepared(&json!({"patternProperties":{"^A.$":{"type":"boolean"}},"additionalProperties":false}),&object).is_ok());
+        assert!(
+            validate_prepared(
+                &json!({"patternProperties":{"^A.$":{"type":"number"}}}),
+                &object
+            )
+            .is_err()
+        );
+        assert!(validate_prepared(&json!({"patternProperties":{"^B":{"type":"boolean"}},"additionalProperties":false}),&object).is_err());
+        assert!(validate_prepared(&json!({"$defs":{"entry":{"type":"boolean"}},"patternProperties":{"^A.$":{"$ref":"#/$defs/entry"}},"additionalProperties":false}),&object).is_ok());
+        assert!(validate_prepared(&json!({"patternProperties":{"^A.$":{"$id":"https://example.test/nested","$defs":{"entry":{"type":"boolean"}},"$ref":"#/$defs/entry"}}}),&object).is_ok());
+        assert!(validate_prepared(&json!({"propertyNames":{"pattern":"^B"}}), &object).is_err());
+    }
+
+    #[test]
+    fn private_string_tags_cannot_collide_with_schema_or_runtime_literals() {
+        let mut value = utf16_object(vec![0xd800]);
+        value["ordinary"] = PreparedValue::from(json!("__minion_private_utf16_0__"));
+        let schema = json!({"properties":{"text":{"const":"__minion_private_utf16_1__"},"ordinary":{"const":"__minion_private_utf16_0__"}}});
+        assert!(validate_prepared(&schema, &value).is_err());
+        assert_eq!(value["ordinary"], json!("__minion_private_utf16_0__"));
+        assert_eq!(
+            match &value["text"] {
+                PreparedValue::String(s) => s.code_units(),
+                _ => panic!(),
+            },
+            &[0xd800]
+        );
+    }
+
+    #[test]
+    fn integer_valued_length_constraints_and_invalid_schemas_keep_engine_behavior() {
+        let value = utf16_object(vec![0xd800]);
+        assert!(
+            validate_prepared(
+                &json!({"properties":{"text":{"minLength":1.0,"maxLength":1.0}}}),
+                &value
+            )
+            .is_ok()
+        );
+        for schema in [
+            json!({"properties":{"text":{"minLength":1.5}}}),
+            json!({"patternProperties":{"^A":{"type":"invalid"}}}),
+            json!({"additionalProperties":{"type":"invalid"}}),
+        ] {
+            assert!(matches!(
+                validate_prepared(&schema, &value),
+                Err(PreparedValidationError::Schema(_))
+            ));
+        }
+    }
 
     fn special_object(number: f64) -> PreparedValue {
         let mut value = PreparedValue::from(json!({"n": 0}));

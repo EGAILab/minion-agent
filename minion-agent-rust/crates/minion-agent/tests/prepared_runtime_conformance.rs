@@ -104,7 +104,7 @@ fn mutate(value: PreparedValue, mutation: Mutation) -> Result<PreparedValue, Too
                 Mutation::NullNonFinite if !n.is_finite() => Ok(PreparedValue::Null),
                 Mutation::ClampNonFinite if !n.is_finite() => Ok(PreparedValue::number(f64::MAX)),
                 Mutation::StringNonFinite if !n.is_finite() => {
-                    Ok(PreparedValue::String(n.to_string()))
+                    Ok(PreparedValue::String(n.to_string().into()))
                 }
                 Mutation::LoseZeroSign if n == 0.0 => Ok(PreparedValue::number(0.0)),
                 _ => Ok(value),

@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$comment": "Layer-05 delta L05-D001 (TOOL-016 / TOOL-003): JavaScript string values inside the runtime-validation SCHEMA. Scenarios live in conformance/agent/schema-domain/*.json, discriminated by a top-level `schema_domain` key. For each case a runner registers ONE tool whose ToolDefinition.parameters is the decoded `schema` (no prepare_arguments), makes ONE call whose raw arguments are the decoded `arguments`, and observes only the outcome through the REAL Layer-06 pipeline: `accept` (validation passed and execute ran) or `reject` (the certified immediate argument-validation error, TOOL-003). Registration itself must accept every schema here. VALUE GRAMMAR: {\"utf16\": units} is a string (UTF-16 code units 0..65535, so unpaired surrogates survive the file); {\"$keys\": [[units, value], ...]} is an object (keys as code units, in order); arrays are arrays; numbers, true, false and null are themselves. The runner performs no validation, normalization or conversion of its own.",
+  "type": "object",
+  "required": ["name", "family", "authority", "pi_revision", "requirements", "witnesses", "schema_domain"],
+  "additionalProperties": false,
+  "properties": {
+    "name": {"type": "string", "minLength": 1},
+    "family": {"const": "agent"},
+    "authority": {"type": "string", "minLength": 1},
+    "pi_revision": {"type": "string", "minLength": 1},
+    "requirements": {"type": "array", "minItems": 1, "items": {"type": "string", "pattern": "^[A-Z]+-[0-9]{3}$"}},
+    "witnesses": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+    "notes": {"type": "string"},
+    "schema_domain": {
+      "type": "object",
+      "required": ["cases"],
+      "additionalProperties": false,
+      "properties": {"cases": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/case"}}}
+    }
+  },
+  "$defs": {
+    "units": {"type": "array", "items": {"type": "integer", "minimum": 0, "maximum": 65535}},
+    "value": {
+      "oneOf": [
+        {"type": "object", "required": ["utf16"], "additionalProperties": false, "properties": {"utf16": {"$ref": "#/$defs/units"}}},
+        {"type": "object", "required": ["$keys"], "additionalProperties": false,
+         "properties": {"$keys": {"type": "array", "items": {"type": "array", "prefixItems": [{"$ref": "#/$defs/units"}, {"$ref": "#/$defs/value"}], "minItems": 2, "maxItems": 2}}}},
+        {"type": "array", "items": {"$ref": "#/$defs/value"}},
+        {"type": ["number", "boolean", "null"]}
+      ]
+    },
+    "object": {"type": "object", "required": ["$keys"], "additionalProperties": false,
+               "properties": {"$keys": {"$ref": "#/$defs/value/oneOf/1/properties/$keys"}}},
+    "case": {
+      "type": "object",
+      "required": ["id", "schema", "arguments", "expect"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "schema": {"$ref": "#/$defs/object"},
+        "arguments": {"$ref": "#/$defs/object"},
+        "expect": {"enum": ["accept", "reject"]}
+      }
+    }
+  }
+}

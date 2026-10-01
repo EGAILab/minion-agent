@@ -189,9 +189,17 @@
           "enum": [
             "number",
             "integer",
-            "open"
+            "open",
+            "bound-maximum",
+            "bound-minimum",
+            "bound-exclusive-maximum",
+            "bound-exclusive-minimum",
+            "multiple-of",
+            "one-of-bounds",
+            "not-bound",
+            "number-bound"
           ],
-          "$comment": "number: {type: object, properties: {limit: {type: number}}, required: [limit]}; integer: the same with {type: integer}; open: {type: object, properties: {}}"
+          "$comment": "number: {type: object, properties: {limit: {type: number}}, required: [limit]}; integer: the same with {type: integer}; open: {type: object, properties: {}}. L0506-D001-RC002 numeric-keyword kinds, each {type: object, properties: {limit: S}} with no `required`: bound-maximum S = {maximum: 0}; bound-minimum S = {minimum: 0}; bound-exclusive-maximum S = {exclusiveMaximum: 0}; bound-exclusive-minimum S = {exclusiveMinimum: 0}; multiple-of S = {multipleOf: 2}; one-of-bounds S = {oneOf: [{maximum: 0}, {minimum: 1}]}; not-bound S = {not: {maximum: 0}}; number-bound S = {type: number, maximum: 0}"
         },
         "prepare_set": {
           "type": "object",

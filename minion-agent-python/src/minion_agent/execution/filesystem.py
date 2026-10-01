@@ -430,9 +430,11 @@ def _read_text_sync(path: str) -> str:
     # throws for invalid bytes -- it substitutes the replacement character (U+FFFD). The default
     # `errors="strict"` raises `UnicodeDecodeError`, which is NOT an `OSError` subclass and would
     # therefore escape this operation's own `except OSError` entirely, violating the never-raise
-    # `Result` contract outright.
-    with open(path, encoding="utf-8", errors="replace") as f:
-        return f.read()
+    # `Result` contract outright. `EXEC-002-R1-PY-STR`: decoded from the file's bytes, never through
+    # a text-mode file -- pinned Node's `readFile(path, "utf8")` returns `\r\n` and a lone `\r`
+    # exactly, where text mode's universal newlines would turn both into `\n`.
+    with open(path, "rb") as f:
+        return f.read().decode("utf-8", "replace")
 
 
 def _read_binary_sync(path: str) -> bytes:
@@ -458,22 +460,29 @@ def _read_text_lines_sync(path: str, max_lines: int | None, signal: RunSignal | 
     return lines
 
 
+_LONE_SURROGATE = re.compile(f"[{chr(0xD800)}-{chr(0xDFFF)}]")
+
+
+def _encode_js_utf8(text: str) -> bytes:
+    """Pinned Node's `writeFile`/`appendFile(path, string)` encoding (`EXEC-002-R1-PY-STR`): WHATWG
+    UTF-8 of the JavaScript string, every byte written as is. A valid surrogate pair -- even one
+    held as two separate surrogate characters -- is its one astral character, and an unpaired
+    surrogate becomes U+FFFD (`EF BF BD`). A text-mode file would instead raise
+    `UnicodeEncodeError` (escaping the `Result`) and, on Windows, write `\\n` as `\\r\\n`."""
+    combined = text.encode("utf-16-le", "surrogatepass").decode("utf-16-le", "surrogatepass")
+    return _LONE_SURROGATE.sub(chr(0xFFFD), combined).encode("utf-8")
+
+
 def _write_file_sync(path: str, content: str | bytes) -> None:
-    if isinstance(content, str):
-        with open(path, "w", encoding="utf-8") as f:
-            f.write(content)
-    else:
-        with open(path, "wb") as f:
-            f.write(content)
+    data = _encode_js_utf8(content) if isinstance(content, str) else content
+    with open(path, "wb") as f:
+        f.write(data)
 
 
 def _append_file_sync(path: str, content: str | bytes) -> None:
-    if isinstance(content, str):
-        with open(path, "a", encoding="utf-8") as f:
-            f.write(content)
-    else:
-        with open(path, "ab") as f:
-            f.write(content)
+    data = _encode_js_utf8(content) if isinstance(content, str) else content
+    with open(path, "ab") as f:
+        f.write(data)
 
 
 def _list_dir_sync(path: str, signal: RunSignal | None) -> list[FileInfo]:

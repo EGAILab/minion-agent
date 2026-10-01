@@ -459,6 +459,59 @@ async def test_append_file_creates_and_appends(tmp_path: Path) -> None:
     assert await fs.read_text_file("a.txt") == Ok("onetwo")
 
 
+HIGH, LOW = chr(0xD800), chr(0xDC00)
+GRIN_HIGH, GRIN_LOW = chr(0xD83D), chr(0xDE00)  # U+1F600 as two separate surrogate characters
+JS_STRING_CASES = [
+    # (JavaScript string as a Python str, pinned Node's WHATWG UTF-8 bytes)
+    ("a\nb", "610a62"),  # no newline translation, on any platform
+    ("a\r\nb\rc", "610d0a620d63"),
+    ("a" + HIGH, "61efbfbd"),  # an unpaired high surrogate -> U+FFFD
+    (LOW + "a", "efbfbd61"),  # an unpaired low surrogate -> U+FFFD
+    (LOW + HIGH, "efbfbdefbfbd"),  # low-then-high is not a pair
+    (GRIN_HIGH + GRIN_LOW, "f09f9880"),  # a valid pair, even as two characters, is one astral char
+    ("\U0001f600" + HIGH, "f09f9880efbfbd"),
+    ("\x00", "00"),
+]
+
+
+@pytest.mark.parametrize(("text", "utf8_hex"), JS_STRING_CASES)
+async def test_write_file_encodes_a_javascript_string_like_node(
+    tmp_path: Path, text: str, utf8_hex: str
+) -> None:
+    """`EXEC-002-R1-PY-STR`: pinned Node's `writeFile(path, string)` -- WHATWG UTF-8, bytes as is.
+    A text-mode file raised `UnicodeEncodeError` (escaping the `Result`) on an unpaired surrogate
+    and wrote `\\r\\n` for `\\n` on Windows."""
+    fs = LocalFileSystem(cwd=str(tmp_path))
+    assert await fs.write_file("f.txt", text) == Ok(None)
+    assert (tmp_path / "f.txt").read_bytes().hex() == utf8_hex
+
+
+@pytest.mark.parametrize(("text", "utf8_hex"), JS_STRING_CASES)
+async def test_append_file_encodes_a_javascript_string_like_node(
+    tmp_path: Path, text: str, utf8_hex: str
+) -> None:
+    fs = LocalFileSystem(cwd=str(tmp_path))
+    (tmp_path / "f.txt").write_bytes(b"x")
+    assert await fs.append_file("f.txt", text) == Ok(None)
+    assert (tmp_path / "f.txt").read_bytes().hex() == "78" + utf8_hex
+
+
+async def test_read_text_file_keeps_carriage_returns_like_node(tmp_path: Path) -> None:
+    """`EXEC-002-R1-PY-STR`: pinned Node's `readFile(path, "utf8")` returns `\\r\\n` and a lone
+    `\\r` exactly; a text-mode file's universal newlines turned both into `\\n`."""
+    (tmp_path / "f.txt").write_bytes(b"a\r\nb\rc\n\xff")
+    fs = LocalFileSystem(cwd=str(tmp_path))
+    assert await fs.read_text_file("f.txt") == Ok("a\r\nb\rc\n�")
+
+
+async def test_read_text_lines_still_splits_like_node_readline(tmp_path: Path) -> None:
+    """Pinned Pi's `readTextLines` uses `readline` with `crlfDelay: Infinity`: `\\r\\n`, `\\n` and
+    a lone `\\r` each end a line, and a final line break adds no empty line."""
+    (tmp_path / "f.txt").write_bytes(b"a\r\nb\rc\nd\n")
+    fs = LocalFileSystem(cwd=str(tmp_path))
+    assert await fs.read_text_lines("f.txt") == Ok(["a", "b", "c", "d"])
+
+
 async def test_append_file_creates_missing_parents(tmp_path: Path) -> None:
     fs = LocalFileSystem(cwd=str(tmp_path))
     result = await fs.append_file("a/b.txt", "x")

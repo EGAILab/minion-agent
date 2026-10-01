@@ -7174,8 +7174,9 @@ rows:
   pi: packages/agent/src/agent-loop.ts::prepareToolCallArguments/prepareToolCall (prepared args -> validateToolArguments
     -> beforeToolCall args -> execute); packages/ai/src/utils/validation.ts::validateToolArguments (typebox 1.3.7);
     packages/coding-agent/src/core/tools/edit.ts::prepareEditArguments (JSON.parse)
-  surface: Layer 05/06 post-certification delta L0506-D001 -- the prepared runtime numeric domain (prepare_arguments
-    result, validation, tools/pre-execute arguments, execute arguments)
+  surface: Layer 05/06 post-certification deltas L0506-D001 -- the prepared runtime numeric domain -- and L0506-D002
+    -- the prepared runtime JavaScript string domain (prepare_arguments result, validation, tools/pre-execute arguments
+    and replacement, execute arguments)
   rule: 'CERTIFIED_CLOSED (L0506-D001, minion-agent#88; Owner decision L13-WP132-I004 Option 1, minion-agent#49
     issuecomment-5912178299; intentional divergence NONE). Prepared runtime arguments carry Pi''s runtime numbers:
     finite binary64 including -0 (sign preserved), +Infinity, -Infinity, and NaN (reachable only through a tool''s own
@@ -7185,7 +7186,17 @@ rows:
     tools/pre-execute listener and execute observe the prepared value exactly; the successful path serializes no
     prepared value (Pi''s only serialization of it is its validation-failure diagnostic, a JSON.stringify projection:
     +/-Infinity and NaN -> null, -0 -> 0, runtime values unchanged; Minion''s TOOL-003 validator text is its own).
-    Full rules: spec/tools.md Layer 06, ''Prepared runtime numeric domain (TOOL-041)''.'
+    Full rules: spec/tools.md Layer 06, ''Prepared runtime numeric domain (TOOL-041)''. L0506-D002 (minion-agent#99;
+    Owner decision WP132-RUST-C001 Option 1, minion-agent#49 issuecomment-5924605017; intentional divergence NONE) --
+    CONTRACT_DRAFT: a prepared runtime string is a JavaScript String, a sequence of UTF-16 code units including unpaired
+    high and low surrogates at any position, in values and in object keys; prepare_arguments, validation, the
+    tools/pre-execute listener, a Proceed(arguments=...) replacement and execute carry it exactly (no U+FFFD
+    replacement, rejection or re-encoding before a projection boundary). Validation as pinned Pi: minLength/maxLength
+    count code points (a valid pair 1, each unpaired surrogate 1), pattern is Unicode-mode, const/enum compare code
+    units. Projections are separate boundaries: UTF-8 encoding (an unpaired surrogate becomes EF BF BD, e.g. edit/write
+    file bytes), Pi''s JSON.stringify failure diagnostic (unpaired surrogates escaped \udXXX; Minion''s TOOL-003 text is
+    its own). Raw ToolCall arguments and their serialization are unchanged. Full rules: spec/tools.md Layer 06,
+    ''Prepared runtime string domain (TOOL-041, L0506-D002)''.'
   tests:
   - prepared_runtime_numeric_domain -- delta certification gate L0506-D001 (L0506-D001-R003) -- canonical scenarios
     conformance/agent/prepared-runtime/prepared-runtime-declared-number-field.yaml, prepared-runtime-declared-integer-field.yaml,
@@ -7194,12 +7205,25 @@ rows:
     authority in minion-agent-docs assurance/layers/data/l0506-d001
   - real-edit integration witness (gate WP-13.2, NOT part of this row's certification) -- conformance/agent/prepared-runtime/prepared-runtime-edit-json-string-numbers.yaml;
     run by WP-13.2's Python approval and Rust implementation reviews once L0506-D001 is certified (see TOOL-030)
+  - prepared_runtime_string_domain -- delta certification gate L0506-D002 -- canonical scenarios
+    conformance/agent/prepared-runtime-string/ (shape prepared-string-scenario.schema.json) -- undeclared-field,
+    declared-type, length-, pattern- and equality-keywords (the Owner decision's 20-member string neighborhood x 8
+    schema kinds, plus the real U+FFFD; the schema holds only scalar strings, L0506-D002-R001), positions-and-keys (9)
+    and hook-replacement (4, Minion's Proceed(arguments=...) extension; contract expectations) -- 181 custom cases, generated from the pinned-Pi authority in minion-agent-docs
+    assurance/layers/data/l0506-d002
+  - real-edit string integration witness (gate WP-13.2, NOT part of L0506-D002 certification) --
+    conformance/agent/prepared-runtime-string/prepared-string-edit-json-string.yaml (21 cases, final file bytes = the
+    UTF-8 projection); run by WP-13.2's Rust implementation review once L0506-D002 is certified
   python: 'minion_agent/tools/execute.py (PreparedArgumentsValidator: Draft 2020-12 with a finite-only number;
     _reject_declared_non_finite for pydantic-model tools -- the delivered model_dump() of the one ordinary pydantic
     validation is validated against a callback-free, finite-only structural shape of the declared types with strict
     numeric leaves, and any finite_number error rejects (CE-L0506-D001-I001-01 revs 3-4, agreed); prepared values pass
     unchanged to the pre-execute hook and execute) -- fixes L0506-D001-C001, L0506-D001-I001 and L0506-D001-I002.
-    APPROVED and merged (L0506-D001, minion-agent#90 -> a993f5d8; final complete review minion-agent-docs#200).'
+    APPROVED and merged (L0506-D001, minion-agent#90 -> a993f5d8; final complete review minion-agent-docs#200).
+    L0506-D002: conforms with no production change (a canonical str: valid pairs combined, unpaired surrogates kept as
+    surrogate code points); tests/conformance/prepared_string_runner.py, test_prepared_string_conformance.py (181),
+    test_prepared_string_edit_gate.py (21), tests/tools/test_prepared_string_negative_controls.py (Owner decision
+    section 6 mutants) -- PENDING contract review.'
   rust: 'minion-agent-rust/crates/minion-agent/src/tools/prepared.rs (PreparedValue/PreparedNumber),
     definition.rs (typed runtime preparation/execute arguments), prepared_validation.rs (existing JSON Schema
     engine plus private numeric-domain carrier), execution.rs (real validation -> pre-execute -> execute seam);
@@ -7207,5 +7231,6 @@ rows:
     50 custom cases; six fixture negative controls plus independently RED-confirmed declared-number validator
     mutation and RC001 numeric-keyword applicability (bounds/multipleOf do not apply to non-finites;
     oneOf/not retain engine-owned branch verdicts). Rust CERTIFIED (minion-agent#94 -> ee87245b; closure review minion-agent-docs#203);
-    later WP-13.2 edit gate is not counted here.'
+    later WP-13.2 edit gate is not counted here. L0506-D002: NOT_IMPLEMENTED (needs a UTF-16-capable prepared string
+    and key representation; String::from_utf16_lossy, early U+FFFD and rejection are not acceptable).'
   disposition: adopted

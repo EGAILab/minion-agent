@@ -768,7 +768,10 @@ fn install_tool_listener(
                                 .unwrap_or(false),
                         }),
                         "narrow_arguments" => Ok(BeforeToolCallAction::Proceed(Some(
-                            spec.get("arguments").cloned().unwrap_or_else(|| json!({})),
+                            spec.get("arguments")
+                                .cloned()
+                                .unwrap_or_else(|| json!({}))
+                                .into(),
                         ))),
                         "abstain" => Ok(BeforeToolCallAction::Proceed(None)),
                         "raise" => Err(ToolCapabilityError::new(

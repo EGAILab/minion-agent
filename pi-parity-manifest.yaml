@@ -7183,5 +7183,12 @@ rows:
     numeric leaves, and any finite_number error rejects (CE-L0506-D001-I001-01 revs 3-4, agreed); prepared values pass
     unchanged to the pre-execute hook and execute) -- fixes L0506-D001-C001, L0506-D001-I001 and L0506-D001-I002.
     APPROVED and merged (L0506-D001, minion-agent#90 -> a993f5d8; final complete review minion-agent-docs#200).'
-  rust: not implemented; in progress (L0506-D001, minion-agent#88, branch rust/l0506-d001)
+  rust: 'minion-agent-rust/crates/minion-agent/src/tools/prepared.rs (PreparedValue/PreparedNumber),
+    definition.rs (typed runtime preparation/execute arguments), prepared_validation.rs (existing JSON Schema
+    engine plus private numeric-domain carrier), execution.rs (real validation -> pre-execute -> execute seam);
+    tests/prepared_runtime_value.rs and tests/prepared_runtime_conformance.rs (explicit L0506-D001 gate,
+    50 custom cases; six fixture negative controls plus independently RED-confirmed declared-number validator
+    mutation and RC001 numeric-keyword applicability (bounds/multipleOf do not apply to non-finites;
+    oneOf/not retain engine-owned branch verdicts). Rust implementation candidate on minion-agent#88, pending independent closure review;
+    later WP-13.2 edit gate is not counted here.'
   disposition: adopted

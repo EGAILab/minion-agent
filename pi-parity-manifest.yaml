@@ -34,7 +34,8 @@ rows:
   pi: packages/ai/src/types.ts::ToolCall
   surface: tool call + thoughtSignature + namespace
   rule: 'ToolCall{id,name,arguments,thought_signature?,namespace?}. L0206-D002 (minion-agent#103; Owner decision
-    L0506-D002-Q001 Option 1, minion-agent#99 issuecomment-5926162818; intentional divergence NONE) -- CONTRACT_DRAFT:
+    L0506-D002-Q001 Option 1, minion-agent#99 issuecomment-5926162818; intentional divergence NONE) -- AGREED (contract #105 -> c9b6e910; Python implementation review pending;
+    Rust NOT_IMPLEMENTED):
     arguments hold pinned Pi''s JSON.parse JavaScript value domain -- strings of any UTF-16 code units (unpaired
     surrogates in values and keys), numbers incl. -0 and +/-Infinity, binary64-rounded -- unchanged through
     construction, session append/replay (MINION-002), tool_execution_* arguments and the Layer-06 input of a tool
@@ -50,7 +51,7 @@ rows:
     on_execution_update delivery (L0206-D002-R001); canonical number tokens only (R002)
   python: 'src/minion_agent/llm/content.py (rewrite). L0206-D002: conforms with no production change --
     tests/conformance/raw_arguments_runner.py, test_raw_arguments_conformance.py (38),
-    tests/session/test_raw_arguments_negative_controls.py (Owner decision section 11 mutants) -- PENDING contract review.'
+    tests/session/test_raw_arguments_negative_controls.py (Owner decision section 11 mutants) -- contract APPROVED (#105); implementation review pending.'
   rust: 'Phase 2 llm vocabulary (new). L0206-D002: NOT_IMPLEMENTED (serde_json::Value cannot hold an unpaired surrogate
     or +/-Infinity; a raw runtime value representation is required).'
   disposition: adopted
@@ -3286,7 +3287,8 @@ rows:
     typing or canonical-schema convenience) -- the boundary rejects only non-mapping values
     (missing, None, booleans, arrays, strings, numbers), never a particular JSON Schema keyword.
     L05-D001 (minion-agent#104; Owner decision L0506-D002-R001 Option 1, minion-agent#99
-    issuecomment-5926416181; intentional divergence NONE) -- CONTRACT_DRAFT: the schema''s own string values
+    issuecomment-5926416181; intentional divergence NONE) -- AGREED (contract #106 -> ef7fe40c; Python
+    implementation review pending; Rust NOT_IMPLEMENTED): the schema''s own string values
     and object keys are JavaScript strings (any UTF-16 code units, unpaired surrogates included) wherever
     runtime validation consumes them -- property names / properties keys, required, const, enum, pattern,
     patternProperties keys, propertyNames, dependentRequired; registration accepts them and validation
@@ -5602,7 +5604,7 @@ rows:
   pi: N/A — Minion persistence architecture
   surface: append-only session log
   rule: 'model-visible means logged; request reconstructable; same Pi model-visible history. L0206-D002
-    (CONTRACT_DRAFT): event data carries the raw JavaScript value domain (AI-003) -- append accepts and replay returns
+    (AGREED; Rust NOT_IMPLEMENTED): event data carries the raw JavaScript value domain (AI-003) -- append accepts and replay returns
     unpaired surrogates, -0 and +/-Infinity unchanged; the log is not a byte form, so no JSON projection applies.'
   tests:
   - session derivation/reconstruction suite
@@ -7193,21 +7195,24 @@ rows:
     issuecomment-5912178299; intentional divergence NONE). Prepared runtime arguments carry Pi''s runtime numbers:
     finite binary64 including -0 (sign preserved), +Infinity, -Infinity, and NaN (reachable only through a tool''s own
     prepare_arguments). Raw ToolCall arguments, tool_execution_* original arguments and ToolCall serialization are
-    unchanged. Validation: a declared number/integer instance is finite-only (+/-Infinity and NaN rejected with the
+    unchanged by this row (the raw value domain itself -- unpaired surrogates, -0, +/-Infinity -- is AI-003,
+    L0206-D002). Validation: a declared number/integer instance is finite-only (+/-Infinity and NaN rejected with the
     certified TOOL-003 immediate error; -0 accepted, sign kept); an undeclared position keeps any runtime number. The
     tools/pre-execute listener and execute observe the prepared value exactly; the successful path serializes no
     prepared value (Pi''s only serialization of it is its validation-failure diagnostic, a JSON.stringify projection:
     +/-Infinity and NaN -> null, -0 -> 0, runtime values unchanged; Minion''s TOOL-003 validator text is its own).
     Full rules: spec/tools.md Layer 06, ''Prepared runtime numeric domain (TOOL-041)''. L0506-D002 (minion-agent#99;
     Owner decision WP132-RUST-C001 Option 1, minion-agent#49 issuecomment-5924605017; intentional divergence NONE) --
-    CONTRACT_DRAFT: a prepared runtime string is a JavaScript String, a sequence of UTF-16 code units including unpaired
+    CERTIFIED_CLOSED (Python contract #102 -> 28d409d4; Rust #108 -> ac661221, closure review
+    minion-agent-docs#213): a prepared runtime string is a JavaScript String, a sequence of UTF-16 code units including unpaired
     high and low surrogates at any position, in values and in object keys; prepare_arguments, validation, the
     tools/pre-execute listener, a Proceed(arguments=...) replacement and execute carry it exactly (no U+FFFD
     replacement, rejection or re-encoding before a projection boundary). Validation as pinned Pi: minLength/maxLength
     count code points (a valid pair 1, each unpaired surrogate 1), pattern is Unicode-mode, const/enum compare code
     units. Projections are separate boundaries: UTF-8 encoding (an unpaired surrogate becomes EF BF BD, e.g. edit/write
     file bytes), Pi''s JSON.stringify failure diagnostic (unpaired surrogates escaped \udXXX; Minion''s TOOL-003 text is
-    its own). Raw ToolCall arguments and their serialization are unchanged. Full rules: spec/tools.md Layer 06,
+    its own). Raw ToolCall arguments and their serialization are unchanged by this row (raw domain: AI-003,
+    L0206-D002). Full rules: spec/tools.md Layer 06,
     ''Prepared runtime string domain (TOOL-041, L0506-D002)''.'
   tests:
   - prepared_runtime_numeric_domain -- delta certification gate L0506-D001 (L0506-D001-R003) -- canonical scenarios
@@ -7235,7 +7240,8 @@ rows:
     L0506-D002: conforms with no production change (a canonical str: valid pairs combined, unpaired surrogates kept as
     surrogate code points); tests/conformance/prepared_string_runner.py, test_prepared_string_conformance.py (181),
     test_prepared_string_edit_gate.py (21), tests/tools/test_prepared_string_negative_controls.py (Owner decision
-    section 6 mutants) -- PENDING contract review.'
+    section 6 mutants) -- APPROVED (contract #102 -> 28d409d4; Python implementation review minion-agent#99
+    issuecomment-5931084917).'
   rust: 'minion-agent-rust/crates/minion-agent/src/tools/prepared.rs (PreparedValue/PreparedNumber),
     definition.rs (typed runtime preparation/execute arguments), prepared_validation.rs (existing JSON Schema
     engine plus private numeric-domain carrier), execution.rs (real validation -> pre-execute -> execute seam);

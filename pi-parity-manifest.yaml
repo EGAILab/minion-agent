@@ -7243,6 +7243,11 @@ rows:
     50 custom cases; six fixture negative controls plus independently RED-confirmed declared-number validator
     mutation and RC001 numeric-keyword applicability (bounds/multipleOf do not apply to non-finites;
     oneOf/not retain engine-owned branch verdicts). Rust CERTIFIED (minion-agent#94 -> ee87245b; closure review minion-agent-docs#203);
-    later WP-13.2 edit gate is not counted here. L0506-D002: NOT_IMPLEMENTED (needs a UTF-16-capable prepared string
-    and key representation; String::from_utf16_lossy, early U+FFFD and rejection are not acceptable).'
+    later WP-13.2 edit gate is not counted here. L0506-D002 implementation candidate: prepared.rs (PreparedString,
+    lossless UTF-16 strings AND keys), prepared_validation.rs (Unicode-mode regress 0.11.1 matching through
+    the existing schema engine), tests/prepared_string_conformance.rs (181 delta cases through real preparation,
+    validation, hook replacement and execution; eight fixture controls including lone-low-only corruption;
+    hook/execute JSON-only source mutants independently killed). Pending independent Rust closure review;
+    full Windows workspace gate limitations are disclosed in assurance/layers/l0506-d002-rust-implementation.md.
+    No WP-13.2 edit-gate or raw/schema-domain certification claim.'
   disposition: adopted

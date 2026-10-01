@@ -1,7 +1,7 @@
 //! In-memory tool arguments after preparation (TOOL-041).
 //!
 //! Raw tool calls remain JSON-compatible. Preparation may additionally produce
-//! non-finite binary64 numbers, which must never be replaced by JSON nulls,
+//! non-finite binary64 numbers and arbitrary UTF-16 strings, which must never be replaced by JSON nulls,
 //! strings, or clamped values. This vocabulary deliberately does not implement
 //! `Serialize`: any future serialization boundary must specify its projection.
 
@@ -9,6 +9,68 @@ use std::collections::BTreeMap;
 
 use serde_json::{Number, Value};
 use thiserror::Error;
+
+/// A JavaScript string, including unpaired UTF-16 surrogate code units.
+///
+/// Scalar text is available only when conversion is lossless. The UTF-16
+/// sequence remains authoritative; replacement is an explicit later boundary.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PreparedString {
+    units: Vec<u16>,
+    scalar: Option<String>,
+}
+
+impl PreparedString {
+    pub fn from_code_units(units: Vec<u16>) -> Self {
+        let scalar = String::from_utf16(&units).ok();
+        Self { units, scalar }
+    }
+
+    pub fn code_units(&self) -> &[u16] {
+        &self.units
+    }
+
+    pub fn as_str(&self) -> Option<&str> {
+        self.scalar.as_deref()
+    }
+
+    pub fn code_point_len(&self) -> usize {
+        char::decode_utf16(self.units.iter().copied()).count()
+    }
+
+    /// Explicit Node Buffer.from(string, "utf8") projection, not a runtime
+    /// normalization. Each unpaired unit becomes one replacement character.
+    pub fn to_utf8_lossy(&self) -> String {
+        String::from_utf16_lossy(&self.units)
+    }
+}
+
+impl From<String> for PreparedString {
+    fn from(value: String) -> Self {
+        Self {
+            units: value.encode_utf16().collect(),
+            scalar: Some(value),
+        }
+    }
+}
+
+impl From<&str> for PreparedString {
+    fn from(value: &str) -> Self {
+        value.to_owned().into()
+    }
+}
+
+impl PartialOrd for PreparedString {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for PreparedString {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.units.cmp(&other.units)
+    }
+}
 
 /// The numeric domain of prepared tool arguments.
 ///
@@ -50,15 +112,15 @@ impl PreparedNumber {
     }
 }
 
-/// JSON-shaped in-memory data with the additional prepared numeric domain.
+/// JSON-shaped in-memory data with prepared binary64 and UTF-16 domains.
 #[derive(Clone, Debug, PartialEq)]
 pub enum PreparedValue {
     Null,
     Bool(bool),
     Number(PreparedNumber),
-    String(String),
+    String(PreparedString),
     Array(Vec<Self>),
-    Object(BTreeMap<String, Self>),
+    Object(BTreeMap<PreparedString, Self>),
 }
 
 impl PreparedValue {
@@ -78,19 +140,19 @@ impl PreparedValue {
 
     pub fn as_str(&self) -> Option<&str> {
         match self {
-            Self::String(value) => Some(value),
+            Self::String(value) => value.as_str(),
             _ => None,
         }
     }
 
-    pub fn as_object(&self) -> Option<&BTreeMap<String, Self>> {
+    pub fn as_object(&self) -> Option<&BTreeMap<PreparedString, Self>> {
         match self {
             Self::Object(object) => Some(object),
             _ => None,
         }
     }
 
-    pub fn as_object_mut(&mut self) -> Option<&mut BTreeMap<String, Self>> {
+    pub fn as_object_mut(&mut self) -> Option<&mut BTreeMap<PreparedString, Self>> {
         match self {
             Self::Object(object) => Some(object),
             _ => None,
@@ -105,12 +167,16 @@ impl PreparedValue {
     }
 
     pub fn get(&self, key: &str) -> Option<&Self> {
+        self.get_code_units(&PreparedString::from(key))
+    }
+
+    pub fn get_code_units(&self, key: &PreparedString) -> Option<&Self> {
         self.as_object()?.get(key)
     }
 
     /// Returns JSON only when the entire value already belongs to that domain.
     ///
-    /// Failure is explicit, with the first non-finite value's JSON pointer.
+    /// Failure is explicit for a non-finite number or non-scalar string/key.
     /// This is not a diagnostic projection and never changes a runtime value.
     pub fn try_to_json(&self) -> Result<Value, NonJsonPreparedValue> {
         self.json_at("")
@@ -124,7 +190,12 @@ impl PreparedValue {
             Self::Number(_) => Err(NonJsonPreparedValue {
                 pointer: pointer.to_owned(),
             }),
-            Self::String(value) => Ok(Value::String(value.clone())),
+            Self::String(value) => value
+                .as_str()
+                .map(|text| Value::String(text.to_owned()))
+                .ok_or_else(|| NonJsonPreparedValue {
+                    pointer: pointer.to_owned(),
+                }),
             Self::Array(array) => array
                 .iter()
                 .enumerate()
@@ -134,10 +205,13 @@ impl PreparedValue {
             Self::Object(object) => object
                 .iter()
                 .map(|(key, value)| {
+                    let key = key.as_str().ok_or_else(|| NonJsonPreparedValue {
+                        pointer: pointer.to_owned(),
+                    })?;
                     let escaped = key.replace('~', "~0").replace('/', "~1");
                     value
                         .json_at(&format!("{pointer}/{escaped}"))
-                        .map(|value| (key.clone(), value))
+                        .map(|value| (key.to_owned(), value))
                 })
                 .collect::<Result<serde_json::Map<_, _>, _>>()
                 .map(Value::Object),
@@ -159,7 +233,7 @@ impl std::ops::IndexMut<&str> for PreparedValue {
         }
         self.as_object_mut()
             .expect("prepared value is an object")
-            .entry(key.to_owned())
+            .entry(key.into())
             .or_insert(Self::Null)
     }
 }
@@ -182,12 +256,12 @@ impl From<Value> for PreparedValue {
             Value::Null => Self::Null,
             Value::Bool(value) => Self::Bool(value),
             Value::Number(number) => Self::Number(PreparedNumber::Finite(number)),
-            Value::String(value) => Self::String(value),
+            Value::String(value) => Self::String(value.into()),
             Value::Array(array) => Self::Array(array.into_iter().map(Self::from).collect()),
             Value::Object(object) => Self::Object(
                 object
                     .into_iter()
-                    .map(|(key, value)| (key, Self::from(value)))
+                    .map(|(key, value)| (key.into(), Self::from(value)))
                     .collect(),
             ),
         }
@@ -195,7 +269,66 @@ impl From<Value> for PreparedValue {
 }
 
 #[derive(Clone, Debug, Error, Eq, PartialEq)]
-#[error("prepared runtime number at {pointer:?} is not JSON-compatible")]
+#[error("prepared runtime value at {pointer:?} is not representable by serde_json")]
 pub struct NonJsonPreparedValue {
     pub pointer: String,
+}
+
+#[cfg(test)]
+mod string_tests {
+    use super::*;
+
+    #[test]
+    fn scalar_and_non_scalar_strings_have_exact_units_and_explicit_projection() {
+        for units in [
+            vec![],
+            vec![0],
+            vec![0xd800],
+            vec![0xdc00],
+            vec![0xd800, 0xd800],
+            vec![0xdc00, 0xd800],
+            vec![0xd83d, 0xde00],
+            vec![0xd83d, 0xde00, 0xd800],
+        ] {
+            let string = PreparedString::from_code_units(units.clone());
+            assert_eq!(string.code_units(), units);
+            assert_eq!(
+                string.code_point_len(),
+                char::decode_utf16(units.iter().copied()).count()
+            );
+            assert_eq!(string.to_utf8_lossy(), String::from_utf16_lossy(&units));
+            assert_eq!(string.as_str(), String::from_utf16(&units).ok().as_deref());
+        }
+        assert_eq!(
+            PreparedString::from_code_units(vec![0xd83d, 0xde00]),
+            PreparedString::from("😀")
+        );
+        assert_ne!(
+            PreparedString::from_code_units(vec![0xd800]),
+            PreparedString::from("�")
+        );
+    }
+
+    #[test]
+    fn non_scalar_keys_are_addressable_and_json_conversion_never_normalizes() {
+        let high = PreparedString::from_code_units(vec![0xd800]);
+        let low = PreparedString::from_code_units(vec![0xdc00]);
+        let mut object = PreparedValue::Object(BTreeMap::from([
+            (high.clone(), PreparedValue::Bool(true)),
+            (low.clone(), PreparedValue::Bool(false)),
+            ("�".into(), PreparedValue::Null),
+        ]));
+        assert_eq!(
+            object.get_code_units(&high),
+            Some(&PreparedValue::Bool(true))
+        );
+        assert_eq!(
+            object.get_code_units(&low),
+            Some(&PreparedValue::Bool(false))
+        );
+        assert_eq!(object.as_object().unwrap().len(), 3);
+        assert!(object.try_to_json().is_err());
+        object["scalar"] = PreparedValue::String(high);
+        assert!(object.try_to_json().is_err());
+    }
 }

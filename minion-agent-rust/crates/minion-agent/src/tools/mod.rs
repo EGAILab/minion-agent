@@ -12,5 +12,5 @@ mod registry;
 
 pub use definition::*;
 pub use execution::*;
-pub use prepared::{NonJsonPreparedValue, PreparedNumber, PreparedValue};
+pub use prepared::{NonJsonPreparedValue, PreparedNumber, PreparedString, PreparedValue};
 pub use registry::ToolRegistry;

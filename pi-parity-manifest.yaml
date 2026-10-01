@@ -6990,7 +6990,9 @@ rows:
   phase: 6
   pi: packages/coding-agent/src/core/tools/write.ts (schema 15-18, execute 201-233)
   surface: Layer 13, WP-13.2 -- the `write` built-in tool
-  rule: 'CONTRACT_DRAFT, contract draft (minion-agent#49; owner decisions L13-WP132-O1/O2 at minion-agent#49 issuecomment-5881558193;
+  rule: 'CERTIFIED_CLOSED (WP-13.2 cross-language, minion-agent#49: Python #87 -> 53290de4 / docs #191 -> fba5a6f3;
+    Rust #98 -> 299c2b9e / docs #207 -> 8b4c89ad, closure review minion-agent-docs#207). Contract history:
+    contract draft (minion-agent#49; owner decisions L13-WP132-O1/O2 at minion-agent#49 issuecomment-5881558193;
     routine lifecycle delegated under minion-agent#75). Verbatim name/label/description/parameter schema; TOOL-026
     path pipeline; inside the TOOL-032 queue: abort check, create_dir(parent, recursive), abort check, write_file
     (UTF-8, WHATWG encoding of unpaired surrogates as U+FFFD), abort check; success text ''Successfully wrote <n>
@@ -7012,7 +7014,9 @@ rows:
     300-362 and its helpers; generateUnifiedPatch; generateDiffString); diff 8.0.4 (diffLines, createTwoFilesPatch)
   surface: 'Layer 13, WP-13.2 -- the `edit` built-in tool: pipeline, multi-edit matching, diagnostics and result
     details'
-  rule: 'CONTRACT_DRAFT, contract draft (minion-agent#49; owner decisions L13-WP132-O1/O2 at minion-agent#49 issuecomment-5881558193;
+  rule: 'CERTIFIED_CLOSED (WP-13.2 cross-language, minion-agent#49: Python #87 -> 53290de4 / docs #191 -> fba5a6f3;
+    Rust #98 -> 299c2b9e / docs #207 -> 8b4c89ad, closure review minion-agent-docs#207). Contract history:
+    contract draft (minion-agent#49; owner decisions L13-WP132-O1/O2 at minion-agent#49 issuecomment-5881558193;
     routine lifecycle delegated under minion-agent#75). Verbatim definition strings and prepare_arguments coercion;
     empty-edits validation; TOOL-026 path; inside TOOL-032: EXEC-009 combined read+write access stage (disclosed
     FALLBACK without it), read, UTF-8 decode, BOM/line-ending handling (TOOL-031), all-at-once matching against
@@ -7040,7 +7044,9 @@ rows:
   pi: packages/coding-agent/src/core/tools/edit-diff.ts (detectLineEnding, normalizeToLF, restoreLineEndings, normalizeForFuzzyMatch,
     applyReplacementsPreservingUnchangedLines, fuzzyFindText); utils/text.ts splitBom
   surface: Layer 13, WP-13.2 -- `edit`'s fuzzy matching, unchanged-line preservation, BOM and line endings
-  rule: 'CONTRACT_DRAFT, contract draft (minion-agent#49; owner decisions L13-WP132-O1/O2 at minion-agent#49 issuecomment-5881558193;
+  rule: 'CERTIFIED_CLOSED (WP-13.2 cross-language, minion-agent#49: Python #87 -> 53290de4 / docs #191 -> fba5a6f3;
+    Rust #98 -> 299c2b9e / docs #207 -> 8b4c89ad, closure review minion-agent-docs#207). Contract history:
+    contract draft (minion-agent#49; owner decisions L13-WP132-O1/O2 at minion-agent#49 issuecomment-5881558193;
     routine lifecycle delegated under minion-agent#75). fuzzy_normalize = NFKC at Unicode 16.0 exactly (the pinned
     runtime Node 22.15.1 / ICU 76.1; realized with the pinned ICU4C 78.3 filtered to [:age=16.0:]), per-line trimEnd
     over exactly ECMAScript WhiteSpace+LineTerminator, and the quote/dash/space folds; unchanged lines copied byte
@@ -7059,7 +7065,9 @@ rows:
   phase: 6
   pi: packages/coding-agent/src/core/tools/file-mutation-queue.ts (withFileMutationQueue, getMutationQueueKey)
   surface: Layer 13, WP-13.2 -- the shared write/edit mutation queue
-  rule: 'CONTRACT_DRAFT, contract draft (minion-agent#49; owner decisions L13-WP132-O1/O2 at minion-agent#49 issuecomment-5881558193;
+  rule: 'CERTIFIED_CLOSED (WP-13.2 cross-language, minion-agent#49: Python #87 -> 53290de4 / docs #191 -> fba5a6f3;
+    Rust #98 -> 299c2b9e / docs #207 -> 8b4c89ad, closure review minion-agent-docs#207). Contract history:
+    contract draft (minion-agent#49; owner decisions L13-WP132-O1/O2 at minion-agent#49 issuecomment-5881558193;
     routine lifecycle delegated under minion-agent#75). One globally ordered registration critical section (key
     derivation + per-key tail link, in call order); key = ctx.fs canonical_path, falling back to absolute_path on
     not_found/not_directory (Pi''s ENOENT/ENOTDIR) and not_supported (Minion provider extension), other failures
@@ -7087,7 +7095,9 @@ rows:
   pi: packages/coding-agent/src/core/tools/write.ts:210-227 and edit.ts:336-385 (throwIfAborted after each await;
     comment on not rejecting from an abort listener while the queue is held)
   surface: Layer 13, WP-13.2 -- write/edit cancellation versus the queue lock
-  rule: 'CONTRACT_DRAFT, contract draft (minion-agent#49; owner decisions L13-WP132-O1/O2 at minion-agent#49 issuecomment-5881558193;
+  rule: 'CERTIFIED_CLOSED (WP-13.2 cross-language, minion-agent#49: Python #87 -> 53290de4 / docs #191 -> fba5a6f3;
+    Rust #98 -> 299c2b9e / docs #207 -> 8b4c89ad, closure review minion-agent-docs#207). Contract history:
+    contract draft (minion-agent#49; owner decisions L13-WP132-O1/O2 at minion-agent#49 issuecomment-5881558193;
     routine lifecycle delegated under minion-agent#75). No abort listener while the lock is held; the signal is
     checked after every awaited step (lock kept until the in-flight operation settles); no ctx.fs call receives
     the signal; a pre-aborted call still registers and waits its turn; a failing step''s own error wins unless Pi
@@ -7159,7 +7169,7 @@ rows:
     read'', and edit''s kept frame ''Could not edit file: <path>. <cause>.''; spec/tools.md WP-13.2 ''Error
     text''). It does NOT cover ctx.shell/ctx.subprocess errors, command output, fd/ripgrep output or other
     external-process text. WP-13.1''s certified behavior and record are unchanged; the new sites are
-    CONTRACT_DRAFT until WP-13.2 certifies them.'
+    certified by WP-13.2 (CERTIFIED_CLOSED, minion-agent#49).'
   tests:
   - read_error_text_matches_r010b_closed_vocabulary_per_fserrorcode (canonical scenario conformance/agent/builtin-read-error-text-matches-r010b-closed-vocabulary-per-fserrorcode.yaml)
   - W-G10 fallback site mapping (canonical scenario conformance/agent/builtin-read-provider-without-exec-008-uses-disclosed-fallback.yaml)

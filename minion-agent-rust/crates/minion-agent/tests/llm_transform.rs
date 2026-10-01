@@ -118,9 +118,9 @@ fn image_capability_preserves_or_downgrades_role_specific_blocks() {
             user_blocks(vec![UserContentBlock::Text(TextBlock::new(
                 "(image omitted: model does not support images)",
             ))]),
-            tool_blocks(vec![ToolResultContentBlock::Text(TextBlock::new(
-                "(tool image omitted: model does not support images)",
-            ))]),
+            tool_blocks(vec![ToolResultContentBlock::Text(
+                TextBlock::new("(tool image omitted: model does not support images)",).into()
+            )]),
         ]
     );
 }
@@ -279,12 +279,14 @@ fn injected_id_policy_receives_original_assistant_and_rewrites_matching_results(
             tool_call("old", "lookup"),
         ],
     );
-    let mut matched = match tool_blocks(vec![ToolResultContentBlock::Text(TextBlock::new("ok"))]) {
+    let mut matched = match tool_blocks(vec![ToolResultContentBlock::Text(
+        TextBlock::new("ok").into(),
+    )]) {
         Message::ToolResult(message) => *message,
         _ => unreachable!(),
     };
     matched.tool_call_id = "old".into();
-    matched.details = Some(serde_json::json!({"kept": true}));
+    matched.details = Some(serde_json::json!({"kept": true}).into());
     matched.usage = Some(Usage::default());
     matched.added_tool_names = Some(vec!["later".into()]);
     let mut unrelated = matched.clone();
@@ -343,7 +345,7 @@ fn normalizer_returning_empty_string_preserves_real_result_and_synthesizes_orpha
         Message::ToolResult(Box::new(ToolResultMessage::new(
             "old-id",
             "lookup",
-            vec![ToolResultContentBlock::Text(TextBlock::new("sunny"))],
+            vec![ToolResultContentBlock::Text(TextBlock::new("sunny").into())],
             false,
             2.0,
         ))),
@@ -380,9 +382,9 @@ fn normalizer_returning_empty_string_preserves_real_result_and_synthesizes_orpha
     assert!(synthetic.is_error);
     assert_eq!(
         synthetic.content,
-        vec![ToolResultContentBlock::Text(TextBlock::new(
-            "No result provided"
-        ))]
+        vec![ToolResultContentBlock::Text(
+            TextBlock::new("No result provided").into()
+        )]
     );
 }
 
@@ -512,9 +514,9 @@ fn unresolved_calls_synthesize_ordered_required_results_before_interruptions() {
         assert!(message.is_error);
         assert_eq!(
             message.content,
-            vec![ToolResultContentBlock::Text(TextBlock::new(
-                "No result provided"
-            ))]
+            vec![ToolResultContentBlock::Text(
+                TextBlock::new("No result provided").into()
+            )]
         );
     }
     assert_eq!(result[3], source[1]);
@@ -535,7 +537,7 @@ fn resolved_calls_do_not_synthesize_and_normalized_orphans_use_transformed_ids()
         Message::ToolResult(Box::new(ToolResultMessage::new(
             "resolved",
             "lookup",
-            vec![ToolResultContentBlock::Text(TextBlock::new("ok"))],
+            vec![ToolResultContentBlock::Text(TextBlock::new("ok").into())],
             false,
             4.0,
         ))),

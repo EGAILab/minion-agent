@@ -379,13 +379,13 @@ pub(super) fn read_image(
         text.push('\n');
         text.push_str(NON_VISION_NOTE);
     }
-    let mut content = vec![ToolResultContentBlock::Text(TextBlock::new(text))];
+    let mut content = vec![ToolResultContentBlock::Text(TextBlock::new(text).into())];
     if let Some(image) = image {
         content.push(ToolResultContentBlock::Image(image));
     }
     Ok(AgentToolResult {
         content,
-        details: json!({}),
+        details: json!({}).into(),
         usage: None,
         added_tool_names: None,
         terminate: None,

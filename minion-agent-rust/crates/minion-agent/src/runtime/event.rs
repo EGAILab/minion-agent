@@ -97,6 +97,9 @@ pub enum WaterfallError {
     NextAlreadyCalled,
     #[error("{0}")]
     ListenerFailed(String),
+    /// A tool hook's semantic error message, without a scalar text projection.
+    #[error("UTF-16 listener failure: {0:?}")]
+    ListenerFailedUtf16(crate::javascript::JsString),
 }
 
 #[derive(Debug, Error)]

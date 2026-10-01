@@ -187,8 +187,8 @@ fn schema(name: &str) -> Value {
 }
 fn result() -> AgentToolResult {
     AgentToolResult {
-        content: vec![ToolResultContentBlock::Text(TextBlock::new("ok"))],
-        details: json!({}),
+        content: vec![ToolResultContentBlock::Text(TextBlock::new("ok").into())],
+        details: json!({}).into(),
         usage: None,
         added_tool_names: None,
         terminate: None,

@@ -34,8 +34,8 @@ fn call(id: &str, name: &str) -> ToolCall {
 
 fn result(text: &str) -> AgentToolResult {
     AgentToolResult {
-        content: vec![ToolResultContentBlock::Text(TextBlock::new(text))],
-        details: Value::Null,
+        content: vec![ToolResultContentBlock::Text(TextBlock::new(text).into())],
+        details: Value::Null.into(),
         usage: None,
         added_tool_names: None,
         terminate: None,
@@ -44,14 +44,14 @@ fn result(text: &str) -> AgentToolResult {
 
 fn text_from_result(result: &AgentToolResult) -> &str {
     match result.content.first().unwrap() {
-        ToolResultContentBlock::Text(block) => &block.text,
+        ToolResultContentBlock::Text(block) => block.text.as_str().expect("scalar fixture"),
         ToolResultContentBlock::Image(_) => panic!("expected text result"),
     }
 }
 
 fn text(result: &minion_agent::llm::ToolResultMessage) -> &str {
     match result.content.first().unwrap() {
-        ToolResultContentBlock::Text(block) => &block.text,
+        ToolResultContentBlock::Text(block) => block.text.as_str().expect("scalar fixture"),
         ToolResultContentBlock::Image(_) => panic!("expected text result"),
     }
 }
@@ -102,8 +102,10 @@ fn structured_update_starts_eagerly_and_joins_before_end() {
         let runtime = Runtime::new();
         let trace = Arc::new(Mutex::new(Vec::new()));
         let partial = AgentToolResult {
-            content: vec![ToolResultContentBlock::Text(TextBlock::new("partial"))],
-            details: json!({"progress": 1}),
+            content: vec![ToolResultContentBlock::Text(
+                TextBlock::new("partial").into(),
+            )],
+            details: json!({"progress": 1}).into(),
             usage: None,
             added_tool_names: Some(vec!["introduced".into()]),
             terminate: Some(false),

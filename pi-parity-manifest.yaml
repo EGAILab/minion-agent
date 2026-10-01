@@ -111,9 +111,7 @@ rows:
     from the pinned-Pi probe in minion-agent-docs assurance/layers/data/l0506-d003-characterization);
     tests/conformance/test_tool_result_domain_conformance.py, tests/tools/test_tool_result_domain_negative_controls.py'
   python: src/minion_agent/llm/messages.py (rewrite)
-  rust: 'minion-agent-rust/crates/minion-agent/src/llm/vocabulary.rs::ToolResultMessage (merged, tool_name
-    required as String, PR #3 @ 05acd1a, post-certification delta fix PR #5 @ 7e45cd1);
-    tests/llm_vocabulary.rs::tool_result_requires_and_round_trips_the_real_tool_name'
+  rust: "minion-agent-rust/crates/minion-agent/src/llm/vocabulary.rs::ToolResultMessage (merged, tool_name required as String, PR #3 @ 05acd1a, post-certification delta fix PR #5 @ 7e45cd1); tests/llm_vocabulary.rs::tool_result_requires_and_round_trips_the_real_tool_name; L0506-D003 Rust candidate: llm/result_value.rs (ResultString, ResultNumber, ResultValue, ResultTextBlock), tools/definition.rs::AgentToolResult/ToolCapabilityError, tools/execution.rs (after-hook, failure conversion, execution-end and message transfer); existing typed SessionField::Message append/derive_messages retains the lossless values. tests/tool_result_domain_conformance.rs drives the real composed AgentLoop/tool/hook/Session stack for all 142 delta cases; tests/tool_result_values.rs covers the explicit JSON boundary and unchanged NaN-free RawNumber. Independent closure pending; the real-edit gate remains WP-13.2-owned."
   disposition: adopted
 - id: AI-007
   phase: 2
@@ -2960,7 +2958,7 @@ rows:
   - test_per_step_normalization_preserves_legitimate_accumulated_overrides
   - test_reversed_mixed_registration_order_shares_the_same_authority
   python: src/minion_agent/tools/execute.py::_finalize, _merge_override, register_after_tool_call_hook, AfterToolCallOverride; src/minion_agent/runtime/events.py::EventBus.waterfall (normalize_step)
-  rust: minion-agent-rust/crates/minion-agent/src/tools/execution.rs::AfterToolCallOverride/register_after_tool_call_hook/normalize_successful_after_result; minion-agent-rust/crates/minion-agent/tests/tool_execution.rs::raw_nullish_after_replacements_preserve_accumulated_values_between_listeners; minion-agent-rust/crates/minion-agent/tests/tool_execution_conformance.rs
+  rust: "minion-agent-rust/crates/minion-agent/src/tools/execution.rs::AfterToolCallOverride/register_after_tool_call_hook/normalize_successful_after_result; minion-agent-rust/crates/minion-agent/tests/tool_execution.rs::raw_nullish_after_replacements_preserve_accumulated_values_between_listeners; minion-agent-rust/crates/minion-agent/tests/tool_execution_conformance.rs; L0506-D003 Rust candidate: llm/result_value.rs (ResultString, ResultNumber, ResultValue, ResultTextBlock), tools/definition.rs::AgentToolResult/ToolCapabilityError, tools/execution.rs (after-hook, failure conversion, execution-end and message transfer); existing typed SessionField::Message append/derive_messages retains the lossless values. tests/tool_result_domain_conformance.rs drives the real composed AgentLoop/tool/hook/Session stack for all 142 delta cases; tests/tool_result_values.rs covers the explicit JSON boundary and unchanged NaN-free RawNumber. Independent closure pending; the real-edit gate remains WP-13.2-owned."
   disposition: adopted
 - id: TOOL-006
   phase: 4
@@ -3365,7 +3363,7 @@ rows:
   - an-unknown-tool-does-not-serialize-a-batch (IR-L06-003, language-neutral exact-equality text,
     PASS 1B)
   python: src/minion_agent/tools/events.py::TOOLS_EXECUTION_START/TOOLS_EXECUTION_END, src/minion_agent/tools/execute.py::execute_call, _immediate
-  rust: minion-agent-rust/crates/minion-agent/src/tools/execution.rs::ToolExecutionStart/ToolExecutionUpdate/ToolExecutionEnd; minion-agent-rust/crates/minion-agent/tests/tool_execution.rs; minion-agent-rust/crates/minion-agent/tests/tool_execution_conformance.rs
+  rust: "minion-agent-rust/crates/minion-agent/src/tools/execution.rs::ToolExecutionStart/ToolExecutionUpdate/ToolExecutionEnd; minion-agent-rust/crates/minion-agent/tests/tool_execution.rs; minion-agent-rust/crates/minion-agent/tests/tool_execution_conformance.rs; L0506-D003 Rust candidate: llm/result_value.rs (ResultString, ResultNumber, ResultValue, ResultTextBlock), tools/definition.rs::AgentToolResult/ToolCapabilityError, tools/execution.rs (after-hook, failure conversion, execution-end and message transfer); existing typed SessionField::Message append/derive_messages retains the lossless values. tests/tool_result_domain_conformance.rs drives the real composed AgentLoop/tool/hook/Session stack for all 142 delta cases; tests/tool_result_values.rs covers the explicit JSON boundary and unchanged NaN-free RawNumber. Independent closure pending; the real-edit gate remains WP-13.2-owned."
   disposition: intentional divergence
 - id: TOOL-018
   phase: 4
@@ -5643,13 +5641,7 @@ rows:
     from the pinned-Pi probe in minion-agent-docs assurance/layers/data/l0506-d003-characterization);
     tests/conformance/test_tool_result_domain_conformance.py, tests/tools/test_tool_result_domain_negative_controls.py'
   python: src/minion_agent/session/ (retain/realign)
-  rust: 'minion-agent-rust/crates/minion-agent/src/session/mod.rs (merged, PR #4 @ 2519fc1;
-    post-certification delta fixes for SES-F004/F006/F007/F008 in PR #5 @ 7e45cd1; SES-F009
-    evidence -- already-conforming Session confirmed, canonical adapter remediated -- in PR #6
-    @ 54928e2); tests/session.rs, tests/session_conformance.rs.
-    L0206-D002 (CERTIFIED, #110): SessionField::Message retains typed live messages without JSON projection;
-    tests/raw_arguments.rs and tests/raw_arguments_conformance.rs cover exact values/keys, signed zero and infinities
-    through append/replay, fork/compaction and real Layer-06 boundaries.'
+  rust: "minion-agent-rust/crates/minion-agent/src/session/mod.rs (merged, PR #4 @ 2519fc1; post-certification delta fixes for SES-F004/F006/F007/F008 in PR #5 @ 7e45cd1; SES-F009 evidence -- already-conforming Session confirmed, canonical adapter remediated -- in PR #6 @ 54928e2); tests/session.rs, tests/session_conformance.rs. L0206-D002 (CERTIFIED, #110): SessionField::Message retains typed live messages without JSON projection; tests/raw_arguments.rs and tests/raw_arguments_conformance.rs cover exact values/keys, signed zero and infinities through append/replay, fork/compaction and real Layer-06 boundaries.; L0506-D003 Rust candidate: llm/result_value.rs (ResultString, ResultNumber, ResultValue, ResultTextBlock), tools/definition.rs::AgentToolResult/ToolCapabilityError, tools/execution.rs (after-hook, failure conversion, execution-end and message transfer); existing typed SessionField::Message append/derive_messages retains the lossless values. tests/tool_result_domain_conformance.rs drives the real composed AgentLoop/tool/hook/Session stack for all 142 delta cases; tests/tool_result_values.rs covers the explicit JSON boundary and unchanged NaN-free RawNumber. Independent closure pending; the real-edit gate remains WP-13.2-owned."
   disposition: intentional divergence
 - id: MINION-003
   phase: 2

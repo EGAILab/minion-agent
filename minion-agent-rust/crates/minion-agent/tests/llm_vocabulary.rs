@@ -166,7 +166,7 @@ fn tool_result_requires_and_round_trips_the_real_tool_name() {
     let message = ToolResultMessage::new(
         "call-7",
         "weather_lookup",
-        vec![ToolResultContentBlock::Text(TextBlock::new("sunny"))],
+        vec![ToolResultContentBlock::Text(TextBlock::new("sunny").into())],
         false,
         7.0,
     );

@@ -7187,7 +7187,8 @@ rows:
     definition.rs (typed runtime preparation/execute arguments), prepared_validation.rs (existing JSON Schema
     engine plus private numeric-domain carrier), execution.rs (real validation -> pre-execute -> execute seam);
     tests/prepared_runtime_value.rs and tests/prepared_runtime_conformance.rs (explicit L0506-D001 gate,
-    19 custom cases; six fixture negative controls plus independently RED-confirmed declared-number validator
-    mutation). Rust implementation candidate on minion-agent#88, pending independent closure review;
+    50 custom cases; six fixture negative controls plus independently RED-confirmed declared-number validator
+    mutation and RC001 numeric-keyword applicability (bounds/multipleOf do not apply to non-finites;
+    oneOf/not retain engine-owned branch verdicts). Rust implementation candidate on minion-agent#88, pending independent closure review;
     later WP-13.2 edit gate is not counted here.'
   disposition: adopted

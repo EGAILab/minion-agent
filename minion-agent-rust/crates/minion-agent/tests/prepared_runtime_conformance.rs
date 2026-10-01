@@ -154,7 +154,20 @@ fn run_case(case: &Value, mutation: Mutation) -> Observation {
         ty @ ("number" | "integer") => {
             json!({"type":"object","properties":{"limit":{"type":ty}},"required":["limit"]})
         }
-        other => panic!("unknown schema {other}"),
+        kind => {
+            let constraint = match kind {
+                "bound-maximum" => json!({"maximum":0}),
+                "bound-minimum" => json!({"minimum":0}),
+                "bound-exclusive-maximum" => json!({"exclusiveMaximum":0}),
+                "bound-exclusive-minimum" => json!({"exclusiveMinimum":0}),
+                "multiple-of" => json!({"multipleOf":2}),
+                "one-of-bounds" => json!({"oneOf":[{"maximum":0},{"minimum":1}]}),
+                "not-bound" => json!({"not":{"maximum":0}}),
+                "number-bound" => json!({"type":"number","maximum":0}),
+                other => panic!("unknown schema {other}"),
+            };
+            json!({"type":"object","properties":{"limit":constraint}})
+        }
     };
     let set = case["prepare_set"]
         .as_object()
@@ -350,25 +363,26 @@ fn preflight(document: &Value) -> Result<(), String> {
 fn canonical_delta_gate_uses_real_preparation_validation_hooks_and_execute() {
     let documents = documents();
     let mut count = 0;
+    let mut failures = Vec::new();
     for document in &documents {
         for case in document["prepared_runtime"]["cases"].as_array().unwrap() {
             let result = run_case(case, Mutation::None);
-            assert!(
-                matches_expected(case, &result),
-                "{}: hook {:?}, execute {:?}, error {}",
-                case["id"],
-                result.hook,
-                result.execute,
-                result.error
-            );
+            if !matches_expected(case, &result) {
+                failures.push(format!(
+                    "{}: hook {:?}, execute {:?}, error {}",
+                    case["id"], result.hook, result.execute, result.error
+                ));
+            }
             count += 1;
         }
     }
     eprintln!(
-        "L0506-D001: {} discovered documents, {count} real pipeline cases passed; WP-13.2 excluded by gate",
-        documents.len()
+        "L0506-D001: {} discovered documents, {count} real pipeline cases executed; {} failed; WP-13.2 excluded by gate",
+        documents.len(),
+        failures.len()
     );
     assert!(count > 0);
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 
 #[test]

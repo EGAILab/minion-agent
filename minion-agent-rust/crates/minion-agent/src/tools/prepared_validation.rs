@@ -102,7 +102,6 @@ impl NumericCarrier {
 
 struct RuntimeKeyword {
     name: &'static str,
-    schema: Value,
     base: Validator,
     carrier: Arc<NumericCarrier>,
     path: Location,
@@ -123,16 +122,15 @@ impl RuntimeKeyword {
             // applicable. No numeric range operation participates in equality.
             return self.base.is_valid(instance);
         }
-        let Some(number) = self.carrier.special(instance) else {
+        if self.carrier.special(instance).is_none() {
             return self.base.is_valid(instance);
-        };
+        }
         match self.name {
             "type" => false, // all explicit JSON types exclude non-finite numbers
-            "minimum" => number >= self.schema.as_f64().unwrap(),
-            "maximum" => number <= self.schema.as_f64().unwrap(),
-            "exclusiveMinimum" => self.schema.as_f64().is_none_or(|bound| number > bound),
-            "exclusiveMaximum" => self.schema.as_f64().is_none_or(|bound| number < bound),
-            "multipleOf" => false,
+            // TOOL-041 / RC001: numeric keywords apply only to finite numbers.
+            // Composition still belongs to the engine: an inapplicable bound
+            // succeeds, so two such oneOf branches fail, and not reverses it.
+            "minimum" | "maximum" | "exclusiveMinimum" | "exclusiveMaximum" | "multipleOf" => true,
             _ => unreachable!(),
         }
     }
@@ -235,7 +233,6 @@ pub(super) fn validate_prepared(
                 })?;
                 Ok(Box::new(RuntimeKeyword {
                     name,
-                    schema: constraint.clone(),
                     base: validator,
                     carrier: carrier.clone(),
                     path,
@@ -371,31 +368,59 @@ mod tests {
     }
 
     #[test]
-    fn unconstrained_numeric_keyword_applicability_uses_actual_number() {
-        assert!(
-            validate_prepared(&json!({"minimum":0}), &PreparedValue::number(f64::INFINITY)).is_ok()
-        );
-        assert!(
-            validate_prepared(&json!({"maximum":0}), &PreparedValue::number(f64::INFINITY))
-                .is_err()
-        );
-        assert!(
-            validate_prepared(
-                &json!({"maximum":0}),
-                &PreparedValue::number(f64::NEG_INFINITY)
-            )
-            .is_ok()
-        );
-        assert!(
-            validate_prepared(
-                &json!({"multipleOf":2}),
-                &PreparedValue::number(f64::INFINITY)
-            )
-            .is_err()
-        );
-        assert!(
-            validate_prepared(&json!({"minimum":0}), &PreparedValue::number(f64::NAN)).is_err()
-        );
+    fn numeric_keywords_ignore_non_finite_values_but_constrain_finite_values() {
+        for (schema, rejected_finite) in [
+            (json!({"minimum":0}), -1.0),
+            (json!({"maximum":0}), 1.0),
+            (json!({"exclusiveMinimum":0}), -0.0),
+            (json!({"exclusiveMaximum":0}), 0.0),
+            (json!({"multipleOf":2}), 3.0),
+        ] {
+            for number in [f64::INFINITY, f64::NEG_INFINITY, f64::NAN] {
+                assert!(
+                    validate_prepared(&schema, &PreparedValue::number(number)).is_ok(),
+                    "non-finite {number} must be outside {schema}"
+                );
+            }
+            assert!(validate_prepared(&schema, &PreparedValue::number(rejected_finite)).is_err());
+            // Exercise the extended engine too, not just the JSON-only fast path.
+            let mut value = special_object(rejected_finite);
+            value["extra"] = PreparedValue::number(f64::NAN);
+            assert!(validate_prepared(&json!({"properties":{"n":schema}}), &value).is_err());
+        }
+    }
+
+    #[test]
+    fn numeric_keyword_applicability_survives_composition_references_and_arrays() {
+        for number in [f64::INFINITY, f64::NEG_INFINITY, f64::NAN] {
+            let value = PreparedValue::number(number);
+            assert!(
+                validate_prepared(&json!({"oneOf":[{"maximum":0},{"minimum":1}]}), &value).is_err()
+            );
+            assert!(validate_prepared(&json!({"not":{"maximum":0}}), &value).is_err());
+            assert!(
+                validate_prepared(&json!({"anyOf":[{"maximum":0},{"type":"string"}]}), &value)
+                    .is_ok()
+            );
+            assert!(
+                validate_prepared(&json!({"allOf":[{"maximum":0},{"minimum":1}]}), &value).is_ok()
+            );
+            assert!(validate_prepared(&json!({"type":"number","maximum":0}), &value).is_err());
+            assert!(
+                validate_prepared(
+                    &json!({"$defs":{"bound":{"maximum":0}},"$ref":"#/$defs/bound"}),
+                    &value
+                )
+                .is_ok()
+            );
+            assert!(
+                validate_prepared(
+                    &json!({"items":{"maximum":0}}),
+                    &PreparedValue::Array(vec![value])
+                )
+                .is_ok()
+            );
+        }
     }
 
     #[test]

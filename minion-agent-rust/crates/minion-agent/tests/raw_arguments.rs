@@ -154,7 +154,7 @@ async fn raw_preparation_callback_observes_original_domain() {
             Box::pin(async {
                 Ok(AgentToolResult {
                     content: vec![],
-                    details: json!({}),
+                    details: json!({}).into(),
                     usage: None,
                     added_tool_names: None,
                     terminate: None,

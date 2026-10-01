@@ -223,7 +223,9 @@ fn public_prompt_preserves_typed_batches_and_text_image_convenience_input() {
         let tool_input = Message::ToolResult(Box::new(ToolResultMessage::new(
             "call-1",
             "lookup",
-            vec![ToolResultContentBlock::Text(TextBlock::new("tool input"))],
+            vec![ToolResultContentBlock::Text(
+                TextBlock::new("tool input").into(),
+            )],
             false,
             4.0,
         )));

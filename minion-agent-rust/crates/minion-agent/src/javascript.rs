@@ -13,7 +13,7 @@ pub enum JsJsonValue {
     Object(Vec<(JsString, JsJsonValue)>),
 }
 
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq, Ord, PartialOrd)]
 pub struct JsString(Vec<u16>);
 
 impl JsString {

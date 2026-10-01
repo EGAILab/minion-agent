@@ -20,7 +20,7 @@ pub enum ExecutionMode {
 #[derive(Clone, Debug, PartialEq)]
 pub struct AgentToolResult {
     pub content: Vec<ToolResultContentBlock>,
-    pub details: Value,
+    pub details: crate::llm::ResultValue,
     pub usage: Option<Usage>,
     pub added_tool_names: Option<Vec<String>>,
     pub terminate: Option<bool>,
@@ -86,18 +86,18 @@ pub type ExecuteTool = Arc<
 #[derive(Clone, Debug, Error, Eq, PartialEq)]
 #[error("tool capability failed: {message}")]
 pub struct ToolCapabilityError {
-    message: String,
+    message: crate::llm::ResultString,
 }
 
 impl ToolCapabilityError {
-    pub fn new(message: impl Into<String>) -> Self {
+    pub fn new(message: impl Into<crate::llm::ResultString>) -> Self {
         Self {
             message: message.into(),
         }
     }
 
     /// Returns the semantic capability error message without a Rust error-type prefix.
-    pub fn message(&self) -> &str {
+    pub fn message(&self) -> &crate::llm::ResultString {
         &self.message
     }
 }

@@ -221,7 +221,7 @@ pub enum AssistantContentBlock {
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(untagged)]
 pub enum ToolResultContentBlock {
-    Text(TextBlock),
+    Text(super::ResultTextBlock),
     Image(ImageBlock),
 }
 
@@ -403,7 +403,7 @@ pub struct ToolResultMessage {
     pub tool_name: String,
     pub content: Vec<ToolResultContentBlock>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub details: Option<Value>,
+    pub details: Option<super::ResultValue>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub usage: Option<Usage>,
     #[serde(skip_serializing_if = "Option::is_none")]

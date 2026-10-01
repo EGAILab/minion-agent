@@ -20,7 +20,7 @@ use minion_agent::{
         AbortSignal, DirEntryProbe, DirEntryProbeKind, ExecutionWorldIdentity, FileInfo,
         FileSystem, FsError, FsErrorCode, FsTarget, LocalFileSystem,
     },
-    llm::{ImageSource, StopReason, TextBlock, ToolCall, ToolResultContentBlock},
+    llm::{ImageSource, StopReason, ToolCall, ToolResultContentBlock},
     tools::{
         ToolExecutionOptions, ToolExecutionSignal,
         builtin::{ReadToolOptions, create_ls_tool, create_read_tool},
@@ -497,7 +497,9 @@ async fn run_case(document: &Value, case: &Value) {
         expected["is_error"].as_bool().unwrap(),
         "{label}: is_error"
     );
-    let ToolResultContentBlock::Text(TextBlock { text, .. }) = &result.content[0] else {
+    let ToolResultContentBlock::Text(minion_agent::llm::ResultTextBlock { text, .. }) =
+        &result.content[0]
+    else {
         panic!("{label}: first block must be text");
     };
     if let Some(expected_text) = expected.get("text").and_then(Value::as_str) {
@@ -508,12 +510,12 @@ async fn run_case(document: &Value, case: &Value) {
         );
     } else {
         assert_eq!(
-            format!("{:x}", Sha256::digest(text.as_bytes())),
+            format!("{:x}", Sha256::digest(text.as_str().unwrap().as_bytes())),
             expected["text_sha256"].as_str().unwrap(),
             "{label}: text hash"
         );
         assert!(
-            text.ends_with(
+            text.as_str().unwrap().ends_with(
                 &expand_abs(
                     expected["text_tail"].as_str().unwrap().to_owned(),
                     &fs.local
@@ -557,7 +559,7 @@ async fn run_case(document: &Value, case: &Value) {
         (actual, expected) => panic!("{label}: image mismatch: {actual:?} vs {expected:?}"),
     }
     assert_eq!(
-        result.details.clone().unwrap_or_else(|| json!({})),
+        result.details.clone().unwrap_or_else(|| json!({}).into()),
         expected
             .get("details")
             .cloned()

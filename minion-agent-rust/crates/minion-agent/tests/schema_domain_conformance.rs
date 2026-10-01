@@ -67,8 +67,8 @@ async fn run(case: &Value) -> bool {
             executed.fetch_add(1, Ordering::SeqCst);
             Box::pin(async {
                 Ok(AgentToolResult {
-                    content: vec![ToolResultContentBlock::Text(TextBlock::new("ok"))],
-                    details: json!({}),
+                    content: vec![ToolResultContentBlock::Text(TextBlock::new("ok").into())],
+                    details: json!({}).into(),
                     usage: None,
                     added_tool_names: None,
                     terminate: None,
@@ -94,7 +94,7 @@ async fn run(case: &Value) -> bool {
             .content
             .iter()
             .filter_map(|block| match block {
-                ToolResultContentBlock::Text(text) => Some(text.text.as_str()),
+                ToolResultContentBlock::Text(text) => text.text.as_str(),
                 _ => None,
             })
             .collect::<String>();

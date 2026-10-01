@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$comment": "Cross-layer delta L0206-D002 (AI-003 raw ToolCall.arguments JavaScript value domain). Scenarios live in conformance/agent/raw-arguments/*.json, discriminated by a top-level `raw_arguments` key. For each case a runner builds ONE ToolCall whose arguments are the case's value (fixture input, decoded from the value grammar), then observes that value -- by value, never by identity -- at every certified boundary: the constructed ToolCall.arguments; an AssistantMessage holding the call appended to a fresh session log and replayed from it (decode of the logged event); the tools/execution-start payload; the tools/pre-execute listener; and execute, for a tool WITHOUT prepare_arguments whose schema is {type: object, properties: {}}. Every boundary must observe exactly `arguments`. The runner performs no decoding, normalization or conversion on the pipeline's behalf. VALUE GRAMMAR: {\"utf16\": units} is a string (units = UTF-16 code units 0..65535, so unpaired surrogates survive the file); {\"number\": token} is a number (token as prepared-runtime-scenario.schema.json: \"+Infinity\", \"-Infinity\", \"NaN\", \"-0\", or a finite JSON number literal denoting a finite binary64 value; an integral literal within the binding's integer representation is an integer); {\"$keys\": [[units, value], ...]} is an object whose keys need code units; any other object is an object with those (ASCII) keys; an array is an array; true/false/null are themselves. OBJECTS COMPARE AS KEY SETS: enumeration order is L0206-D001's (K1), not this shape's. `provider_text` is the provider's argument text pinned Pi decoded (evidence only: Minion has no certified raw decoder; a future decoder must produce `arguments` from it).",
+  "type": "object",
+  "required": ["name", "family", "authority", "pi_revision", "requirements", "witnesses", "raw_arguments"],
+  "additionalProperties": false,
+  "properties": {
+    "name": {"type": "string", "minLength": 1},
+    "family": {"const": "agent"},
+    "authority": {"type": "string", "minLength": 1},
+    "pi_revision": {"type": "string", "minLength": 1},
+    "requirements": {"type": "array", "minItems": 1, "items": {"type": "string", "pattern": "^[A-Z]+-[0-9]{3}$"}},
+    "witnesses": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+    "notes": {"type": "string"},
+    "raw_arguments": {
+      "type": "object",
+      "required": ["cases"],
+      "additionalProperties": false,
+      "properties": {"cases": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/case"}}}
+    }
+  },
+  "$defs": {
+    "units": {"type": "array", "items": {"type": "integer", "minimum": 0, "maximum": 65535}},
+    "token": {
+      "type": "string",
+      "pattern": "^(\\+Infinity|-Infinity|NaN|-0|-?(0|[1-9][0-9]*)(\\.[0-9]+)?([eE][+-]?[0-9]+)?)$"
+    },
+    "value": {
+      "oneOf": [
+        {"type": "object", "required": ["utf16"], "additionalProperties": false, "properties": {"utf16": {"$ref": "#/$defs/units"}}},
+        {"type": "object", "required": ["number"], "additionalProperties": false, "properties": {"number": {"$ref": "#/$defs/token"}}},
+        {"type": "object", "required": ["$keys"], "additionalProperties": false,
+         "properties": {"$keys": {"type": "array", "items": {"type": "array", "prefixItems": [{"$ref": "#/$defs/units"}, {"$ref": "#/$defs/value"}], "minItems": 2, "maxItems": 2}}}},
+        {"type": "object", "not": {"anyOf": [{"required": ["utf16"]}, {"required": ["number"]}, {"required": ["$keys"]}]},
+         "propertyNames": {"pattern": "^[ -~]*$"}, "additionalProperties": {"$ref": "#/$defs/value"}},
+        {"type": "array", "items": {"$ref": "#/$defs/value"}},
+        {"type": ["boolean", "null"]}
+      ]
+    },
+    "case": {
+      "type": "object",
+      "required": ["id", "provider_text", "arguments"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "provider_text": {"type": "string"},
+        "arguments": {"allOf": [{"$ref": "#/$defs/value"}, {"type": "object", "not": {"anyOf": [{"required": ["utf16"]}, {"required": ["number"]}]}}]}
+      }
+    }
+  }
+}

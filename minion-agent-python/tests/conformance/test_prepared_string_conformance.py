@@ -26,7 +26,9 @@ CASES = [
 
 
 def test_prepared_string_delta_gate_cases_exist() -> None:
-    assert len(CASES) == 173  # 160 neighborhood x schema + 9 positions/keys + 4 replacements
+    assert (
+        len(CASES) == 181
+    )  # 21 neighborhood members x 8 schema kinds + 9 positions/keys + 4 replacements
     assert {document["gate"] for document in DOCUMENTS} == {"L0506-D002", "WP-13.2"}
 
 

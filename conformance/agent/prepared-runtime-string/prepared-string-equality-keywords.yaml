@@ -6,7 +6,7 @@ requirements:
   - "TOOL-041"
 witnesses:
   - "prepared_runtime_string_domain"
-notes: "const/enum compare exact code-unit sequences: the pair constant matches only the pair, and the lone-high enum member matches only the lone high (not the replacement character, not the lone low). GENERATED from the pinned-Pi authority run; regenerate with harness/make_scenarios.py."
+notes: "const/enum compare exact code-unit sequences: the pair constant matches only the pair, and enum [U+FFFD] matches only the real replacement character -- every unpaired-surrogate instance is rejected, so a binding that replaces a lone surrogate with U+FFFD before validation is caught. The schema holds only scalar strings (a lone surrogate IN THE SCHEMA is L05-D001's domain, Owner decision L0506-D002-R001). GENERATED from the pinned-Pi authority run; regenerate with harness/make_scenarios.py."
 gate: "L0506-D002"
 prepared_string:
   cases:
@@ -21,9 +21,9 @@ prepared_string:
         - "/text"
       expect:
         outcome: "argument_validation_failure"
-    - id: "enum-lone/ascii"
+    - id: "enum-fffd/ascii"
       tool: "custom"
-      schema: "enum-lone"
+      schema: "enum-fffd"
       prepare_set:
         "/text": {"utf16": [65, 66]}
       arguments:
@@ -43,9 +43,9 @@ prepared_string:
         - "/text"
       expect:
         outcome: "argument_validation_failure"
-    - id: "enum-lone/bmp"
+    - id: "enum-fffd/bmp"
       tool: "custom"
-      schema: "enum-lone"
+      schema: "enum-fffd"
       prepare_set:
         "/text": {"utf16": [233, 20013]}
       arguments:
@@ -67,9 +67,9 @@ prepared_string:
         outcome: "prepared"
         observed:
           "/text": [55357, 56832]
-    - id: "enum-lone/pair"
+    - id: "enum-fffd/pair"
       tool: "custom"
-      schema: "enum-lone"
+      schema: "enum-fffd"
       prepare_set:
         "/text": {"utf16": [55357, 56832]}
       arguments:
@@ -89,9 +89,9 @@ prepared_string:
         - "/text"
       expect:
         outcome: "argument_validation_failure"
-    - id: "enum-lone/lone-high-start"
+    - id: "enum-fffd/lone-high-start"
       tool: "custom"
-      schema: "enum-lone"
+      schema: "enum-fffd"
       prepare_set:
         "/text": {"utf16": [55296, 65]}
       arguments:
@@ -111,9 +111,9 @@ prepared_string:
         - "/text"
       expect:
         outcome: "argument_validation_failure"
-    - id: "enum-lone/lone-high-middle"
+    - id: "enum-fffd/lone-high-middle"
       tool: "custom"
-      schema: "enum-lone"
+      schema: "enum-fffd"
       prepare_set:
         "/text": {"utf16": [65, 55296, 66]}
       arguments:
@@ -133,9 +133,9 @@ prepared_string:
         - "/text"
       expect:
         outcome: "argument_validation_failure"
-    - id: "enum-lone/lone-high-end"
+    - id: "enum-fffd/lone-high-end"
       tool: "custom"
-      schema: "enum-lone"
+      schema: "enum-fffd"
       prepare_set:
         "/text": {"utf16": [65, 55296]}
       arguments:
@@ -155,9 +155,9 @@ prepared_string:
         - "/text"
       expect:
         outcome: "argument_validation_failure"
-    - id: "enum-lone/lone-high-only"
+    - id: "enum-fffd/lone-high-only"
       tool: "custom"
-      schema: "enum-lone"
+      schema: "enum-fffd"
       prepare_set:
         "/text": {"utf16": [55296]}
       arguments:
@@ -165,9 +165,7 @@ prepared_string:
       observe:
         - "/text"
       expect:
-        outcome: "prepared"
-        observed:
-          "/text": [55296]
+        outcome: "argument_validation_failure"
     - id: "const-pair/lone-low-start"
       tool: "custom"
       schema: "const-pair"
@@ -179,9 +177,9 @@ prepared_string:
         - "/text"
       expect:
         outcome: "argument_validation_failure"
-    - id: "enum-lone/lone-low-start"
+    - id: "enum-fffd/lone-low-start"
       tool: "custom"
-      schema: "enum-lone"
+      schema: "enum-fffd"
       prepare_set:
         "/text": {"utf16": [56320, 65]}
       arguments:
@@ -201,9 +199,9 @@ prepared_string:
         - "/text"
       expect:
         outcome: "argument_validation_failure"
-    - id: "enum-lone/lone-low-middle"
+    - id: "enum-fffd/lone-low-middle"
       tool: "custom"
-      schema: "enum-lone"
+      schema: "enum-fffd"
       prepare_set:
         "/text": {"utf16": [65, 56320, 66]}
       arguments:
@@ -223,9 +221,9 @@ prepared_string:
         - "/text"
       expect:
         outcome: "argument_validation_failure"
-    - id: "enum-lone/lone-low-end"
+    - id: "enum-fffd/lone-low-end"
       tool: "custom"
-      schema: "enum-lone"
+      schema: "enum-fffd"
       prepare_set:
         "/text": {"utf16": [65, 56320]}
       arguments:
@@ -245,9 +243,9 @@ prepared_string:
         - "/text"
       expect:
         outcome: "argument_validation_failure"
-    - id: "enum-lone/lone-low-only"
+    - id: "enum-fffd/lone-low-only"
       tool: "custom"
-      schema: "enum-lone"
+      schema: "enum-fffd"
       prepare_set:
         "/text": {"utf16": [56320]}
       arguments:
@@ -267,9 +265,9 @@ prepared_string:
         - "/text"
       expect:
         outcome: "argument_validation_failure"
-    - id: "enum-lone/adjacent-highs"
+    - id: "enum-fffd/adjacent-highs"
       tool: "custom"
-      schema: "enum-lone"
+      schema: "enum-fffd"
       prepare_set:
         "/text": {"utf16": [55296, 55296]}
       arguments:
@@ -289,9 +287,9 @@ prepared_string:
         - "/text"
       expect:
         outcome: "argument_validation_failure"
-    - id: "enum-lone/adjacent-lows"
+    - id: "enum-fffd/adjacent-lows"
       tool: "custom"
-      schema: "enum-lone"
+      schema: "enum-fffd"
       prepare_set:
         "/text": {"utf16": [56320, 56320]}
       arguments:
@@ -311,9 +309,9 @@ prepared_string:
         - "/text"
       expect:
         outcome: "argument_validation_failure"
-    - id: "enum-lone/high-then-non-low"
+    - id: "enum-fffd/high-then-non-low"
       tool: "custom"
-      schema: "enum-lone"
+      schema: "enum-fffd"
       prepare_set:
         "/text": {"utf16": [55296, 65]}
       arguments:
@@ -333,9 +331,9 @@ prepared_string:
         - "/text"
       expect:
         outcome: "argument_validation_failure"
-    - id: "enum-lone/low-then-high"
+    - id: "enum-fffd/low-then-high"
       tool: "custom"
-      schema: "enum-lone"
+      schema: "enum-fffd"
       prepare_set:
         "/text": {"utf16": [56320, 55296]}
       arguments:
@@ -355,9 +353,9 @@ prepared_string:
         - "/text"
       expect:
         outcome: "argument_validation_failure"
-    - id: "enum-lone/pair-then-lone-high"
+    - id: "enum-fffd/pair-then-lone-high"
       tool: "custom"
-      schema: "enum-lone"
+      schema: "enum-fffd"
       prepare_set:
         "/text": {"utf16": [55357, 56832, 55296]}
       arguments:
@@ -377,9 +375,9 @@ prepared_string:
         - "/text"
       expect:
         outcome: "argument_validation_failure"
-    - id: "enum-lone/lone-low-then-pair"
+    - id: "enum-fffd/lone-low-then-pair"
       tool: "custom"
-      schema: "enum-lone"
+      schema: "enum-fffd"
       prepare_set:
         "/text": {"utf16": [56320, 55357, 56832]}
       arguments:
@@ -399,9 +397,9 @@ prepared_string:
         - "/text"
       expect:
         outcome: "argument_validation_failure"
-    - id: "enum-lone/empty"
+    - id: "enum-fffd/empty"
       tool: "custom"
-      schema: "enum-lone"
+      schema: "enum-fffd"
       prepare_set:
         "/text": {"utf16": []}
       arguments:
@@ -421,9 +419,9 @@ prepared_string:
         - "/text"
       expect:
         outcome: "argument_validation_failure"
-    - id: "enum-lone/nul"
+    - id: "enum-fffd/nul"
       tool: "custom"
-      schema: "enum-lone"
+      schema: "enum-fffd"
       prepare_set:
         "/text": {"utf16": [0]}
       arguments:
@@ -443,9 +441,9 @@ prepared_string:
         - "/text"
       expect:
         outcome: "argument_validation_failure"
-    - id: "enum-lone/nul-middle"
+    - id: "enum-fffd/nul-middle"
       tool: "custom"
-      schema: "enum-lone"
+      schema: "enum-fffd"
       prepare_set:
         "/text": {"utf16": [65, 0, 66]}
       arguments:
@@ -454,3 +452,27 @@ prepared_string:
         - "/text"
       expect:
         outcome: "argument_validation_failure"
+    - id: "const-pair/replacement-char"
+      tool: "custom"
+      schema: "const-pair"
+      prepare_set:
+        "/text": {"utf16": [65533]}
+      arguments:
+        seed: "raw"
+      observe:
+        - "/text"
+      expect:
+        outcome: "argument_validation_failure"
+    - id: "enum-fffd/replacement-char"
+      tool: "custom"
+      schema: "enum-fffd"
+      prepare_set:
+        "/text": {"utf16": [65533]}
+      arguments:
+        seed: "raw"
+      observe:
+        - "/text"
+      expect:
+        outcome: "prepared"
+        observed:
+          "/text": [65533]

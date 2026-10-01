@@ -44,7 +44,7 @@ def units(value: Any) -> Any:
 
 
 PAIR = string([0xD83D, 0xDE00])
-LONE_HIGH = string([0xD800])
+REPLACEMENT = string([0xFFFD])
 SCHEMAS: dict[str, dict[str, Any]] = {
     "open": {"type": "object", "properties": {}},
     "string": {
@@ -63,7 +63,8 @@ SCHEMAS: dict[str, dict[str, Any]] = {
         "properties": {"text": {"type": "string", "pattern": "^..$"}},
     },
     "const-pair": {"type": "object", "properties": {"text": {"const": PAIR}}},
-    "enum-lone": {"type": "object", "properties": {"text": {"enum": [LONE_HIGH]}}},
+    # L0506-D002-R001: scalar schema literals only (a lone surrogate in the schema is L05-D001)
+    "enum-fffd": {"type": "object", "properties": {"text": {"enum": [REPLACEMENT]}}},
 }
 
 

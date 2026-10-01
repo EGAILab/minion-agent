@@ -270,3 +270,16 @@ prepared_string:
           "/edits/0/newText": [65, 0, 66]
         result_text: "Successfully replaced 1 block(s) in f.txt."
         file_utf8_hex: "4100420a"
+    - id: "edit/replacement-char"
+      tool: "edit"
+      arguments:
+        path: "f.txt"
+        edits: "[{\"oldText\":\"a\",\"newText\":\"\\ufffd\"}]"
+      observe:
+        - "/edits/0/newText"
+      expect:
+        outcome: "prepared"
+        observed:
+          "/edits/0/newText": [65533]
+        result_text: "Successfully replaced 1 block(s) in f.txt."
+        file_utf8_hex: "efbfbd0a"

@@ -482,3 +482,27 @@ prepared_string:
         - "/text"
       expect:
         outcome: "argument_validation_failure"
+    - id: "pattern-one-char/replacement-char"
+      tool: "custom"
+      schema: "pattern-one-char"
+      prepare_set:
+        "/text": {"utf16": [65533]}
+      arguments:
+        seed: "raw"
+      observe:
+        - "/text"
+      expect:
+        outcome: "prepared"
+        observed:
+          "/text": [65533]
+    - id: "pattern-two-chars/replacement-char"
+      tool: "custom"
+      schema: "pattern-two-chars"
+      prepare_set:
+        "/text": {"utf16": [65533]}
+      arguments:
+        seed: "raw"
+      observe:
+        - "/text"
+      expect:
+        outcome: "argument_validation_failure"

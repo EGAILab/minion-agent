@@ -36,7 +36,7 @@ CASES = [
 
 
 def test_wp132_string_edit_gate_cases_exist() -> None:
-    assert len(CASES) == 20
+    assert len(CASES) == 21
     assert all(case["tool"] == "edit" for case in CASES)
 
 

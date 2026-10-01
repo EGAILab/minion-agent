@@ -67,14 +67,14 @@
     "case": {"oneOf": [{"$ref": "#/$defs/editCase"}, {"$ref": "#/$defs/customCase"}]},
     "customCase": {
       "type": "object",
-      "$comment": "a tool whose own prepare_arguments returns the raw arguments merged with `prepare_set` (top-level keys), against the named schema kind: open = {type: object, properties: {}}; string = {text: {type: string}} required; min-length-2 / max-length-1 = {text: {type: string, minLength: 2 | maxLength: 1}}; pattern-one-char / pattern-two-chars = {text: {type: string, pattern: \"^.$\" | \"^..$\"}}; const-pair = {text: {const: U+1F600 (units [55357, 56832])}}; enum-lone = {text: {enum: [units [55296]]}}",
+      "$comment": "a tool whose own prepare_arguments returns the raw arguments merged with `prepare_set` (top-level keys), against the named schema kind: open = {type: object, properties: {}}; string = {text: {type: string}} required; min-length-2 / max-length-1 = {text: {type: string, minLength: 2 | maxLength: 1}}; pattern-one-char / pattern-two-chars = {text: {type: string, pattern: \"^.$\" | \"^..$\"}}; const-pair = {text: {const: U+1F600 (units [55357, 56832])}}; enum-fffd = {text: {enum: [U+FFFD (units [65533])]}}. Every schema kind holds only scalar strings: a non-scalar string IN THE SCHEMA is L05-D001's domain (Owner decision L0506-D002-R001), never this shape's",
       "required": ["id", "tool", "schema", "prepare_set", "arguments", "observe", "expect"],
       "additionalProperties": false,
       "dependentRequired": {"hook_replace_set": ["execute_observe"], "execute_observe": ["hook_replace_set"], "execute_observe_keys": ["hook_replace_set"]},
       "properties": {
         "id": {"type": "string", "minLength": 1},
         "tool": {"const": "custom"},
-        "schema": {"enum": ["open", "string", "min-length-2", "max-length-1", "pattern-one-char", "pattern-two-chars", "const-pair", "enum-lone"]},
+        "schema": {"enum": ["open", "string", "min-length-2", "max-length-1", "pattern-one-char", "pattern-two-chars", "const-pair", "enum-fffd"]},
         "prepare_set": {"$ref": "#/$defs/set"},
         "hook_replace_set": {"$ref": "#/$defs/set"},
         "arguments": {"type": "object"},

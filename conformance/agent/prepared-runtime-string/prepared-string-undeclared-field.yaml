@@ -6,7 +6,7 @@ requirements:
   - "TOOL-041"
 witnesses:
   - "prepared_runtime_string_domain"
-notes: "A tool's own prepare_arguments sets a key the schema does not declare to each member of the Owner decision's string neighborhood. Pinned Pi keeps the exact UTF-16 code units -- lone high and low surrogates at every position, adjacent and reversed surrogates, valid pairs, the empty string and NUL -- and the pre-execute hook and execute observe them. GENERATED from the pinned-Pi authority run; regenerate with harness/make_scenarios.py."
+notes: "A tool's own prepare_arguments sets a key the schema does not declare to each member of the Owner decision's string neighborhood plus the real U+FFFD (L0506-D002-R001). Pinned Pi keeps the exact UTF-16 code units -- lone high and low surrogates at every position, adjacent and reversed surrogates, valid pairs, the empty string and NUL -- and the pre-execute hook and execute observe them. GENERATED from the pinned-Pi authority run; regenerate with harness/make_scenarios.py."
 gate: "L0506-D002"
 prepared_string:
   cases:
@@ -270,3 +270,16 @@ prepared_string:
         outcome: "prepared"
         observed:
           "/extra": [65, 0, 66]
+    - id: "open/replacement-char"
+      tool: "custom"
+      schema: "open"
+      prepare_set:
+        "/extra": {"utf16": [65533]}
+      arguments:
+        seed: "raw"
+      observe:
+        - "/extra"
+      expect:
+        outcome: "prepared"
+        observed:
+          "/extra": [65533]

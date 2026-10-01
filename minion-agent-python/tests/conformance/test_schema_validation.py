@@ -295,7 +295,7 @@ def test_prepared_string_preflight_holds_for_every_case() -> None:
     from .prepared_string_runner import preflight
 
     cases = [c for d in _prepared_string_documents() for c in d["prepared_string"]["cases"]]
-    assert len(cases) == 193
+    assert len(cases) == 202
     for case in cases:
         preflight(case)
 

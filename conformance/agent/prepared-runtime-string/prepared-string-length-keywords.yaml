@@ -490,3 +490,27 @@ prepared_string:
         - "/text"
       expect:
         outcome: "argument_validation_failure"
+    - id: "min-length-2/replacement-char"
+      tool: "custom"
+      schema: "min-length-2"
+      prepare_set:
+        "/text": {"utf16": [65533]}
+      arguments:
+        seed: "raw"
+      observe:
+        - "/text"
+      expect:
+        outcome: "argument_validation_failure"
+    - id: "max-length-1/replacement-char"
+      tool: "custom"
+      schema: "max-length-1"
+      prepare_set:
+        "/text": {"utf16": [65533]}
+      arguments:
+        seed: "raw"
+      observe:
+        - "/text"
+      expect:
+        outcome: "prepared"
+        observed:
+          "/text": [65533]

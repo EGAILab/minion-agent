@@ -31,6 +31,9 @@ LONE_LOW = (
 )
 PAIRS = ("open/pair", "max-length-1/pair", "const-pair/pair", "pattern-one-char/pair")
 KEYS = ("key/lone-high-only", "key/lone-low-only", "key/low-then-high")
+# L0506-D002-R001: a scalar schema (enum [U+FFFD]) rejects every unpaired-surrogate instance
+# (single-unit members only: a two-unit instance stays two characters after replacement)
+FFFD_DISCRIMINATORS = ("enum-fffd/lone-high-only", "enum-fffd/lone-low-only")
 MIXED = ("open/adjacent-highs", "open/low-then-high", "open/pair-then-lone-high")
 
 
@@ -120,6 +123,17 @@ async def test_lone_surrogate_representation_mutants_are_killed(
     assert await _killed(*LONE_HIGH) == sorted(LONE_HIGH)
     assert await _killed(*LONE_LOW) == sorted(LONE_LOW)
     assert await _killed(*KEYS) == sorted(KEYS)
+
+
+async def test_premature_replacement_is_killed_by_a_scalar_schema(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """L0506-D002-R001: with the schema holding only the real U+FFFD, replacing a lone surrogate
+    with U+FFFD before validation turns each rejection into an acceptance -- the verdict alone
+    discriminates."""
+    assert await _killed(*FFFD_DISCRIMINATORS) == []
+    monkeypatch.setattr(execute_module, "_prepare", _prepare_then(_replace_unpaired))
+    assert await _killed(*FFFD_DISCRIMINATORS) == sorted(FFFD_DISCRIMINATORS)
 
 
 async def test_valid_pair_as_two_replacement_characters_is_killed(

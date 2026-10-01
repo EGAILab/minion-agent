@@ -270,3 +270,16 @@ prepared_string:
         outcome: "prepared"
         observed:
           "/text": [65, 0, 66]
+    - id: "string/replacement-char"
+      tool: "custom"
+      schema: "string"
+      prepare_set:
+        "/text": {"utf16": [65533]}
+      arguments:
+        seed: "raw"
+      observe:
+        - "/text"
+      expect:
+        outcome: "prepared"
+        observed:
+          "/text": [65533]

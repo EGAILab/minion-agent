@@ -5,7 +5,7 @@ use crate::{
     llm::ToolSchema,
 };
 
-use super::ToolDefinition;
+use super::{RuntimeSchemaError, ToolDefinition};
 
 /// The authoritative scope-aware tool surface.
 ///
@@ -69,7 +69,10 @@ impl ToolRegistry {
             .find(|tool| tool.name() == name)
     }
 
-    pub fn schemas(&self, request: Option<&ScopeHandle>) -> Vec<ToolSchema> {
+    pub fn schemas(
+        &self,
+        request: Option<&ScopeHandle>,
+    ) -> Result<Vec<ToolSchema>, RuntimeSchemaError> {
         self.visible(request)
             .into_iter()
             .map(|tool| tool.schema())

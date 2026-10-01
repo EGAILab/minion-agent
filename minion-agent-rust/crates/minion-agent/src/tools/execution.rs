@@ -22,8 +22,7 @@ use crate::{
 
 use super::{
     AgentToolResult, ExecutionMode, ExecutionSignal, PreparedValue, ToolDefinition,
-    ToolExecutionRequest, ToolExecutionSignal,
-    prepared_validation::{PreparedValidationError, validate_prepared},
+    ToolExecutionRequest, ToolExecutionSignal, prepared_validation::PreparedValidationError,
 };
 
 /// Batch-level execution inputs owned by Layer 06.
@@ -825,8 +824,9 @@ async fn preflight_one(
     } else {
         PreparedValue::from(raw)
     };
-    let schema = Value::from(tool.schema().parameters);
-    if let Err(error) = validate_prepared(&schema, &params) {
+    if let Err(error) =
+        super::prepared_validation::validate_runtime_schema(tool.parameters().as_value(), &params)
+    {
         let message = match error {
             PreparedValidationError::Schema(error) => format!(
                 "invalid arguments for tool \"{}\": invalid schema: {error}",

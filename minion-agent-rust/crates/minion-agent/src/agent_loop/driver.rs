@@ -406,7 +406,7 @@ impl AgentLoop {
                         .tools
                         .iter()
                         .map(|tool| tool.schema())
-                        .collect(),
+                        .collect::<Result<_, _>>()?,
                 ),
             },
             options: SimpleStreamOptions {

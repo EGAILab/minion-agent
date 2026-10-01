@@ -68,7 +68,41 @@ impl<'de> Deserialize<'de> for EventKind {
 pub struct SessionEvent {
     pub seq: u64,
     pub kind: EventKind,
-    pub data: Map<String, Value>,
+    pub data: BTreeMap<String, SessionField>,
+}
+
+/// Typed live message payloads are not serialized through a JSON value before
+/// entering the log. JSON metadata remains a separate, explicit variant.
+/// Serialization is only a fallible interoperability projection, not persistence.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum SessionField {
+    Json(Value),
+    Message(Box<Message>),
+}
+
+impl SessionField {
+    pub fn as_json(&self) -> Option<&Value> {
+        match self {
+            Self::Json(value) => Some(value),
+            Self::Message(_) => None,
+        }
+    }
+    pub fn as_message(&self) -> Option<&Message> {
+        match self {
+            Self::Message(value) => Some(value),
+            Self::Json(_) => None,
+        }
+    }
+}
+
+impl PartialEq<Value> for SessionField {
+    fn eq(&self, other: &Value) -> bool {
+        match self {
+            Self::Json(value) => value == other,
+            Self::Message(value) => serde_json::to_value(value).is_ok_and(|value| value == *other),
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -170,6 +204,20 @@ impl Session {
         kind: EventKind,
         data: Map<String, Value>,
     ) -> SessionEvent {
+        Self::append_fields_locked(
+            events,
+            kind,
+            data.into_iter()
+                .map(|(key, value)| (key, SessionField::Json(value)))
+                .collect(),
+        )
+    }
+
+    fn append_fields_locked(
+        events: &mut Vec<SessionEvent>,
+        kind: EventKind,
+        data: BTreeMap<String, SessionField>,
+    ) -> SessionEvent {
         let event = SessionEvent {
             seq: events.len() as u64 + 1,
             kind,
@@ -193,12 +241,12 @@ impl Session {
         kind: EventKind,
         message: Message,
     ) -> Result<SessionEvent, SessionError> {
-        let message =
-            serde_json::to_value(message).map_err(|e| SessionError::Message(e.to_string()))?;
-        let Value::Object(data) = serde_json::json!({"message": message}) else {
-            unreachable!()
-        };
-        Ok(self.append(kind, data))
+        let mut events = self.inner.events.lock();
+        Ok(Self::append_fields_locked(
+            &mut events,
+            kind,
+            BTreeMap::from([("message".into(), SessionField::Message(Box::new(message)))]),
+        ))
     }
 
     pub fn reset(&self) -> Result<SessionEvent, SessionError> {
@@ -285,11 +333,13 @@ impl Session {
             let through = compaction
                 .data
                 .get("superseded_through")
+                .and_then(SessionField::as_json)
                 .and_then(Value::as_u64)
                 .ok_or(SessionError::InvalidEventData)?;
             let retained_values = compaction
                 .data
                 .get("retained")
+                .and_then(SessionField::as_json)
                 .and_then(Value::as_array)
                 .ok_or(SessionError::InvalidEventData)?;
             let retained = retained_values
@@ -300,6 +350,7 @@ impl Session {
             let summary = compaction
                 .data
                 .get("summary")
+                .and_then(SessionField::as_json)
                 .and_then(Value::as_str)
                 .ok_or(SessionError::InvalidEventData)?;
             let mut result = vec![Message::User(crate::llm::UserMessage::new(
@@ -339,7 +390,11 @@ impl Session {
                     .get("message")
                     .cloned()
                     .ok_or(SessionError::InvalidEventData)?;
-                serde_json::from_value(value).map_err(|e| SessionError::Message(e.to_string()))
+                match value {
+                    SessionField::Message(message) => Ok(*message),
+                    SessionField::Json(value) => serde_json::from_value(value)
+                        .map_err(|e| SessionError::Message(e.to_string())),
+                }
             })
             .collect()
     }
@@ -370,6 +425,7 @@ impl Session {
         let references = event
             .data
             .get("components")
+            .and_then(SessionField::as_json)
             .and_then(Value::as_object)
             .ok_or(SessionError::InvalidHeader)?;
         let mut components = BTreeMap::new();
@@ -384,6 +440,7 @@ impl Session {
         let tools_ref = event
             .data
             .get("tools")
+            .and_then(SessionField::as_json)
             .and_then(Value::as_str)
             .ok_or(SessionError::InvalidHeader)?;
         let tools = serde_json::from_slice(&self.inner.artifacts.get(tools_ref)?)
@@ -391,6 +448,7 @@ impl Session {
         let model = event
             .data
             .get("model")
+            .and_then(SessionField::as_json)
             .and_then(Value::as_str)
             .ok_or(SessionError::InvalidHeader)?
             .to_owned();

@@ -231,12 +231,12 @@ fn every_agent_event_variant_preserves_its_complete_typed_payload() {
     let start = ToolExecutionStart {
         tool_call_id: "call-1".into(),
         tool_name: "lookup".into(),
-        arguments: json!({"query": "rust"}),
+        arguments: json!({"query": "rust"}).into(),
     };
     let update = ToolExecutionUpdate {
         tool_call_id: "call-1".into(),
         tool_name: "lookup".into(),
-        arguments: json!({"query": "rust"}),
+        arguments: json!({"query": "rust"}).into(),
         update: AgentToolResult {
             content: vec![ToolResultContentBlock::Text(TextBlock::new("half"))],
             details: json!({"progress": 0.5}),

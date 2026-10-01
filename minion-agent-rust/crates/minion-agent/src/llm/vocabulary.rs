@@ -150,7 +150,7 @@ pub struct ToolCall {
     kind: ToolCallKind,
     pub id: String,
     pub name: String,
-    pub arguments: BTreeMap<String, Value>,
+    pub arguments: super::RawValue,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub thought_signature: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -158,6 +158,17 @@ pub struct ToolCall {
 }
 
 impl ToolCall {
+    /// Construct directly from the lossless live raw domain.
+    pub fn new_raw(
+        id: impl Into<String>,
+        name: impl Into<String>,
+        arguments: super::RawValue,
+    ) -> Self {
+        let mut call = Self::new(id, name, BTreeMap::new());
+        call.arguments = arguments;
+        call
+    }
+
     pub fn new(
         id: impl Into<String>,
         name: impl Into<String>,
@@ -167,7 +178,7 @@ impl ToolCall {
             kind: ToolCallKind::ToolCall,
             id: id.into(),
             name: name.into(),
-            arguments,
+            arguments: arguments.into(),
             thought_signature: None,
             namespace: None,
         }

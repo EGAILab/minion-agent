@@ -67,7 +67,7 @@ fn tool_start(call_id: &str) -> ToolExecutionStart {
     ToolExecutionStart {
         tool_call_id: call_id.into(),
         tool_name: "lookup".into(),
-        arguments: json!({"query": "rust"}),
+        arguments: json!({"query": "rust"}).into(),
     }
 }
 

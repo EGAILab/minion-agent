@@ -687,7 +687,7 @@ fn prepare_runs_before_validation_and_can_repair_raw_arguments() {
         assert!(!batch.messages[0].is_error);
         assert_eq!(
             source_copy.arguments,
-            BTreeMap::from([("x".into(), json!(123))])
+            minion_agent::llm::RawValue::from(BTreeMap::from([("x".into(), json!(123))]))
         );
     });
 }
@@ -1743,7 +1743,7 @@ fn updates_are_emitted_live_and_ignored_after_execute_settles() {
             [(
                 "t1".to_owned(),
                 "chatty".to_owned(),
-                json!({"raw": 1}),
+                json!({"raw": 1}).into(),
                 result("live").content,
             )]
         );

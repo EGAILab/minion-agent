@@ -3291,8 +3291,9 @@ rows:
     typing or canonical-schema convenience) -- the boundary rejects only non-mapping values
     (missing, None, booleans, arrays, strings, numbers), never a particular JSON Schema keyword.
     L05-D001 (minion-agent#104; Owner decision L0506-D002-R001 Option 1, minion-agent#99
-    issuecomment-5926416181; intentional divergence NONE) -- AGREED (contract #106 -> ef7fe40c; Python
-    implementation review pending; Rust NOT_IMPLEMENTED): the schema''s own string values
+    issuecomment-5926416181; intentional divergence NONE) -- CERTIFIED_CLOSED (contract #106 -> ef7fe40c; Python
+    conforms, no production change (approved with the contract, minion-agent-docs#211); Rust #113 -> 0d9f1e6a,
+    closure review minion-agent-docs#217): the schema''s own string values
     and object keys are JavaScript strings (any UTF-16 code units, unpaired surrogates included) wherever
     runtime validation consumes them -- property names / properties keys, required, const, enum, pattern,
     patternProperties keys, propertyNames, dependentRequired; registration accepts them and validation

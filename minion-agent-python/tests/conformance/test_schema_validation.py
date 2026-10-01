@@ -742,3 +742,13 @@ def test_agent_inbox_action_rejects_a_second_operation_alongside_claim_or_pendin
     schema = json.loads(AGENT_INBOX_SCHEMA.read_text(encoding="utf-8"))
     errors = list(Draft202012Validator(schema).iter_errors(_agent_inbox_document(action)))
     assert errors, f"expected this action to be rejected: {action}"
+
+
+@pytest.mark.parametrize(
+    "token", ["NaN", "Infinity", "1garbage", "+1", "01"], ids=lambda token: f"token-{token}"
+)
+def test_raw_arguments_schema_refuses_out_of_grammar_number_tokens(token: str) -> None:
+    """L0206-D002-R002: NaN is outside the raw domain; non-literal spellings are refused."""
+    document = _raw_case()
+    document["raw_arguments"]["cases"][0]["arguments"]["n"] = {"number": token}
+    assert list(_raw_validator().iter_errors(document))

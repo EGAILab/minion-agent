@@ -187,3 +187,97 @@ async def test_event_payload_sees_normalized_value_is_killed(
         assert await _killed(*LONE) == sorted(LONE)
     finally:
         del sys.modules[clone.__name__]
+
+
+# ---- L0206-D002-R001: the update boundary (tools/update payload, on_execution_update delivery)
+
+
+def _mutant_execute(old: str, new: str) -> types.ModuleType:
+    source = inspect.getsource(execute_module)
+    assert source.count(old) == 1, old
+    clone = types.ModuleType(execute_module.__name__ + "_update_mutant")
+    clone.__package__ = execute_module.__package__
+    sys.modules[clone.__name__] = clone
+    exec(compile(source.replace(old, new), clone.__name__, "exec"), clone.__dict__)
+    clone._project = lambda value: _map(value, _replace, lambda n: n)  # type: ignore[attr-defined]
+    return clone
+
+
+@pytest.mark.parametrize(
+    ("old", "boundary"),
+    [
+        (
+            "ctx.events.emit(TOOLS_UPDATE, call.id, call.name, call.arguments, partial, "
+            "scope=scope)",
+            "update_event",
+        ),
+        ("on_execution_update(call.id, call.name, call.arguments, partial),", "update_delivery"),
+    ],
+    ids=["tools-update-payload", "on-execution-update-delivery"],
+)
+async def test_an_update_only_normalization_is_killed(
+    monkeypatch: pytest.MonkeyPatch, old: str, boundary: str
+) -> None:
+    """A normalized raw argument at ONE update seam only: start, hook and execute stay correct,
+    so only that update observation can catch it."""
+    clone = _mutant_execute(old, old.replace("call.arguments,", "_project(call.arguments),", 1))
+    try:
+        monkeypatch.setattr(runner, "execute_call", clone.execute_call)
+        for case in _cases(*LONE):
+            seen = await runner.run_case(case)
+            want = runner.observe(runner.decode(case["arguments"]))
+            assert all(seen[b] == want for b in runner.BOUNDARIES), case["id"]
+            assert seen[boundary] != [want], (case["id"], boundary)
+        assert await _killed(*LONE) == sorted(LONE)
+    finally:
+        del sys.modules[clone.__name__]
+
+
+# ---- L0206-D002-R002: the numeric fixture grammar
+
+
+@pytest.mark.parametrize(
+    "token",
+    ["9007199254740993", "1e999", "-1e999", "NaN", "-0.0", "1.0", "1E3", "0.1000"],
+)
+def test_the_preflight_refuses_a_non_canonical_or_out_of_domain_number(token: str) -> None:
+    """An unrounded integer, an overflowing literal, NaN, or any literal that is not the exact
+    Number::toString of its binary64 value fails the document before dispatch."""
+    with pytest.raises(AssertionError, match="number token"):
+        runner.preflight({"n": {"number": token}})
+
+
+@pytest.mark.parametrize(
+    "token", ["0", "9007199254740992", "1.7976931348623157e+308", "5e-324", "0.1", "-1.5", "1e+21"]
+)
+def test_the_preflight_accepts_canonical_finite_literals(token: str) -> None:
+    runner.preflight({"n": {"number": token}})
+
+
+def test_named_tokens_are_exactly_the_non_finite_and_negative_zero_values() -> None:
+    assert set(runner.NAMED) == {"+Infinity", "-Infinity", "-0"}
+
+
+def test_an_integer_outside_binary64_is_observed_as_such_never_rounded() -> None:
+    """A binding delivering the unrounded 9007199254740993 at a boundary is distinguishable from
+    the binary64 value 9007199254740992 the case expects."""
+    assert runner.observe(9007199254740993) == {"non_binary64_int": "9007199254740993"}
+    assert runner.observe(9007199254740992) == {"number": "9007199254740992"}
+    assert runner.observe(9007199254740993) != runner.observe(9007199254740992)
+    assert runner.observe(10**400) == {"non_binary64_int": str(10**400)}
+
+
+async def test_a_hook_receiving_an_unrounded_integer_is_killed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Real hook-value witness: a pipeline that widens the binary64 value to the unrounded
+    integer the provider text spelled (a non-JSON.parse decoder's result) fails the case."""
+    case = next(c for c in CASES if c["id"] == "number/integer-2p53-plus-1")
+    assert case["arguments"] == {"n": {"number": "9007199254740992"}}
+    original = execute_module._prepare
+    monkeypatch.setattr(
+        execute_module,
+        "_prepare",
+        lambda d, a: {**original(d, a), "n": 9007199254740993},
+    )
+    assert await _killed(case["id"]) == [case["id"]]

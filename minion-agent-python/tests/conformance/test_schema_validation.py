@@ -62,6 +62,9 @@ PREPARED_STRING_DIR = CONFORMANCE / "agent" / "prepared-runtime-string"
 RAW_ARGUMENTS_SCHEMA = CONFORMANCE / "schema" / "raw-arguments-scenario.schema.json"
 # Cross-layer delta L0206-D002 (AI-003 raw value domain): its own directory and JSON shape.
 RAW_ARGUMENTS_DIR = CONFORMANCE / "agent" / "raw-arguments"
+SCHEMA_DOMAIN_SCHEMA = CONFORMANCE / "schema" / "schema-domain-scenario.schema.json"
+# Layer-05 delta L05-D001 (TOOL-016/TOOL-003 schema string domain): own directory and JSON shape.
+SCHEMA_DOMAIN_DIR = CONFORMANCE / "agent" / "schema-domain"
 
 # Families whose scenarios arrive in a later plan. Their schema must still exist
 # and must still be a valid JSON Schema. Empty now that every family is
@@ -890,3 +893,38 @@ def test_raw_arguments_schema_refuses_out_of_grammar_number_tokens(token: str) -
     document = _raw_case()
     document["raw_arguments"]["cases"][0]["arguments"]["n"] = {"number": token}
     assert list(_raw_validator().iter_errors(document))
+
+
+def _schema_domain_validator() -> Draft202012Validator:
+    return Draft202012Validator(json.loads(SCHEMA_DOMAIN_SCHEMA.read_text(encoding="utf-8")))
+
+
+def test_schema_domain_schema_is_wellformed() -> None:
+    Draft202012Validator.check_schema(json.loads(SCHEMA_DOMAIN_SCHEMA.read_text(encoding="utf-8")))
+
+
+@pytest.mark.parametrize(
+    "scenario", sorted(SCHEMA_DOMAIN_DIR.glob("*.json")), ids=lambda value: value.stem
+)
+def test_schema_domain_scenario_validates(scenario: Path) -> None:
+    document = json.loads(scenario.read_text(encoding="utf-8"))
+    assert "schema_domain" in document
+    assert not list(_schema_domain_validator().iter_errors(document))
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        lambda c: c.pop("expect"),
+        lambda c: c.__setitem__("expect", "error"),
+        lambda c: c.__setitem__("schema", {"utf16": [65]}),
+        lambda c: c.__setitem__("arguments", {"type": "object"}),
+        lambda c: c["schema"]["$keys"][0][0].append(65536),
+    ],
+    ids=["no-expect", "unknown-expect", "schema-not-object", "plain-object", "unit-above-ffff"],
+)
+def test_schema_domain_schema_rejects_malformed_cases(mutation: Any) -> None:
+    path = SCHEMA_DOMAIN_DIR / "schema-domain-const.json"
+    document = copy.deepcopy(json.loads(path.read_text(encoding="utf-8")))
+    mutation(document["schema_domain"]["cases"][0])
+    assert list(_schema_domain_validator().iter_errors(document))

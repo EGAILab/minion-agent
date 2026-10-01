@@ -38,6 +38,20 @@ SCHEMAS: dict[str, dict[str, Any]] = {
         "required": ["limit"],
     },
     "open": {"type": "object", "properties": {}},
+    # L0506-D001-RC002: numeric keywords with no declared type (scenario schema `schema` $comment)
+    **{
+        kind: {"type": "object", "properties": {"limit": constraint}}
+        for kind, constraint in {
+            "bound-maximum": {"maximum": 0},
+            "bound-minimum": {"minimum": 0},
+            "bound-exclusive-maximum": {"exclusiveMaximum": 0},
+            "bound-exclusive-minimum": {"exclusiveMinimum": 0},
+            "multiple-of": {"multipleOf": 2},
+            "one-of-bounds": {"oneOf": [{"maximum": 0}, {"minimum": 1}]},
+            "not-bound": {"not": {"maximum": 0}},
+            "number-bound": {"type": "number", "maximum": 0},
+        }.items()
+    },
 }
 _NAMED = {"+Infinity": math.inf, "-Infinity": -math.inf, "NaN": math.nan, "-0": -0.0}
 _FINITE_LITERAL = re.compile(r"-?(0|[1-9][0-9]*)(\.[0-9]+)?([eE][+-]?[0-9]+)?")

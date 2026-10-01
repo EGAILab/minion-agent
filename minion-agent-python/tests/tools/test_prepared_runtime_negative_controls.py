@@ -109,6 +109,32 @@ async def test_validator_accepting_non_finite_in_declared_number_is_killed(
         assert not await _all_pass([case]), case["id"]
 
 
+KEYWORD_APPLICABILITY = (  # the cells that discriminate the plain Draft 2020-12 mutant
+    "bound-maximum-pos-inf",
+    "bound-minimum-neg-inf",
+    "bound-exclusive-maximum-pos-inf",
+    "bound-exclusive-minimum-neg-inf",
+    "multiple-of-pos-inf",
+    "multiple-of-nan",
+    "one-of-bounds-pos-inf",
+    "one-of-bounds-neg-inf",
+    "not-bound-pos-inf",
+)
+
+
+async def test_numeric_keywords_applied_to_non_finite_values_are_killed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """L0506-D001-RC002: a validator treating a non-finite runtime number as a JSON-Schema number
+    applies minimum/maximum/exclusive*/multipleOf to it (and flips oneOf/not). Pinned Pi does
+    not: each case kills it."""
+    monkeypatch.setattr(
+        execute_module, "PreparedArgumentsValidator", execute_module.Draft202012Validator
+    )
+    for case in _cases(*KEYWORD_APPLICABILITY):
+        assert not await _all_pass([case]), case["id"]
+
+
 @pytest.fixture
 def mutant_execute() -> Iterator[Callable[[str, str], types.ModuleType]]:
     created: list[str] = []

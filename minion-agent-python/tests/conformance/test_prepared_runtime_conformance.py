@@ -24,7 +24,7 @@ CASES = [
 
 
 def test_prepared_runtime_delta_gate_cases_exist() -> None:
-    assert len(CASES) == 19
+    assert len(CASES) == 50  # 19 + 31 numeric-keyword cases (L0506-D001-RC002)
     assert {document["gate"] for document in DOCUMENTS} == {"L0506-D001", "WP-13.2"}
 
 

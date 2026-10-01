@@ -1,5 +1,6 @@
 use std::{fmt, sync::Arc};
 
+use super::PreparedValue;
 use futures::future::BoxFuture;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -64,13 +65,13 @@ pub type ToolUpdateCallback = Arc<dyn Fn(AgentToolResult) + Send + Sync + 'stati
 
 pub struct ToolExecutionRequest {
     pub tool_call_id: String,
-    pub params: Value,
+    pub params: PreparedValue,
     pub signal: Option<Arc<dyn ToolExecutionSignal>>,
     pub on_update: Option<ToolUpdateCallback>,
 }
 
 pub type PrepareArguments =
-    Arc<dyn Fn(Value) -> Result<Value, ToolCapabilityError> + Send + Sync + 'static>;
+    Arc<dyn Fn(Value) -> Result<PreparedValue, ToolCapabilityError> + Send + Sync + 'static>;
 pub type ExecuteTool = Arc<
     dyn Fn(ToolExecutionRequest) -> BoxFuture<'static, Result<AgentToolResult, ToolCapabilityError>>
         + Send
@@ -145,6 +146,16 @@ impl ToolDefinition {
     pub fn with_prepare_arguments<F>(mut self, prepare: F) -> Self
     where
         F: Fn(Value) -> Result<Value, ToolCapabilityError> + Send + Sync + 'static,
+    {
+        self.prepare_arguments = Some(Arc::new(move |raw| prepare(raw).map(PreparedValue::from)));
+        self
+    }
+
+    /// Preparation receives the unchanged raw JSON domain and may return the
+    /// wider in-memory runtime domain, including non-finite numbers.
+    pub fn with_prepare_runtime_arguments<F>(mut self, prepare: F) -> Self
+    where
+        F: Fn(Value) -> Result<PreparedValue, ToolCapabilityError> + Send + Sync + 'static,
     {
         self.prepare_arguments = Some(Arc::new(prepare));
         self

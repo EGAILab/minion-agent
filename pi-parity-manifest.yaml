@@ -6023,6 +6023,14 @@ rows:
     `DIRECT_PI_PARITY`: pinned Pi''s own `getMutationQueueKey` falls back for exactly these two
     codes and re-throws for any other (`file-mutation-queue.ts:20-26`).
 
+    Correction (L12-RESOLVE-ENOTDIR, minion-agent#78; documentary only -- the paragraph above is kept as history):
+    the parity claim is wrong. Pinned Pi''s getMutationQueueKey falls back on ENOENT AND ENOTDIR (not_found,
+    not_directory) and has no not_supported case; resolve() falls back on not_found and not_supported and
+    propagates not_directory. The fallback condition is therefore NOT DIRECT_PI_PARITY but a known Layer-12
+    parity gap. resolve() has no production consumer; Layer 13''s mutation queue derives its key directly from
+    canonical_path with Pi''s set (TOOL-032), never through resolve(). Changing resolve() itself is not
+    authorized (non-additive change to certified Layer 12); runtime behavior unchanged.
+
     `resolve()`''s own cancellation classification (refined `L12-R016`, CE-L12-01-03):
     `resolve(path, signal?)` is in the accepts-but-does-not-inspect group (`EXEC-002`''s own §3.1
     table) -- a direct consequence of composing `absolute_path` and `canonical_path`, both already
@@ -6961,6 +6969,9 @@ rows:
   - edit_fallback_without_exec_009 (canonical scenarios conformance/agent/builtin-mutation/builtin-edit-provider-without-exec-009-uses-disclosed-fallback.yaml
     + conformance/agent/builtin-mutation/builtin-edit-provider-without-exec-009-or-exec-008-skips-access.yaml)
   - edit_cancellation_checkpoints (canonical scenario conformance/agent/builtin-mutation/builtin-edit-cancellation-checkpoints.yaml)
+  - edit_prepared_runtime_numbers (canonical scenario conformance/agent/prepared-runtime/prepared-runtime-edit-json-string-numbers.yaml,
+    gate WP-13.2 -- prepareEditArguments' JSON.parse numbers reach the pre-execute hook -- +/-Infinity, -0, binary64
+    rounding; run once L0506-D001 (TOOL-041) is certified, minion-agent#88)
   python: 'minion_agent/tools/builtin/edit.py (create_edit_tool, prepare_edit_arguments, EXEC-009 access stage with the disclosed FALLBACK); minion_agent/tools/builtin/edit_diff.py (apply_edits, diagnostics, generate_diff_string, generate_unified_patch); minion_agent/tools/builtin/_jsdiff.py (the pinned diff 8.0.4 diffLines/createTwoFilesPatch port); minion_agent/tools/builtin/_utf16.py (JavaScript UTF-16 string semantics). Implementation candidate (WP-13.2, minion-agent#49), pending independent review.'
   rust: not implemented; planned (WP-13.2, minion-agent#49)
   disposition: adopted
@@ -7141,3 +7152,43 @@ rows:
     build-identity gate over every loaded ICU module instance -- Windows EnumProcessModules, Linux
     /proc/self/maps); canonical builtin_tool scenarios below'
   disposition: intentional divergence
+- id: TOOL-041
+  phase: 4
+  pi: packages/agent/src/agent-loop.ts::prepareToolCallArguments/prepareToolCall (prepared args -> validateToolArguments
+    -> beforeToolCall args -> execute); packages/ai/src/utils/validation.ts::validateToolArguments (typebox 1.3.7);
+    packages/coding-agent/src/core/tools/edit.ts::prepareEditArguments (JSON.parse)
+  surface: Layer 05/06 post-certification delta L0506-D001 -- the prepared runtime numeric domain (prepare_arguments
+    result, validation, tools/pre-execute arguments, execute arguments)
+  rule: 'CERTIFIED_CLOSED (L0506-D001, minion-agent#88; Owner decision L13-WP132-I004 Option 1, minion-agent#49
+    issuecomment-5912178299; intentional divergence NONE). Prepared runtime arguments carry Pi''s runtime numbers:
+    finite binary64 including -0 (sign preserved), +Infinity, -Infinity, and NaN (reachable only through a tool''s own
+    prepare_arguments). Raw ToolCall arguments, tool_execution_* original arguments and ToolCall serialization are
+    unchanged. Validation: a declared number/integer instance is finite-only (+/-Infinity and NaN rejected with the
+    certified TOOL-003 immediate error; -0 accepted, sign kept); an undeclared position keeps any runtime number. The
+    tools/pre-execute listener and execute observe the prepared value exactly; the successful path serializes no
+    prepared value (Pi''s only serialization of it is its validation-failure diagnostic, a JSON.stringify projection:
+    +/-Infinity and NaN -> null, -0 -> 0, runtime values unchanged; Minion''s TOOL-003 validator text is its own).
+    Full rules: spec/tools.md Layer 06, ''Prepared runtime numeric domain (TOOL-041)''.'
+  tests:
+  - prepared_runtime_numeric_domain -- delta certification gate L0506-D001 (L0506-D001-R003) -- canonical scenarios
+    conformance/agent/prepared-runtime/prepared-runtime-declared-number-field.yaml, prepared-runtime-declared-integer-field.yaml,
+    prepared-runtime-undeclared-field.yaml and prepared-runtime-numeric-keyword-applicability.yaml (50 custom cases;
+    the last added by L0506-D001-RC002 -- numeric keywords apply to finite numbers only), generated from the pinned-Pi
+    authority in minion-agent-docs assurance/layers/data/l0506-d001
+  - real-edit integration witness (gate WP-13.2, NOT part of this row's certification) -- conformance/agent/prepared-runtime/prepared-runtime-edit-json-string-numbers.yaml;
+    run by WP-13.2's Python approval and Rust implementation reviews once L0506-D001 is certified (see TOOL-030)
+  python: 'minion_agent/tools/execute.py (PreparedArgumentsValidator: Draft 2020-12 with a finite-only number;
+    _reject_declared_non_finite for pydantic-model tools -- the delivered model_dump() of the one ordinary pydantic
+    validation is validated against a callback-free, finite-only structural shape of the declared types with strict
+    numeric leaves, and any finite_number error rejects (CE-L0506-D001-I001-01 revs 3-4, agreed); prepared values pass
+    unchanged to the pre-execute hook and execute) -- fixes L0506-D001-C001, L0506-D001-I001 and L0506-D001-I002.
+    APPROVED and merged (L0506-D001, minion-agent#90 -> a993f5d8; final complete review minion-agent-docs#200).'
+  rust: 'minion-agent-rust/crates/minion-agent/src/tools/prepared.rs (PreparedValue/PreparedNumber),
+    definition.rs (typed runtime preparation/execute arguments), prepared_validation.rs (existing JSON Schema
+    engine plus private numeric-domain carrier), execution.rs (real validation -> pre-execute -> execute seam);
+    tests/prepared_runtime_value.rs and tests/prepared_runtime_conformance.rs (explicit L0506-D001 gate,
+    50 custom cases; six fixture negative controls plus independently RED-confirmed declared-number validator
+    mutation and RC001 numeric-keyword applicability (bounds/multipleOf do not apply to non-finites;
+    oneOf/not retain engine-owned branch verdicts). Rust CERTIFIED (minion-agent#94 -> ee87245b; closure review minion-agent-docs#203);
+    later WP-13.2 edit gate is not counted here.'
+  disposition: adopted

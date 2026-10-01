@@ -22,8 +22,9 @@ use crate::{
 };
 
 use super::{
-    AgentToolResult, ExecutionMode, ExecutionSignal, ToolDefinition, ToolExecutionRequest,
-    ToolExecutionSignal,
+    AgentToolResult, ExecutionMode, ExecutionSignal, PreparedValue, ToolDefinition,
+    ToolExecutionRequest, ToolExecutionSignal,
+    prepared_validation::{PreparedValidationError, validate_prepared},
 };
 
 /// Batch-level execution inputs owned by Layer 06.
@@ -203,7 +204,7 @@ pub fn tool_execution_update_spec() -> EventSpec<ToolExecutionUpdate, ()> {
 pub struct BeforeToolCallContext {
     pub tool_call_id: String,
     pub tool_name: String,
-    pub arguments: Value,
+    pub arguments: PreparedValue,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -214,7 +215,7 @@ pub struct BeforeToolCallHookContext {
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum BeforeToolCallAction {
-    Proceed(Option<Value>),
+    Proceed(Option<PreparedValue>),
     Block {
         reason: Option<String>,
         terminate: bool,
@@ -318,7 +319,7 @@ struct PreparedToolCall {
     index: usize,
     call: ToolCall,
     tool: Arc<ToolDefinition>,
-    arguments: Value,
+    arguments: PreparedValue,
 }
 
 struct UpdateDispatchState {
@@ -800,10 +801,10 @@ async fn preflight_one(
         }
         Some(tool) => tool,
     };
-    let mut params = arguments_value(&call.arguments);
-    if let Some(prepare) = tool.prepare_arguments() {
-        match prepare(params) {
-            Ok(prepared) => params = prepared,
+    let raw = arguments_value(&call.arguments);
+    let params = if let Some(prepare) = tool.prepare_arguments() {
+        match prepare(raw) {
+            Ok(prepared) => prepared,
             Err(error) => {
                 let message = error.message().to_owned();
                 return Ok(PreflightOutcome::Immediate(
@@ -822,36 +823,25 @@ async fn preflight_one(
                 ));
             }
         }
-    }
-    let schema = Value::from(tool.schema().parameters);
-    let validator = match jsonschema::validator_for(&schema) {
-        Ok(validator) => validator,
-        Err(error) => {
-            return Ok(PreflightOutcome::Immediate(
-                finish_immediate(
-                    index,
-                    call.clone(),
-                    &format!(
-                        "invalid arguments for tool \"{}\": invalid schema: {error}",
-                        call.name
-                    ),
-                    events,
-                    scope,
-                    end_spec,
-                    on_execution_end,
-                    timestamp,
-                    false,
-                )
-                .await?,
-            ));
-        }
+    } else {
+        PreparedValue::from(raw)
     };
-    if let Err(error) = validator.validate(&params) {
+    let schema = Value::from(tool.schema().parameters);
+    if let Err(error) = validate_prepared(&schema, &params) {
+        let message = match error {
+            PreparedValidationError::Schema(error) => format!(
+                "invalid arguments for tool \"{}\": invalid schema: {error}",
+                call.name
+            ),
+            PreparedValidationError::Instance(error) => {
+                format!("invalid arguments for tool \"{}\": {error}", call.name)
+            }
+        };
         return Ok(PreflightOutcome::Immediate(
             finish_immediate(
                 index,
                 call.clone(),
-                &format!("invalid arguments for tool \"{}\": {error}", call.name),
+                &message,
                 events,
                 scope,
                 end_spec,

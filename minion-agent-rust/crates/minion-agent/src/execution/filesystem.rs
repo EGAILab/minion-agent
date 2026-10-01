@@ -453,7 +453,10 @@ impl FileSystem for LocalFileSystem {
             .open(path)
             .await
             .map_err(map_fs_error)?;
-        file.write_all(content).await.map_err(map_fs_error)
+        file.write_all(content).await.map_err(map_fs_error)?;
+        // Tokio write_all can finish after scheduling its blocking write. Join it
+        // before exposing successful append completion (and its actual I/O result).
+        file.flush().await.map_err(map_fs_error)
     }
 
     async fn rename_file(

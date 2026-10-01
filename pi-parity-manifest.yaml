@@ -7003,7 +7003,7 @@ rows:
   - edit_write_pinned_pi_authority_corpus (canonical scenario conformance/agent/builtin-mutation/builtin-write-corpus.yaml; candidate, pending
     contract review)
   python: 'minion_agent/tools/builtin/write.py (create_write_tool; UTF-16 length via _utf16.utf16_length, WHATWG encoding via _utf16.encode_utf8; in-lock absolute_path, create_dir, write_file, abort checkpoints); minion_agent/tools/builtin/plugin.py fs_mutation_tools_plugin. Implementation candidate (WP-13.2, minion-agent#49), pending independent review.'
-  rust: 'minion-agent-rust crates/minion-agent/src/tools/builtin/write.rs (create_write_tool); tests/builtin_mutation_write.rs, builtin_mutation_corpus.rs and builtin_mutation_conformance.rs. WP-13.2 Rust certification candidate; independent closure pending.'
+  rust: 'minion-agent-rust crates/minion-agent/src/tools/builtin/write.rs (create_write_tool, UTF-16 count and explicit UTF-8 file projection); tests/builtin_mutation_write.rs, builtin_mutation_conformance.rs (complete 417-case lossless corpus) and wp132_key_order_independence.rs. WP-13.2 Rust certification candidate; independent closure pending.'
   disposition: adopted
 - id: TOOL-030
   phase: 6
@@ -7033,7 +7033,7 @@ rows:
     gate WP-13.2 -- prepareEditArguments' JSON.parse numbers reach the pre-execute hook -- +/-Infinity, -0, binary64
     rounding; run once L0506-D001 (TOOL-041) is certified, minion-agent#88)
   python: 'minion_agent/tools/builtin/edit.py (create_edit_tool, prepare_edit_arguments, EXEC-009 access stage with the disclosed FALLBACK); minion_agent/tools/builtin/edit_diff.py (apply_edits, diagnostics, generate_diff_string, generate_unified_patch); minion_agent/tools/builtin/_jsdiff.py (the pinned diff 8.0.4 diffLines/createTwoFilesPatch port); minion_agent/tools/builtin/_utf16.py (JavaScript UTF-16 string semantics). Implementation candidate (WP-13.2, minion-agent#49), pending independent review.'
-  rust: 'minion-agent-rust crates/minion-agent/src/tools/builtin/{edit,edit_prepare,edit_apply,edit_diff}.rs; tests/builtin_mutation_corpus.rs, builtin_edit_{prepare,apply,diff}.rs and prepared_runtime_edit_conformance.rs (real edit gate WP-13.2, 8 cases). WP-13.2 Rust certification candidate; independent closure pending.'
+  rust: 'minion-agent-rust crates/minion-agent/src/tools/builtin/{edit,edit_prepare,edit_apply,edit_diff}.rs (lossless raw/prepared UTF-16 and native D003 result details); tests/builtin_mutation_conformance.rs (complete 417-case lossless corpus), builtin_edit_{prepare,apply,diff}.rs, prepared_runtime_edit_conformance.rs (8), prepared_string_edit_conformance.rs (21), tool_result_domain_conformance.rs (real edit C002 through Agent and typed Session; lossy-details negative control) and wp132_key_order_independence.rs. WP-13.2 Rust certification candidate; independent closure pending.'
   disposition: adopted
 - id: TOOL-031
   phase: 6
@@ -7053,7 +7053,7 @@ rows:
   - fuzzy_normalize replay (conformance/agent/fixtures/wp132-fuzzy-normalize/fuzzy_normalize.json, pinned Pi's
     normalizeForFuzzyMatch results, replayed by each binding against its fuzzy_normalize)
   python: 'minion_agent/tools/builtin/edit_diff.py (fuzzy_normalize over the pinned ICU 78.3 FilteredNormalizer2 NFKC restricted to [:age=16.0:] via collation.Collation.nfkc_unicode16, the ECMAScript trimEnd set, preserve_unchanged_lines, split_bom, line endings). Implementation candidate (WP-13.2, minion-agent#49), pending independent review.'
-  rust: 'minion-agent-rust crates/minion-agent/src/tools/builtin/{edit_text,edit_apply,edit}.rs; crates/minion-agent-pinned-icu/src/lib.rs nfkc_unicode16_batch (verified ICU4C 78.3, Unicode-16 assignment filter); tests/builtin_edit_fuzzy.rs and builtin_mutation_corpus.rs. WP-13.2 Rust certification candidate; independent closure pending.'
+  rust: 'minion-agent-rust crates/minion-agent/src/tools/builtin/{edit_text,edit_apply,edit}.rs; crates/minion-agent-pinned-icu/src/lib.rs nfkc_unicode16_units_batch (verified ICU4C 78.3, Unicode-16 assignment filter, lossless UTF-16; existing scalar API preserved); tests/builtin_edit_fuzzy.rs, edit_apply.rs unit witnesses and builtin_mutation_conformance.rs. WP-13.2 Rust certification candidate; independent closure pending.'
   disposition: adopted
 - id: TOOL-032
   phase: 6

@@ -2,7 +2,7 @@
 //! Source: kpdecker/jsdiff tag 8.0.4 src/diff/{base,line}.ts and patch/create.ts;
 //! display projection: pinned Pi edit-diff.ts. No third-party approximation is used.
 
-use serde_json::{Value, json};
+use crate::llm::{ResultString, ResultValue};
 use std::collections::BTreeMap;
 
 #[derive(Clone, Copy, Eq, PartialEq)]
@@ -23,7 +23,7 @@ struct SearchPath {
 }
 struct Part {
     kind: Kind,
-    value: String,
+    value: Vec<u16>,
 }
 
 fn add(path: &SearchPath, kind: Kind) -> SearchPath {
@@ -41,7 +41,7 @@ fn add(path: &SearchPath, kind: Kind) -> SearchPath {
     next
 }
 
-fn common(path: &mut SearchPath, old: &[&str], new: &[&str], diagonal: isize) -> isize {
+fn common(path: &mut SearchPath, old: &[&[u16]], new: &[&[u16]], diagonal: isize) -> isize {
     let mut new_pos = path.old_pos - diagonal;
     let mut count = 0;
     while new_pos + 1 < new.len() as isize
@@ -61,7 +61,7 @@ fn common(path: &mut SearchPath, old: &[&str], new: &[&str], diagonal: isize) ->
     new_pos
 }
 
-fn values(path: SearchPath, old: &[&str], new: &[&str]) -> Vec<Part> {
+fn values(path: SearchPath, old: &[&[u16]], new: &[&[u16]]) -> Vec<Part> {
     let mut old_pos = 0;
     let mut new_pos = 0;
     path.components
@@ -87,9 +87,9 @@ fn values(path: SearchPath, old: &[&str], new: &[&str]) -> Vec<Part> {
         .collect()
 }
 
-fn diff_lines(old: &str, new: &str) -> Vec<Part> {
-    let old: Vec<_> = old.split_inclusive('\n').collect();
-    let new: Vec<_> = new.split_inclusive('\n').collect();
+fn diff_lines(old: &[u16], new: &[u16]) -> Vec<Part> {
+    let old: Vec<_> = old.split_inclusive(|u| *u == 10).collect();
+    let new: Vec<_> = new.split_inclusive(|u| *u == 10).collect();
     let mut seed = SearchPath {
         old_pos: -1,
         components: Vec::new(),
@@ -143,11 +143,26 @@ fn diff_lines(old: &str, new: &str) -> Vec<Part> {
     unreachable!("unbounded Myers search reaches the end of a finite graph")
 }
 
-fn display(parts: &[Part], old: &str, new: &str) -> (String, Option<usize>) {
+fn prefixed(prefix: &str, line: &[u16]) -> Vec<u16> {
+    prefix.encode_utf16().chain(line.iter().copied()).collect()
+}
+
+fn join(lines: &[Vec<u16>]) -> Vec<u16> {
+    let mut output = Vec::new();
+    for (i, line) in lines.iter().enumerate() {
+        if i > 0 {
+            output.push(10);
+        }
+        output.extend_from_slice(line);
+    }
+    output
+}
+
+fn display(parts: &[Part], old: &[u16], new: &[u16]) -> (Vec<u16>, Option<usize>) {
     let width = old
-        .split('\n')
+        .split(|u| *u == 10)
         .count()
-        .max(new.split('\n').count())
+        .max(new.split(|u| *u == 10).count())
         .to_string()
         .len();
     let mut old_line = 1;
@@ -155,18 +170,18 @@ fn display(parts: &[Part], old: &str, new: &str) -> (String, Option<usize>) {
     let mut first = None;
     let mut output = Vec::new();
     for (i, part) in parts.iter().enumerate() {
-        let mut lines: Vec<_> = part.value.split('\n').collect();
-        if lines.last() == Some(&"") {
+        let mut lines: Vec<_> = part.value.split(|u| *u == 10).collect();
+        if lines.last().is_some_and(|line| line.is_empty()) {
             lines.pop();
         }
         if part.kind != Kind::Common {
             first.get_or_insert(new_line);
             for line in lines {
                 if part.kind == Kind::Add {
-                    output.push(format!("+{new_line:>width$} {line}"));
+                    output.push(prefixed(&format!("+{new_line:>width$} "), line));
                     new_line += 1;
                 } else {
-                    output.push(format!("-{old_line:>width$} {line}"));
+                    output.push(prefixed(&format!("-{old_line:>width$} "), line));
                     old_line += 1;
                 }
             }
@@ -178,32 +193,38 @@ fn display(parts: &[Part], old: &str, new: &str) -> (String, Option<usize>) {
         for (j, line) in lines.iter().enumerate() {
             let show = (leading && j < 4) || (trailing && j >= lines.len().saturating_sub(4));
             if show {
-                output.push(format!(" {old_line:>width$} {line}"));
+                output.push(prefixed(&format!(" {old_line:>width$} "), line));
                 skipped = false;
             } else if (leading || trailing) && !skipped {
-                output.push(format!(" {:>width$} ...", ""));
+                output.push(format!(" {:>width$} ...", "").encode_utf16().collect());
                 skipped = true;
             }
             old_line += 1;
             new_line += 1;
         }
     }
-    (output.join("\n"), first)
+    (join(&output), first)
 }
 
-fn patch(parts: &[Part], path: &str) -> String {
+fn patch(parts: &[Part], path: &str) -> Vec<u16> {
     let mut old_line = 1;
     let mut new_line = 1;
     let mut start = None;
-    let mut range: Vec<String> = Vec::new();
-    let mut previous: Vec<&str> = Vec::new();
-    let mut output = vec![format!("--- {path}"), format!("+++ {path}")];
+    let mut range: Vec<Vec<u16>> = Vec::new();
+    let mut previous: Vec<&[u16]> = Vec::new();
+    let mut output = vec![
+        prefixed(&format!("--- {path}"), &[]),
+        prefixed(&format!("+++ {path}"), &[]),
+    ];
     // The empty final common component closes a last change exactly like structuredPatch.
     for i in 0..=parts.len() {
         let (kind, lines) = if i < parts.len() {
             (
                 parts[i].kind,
-                parts[i].value.split_inclusive('\n').collect::<Vec<_>>(),
+                parts[i]
+                    .value
+                    .split_inclusive(|u| *u == 10)
+                    .collect::<Vec<_>>(),
             )
         } else {
             (Kind::Common, Vec::new())
@@ -212,10 +233,10 @@ fn patch(parts: &[Part], path: &str) -> String {
             if start.is_none() {
                 let context = &previous[previous.len().saturating_sub(4)..];
                 start = Some((old_line - context.len(), new_line - context.len()));
-                range.extend(context.iter().map(|line| format!(" {line}")));
+                range.extend(context.iter().map(|line| prefixed(" ", line)));
             }
             let prefix = if kind == Kind::Add { '+' } else { '-' };
-            range.extend(lines.iter().map(|line| format!("{prefix}{line}")));
+            range.extend(lines.iter().map(|line| prefixed(&prefix.to_string(), line)));
             if kind == Kind::Add {
                 new_line += lines.len();
             } else {
@@ -224,10 +245,10 @@ fn patch(parts: &[Part], path: &str) -> String {
         } else {
             if let Some((old_start, new_start)) = start {
                 if lines.len() <= 8 && i + 1 < parts.len() {
-                    range.extend(lines.iter().map(|line| format!(" {line}")));
+                    range.extend(lines.iter().map(|line| prefixed(" ", line)));
                 } else {
                     let context = lines.len().min(4);
-                    range.extend(lines[..context].iter().map(|line| format!(" {line}")));
+                    range.extend(lines[..context].iter().map(|line| prefixed(" ", line)));
                     let old_count = old_line - old_start + context;
                     let new_count = new_line - new_start + context;
                     let old_start = if old_count == 0 {
@@ -240,15 +261,16 @@ fn patch(parts: &[Part], path: &str) -> String {
                     } else {
                         new_start
                     };
-                    output.push(format!(
-                        "@@ -{old_start},{old_count} +{new_start},{new_count} @@"
+                    output.push(prefixed(
+                        &format!("@@ -{old_start},{old_count} +{new_start},{new_count} @@"),
+                        &[],
                     ));
                     for line in range.drain(..) {
-                        if let Some(line) = line.strip_suffix('\n') {
+                        if let Some(line) = line.strip_suffix(&[10]) {
                             output.push(line.to_owned());
                         } else {
                             output.push(line);
-                            output.push("\\ No newline at end of file".into());
+                            output.push(prefixed("\\ No newline at end of file", &[]));
                         }
                     }
                     start = None;
@@ -259,15 +281,34 @@ fn patch(parts: &[Part], path: &str) -> String {
         }
         previous = lines;
     }
-    output.join("\n") + "\n"
+    let mut output = join(&output);
+    output.push(10);
+    output
 }
 
-pub fn generate_edit_details(path: &str, base: &str, new: &str) -> Value {
+pub fn generate_edit_details(path: &str, base: &str, new: &str) -> ResultValue {
+    generate_edit_details_units(
+        path,
+        &base.encode_utf16().collect::<Vec<_>>(),
+        &new.encode_utf16().collect::<Vec<_>>(),
+    )
+}
+
+pub(super) fn generate_edit_details_units(path: &str, base: &[u16], new: &[u16]) -> ResultValue {
     let parts = diff_lines(base, new);
     let (diff, first) = display(&parts, base, new);
-    let mut details = json!({"diff":diff, "patch":patch(&parts, path)});
+    let mut details = BTreeMap::from([
+        (
+            "diff".into(),
+            ResultValue::String(ResultString::from_code_units(diff)),
+        ),
+        (
+            "patch".into(),
+            ResultValue::String(ResultString::from_code_units(patch(&parts, path))),
+        ),
+    ]);
     if let Some(first) = first {
-        details["firstChangedLine"] = json!(first);
+        details.insert("firstChangedLine".into(), ResultValue::number(first as f64));
     }
-    details
+    ResultValue::Object(details)
 }

@@ -17,8 +17,8 @@ fn every_successful_authority_corpus_diff_and_patch_is_byte_exact() {
             continue;
         }
         let source = std::fs::read_to_string(path).unwrap();
-        // Parse independent case blocks: Rust's certified string domain rejects the
-        // explicitly flagged lone-surrogate case, not every other case in its document.
+        // Scalar convenience-API checks. Non-scalar runtime diff values are
+        // exercised by the complete lossless corpus and composed C002 witness.
         for block in source.split("\n    - id:").skip(1) {
             let mut lines = block.lines();
             let body = format!(

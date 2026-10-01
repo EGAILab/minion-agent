@@ -1,6 +1,8 @@
 #![cfg(feature = "conformance")]
 #[path = "support/mutation_fs.rs"]
 mod fixture;
+#[path = "support/mutation_yaml.rs"]
+mod lossless;
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use fixture::{FixtureFs, Gate, Signal};
 use futures::FutureExt;
@@ -69,7 +71,7 @@ fn runtime_with_abort_control(fs: Arc<FixtureFs>, delay: Option<Duration>) -> Ar
     let mut write = create_write_tool(fs.clone());
     if let Some(delay) = delay {
         let execute = write.execute().clone();
-        let schema = write.schema();
+        let schema = write.schema().unwrap();
         write = minion_agent::tools::ToolDefinition::new(
             schema.name,
             schema.description,
@@ -277,7 +279,7 @@ async fn run_queue(document: &Value, abort_control: Option<Duration>) {
 }
 
 #[tokio::test(start_paused = true)]
-async fn canonical_non_corpus_mutations_and_all_queue_documents() {
+async fn scalar_non_corpus_subset_and_all_queue_documents() {
     let root =
         Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../conformance/agent/builtin-mutation");
     let mut paths: Vec<_> = std::fs::read_dir(root)
@@ -333,7 +335,125 @@ async fn canonical_non_corpus_mutations_and_all_queue_documents() {
         }
     }
     assert_eq!(queues, 11);
-    assert_eq!(case_count, 42); // 43 discovered, one explicitly unreachable lone-surrogate case.
+    assert_eq!(case_count, 42); // Scalar convenience subset; full lossless runner covers all 43.
+}
+
+#[tokio::test]
+async fn complete_builtin_mutation_case_corpus_including_unpaired_arguments() {
+    let root =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../conformance/agent/builtin-mutation");
+    let mut paths = std::fs::read_dir(root)
+        .unwrap()
+        .map(|e| e.unwrap().path())
+        .collect::<Vec<_>>();
+    paths.sort();
+    let mut documents = 0;
+    let mut cases = 0;
+    let mut unpaired = 0;
+    for path in paths {
+        let doc = lossless::decode(&std::fs::read_to_string(path).unwrap());
+        let input = doc.get("builtin_mutation").unwrap();
+        if input.get("queue").is_some() {
+            continue;
+        }
+        documents += 1;
+        let minion_agent::llm::RawValue::Array(all_cases) = input.get("cases").unwrap() else {
+            panic!("case array")
+        };
+        for case in all_cases {
+            let dir = tempfile::tempdir().unwrap();
+            if let Some(fixture) = input.get("fixture") {
+                build(dir.path(), &fixture.try_to_json().unwrap());
+            }
+            if let Some(fixture) = case.get("fixture") {
+                build(dir.path(), &fixture.try_to_json().unwrap());
+            }
+            let signal = Signal::default();
+            if case
+                .get("signal")
+                .is_some_and(|s| s == &minion_agent::llm::RawValue::from(json!("pre_aborted")))
+            {
+                signal.abort();
+            }
+            let fs = Arc::new(FixtureFs::new(
+                dir.path(),
+                "p",
+                input
+                    .get("provider")
+                    .map_or(Value::Null, |v| v.try_to_json().unwrap()),
+                Arc::default(),
+                vec![],
+                signal.clone(),
+                case.get("abort_after")
+                    .map(|v| v.as_string().unwrap().to_string().unwrap()),
+            ));
+            let call = ToolCall::new_raw(
+                "case",
+                case.get("tool")
+                    .unwrap()
+                    .as_string()
+                    .unwrap()
+                    .to_string()
+                    .unwrap(),
+                case.get("arguments").unwrap().clone(),
+            );
+            let batch = execute_tool_calls(
+                &runtime(fs.clone()).context(),
+                &[call],
+                ToolExecutionOptions::new(StopReason::ToolUse, 0.0).with_signal(Arc::new(signal)),
+            )
+            .await
+            .unwrap();
+            let message = &batch.messages[0];
+            let expected = case.get("expect").unwrap();
+            assert_eq!(
+                minion_agent::llm::ResultValue::Bool(message.is_error),
+                lossless::result(expected.get("is_error").unwrap()),
+                "{:?}: {:?}",
+                case.get("id"),
+                message.content
+            );
+            if expected.get("argument_validation_failure")
+                != Some(&minion_agent::llm::RawValue::Bool(true))
+            {
+                let minion_agent::llm::ToolResultContentBlock::Text(text) = &message.content[0]
+                else {
+                    panic!("text corpus")
+                };
+                if let Some(expected) = expected.get("text") {
+                    assert_eq!(
+                        minion_agent::llm::ResultValue::String(text.text.clone()),
+                        lossless::result(expected),
+                        "{:?}",
+                        case.get("id")
+                    );
+                }
+                if let Some(expected) = expected.get("details") {
+                    assert_eq!(
+                        message.details.as_ref().unwrap(),
+                        &lossless::result(expected),
+                        "{:?}",
+                        case.get("id")
+                    );
+                }
+            }
+            if let Some(expected) = expected.get("fs_calls") {
+                assert_eq!(json!(*fs.calls.lock()), expected.try_to_json().unwrap());
+            }
+            if let Some(expected) = expected.get("files_after") {
+                files(dir.path(), &expected.try_to_json().unwrap());
+            }
+            cases += 1;
+            if case.get("unpaired_surrogate_arguments")
+                == Some(&minion_agent::llm::RawValue::Bool(true))
+            {
+                unpaired += 1;
+            }
+        }
+    }
+    assert_eq!(documents, 15);
+    assert_eq!(cases, 417);
+    assert_eq!(unpaired, 3);
 }
 
 #[tokio::test(start_paused = true)]

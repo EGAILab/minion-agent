@@ -214,6 +214,19 @@ pub fn nfkc_unicode16(input: &str) -> Result<String, String> {
 /// Normalize one transaction's strings under a single verified artifact identity.
 /// There is no persistent pin cache: every batch re-verifies the loaded build.
 pub fn nfkc_unicode16_batch(inputs: &[&str]) -> Result<Vec<String>, String> {
+    let inputs: Vec<Vec<u16>> = inputs
+        .iter()
+        .map(|input| input.encode_utf16().collect())
+        .collect();
+    nfkc_unicode16_units_batch(&inputs.iter().map(Vec::as_slice).collect::<Vec<_>>())?
+        .into_iter()
+        .map(|output| String::from_utf16(&output).map_err(|e| failed(e.to_string())))
+        .collect()
+}
+
+/// The same filtered normalizer over JavaScript's complete UTF-16 domain.
+/// ICU preserves unpaired units; scalar conversion is not part of this API.
+pub fn nfkc_unicode16_units_batch(inputs: &[&[u16]]) -> Result<Vec<Vec<u16>>, String> {
     // Materialize the same complete ICU library set as the existing pin verifier.
     let _runtime = UCollator::try_from("en-001").map_err(|e| failed(e.to_string()))?;
     let identity = std::env::var_os("MINION_AGENT_ICU_IDENTITY")
@@ -248,7 +261,7 @@ pub fn nfkc_unicode16_batch(inputs: &[&str]) -> Result<Vec<String>, String> {
         let result = inputs
             .iter()
             .map(|input| {
-                let source: Vec<u16> = input.encode_utf16().collect();
+                let source = *input;
                 let length = i32::try_from(source.len())
                     .map_err(|_| failed("normalization input is too long"))?;
                 status = sys::UErrorCode::U_ZERO_ERROR;
@@ -279,7 +292,8 @@ pub fn nfkc_unicode16_batch(inputs: &[&str]) -> Result<Vec<String>, String> {
                 if status as i32 > 0 || written < 0 || written as usize >= output.len() {
                     return Err(failed("NFKC normalization failed"));
                 }
-                String::from_utf16(&output[..written as usize]).map_err(|e| failed(e.to_string()))
+                output.truncate(written as usize);
+                Ok(output)
             })
             .collect();
         sys::versioned_function!(unorm2_close)(normalizer);

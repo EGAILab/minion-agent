@@ -56,7 +56,9 @@ fn cases(source: &str) -> Vec<Value> {
                 Err(e) => {
                     assert!(body.contains("unpaired_surrogate_arguments: true"), "{e}");
                     assert!(serde_json::from_str::<Value>(r#""\ud800""#).is_err());
-                    None // Explicit certified-string-domain hazard rejection, never a pass.
+                    // This legacy scalar-JSON subset does not decode UTF-16 YAML.
+                    // The lossless 417-case runner executes this case separately.
+                    None
                 }
             }
         })
@@ -72,7 +74,7 @@ fn bytes(file: &Value) -> Vec<u8> {
 }
 
 #[tokio::test]
-async fn pinned_authority_corpus_runs_through_real_tools_and_layer_six() {
+async fn scalar_json_authority_subset_runs_through_real_tools_and_layer_six() {
     let root =
         Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../conformance/agent/builtin-mutation");
     let mut count = 0;
@@ -167,9 +169,9 @@ async fn pinned_authority_corpus_runs_through_real_tools_and_layer_six() {
     }
     assert_eq!(
         count, 372,
-        "374 discovered; two certified-string-domain hazards rejected separately"
+        "372 scalar subset cases; all 374 are covered by the lossless runner"
     );
     eprintln!(
-        "production authority corpus: {count} executed (explicit lone-surrogate hazard excluded)"
+        "scalar JSON subset: {count}; full UTF-16 corpus is exercised by builtin_mutation_conformance"
     );
 }

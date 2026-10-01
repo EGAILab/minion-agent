@@ -19,6 +19,8 @@ fn replacements_are_matched_against_the_original_not_incrementally() {
         )
         .unwrap_err()
         .message()
+        .as_str()
+        .unwrap()
         .contains("Could not find edits[1]")
     );
 }

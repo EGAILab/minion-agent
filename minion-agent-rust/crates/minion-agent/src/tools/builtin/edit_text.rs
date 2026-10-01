@@ -7,10 +7,33 @@ pub fn fuzzy_normalize(text: &str) -> Result<String, ToolCapabilityError> {
     Ok(finish(&normalized))
 }
 
-pub(super) fn fuzzy_normalize_batch(inputs: &[&str]) -> Result<Vec<String>, ToolCapabilityError> {
-    minion_agent_pinned_icu::nfkc_unicode16_batch(inputs)
-        .map(|values| values.iter().map(|value| finish(value)).collect())
+pub(super) fn fuzzy_normalize_units(
+    inputs: &[&[u16]],
+) -> Result<Vec<Vec<u16>>, ToolCapabilityError> {
+    minion_agent_pinned_icu::nfkc_unicode16_units_batch(inputs)
+        .map(|values| values.iter().map(|value| finish_units(value)).collect())
         .map_err(ToolCapabilityError::new)
+}
+
+fn finish_units(normalized: &[u16]) -> Vec<u16> {
+    let mut output = Vec::new();
+    for (i, line) in normalized.split(|unit| *unit == 10).enumerate() {
+        if i > 0 {
+            output.push(10);
+        }
+        let end = line
+            .iter()
+            .rposition(|unit| char::from_u32(u32::from(*unit)).is_none_or(|c| !js_whitespace(c)))
+            .map_or(0, |i| i + 1);
+        output.extend(line[..end].iter().map(|unit| match *unit {
+            0x2018..=0x201b => 39,
+            0x201c..=0x201f => 34,
+            0x2010..=0x2015 | 0x2212 => 45,
+            0xa0 | 0x2002..=0x200a | 0x202f | 0x205f | 0x3000 => 32,
+            unit => unit,
+        }));
+    }
+    output
 }
 
 fn finish(normalized: &str) -> String {

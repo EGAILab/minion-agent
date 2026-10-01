@@ -6,10 +6,10 @@ use super::{
 };
 use crate::{
     execution::FileSystem,
-    llm::{TextBlock, ToolResultContentBlock},
+    llm::{ResultTextBlock, ResultValue, ToolResultContentBlock},
     tools::{
-        AgentToolResult, PreparedValue, ToolCapabilityError, ToolDefinition, ToolExecutionRequest,
-        ToolExecutionSignal,
+        AgentToolResult, PreparedString, PreparedValue, ToolCapabilityError, ToolDefinition,
+        ToolExecutionRequest, ToolExecutionSignal,
     },
 };
 use serde_json::json;
@@ -25,10 +25,10 @@ pub(super) fn check_abort(
     }
 }
 
-pub(super) fn text_result(text: String, details: serde_json::Value) -> AgentToolResult {
+pub(super) fn text_result(text: String, details: impl Into<ResultValue>) -> AgentToolResult {
     AgentToolResult {
-        content: vec![ToolResultContentBlock::Text(TextBlock::new(text))],
-        details,
+        content: vec![ToolResultContentBlock::Text(ResultTextBlock::new(text))],
+        details: details.into(),
         usage: None,
         added_tool_names: None,
         terminate: None,
@@ -40,7 +40,7 @@ async fn write(
     registration: Registration,
     working: String,
     path: String,
-    content: String,
+    content: PreparedString,
     signal: Option<Arc<dyn ToolExecutionSignal>>,
 ) -> Result<AgentToolResult, ToolCapabilityError> {
     let _entry = registration.acquire().await.map_err(|e| {
@@ -61,14 +61,14 @@ async fn write(
         ))
     })?;
     check_abort(signal.as_ref())?;
-    fs.write_file(&working, content.as_bytes(), None)
+    fs.write_file(&working, content.to_utf8_lossy().as_bytes(), None)
         .await
         .map_err(|e| ToolCapabilityError::new(format!("Cannot write {path}: {}", cause(e.code))))?;
     check_abort(signal.as_ref())?;
     Ok(text_result(
         format!(
             "Successfully wrote {} bytes to {path}",
-            content.encode_utf16().count()
+            content.code_units().len()
         ),
         json!({}),
     ))
@@ -79,7 +79,10 @@ pub fn create_write_tool(fs: Arc<dyn FileSystem>) -> ToolDefinition {
         let fs = fs.clone();
         Box::pin(async move {
             let path = request.params.get("path").and_then(PreparedValue::as_str).ok_or_else(|| ToolCapabilityError::new("path is required"))?.to_owned();
-            let content = request.params.get("content").and_then(PreparedValue::as_str).ok_or_else(|| ToolCapabilityError::new("content is required"))?.to_owned();
+            let content = match request.params.get("content") {
+                Some(PreparedValue::String(content)) => content.clone(),
+                _ => return Err(ToolCapabilityError::new("content is required")),
+            };
             let working = preprocess_path(&path)?;
             let registration = Registration::new(fs.clone(), working.clone());
             // Do not race an abort against the worker. It retains the queue lock through

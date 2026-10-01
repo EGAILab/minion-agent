@@ -1,0 +1,537 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$comment": "Post-certification delta L0506-D003 (AI-006 / TOOL-005 / TOOL-017 / MINION-002: the tool-result runtime value domain; Owner decision WP132-RUST-C002-Q001 Option 1). Scenarios live in conformance/agent/tool-result-domain/*.json, discriminated by a top-level `tool_result_domain` key. For each case a runner registers ONE tool (no prepare_arguments, schema {type: object, properties: {}}) whose execute returns `tool.returns` (or throws `tool.throws`), registers the after-hook `hook` describes, executes one call with arguments {}, and OBSERVES -- by value, never by identity -- the result at every boundary: what the after-hook receives (`expect.hook`; null when mode is none), the tool_execution_end payload (`expect.execution_end`), the ToolResultMessage the pipeline produces from the final result (`expect.message`), and that message appended to a fresh session log and replayed (`expect.session`: the certified Layer-03 log keeps the live value, MINION-002). The runner performs no decoding, normalization or conversion on the pipeline's behalf. A gate-WP-13.2 document instead runs the REAL edit tool (`edit_case`). VALUE GRAMMAR: L0206-D002's -- {\"utf16\": units} a string (any UTF-16 code units, unpaired surrogates included); {\"number\": token} a number (see $defs.token, which adds NaN); {\"$keys\": [[units, value], ...]} an object whose keys need code units; any other object an object with those ASCII keys; arrays; true/false/null. OBJECTS COMPARE AS KEY SETS: enumeration order is L0206-D001's (K1). Pinned Pi's session FILE projection is recorded per case as `pi_session_file` (evidence only).",
+  "type": "object",
+  "required": [
+    "name",
+    "family",
+    "authority",
+    "pi_revision",
+    "requirements",
+    "witnesses",
+    "tool_result_domain"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "family": {
+      "const": "agent"
+    },
+    "authority": {
+      "type": "string",
+      "minLength": 1
+    },
+    "pi_revision": {
+      "type": "string",
+      "minLength": 1
+    },
+    "requirements": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string",
+        "pattern": "^[A-Z]+-[0-9]{3}$"
+      }
+    },
+    "witnesses": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "notes": {
+      "type": "string"
+    },
+    "gate": {
+      "const": "WP-13.2"
+    },
+    "tool_result_domain": {
+      "type": "object",
+      "required": [
+        "cases"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "cases": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "oneOf": [
+              {
+                "$ref": "#/$defs/case"
+              },
+              {
+                "$ref": "#/$defs/edit_case"
+              }
+            ]
+          }
+        }
+      }
+    }
+  },
+  "if": {
+    "required": [
+      "gate"
+    ]
+  },
+  "then": {
+    "properties": {
+      "tool_result_domain": {
+        "properties": {
+          "cases": {
+            "items": {
+              "$ref": "#/$defs/edit_case"
+            }
+          }
+        }
+      }
+    }
+  },
+  "else": {
+    "properties": {
+      "tool_result_domain": {
+        "properties": {
+          "cases": {
+            "items": {
+              "$ref": "#/$defs/case"
+            }
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "units": {
+      "type": "array",
+      "items": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 65535
+      }
+    },
+    "token": {
+      "anyOf": [
+        {
+          "enum": [
+            "+Infinity",
+            "-Infinity",
+            "-0",
+            "NaN"
+          ]
+        },
+        {
+          "type": "string",
+          "pattern": "^-?(0|[1-9][0-9]*)(\\.[0-9]+)?([eE][+-]?[0-9]+)?$"
+        }
+      ],
+      "$comment": "The L0206-D002-R002 token grammar plus NaN: a tool result is not produced by JSON.parse, and pinned Pi carries NaN in details unchanged through every in-memory boundary (L0506-D003). A NAMED token (+Infinity, -Infinity, -0, NaN) or a FINITE LITERAL that is exactly its binary64 value's ECMAScript Number::toString (PREFLIGHT, language-neutral, before dispatch; a violation fails the document). An integral finite literal is the binding's integer representation of that exact value. Observation is strict and total; the expected observation is computed from the scenario text, never through the fixture decoder."
+    },
+    "value": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": [
+            "utf16"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "utf16": {
+              "$ref": "#/$defs/units"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "number"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "number": {
+              "$ref": "#/$defs/token"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "$keys"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "$keys": {
+              "type": "array",
+              "items": {
+                "type": "array",
+                "prefixItems": [
+                  {
+                    "$ref": "#/$defs/units"
+                  },
+                  {
+                    "$ref": "#/$defs/value"
+                  }
+                ],
+                "minItems": 2,
+                "maxItems": 2
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "not": {
+            "anyOf": [
+              {
+                "required": [
+                  "utf16"
+                ]
+              },
+              {
+                "required": [
+                  "number"
+                ]
+              },
+              {
+                "required": [
+                  "$keys"
+                ]
+              }
+            ]
+          },
+          "propertyNames": {
+            "pattern": "^[ -~]*$"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/value"
+          }
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/value"
+          }
+        },
+        {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        }
+      ]
+    },
+    "case": {
+      "type": "object",
+      "required": [
+        "id",
+        "tool",
+        "hook",
+        "expect",
+        "pi_session_file"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "tool": {
+          "oneOf": [
+            {
+              "type": "object",
+              "required": [
+                "returns"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "returns": {
+                  "$ref": "#/$defs/stored"
+                }
+              }
+            },
+            {
+              "type": "object",
+              "required": [
+                "throws"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "throws": {
+                  "$ref": "#/$defs/value",
+                  "$comment": "a {\"utf16\": units} string"
+                }
+              }
+            }
+          ]
+        },
+        "hook": {
+          "$ref": "#/$defs/hook"
+        },
+        "expect": {
+          "type": "object",
+          "required": [
+            "hook",
+            "execution_end",
+            "message",
+            "session"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "hook": {
+              "oneOf": [
+                {
+                  "$ref": "#/$defs/observed"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "execution_end": {
+              "$ref": "#/$defs/observed"
+            },
+            "message": {
+              "$ref": "#/$defs/observed"
+            },
+            "session": {
+              "$ref": "#/$defs/stored"
+            }
+          }
+        },
+        "pi_session_file": {
+          "type": "object",
+          "required": [
+            "line_utf8_hex",
+            "reload"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "line_utf8_hex": {
+              "type": "string",
+              "pattern": "^([0-9a-f]{2})+$"
+            },
+            "reload": {
+              "$ref": "#/$defs/stored"
+            }
+          },
+          "$comment": "EVIDENCE ONLY, asserted by no current runner: pinned Pi's session FILE projection of this result (session-manager.ts `${JSON.stringify(entry)}\\n`, then JSON.parse on reload). Minion has no session file today; a future persisted form MUST reproduce this projection there and only there."
+        }
+      }
+    },
+    "observed": {
+      "type": "object",
+      "required": [
+        "content",
+        "details",
+        "is_error"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "content": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "utf16"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "utf16": {
+                "$ref": "#/$defs/units"
+              }
+            }
+          },
+          "$comment": "the result's text content blocks, in order"
+        },
+        "details": {
+          "$ref": "#/$defs/value"
+        },
+        "is_error": {
+          "type": "boolean"
+        }
+      }
+    },
+    "stored": {
+      "type": "object",
+      "required": [
+        "content",
+        "details"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "content": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "utf16"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "utf16": {
+                "$ref": "#/$defs/units"
+              }
+            }
+          },
+          "$comment": "the result's text content blocks, in order"
+        },
+        "details": {
+          "$ref": "#/$defs/value"
+        }
+      }
+    },
+    "hook": {
+      "type": "object",
+      "required": [
+        "mode"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "mode": {
+          "enum": [
+            "none",
+            "observe",
+            "same",
+            "null",
+            "replace",
+            "throws"
+          ]
+        },
+        "content": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "utf16"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "utf16": {
+                "$ref": "#/$defs/units"
+              }
+            }
+          },
+          "$comment": "the result's text content blocks, in order"
+        },
+        "details": {
+          "$ref": "#/$defs/value"
+        },
+        "message": {
+          "$ref": "#/$defs/value",
+          "$comment": "a {\"utf16\": units} string"
+        }
+      },
+      "$comment": "none: no after-hook. observe: returns nothing. same: returns {content, details} = what it received. null: returns {details: null} (pinned Pi `afterResult.details ?? result.details` keeps the tool's details). replace: returns the given content and/or details. throws: throws an error whose message is `message`."
+    },
+    "edit_case": {
+      "type": "object",
+      "required": [
+        "id",
+        "edit",
+        "hook",
+        "expect",
+        "pi_session_file"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "edit": {
+          "type": "object",
+          "required": [
+            "file_utf8_hex",
+            "arguments"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "file_utf8_hex": {
+              "type": "string",
+              "pattern": "^([0-9a-f]{2})*$"
+            },
+            "arguments": {
+              "type": "object",
+              "required": [
+                "path",
+                "edits"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "path": {
+                  "const": "f.txt"
+                },
+                "edits": {
+                  "$ref": "#/$defs/value",
+                  "$comment": "a {\"utf16\": units} string"
+                }
+              }
+            }
+          }
+        },
+        "hook": {
+          "$ref": "#/$defs/hook"
+        },
+        "expect": {
+          "type": "object",
+          "required": [
+            "hook",
+            "execution_end",
+            "message",
+            "session",
+            "file_utf8_hex"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "hook": {
+              "oneOf": [
+                {
+                  "$ref": "#/$defs/observed"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "execution_end": {
+              "$ref": "#/$defs/observed"
+            },
+            "message": {
+              "$ref": "#/$defs/observed"
+            },
+            "session": {
+              "$ref": "#/$defs/stored"
+            },
+            "file_utf8_hex": {
+              "type": "string",
+              "pattern": "^([0-9a-f]{2})*$"
+            }
+          }
+        },
+        "pi_session_file": {
+          "type": "object",
+          "required": [
+            "line_utf8_hex",
+            "reload"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "line_utf8_hex": {
+              "type": "string",
+              "pattern": "^([0-9a-f]{2})+$"
+            },
+            "reload": {
+              "$ref": "#/$defs/stored"
+            }
+          },
+          "$comment": "EVIDENCE ONLY, asserted by no current runner: pinned Pi's session FILE projection of this result (session-manager.ts `${JSON.stringify(entry)}\\n`, then JSON.parse on reload). Minion has no session file today; a future persisted form MUST reproduce this projection there and only there."
+        }
+      },
+      "$comment": "gate WP-13.2 only: the REAL edit tool on a fixture f.txt holding file_utf8_hex."
+    }
+  }
+}

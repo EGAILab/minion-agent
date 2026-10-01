@@ -65,6 +65,9 @@ RAW_ARGUMENTS_DIR = CONFORMANCE / "agent" / "raw-arguments"
 SCHEMA_DOMAIN_SCHEMA = CONFORMANCE / "schema" / "schema-domain-scenario.schema.json"
 # Layer-05 delta L05-D001 (TOOL-016/TOOL-003 schema string domain): own directory and JSON shape.
 SCHEMA_DOMAIN_DIR = CONFORMANCE / "agent" / "schema-domain"
+TOOL_RESULT_DOMAIN_SCHEMA = CONFORMANCE / "schema" / "tool-result-domain-scenario.schema.json"
+# Layer 05/06 delta L0506-D003 (AI-006/TOOL-005/TOOL-017/MINION-002 tool-result value domain).
+TOOL_RESULT_DOMAIN_DIR = CONFORMANCE / "agent" / "tool-result-domain"
 
 # Families whose scenarios arrive in a later plan. Their schema must still exist
 # and must still be a valid JSON Schema. Empty now that every family is
@@ -928,3 +931,76 @@ def test_schema_domain_schema_rejects_malformed_cases(mutation: Any) -> None:
     document = copy.deepcopy(json.loads(path.read_text(encoding="utf-8")))
     mutation(document["schema_domain"]["cases"][0])
     assert list(_schema_domain_validator().iter_errors(document))
+
+
+def _tool_result_validator() -> Draft202012Validator:
+    return Draft202012Validator(json.loads(TOOL_RESULT_DOMAIN_SCHEMA.read_text(encoding="utf-8")))
+
+
+def _tool_result_document(name: str) -> dict[str, Any]:
+    path = TOOL_RESULT_DOMAIN_DIR / f"{name}.json"
+    return copy.deepcopy(json.loads(path.read_text(encoding="utf-8")))
+
+
+def test_tool_result_domain_schema_is_wellformed() -> None:
+    Draft202012Validator.check_schema(
+        json.loads(TOOL_RESULT_DOMAIN_SCHEMA.read_text(encoding="utf-8"))
+    )
+
+
+@pytest.mark.parametrize(
+    "scenario", sorted(TOOL_RESULT_DOMAIN_DIR.glob("*.json")), ids=lambda value: value.stem
+)
+def test_tool_result_domain_scenario_validates(scenario: Path) -> None:
+    document = json.loads(scenario.read_text(encoding="utf-8"))
+    assert "tool_result_domain" in document
+    assert not list(_tool_result_validator().iter_errors(document))
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        lambda c: c.pop("expect"),
+        lambda c: c.pop("pi_session_file"),
+        lambda c: c["expect"].pop("session"),
+        lambda c: c["expect"]["message"].pop("is_error"),
+        lambda c: c["tool"]["returns"]["details"].__setitem__("$keys", [[[65536], True]]),
+        lambda c: c["tool"]["returns"].__setitem__("details", 1),
+        lambda c: c["tool"]["returns"].__setitem__("details", {"number": "1garbage"}),
+        lambda c: c["tool"]["returns"]["content"].append({"utf16": [65], "x": 1}),
+        lambda c: c["hook"].__setitem__("mode", "rewrite"),
+        lambda c: c.__setitem__("edit", {"file_utf8_hex": "610a"}),
+    ],
+    ids=[
+        "no-expect",
+        "no-pi-session-file",
+        "no-session-boundary",
+        "no-is-error",
+        "code-unit-above-ffff",
+        "bare-number",
+        "malformed-number-token",
+        "content-block-extra-key",
+        "unknown-hook-mode",
+        "edit-in-a-generic-document",
+    ],
+)
+def test_tool_result_domain_schema_rejects_malformed_cases(mutation: Any) -> None:
+    document = _tool_result_document("tool-result-key-domain")
+    mutation(document["tool_result_domain"]["cases"][0])
+    assert list(_tool_result_validator().iter_errors(document))
+
+
+def test_tool_result_domain_admits_nan_which_the_raw_domain_refuses() -> None:
+    """L0506-D003: a tool result is not produced by JSON.parse; pinned Pi carries NaN in details."""
+    document = _tool_result_document("tool-result-key-domain")
+    document["tool_result_domain"]["cases"][0]["tool"]["returns"]["details"] = {"number": "NaN"}
+    assert not list(_tool_result_validator().iter_errors(document))
+
+
+def test_a_gate_document_holds_only_real_edit_cases() -> None:
+    document = _tool_result_document("tool-result-failure")
+    document["gate"] = "WP-13.2"
+    assert list(_tool_result_validator().iter_errors(document))
+    gate = _tool_result_document("gate-wp132-edit-result")
+    del gate["gate"]
+    assert list(_tool_result_validator().iter_errors(gate))

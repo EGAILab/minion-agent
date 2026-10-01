@@ -93,10 +93,22 @@ rows:
   phase: 2
   pi: packages/ai/src/types.ts::ToolResultMessage
   surface: tool result shape
-  rule: ToolResultMessage tool_call_id/tool_name/content/details/usage/added_tool_names/is_error; tool_name is required, not optional (delta finding A -- packages/ai/src/types.ts has no `?` on toolName, and spec/llm.md already specified it required before Python's implementation was corrected to match)
+  rule: 'ToolResultMessage tool_call_id/tool_name/content/details/usage/added_tool_names/is_error; tool_name is required, not optional (delta finding A -- packages/ai/src/types.ts has no `?` on toolName, and spec/llm.md already specified it required before Python''s implementation was corrected to match).
+    L0506-D003 (minion-agent#112; Owner decision WP132-RUST-C002-Q001 Option 1, minion-agent#49
+    issuecomment-5937380474; intentional divergence NONE) -- CONTRACT_DRAFT (Rust NOT_IMPLEMENTED): content text
+    and details hold pinned Pi''s tool-result runtime value domain -- JavaScript strings of any UTF-16 code units
+    in text and at any depth of details, details keys included, numbers incl. -0, +/-Infinity and NaN -- unchanged
+    from the tool''s return through the after-hook (TOOL-005), tool_execution_end (TOOL-017), the
+    ToolResultMessage and session append/replay (MINION-002). Key order is L0206-D001''s; undefined/absent details
+    stay IR-L06-004''s host mapping. Projections (filesystem UTF-8, Pi''s session file, provider payloads) are
+    separate boundaries. Full rules: spec/tools.md ''Tool-result runtime value domain''.'
   tests:
   - public-llm-vocabulary-schema
   - rich-assistant-message-round-trip
+  - 'tool_result_runtime_value_domain -- L0506-D003: conformance/agent/tool-result-domain/ (shape
+    tool-result-domain-scenario.schema.json; 143 gate-L0506-D003 cases + 1 gate-WP-13.2 real-edit case, generated
+    from the pinned-Pi probe in minion-agent-docs assurance/layers/data/l0506-d003-characterization);
+    tests/conformance/test_tool_result_domain_conformance.py, tests/tools/test_tool_result_domain_negative_controls.py'
   python: src/minion_agent/llm/messages.py (rewrite)
   rust: 'minion-agent-rust/crates/minion-agent/src/llm/vocabulary.rs::ToolResultMessage (merged, tool_name
     required as String, PR #3 @ 05acd1a, post-certification delta fix PR #5 @ 7e45cd1);
@@ -2927,6 +2939,10 @@ rows:
     still needs repair (assurance/layers/05-06-independent-review-remediation.md), out of scope for
     this shared/Python-only pass.'
   tests:
+  - 'tool_result_runtime_value_domain -- L0506-D003: conformance/agent/tool-result-domain/ (shape
+    tool-result-domain-scenario.schema.json; 143 gate-L0506-D003 cases + 1 gate-WP-13.2 real-edit case, generated
+    from the pinned-Pi probe in minion-agent-docs assurance/layers/data/l0506-d003-characterization);
+    tests/conformance/test_tool_result_domain_conformance.py, tests/tools/test_tool_result_domain_negative_controls.py'
   - after-hook-failure-replaces-result-with-tool-error
   - test_omitted_fields_are_unchanged
   - test_there_is_no_deep_merge
@@ -3338,6 +3354,10 @@ rows:
     expect_messages now asserts the exact text "Tool nonexistent not found" for its unresolvable
     call, runnable identically once Rust implements the same scenario.'
   tests:
+  - 'tool_result_runtime_value_domain -- L0506-D003: conformance/agent/tool-result-domain/ (shape
+    tool-result-domain-scenario.schema.json; 143 gate-L0506-D003 cases + 1 gate-WP-13.2 real-edit case, generated
+    from the pinned-Pi probe in minion-agent-docs assurance/layers/data/l0506-d003-characterization);
+    tests/conformance/test_tool_result_domain_conformance.py, tests/tools/test_tool_result_domain_negative_controls.py'
   - test_execute_receives_the_real_tool_call_id
   - length-stop-executes-no-tools (start/end fire even when execution never happens)
   - test_an_unknown_tool_produces_an_error_result (IR-L06-003, exact-equality text)
@@ -5613,6 +5633,10 @@ rows:
     unpaired surrogates, -0 and +/-Infinity unchanged; the log is not a byte form, so no JSON projection applies.'
   tests:
   - session derivation/reconstruction suite
+  - 'tool_result_runtime_value_domain -- L0506-D003: conformance/agent/tool-result-domain/ (shape
+    tool-result-domain-scenario.schema.json; 143 gate-L0506-D003 cases + 1 gate-WP-13.2 real-edit case, generated
+    from the pinned-Pi probe in minion-agent-docs assurance/layers/data/l0506-d003-characterization);
+    tests/conformance/test_tool_result_domain_conformance.py, tests/tools/test_tool_result_domain_negative_controls.py'
   python: src/minion_agent/session/ (retain/realign)
   rust: 'minion-agent-rust/crates/minion-agent/src/session/mod.rs (merged, PR #4 @ 2519fc1;
     post-certification delta fixes for SES-F004/F006/F007/F008 in PR #5 @ 7e45cd1; SES-F009

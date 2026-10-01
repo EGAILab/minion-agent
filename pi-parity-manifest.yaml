@@ -3289,7 +3289,7 @@ rows:
   - test_tool_registry_parameters_domain (canonical-schema domain matrix, including the
     non-object-instance and top-level-combinator regression cases)
   - runtime_validation_schema_string_domain -- conformance/agent/schema-domain/ (shape
-    schema-domain-scenario.schema.json; 9 roles x 9 schema members x 9 instance members = 729 cases,
+    schema-domain-scenario.schema.json; 10 roles x 9 schema members x 9 instance members = 810 cases,
     generated from the pinned-Pi probe in minion-agent-docs assurance/layers/data/l05-d001-schema-domain);
     tests/conformance/test_schema_domain_conformance.py, tests/tools/test_schema_domain_negative_controls.py
   python: src/minion_agent/tools/definition.py::ToolDefinition.parameters, ToolDefinition.__post_init__

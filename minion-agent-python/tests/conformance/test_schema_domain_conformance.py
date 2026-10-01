@@ -16,7 +16,7 @@ CASES = [case for document in DOCUMENTS for case in document["schema_domain"]["c
 
 
 def test_schema_domain_cases_exist() -> None:
-    assert len(DOCUMENTS) == 9 and len(CASES) == 729  # 9 roles x 9 schema x 9 instance members
+    assert len(DOCUMENTS) == 10 and len(CASES) == 810  # 10 roles x 9 schema x 9 instance members
 
 
 @pytest.mark.parametrize("case", CASES, ids=lambda case: case["id"])

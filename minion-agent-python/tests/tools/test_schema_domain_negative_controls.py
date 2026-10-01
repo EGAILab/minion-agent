@@ -137,3 +137,39 @@ async def test_normalizing_instance_property_names_is_killed(
     )
     keyed = ("properties-required/lone-high/lone-high", "property-names-const/lone-high/lone-high")
     assert await _killed(*keyed)() == sorted(keyed)
+
+
+# Pi accepts: no Unicode-mode match of a pair's half inside a key holding the pair
+PATTERN_PROPERTY_HALVES = (
+    "pattern-properties-unanchored/pair-high-half/pair",
+    "pattern-properties-unanchored/pair-low-half/pair",
+)
+PATTERN_PROPERTY_GUARD = (  # Pi rejects: a genuinely unpaired surrogate matches where it occurs
+    "pattern-properties-unanchored/lone-high/pair-then-lone-high",
+)
+
+
+async def test_a_code_unit_pattern_properties_matcher_is_killed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """L05-D001-R001: `patternProperties` has its own keyword implementation. A code-unit key
+    matcher (the `pattern` keyword left correct) finds a pair's half inside a key holding the pair
+    and wrongly applies the subschema; the genuine-unpaired guard stays correct under it."""
+    assert await _killed(*PATTERN_PROPERTY_HALVES, *PATTERN_PROPERTY_GUARD)() == []
+    validators = dict(execute_module.PreparedArgumentsValidator.VALIDATORS)
+
+    def code_unit_pattern_properties(
+        validator: Any, pattern_properties: dict[str, Any], instance: Any, schema: Any
+    ) -> Any:
+        if not isinstance(instance, dict):
+            return
+        for pattern, subschema in pattern_properties.items():
+            for key, value in instance.items():
+                if re.search(_split(pattern), _split(key)):
+                    yield from validator.descend(value, subschema, path=key, schema_path=pattern)
+
+    validators["patternProperties"] = code_unit_pattern_properties
+    monkeypatch.setattr(execute_module.PreparedArgumentsValidator, "VALIDATORS", validators)
+    assert await _killed(*PATTERN_PROPERTY_HALVES)() == sorted(PATTERN_PROPERTY_HALVES)
+    assert await _killed(*PATTERN_PROPERTY_GUARD)() == []
+    assert await _killed(*PAIR_HALVES)() == []  # the `pattern` keyword itself is untouched

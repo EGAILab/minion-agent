@@ -1,0 +1,4106 @@
+{
+ "name": "tool-result-number-domain",
+ "family": "agent",
+ "authority": "pinned Pi b7bb00b9 agent-loop.ts executeToolCalls/executeToolCallsSequential .. emitToolResultMessage (sliced, toolExecution sequential; a custom tool + afterToolCall) + coding-agent session-manager.ts `${JSON.stringify(entry)}\\n` / parseSessionEntries, under Node 22.15.1 (L0506-D003 result-domain probe)",
+ "pi_revision": "b7bb00b936dbe21b8e160b3e89efdec361846699",
+ "requirements": [
+  "AI-006",
+  "TOOL-005",
+  "TOOL-017",
+  "MINION-002"
+ ],
+ "witnesses": [
+  "tool_result_runtime_value_domain"
+ ],
+ "notes": "Details numbers are binary64 incl. -0, +/-Infinity and NaN (NaN/+/-Infinity folded under the Owner decision's section 6; -0 a required witness). Pi's session FILE writes -0 as 0 and non-finite as null (pi_session_file). GENERATED from the pinned-Pi L0506-D003 probe; regenerate with harness/make_scenarios.py.",
+ "tool_result_domain": {
+  "cases": [
+   {
+    "id": "details-number/0",
+    "tool": {
+     "returns": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          118,
+          97,
+          108,
+          117,
+          101
+         ],
+         {
+          "number": "0"
+         }
+        ]
+       ]
+      }
+     }
+    },
+    "hook": {
+     "mode": "observe"
+    },
+    "expect": {
+     "hook": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          118,
+          97,
+          108,
+          117,
+          101
+         ],
+         {
+          "number": "0"
+         }
+        ]
+       ]
+      },
+      "is_error": false
+     },
+     "execution_end": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          118,
+          97,
+          108,
+          117,
+          101
+         ],
+         {
+          "number": "0"
+         }
+        ]
+       ]
+      },
+      "is_error": false
+     },
+     "message": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          118,
+          97,
+          108,
+          117,
+          101
+         ],
+         {
+          "number": "0"
+         }
+        ]
+       ]
+      },
+      "is_error": false
+     },
+     "session": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          118,
+          97,
+          108,
+          117,
+          101
+         ],
+         {
+          "number": "0"
+         }
+        ]
+       ]
+      }
+     }
+    },
+    "pi_session_file": {
+     "line_utf8_hex": "7b2274797065223a226d657373616765222c226964223a226531222c22706172656e744964223a6e756c6c2c2274696d657374616d70223a2274222c226d657373616765223a7b22726f6c65223a22746f6f6c526573756c74222c22746f6f6c43616c6c4964223a2263616c6c2d31222c22746f6f6c4e616d65223a2270726f6265222c22636f6e74656e74223a5b7b2274797065223a2274657874222c2274657874223a226f6b227d5d2c2264657461696c73223a7b2276616c7565223a307d2c2269734572726f72223a66616c73652c2274696d657374616d70223a307d7d0a",
+     "reload": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          118,
+          97,
+          108,
+          117,
+          101
+         ],
+         {
+          "number": "0"
+         }
+        ]
+       ]
+      }
+     }
+    }
+   },
+   {
+    "id": "details-array-number/0",
+    "tool": {
+     "returns": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          118,
+          97,
+          108,
+          117,
+          101,
+          115
+         ],
+         [
+          {
+           "number": "0"
+          }
+         ]
+        ]
+       ]
+      }
+     }
+    },
+    "hook": {
+     "mode": "observe"
+    },
+    "expect": {
+     "hook": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          118,
+          97,
+          108,
+          117,
+          101,
+          115
+         ],
+         [
+          {
+           "number": "0"
+          }
+         ]
+        ]
+       ]
+      },
+      "is_error": false
+     },
+     "execution_end": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          118,
+          97,
+          108,
+          117,
+          101,
+          115
+         ],
+         [
+          {
+           "number": "0"
+          }
+         ]
+        ]
+       ]
+      },
+      "is_error": false
+     },
+     "message": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          118,
+          97,
+          108,
+          117,
+          101,
+          115
+         ],
+         [
+          {
+           "number": "0"
+          }
+         ]
+        ]
+       ]
+      },
+      "is_error": false
+     },
+     "session": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          118,
+          97,
+          108,
+          117,
+          101,
+          115
+         ],
+         [
+          {
+           "number": "0"
+          }
+         ]
+        ]
+       ]
+      }
+     }
+    },
+    "pi_session_file": {
+     "line_utf8_hex": "7b2274797065223a226d657373616765222c226964223a226531222c22706172656e744964223a6e756c6c2c2274696d657374616d70223a2274222c226d657373616765223a7b22726f6c65223a22746f6f6c526573756c74222c22746f6f6c43616c6c4964223a2263616c6c2d31222c22746f6f6c4e616d65223a2270726f6265222c22636f6e74656e74223a5b7b2274797065223a2274657874222c2274657874223a226f6b227d5d2c2264657461696c73223a7b2276616c756573223a5b305d7d2c2269734572726f72223a66616c73652c2274696d657374616d70223a307d7d0a",
+     "reload": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          118,
+          97,
+          108,
+          117,
+          101,
+          115
+         ],
+         [
+          {
+           "number": "0"
+          }
+         ]
+        ]
+       ]
+      }
+     }
+    }
+   },
+   {
+    "id": "details-top-number/0",
+    "tool": {
+     "returns": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "number": "0"
+      }
+     }
+    },
+    "hook": {
+     "mode": "observe"
+    },
+    "expect": {
+     "hook": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "number": "0"
+      },
+      "is_error": false
+     },
+     "execution_end": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "number": "0"
+      },
+      "is_error": false
+     },
+     "message": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "number": "0"
+      },
+      "is_error": false
+     },
+     "session": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "number": "0"
+      }
+     }
+    },
+    "pi_session_file": {
+     "line_utf8_hex": "7b2274797065223a226d657373616765222c226964223a226531222c22706172656e744964223a6e756c6c2c2274696d657374616d70223a2274222c226d657373616765223a7b22726f6c65223a22746f6f6c526573756c74222c22746f6f6c43616c6c4964223a2263616c6c2d31222c22746f6f6c4e616d65223a2270726f6265222c22636f6e74656e74223a5b7b2274797065223a2274657874222c2274657874223a226f6b227d5d2c2264657461696c73223a302c2269734572726f72223a66616c73652c2274696d657374616d70223a307d7d0a",
+     "reload": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "number": "0"
+      }
+     }
+    }
+   },
+   {
+    "id": "details-number/-0",
+    "tool": {
+     "returns": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          118,
+          97,
+          108,
+          117,
+          101
+         ],
+         {
+          "number": "-0"
+         }
+        ]
+       ]
+      }
+     }
+    },
+    "hook": {
+     "mode": "observe"
+    },
+    "expect": {
+     "hook": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          118,
+          97,
+          108,
+          117,
+          101
+         ],
+         {
+          "number": "-0"
+         }
+        ]
+       ]
+      },
+      "is_error": false
+     },
+     "execution_end": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          118,
+          97,
+          108,
+          117,
+          101
+         ],
+         {
+          "number": "-0"
+         }
+        ]
+       ]
+      },
+      "is_error": false
+     },
+     "message": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          118,
+          97,
+          108,
+          117,
+          101
+         ],
+         {
+          "number": "-0"
+         }
+        ]
+       ]
+      },
+      "is_error": false
+     },
+     "session": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          118,
+          97,
+          108,
+          117,
+          101
+         ],
+         {
+          "number": "-0"
+         }
+        ]
+       ]
+      }
+     }
+    },
+    "pi_session_file": {
+     "line_utf8_hex": "7b2274797065223a226d657373616765222c226964223a226531222c22706172656e744964223a6e756c6c2c2274696d657374616d70223a2274222c226d657373616765223a7b22726f6c65223a22746f6f6c526573756c74222c22746f6f6c43616c6c4964223a2263616c6c2d31222c22746f6f6c4e616d65223a2270726f6265222c22636f6e74656e74223a5b7b2274797065223a2274657874222c2274657874223a226f6b227d5d2c2264657461696c73223a7b2276616c7565223a307d2c2269734572726f72223a66616c73652c2274696d657374616d70223a307d7d0a",
+     "reload": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          118,
+          97,
+          108,
+          117,
+          101
+         ],
+         {
+          "number": "0"
+         }
+        ]
+       ]
+      }
+     }
+    }
+   },
+   {
+    "id": "details-array-number/-0",
+    "tool": {
+     "returns": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          118,
+          97,
+          108,
+          117,
+          101,
+          115
+         ],
+         [
+          {
+           "number": "-0"
+          }
+         ]
+        ]
+       ]
+      }
+     }
+    },
+    "hook": {
+     "mode": "observe"
+    },
+    "expect": {
+     "hook": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          118,
+          97,
+          108,
+          117,
+          101,
+          115
+         ],
+         [
+          {
+           "number": "-0"
+          }
+         ]
+        ]
+       ]
+      },
+      "is_error": false
+     },
+     "execution_end": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          118,
+          97,
+          108,
+          117,
+          101,
+          115
+         ],
+         [
+          {
+           "number": "-0"
+          }
+         ]
+        ]
+       ]
+      },
+      "is_error": false
+     },
+     "message": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          118,
+          97,
+          108,
+          117,
+          101,
+          115
+         ],
+         [
+          {
+           "number": "-0"
+          }
+         ]
+        ]
+       ]
+      },
+      "is_error": false
+     },
+     "session": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          118,
+          97,
+          108,
+          117,
+          101,
+          115
+         ],
+         [
+          {
+           "number": "-0"
+          }
+         ]
+        ]
+       ]
+      }
+     }
+    },
+    "pi_session_file": {
+     "line_utf8_hex": "7b2274797065223a226d657373616765222c226964223a226531222c22706172656e744964223a6e756c6c2c2274696d657374616d70223a2274222c226d657373616765223a7b22726f6c65223a22746f6f6c526573756c74222c22746f6f6c43616c6c4964223a2263616c6c2d31222c22746f6f6c4e616d65223a2270726f6265222c22636f6e74656e74223a5b7b2274797065223a2274657874222c2274657874223a226f6b227d5d2c2264657461696c73223a7b2276616c756573223a5b305d7d2c2269734572726f72223a66616c73652c2274696d657374616d70223a307d7d0a",
+     "reload": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          118,
+          97,
+          108,
+          117,
+          101,
+          115
+         ],
+         [
+          {
+           "number": "0"
+          }
+         ]
+        ]
+       ]
+      }
+     }
+    }
+   },
+   {
+    "id": "details-top-number/-0",
+    "tool": {
+     "returns": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "number": "-0"
+      }
+     }
+    },
+    "hook": {
+     "mode": "observe"
+    },
+    "expect": {
+     "hook": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "number": "-0"
+      },
+      "is_error": false
+     },
+     "execution_end": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "number": "-0"
+      },
+      "is_error": false
+     },
+     "message": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "number": "-0"
+      },
+      "is_error": false
+     },
+     "session": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "number": "-0"
+      }
+     }
+    },
+    "pi_session_file": {
+     "line_utf8_hex": "7b2274797065223a226d657373616765222c226964223a226531222c22706172656e744964223a6e756c6c2c2274696d657374616d70223a2274222c226d657373616765223a7b22726f6c65223a22746f6f6c526573756c74222c22746f6f6c43616c6c4964223a2263616c6c2d31222c22746f6f6c4e616d65223a2270726f6265222c22636f6e74656e74223a5b7b2274797065223a2274657874222c2274657874223a226f6b227d5d2c2264657461696c73223a302c2269734572726f72223a66616c73652c2274696d657374616d70223a307d7d0a",
+     "reload": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "number": "0"
+      }
+     }
+    }
+   },
+   {
+    "id": "details-number/1.5",
+    "tool": {
+     "returns": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          118,
+          97,
+          108,
+          117,
+          101
+         ],
+         {
+          "number": "1.5"
+         }
+        ]
+       ]
+      }
+     }
+    },
+    "hook": {
+     "mode": "observe"
+    },
+    "expect": {
+     "hook": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          118,
+          97,
+          108,
+          117,
+          101
+         ],
+         {
+          "number": "1.5"
+         }
+        ]
+       ]
+      },
+      "is_error": false
+     },
+     "execution_end": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          118,
+          97,
+          108,
+          117,
+          101
+         ],
+         {
+          "number": "1.5"
+         }
+        ]
+       ]
+      },
+      "is_error": false
+     },
+     "message": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          118,
+          97,
+          108,
+          117,
+          101
+         ],
+         {
+          "number": "1.5"
+         }
+        ]
+       ]
+      },
+      "is_error": false
+     },
+     "session": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          118,
+          97,
+          108,
+          117,
+          101
+         ],
+         {
+          "number": "1.5"
+         }
+        ]
+       ]
+      }
+     }
+    },
+    "pi_session_file": {
+     "line_utf8_hex": "7b2274797065223a226d657373616765222c226964223a226531222c22706172656e744964223a6e756c6c2c2274696d657374616d70223a2274222c226d657373616765223a7b22726f6c65223a22746f6f6c526573756c74222c22746f6f6c43616c6c4964223a2263616c6c2d31222c22746f6f6c4e616d65223a2270726f6265222c22636f6e74656e74223a5b7b2274797065223a2274657874222c2274657874223a226f6b227d5d2c2264657461696c73223a7b2276616c7565223a312e357d2c2269734572726f72223a66616c73652c2274696d657374616d70223a307d7d0a",
+     "reload": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          118,
+          97,
+          108,
+          117,
+          101
+         ],
+         {
+          "number": "1.5"
+         }
+        ]
+       ]
+      }
+     }
+    }
+   },
+   {
+    "id": "details-array-number/1.5",
+    "tool": {
+     "returns": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          118,
+          97,
+          108,
+          117,
+          101,
+          115
+         ],
+         [
+          {
+           "number": "1.5"
+          }
+         ]
+        ]
+       ]
+      }
+     }
+    },
+    "hook": {
+     "mode": "observe"
+    },
+    "expect": {
+     "hook": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          118,
+          97,
+          108,
+          117,
+          101,
+          115
+         ],
+         [
+          {
+           "number": "1.5"
+          }
+         ]
+        ]
+       ]
+      },
+      "is_error": false
+     },
+     "execution_end": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          118,
+          97,
+          108,
+          117,
+          101,
+          115
+         ],
+         [
+          {
+           "number": "1.5"
+          }
+         ]
+        ]
+       ]
+      },
+      "is_error": false
+     },
+     "message": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          118,
+          97,
+          108,
+          117,
+          101,
+          115
+         ],
+         [
+          {
+           "number": "1.5"
+          }
+         ]
+        ]
+       ]
+      },
+      "is_error": false
+     },
+     "session": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          118,
+          97,
+          108,
+          117,
+          101,
+          115
+         ],
+         [
+          {
+           "number": "1.5"
+          }
+         ]
+        ]
+       ]
+      }
+     }
+    },
+    "pi_session_file": {
+     "line_utf8_hex": "7b2274797065223a226d657373616765222c226964223a226531222c22706172656e744964223a6e756c6c2c2274696d657374616d70223a2274222c226d657373616765223a7b22726f6c65223a22746f6f6c526573756c74222c22746f6f6c43616c6c4964223a2263616c6c2d31222c22746f6f6c4e616d65223a2270726f6265222c22636f6e74656e74223a5b7b2274797065223a2274657874222c2274657874223a226f6b227d5d2c2264657461696c73223a7b2276616c756573223a5b312e355d7d2c2269734572726f72223a66616c73652c2274696d657374616d70223a307d7d0a",
+     "reload": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          118,
+          97,
+          108,
+          117,
+          101,
+          115
+         ],
+         [
+          {
+           "number": "1.5"
+          }
+         ]
+        ]
+       ]
+      }
+     }
+    }
+   },
+   {
+    "id": "details-top-number/1.5",
+    "tool": {
+     "returns": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "number": "1.5"
+      }
+     }
+    },
+    "hook": {
+     "mode": "observe"
+    },
+    "expect": {
+     "hook": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "number": "1.5"
+      },
+      "is_error": false
+     },
+     "execution_end": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "number": "1.5"
+      },
+      "is_error": false
+     },
+     "message": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "number": "1.5"
+      },
+      "is_error": false
+     },
+     "session": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "number": "1.5"
+      }
+     }
+    },
+    "pi_session_file": {
+     "line_utf8_hex": "7b2274797065223a226d657373616765222c226964223a226531222c22706172656e744964223a6e756c6c2c2274696d657374616d70223a2274222c226d657373616765223a7b22726f6c65223a22746f6f6c526573756c74222c22746f6f6c43616c6c4964223a2263616c6c2d31222c22746f6f6c4e616d65223a2270726f6265222c22636f6e74656e74223a5b7b2274797065223a2274657874222c2274657874223a226f6b227d5d2c2264657461696c73223a312e352c2269734572726f72223a66616c73652c2274696d657374616d70223a307d7d0a",
+     "reload": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "number": "1.5"
+      }
+     }
+    }
+   },
+   {
+    "id": "details-number/+Infinity",
+    "tool": {
+     "returns": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          118,
+          97,
+          108,
+          117,
+          101
+         ],
+         {
+          "number": "+Infinity"
+         }
+        ]
+       ]
+      }
+     }
+    },
+    "hook": {
+     "mode": "observe"
+    },
+    "expect": {
+     "hook": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          118,
+          97,
+          108,
+          117,
+          101
+         ],
+         {
+          "number": "+Infinity"
+         }
+        ]
+       ]
+      },
+      "is_error": false
+     },
+     "execution_end": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          118,
+          97,
+          108,
+          117,
+          101
+         ],
+         {
+          "number": "+Infinity"
+         }
+        ]
+       ]
+      },
+      "is_error": false
+     },
+     "message": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          118,
+          97,
+          108,
+          117,
+          101
+         ],
+         {
+          "number": "+Infinity"
+         }
+        ]
+       ]
+      },
+      "is_error": false
+     },
+     "session": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          118,
+          97,
+          108,
+          117,
+          101
+         ],
+         {
+          "number": "+Infinity"
+         }
+        ]
+       ]
+      }
+     }
+    },
+    "pi_session_file": {
+     "line_utf8_hex": "7b2274797065223a226d657373616765222c226964223a226531222c22706172656e744964223a6e756c6c2c2274696d657374616d70223a2274222c226d657373616765223a7b22726f6c65223a22746f6f6c526573756c74222c22746f6f6c43616c6c4964223a2263616c6c2d31222c22746f6f6c4e616d65223a2270726f6265222c22636f6e74656e74223a5b7b2274797065223a2274657874222c2274657874223a226f6b227d5d2c2264657461696c73223a7b2276616c7565223a6e756c6c7d2c2269734572726f72223a66616c73652c2274696d657374616d70223a307d7d0a",
+     "reload": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          118,
+          97,
+          108,
+          117,
+          101
+         ],
+         null
+        ]
+       ]
+      }
+     }
+    }
+   },
+   {
+    "id": "details-array-number/+Infinity",
+    "tool": {
+     "returns": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          118,
+          97,
+          108,
+          117,
+          101,
+          115
+         ],
+         [
+          {
+           "number": "+Infinity"
+          }
+         ]
+        ]
+       ]
+      }
+     }
+    },
+    "hook": {
+     "mode": "observe"
+    },
+    "expect": {
+     "hook": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          118,
+          97,
+          108,
+          117,
+          101,
+          115
+         ],
+         [
+          {
+           "number": "+Infinity"
+          }
+         ]
+        ]
+       ]
+      },
+      "is_error": false
+     },
+     "execution_end": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          118,
+          97,
+          108,
+          117,
+          101,
+          115
+         ],
+         [
+          {
+           "number": "+Infinity"
+          }
+         ]
+        ]
+       ]
+      },
+      "is_error": false
+     },
+     "message": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          118,
+          97,
+          108,
+          117,
+          101,
+          115
+         ],
+         [
+          {
+           "number": "+Infinity"
+          }
+         ]
+        ]
+       ]
+      },
+      "is_error": false
+     },
+     "session": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          118,
+          97,
+          108,
+          117,
+          101,
+          115
+         ],
+         [
+          {
+           "number": "+Infinity"
+          }
+         ]
+        ]
+       ]
+      }
+     }
+    },
+    "pi_session_file": {
+     "line_utf8_hex": "7b2274797065223a226d657373616765222c226964223a226531222c22706172656e744964223a6e756c6c2c2274696d657374616d70223a2274222c226d657373616765223a7b22726f6c65223a22746f6f6c526573756c74222c22746f6f6c43616c6c4964223a2263616c6c2d31222c22746f6f6c4e616d65223a2270726f6265222c22636f6e74656e74223a5b7b2274797065223a2274657874222c2274657874223a226f6b227d5d2c2264657461696c73223a7b2276616c756573223a5b6e756c6c5d7d2c2269734572726f72223a66616c73652c2274696d657374616d70223a307d7d0a",
+     "reload": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          118,
+          97,
+          108,
+          117,
+          101,
+          115
+         ],
+         [
+          null
+         ]
+        ]
+       ]
+      }
+     }
+    }
+   },
+   {
+    "id": "details-top-number/+Infinity",
+    "tool": {
+     "returns": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "number": "+Infinity"
+      }
+     }
+    },
+    "hook": {
+     "mode": "observe"
+    },
+    "expect": {
+     "hook": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "number": "+Infinity"
+      },
+      "is_error": false
+     },
+     "execution_end": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "number": "+Infinity"
+      },
+      "is_error": false
+     },
+     "message": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "number": "+Infinity"
+      },
+      "is_error": false
+     },
+     "session": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "number": "+Infinity"
+      }
+     }
+    },
+    "pi_session_file": {
+     "line_utf8_hex": "7b2274797065223a226d657373616765222c226964223a226531222c22706172656e744964223a6e756c6c2c2274696d657374616d70223a2274222c226d657373616765223a7b22726f6c65223a22746f6f6c526573756c74222c22746f6f6c43616c6c4964223a2263616c6c2d31222c22746f6f6c4e616d65223a2270726f6265222c22636f6e74656e74223a5b7b2274797065223a2274657874222c2274657874223a226f6b227d5d2c2264657461696c73223a6e756c6c2c2269734572726f72223a66616c73652c2274696d657374616d70223a307d7d0a",
+     "reload": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": null
+     }
+    }
+   },
+   {
+    "id": "details-number/-Infinity",
+    "tool": {
+     "returns": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          118,
+          97,
+          108,
+          117,
+          101
+         ],
+         {
+          "number": "-Infinity"
+         }
+        ]
+       ]
+      }
+     }
+    },
+    "hook": {
+     "mode": "observe"
+    },
+    "expect": {
+     "hook": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          118,
+          97,
+          108,
+          117,
+          101
+         ],
+         {
+          "number": "-Infinity"
+         }
+        ]
+       ]
+      },
+      "is_error": false
+     },
+     "execution_end": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          118,
+          97,
+          108,
+          117,
+          101
+         ],
+         {
+          "number": "-Infinity"
+         }
+        ]
+       ]
+      },
+      "is_error": false
+     },
+     "message": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          118,
+          97,
+          108,
+          117,
+          101
+         ],
+         {
+          "number": "-Infinity"
+         }
+        ]
+       ]
+      },
+      "is_error": false
+     },
+     "session": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          118,
+          97,
+          108,
+          117,
+          101
+         ],
+         {
+          "number": "-Infinity"
+         }
+        ]
+       ]
+      }
+     }
+    },
+    "pi_session_file": {
+     "line_utf8_hex": "7b2274797065223a226d657373616765222c226964223a226531222c22706172656e744964223a6e756c6c2c2274696d657374616d70223a2274222c226d657373616765223a7b22726f6c65223a22746f6f6c526573756c74222c22746f6f6c43616c6c4964223a2263616c6c2d31222c22746f6f6c4e616d65223a2270726f6265222c22636f6e74656e74223a5b7b2274797065223a2274657874222c2274657874223a226f6b227d5d2c2264657461696c73223a7b2276616c7565223a6e756c6c7d2c2269734572726f72223a66616c73652c2274696d657374616d70223a307d7d0a",
+     "reload": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          118,
+          97,
+          108,
+          117,
+          101
+         ],
+         null
+        ]
+       ]
+      }
+     }
+    }
+   },
+   {
+    "id": "details-array-number/-Infinity",
+    "tool": {
+     "returns": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          118,
+          97,
+          108,
+          117,
+          101,
+          115
+         ],
+         [
+          {
+           "number": "-Infinity"
+          }
+         ]
+        ]
+       ]
+      }
+     }
+    },
+    "hook": {
+     "mode": "observe"
+    },
+    "expect": {
+     "hook": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          118,
+          97,
+          108,
+          117,
+          101,
+          115
+         ],
+         [
+          {
+           "number": "-Infinity"
+          }
+         ]
+        ]
+       ]
+      },
+      "is_error": false
+     },
+     "execution_end": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          118,
+          97,
+          108,
+          117,
+          101,
+          115
+         ],
+         [
+          {
+           "number": "-Infinity"
+          }
+         ]
+        ]
+       ]
+      },
+      "is_error": false
+     },
+     "message": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          118,
+          97,
+          108,
+          117,
+          101,
+          115
+         ],
+         [
+          {
+           "number": "-Infinity"
+          }
+         ]
+        ]
+       ]
+      },
+      "is_error": false
+     },
+     "session": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          118,
+          97,
+          108,
+          117,
+          101,
+          115
+         ],
+         [
+          {
+           "number": "-Infinity"
+          }
+         ]
+        ]
+       ]
+      }
+     }
+    },
+    "pi_session_file": {
+     "line_utf8_hex": "7b2274797065223a226d657373616765222c226964223a226531222c22706172656e744964223a6e756c6c2c2274696d657374616d70223a2274222c226d657373616765223a7b22726f6c65223a22746f6f6c526573756c74222c22746f6f6c43616c6c4964223a2263616c6c2d31222c22746f6f6c4e616d65223a2270726f6265222c22636f6e74656e74223a5b7b2274797065223a2274657874222c2274657874223a226f6b227d5d2c2264657461696c73223a7b2276616c756573223a5b6e756c6c5d7d2c2269734572726f72223a66616c73652c2274696d657374616d70223a307d7d0a",
+     "reload": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          118,
+          97,
+          108,
+          117,
+          101,
+          115
+         ],
+         [
+          null
+         ]
+        ]
+       ]
+      }
+     }
+    }
+   },
+   {
+    "id": "details-top-number/-Infinity",
+    "tool": {
+     "returns": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "number": "-Infinity"
+      }
+     }
+    },
+    "hook": {
+     "mode": "observe"
+    },
+    "expect": {
+     "hook": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "number": "-Infinity"
+      },
+      "is_error": false
+     },
+     "execution_end": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "number": "-Infinity"
+      },
+      "is_error": false
+     },
+     "message": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "number": "-Infinity"
+      },
+      "is_error": false
+     },
+     "session": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "number": "-Infinity"
+      }
+     }
+    },
+    "pi_session_file": {
+     "line_utf8_hex": "7b2274797065223a226d657373616765222c226964223a226531222c22706172656e744964223a6e756c6c2c2274696d657374616d70223a2274222c226d657373616765223a7b22726f6c65223a22746f6f6c526573756c74222c22746f6f6c43616c6c4964223a2263616c6c2d31222c22746f6f6c4e616d65223a2270726f6265222c22636f6e74656e74223a5b7b2274797065223a2274657874222c2274657874223a226f6b227d5d2c2264657461696c73223a6e756c6c2c2269734572726f72223a66616c73652c2274696d657374616d70223a307d7d0a",
+     "reload": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": null
+     }
+    }
+   },
+   {
+    "id": "details-number/NaN",
+    "tool": {
+     "returns": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          118,
+          97,
+          108,
+          117,
+          101
+         ],
+         {
+          "number": "NaN"
+         }
+        ]
+       ]
+      }
+     }
+    },
+    "hook": {
+     "mode": "observe"
+    },
+    "expect": {
+     "hook": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          118,
+          97,
+          108,
+          117,
+          101
+         ],
+         {
+          "number": "NaN"
+         }
+        ]
+       ]
+      },
+      "is_error": false
+     },
+     "execution_end": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          118,
+          97,
+          108,
+          117,
+          101
+         ],
+         {
+          "number": "NaN"
+         }
+        ]
+       ]
+      },
+      "is_error": false
+     },
+     "message": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          118,
+          97,
+          108,
+          117,
+          101
+         ],
+         {
+          "number": "NaN"
+         }
+        ]
+       ]
+      },
+      "is_error": false
+     },
+     "session": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          118,
+          97,
+          108,
+          117,
+          101
+         ],
+         {
+          "number": "NaN"
+         }
+        ]
+       ]
+      }
+     }
+    },
+    "pi_session_file": {
+     "line_utf8_hex": "7b2274797065223a226d657373616765222c226964223a226531222c22706172656e744964223a6e756c6c2c2274696d657374616d70223a2274222c226d657373616765223a7b22726f6c65223a22746f6f6c526573756c74222c22746f6f6c43616c6c4964223a2263616c6c2d31222c22746f6f6c4e616d65223a2270726f6265222c22636f6e74656e74223a5b7b2274797065223a2274657874222c2274657874223a226f6b227d5d2c2264657461696c73223a7b2276616c7565223a6e756c6c7d2c2269734572726f72223a66616c73652c2274696d657374616d70223a307d7d0a",
+     "reload": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          118,
+          97,
+          108,
+          117,
+          101
+         ],
+         null
+        ]
+       ]
+      }
+     }
+    }
+   },
+   {
+    "id": "details-array-number/NaN",
+    "tool": {
+     "returns": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          118,
+          97,
+          108,
+          117,
+          101,
+          115
+         ],
+         [
+          {
+           "number": "NaN"
+          }
+         ]
+        ]
+       ]
+      }
+     }
+    },
+    "hook": {
+     "mode": "observe"
+    },
+    "expect": {
+     "hook": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          118,
+          97,
+          108,
+          117,
+          101,
+          115
+         ],
+         [
+          {
+           "number": "NaN"
+          }
+         ]
+        ]
+       ]
+      },
+      "is_error": false
+     },
+     "execution_end": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          118,
+          97,
+          108,
+          117,
+          101,
+          115
+         ],
+         [
+          {
+           "number": "NaN"
+          }
+         ]
+        ]
+       ]
+      },
+      "is_error": false
+     },
+     "message": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          118,
+          97,
+          108,
+          117,
+          101,
+          115
+         ],
+         [
+          {
+           "number": "NaN"
+          }
+         ]
+        ]
+       ]
+      },
+      "is_error": false
+     },
+     "session": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          118,
+          97,
+          108,
+          117,
+          101,
+          115
+         ],
+         [
+          {
+           "number": "NaN"
+          }
+         ]
+        ]
+       ]
+      }
+     }
+    },
+    "pi_session_file": {
+     "line_utf8_hex": "7b2274797065223a226d657373616765222c226964223a226531222c22706172656e744964223a6e756c6c2c2274696d657374616d70223a2274222c226d657373616765223a7b22726f6c65223a22746f6f6c526573756c74222c22746f6f6c43616c6c4964223a2263616c6c2d31222c22746f6f6c4e616d65223a2270726f6265222c22636f6e74656e74223a5b7b2274797065223a2274657874222c2274657874223a226f6b227d5d2c2264657461696c73223a7b2276616c756573223a5b6e756c6c5d7d2c2269734572726f72223a66616c73652c2274696d657374616d70223a307d7d0a",
+     "reload": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          118,
+          97,
+          108,
+          117,
+          101,
+          115
+         ],
+         [
+          null
+         ]
+        ]
+       ]
+      }
+     }
+    }
+   },
+   {
+    "id": "details-top-number/NaN",
+    "tool": {
+     "returns": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "number": "NaN"
+      }
+     }
+    },
+    "hook": {
+     "mode": "observe"
+    },
+    "expect": {
+     "hook": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "number": "NaN"
+      },
+      "is_error": false
+     },
+     "execution_end": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "number": "NaN"
+      },
+      "is_error": false
+     },
+     "message": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "number": "NaN"
+      },
+      "is_error": false
+     },
+     "session": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "number": "NaN"
+      }
+     }
+    },
+    "pi_session_file": {
+     "line_utf8_hex": "7b2274797065223a226d657373616765222c226964223a226531222c22706172656e744964223a6e756c6c2c2274696d657374616d70223a2274222c226d657373616765223a7b22726f6c65223a22746f6f6c526573756c74222c22746f6f6c43616c6c4964223a2263616c6c2d31222c22746f6f6c4e616d65223a2270726f6265222c22636f6e74656e74223a5b7b2274797065223a2274657874222c2274657874223a226f6b227d5d2c2264657461696c73223a6e756c6c2c2269734572726f72223a66616c73652c2274696d657374616d70223a307d7d0a",
+     "reload": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": null
+     }
+    }
+   },
+   {
+    "id": "details-number/1.7976931348623157e+308",
+    "tool": {
+     "returns": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          118,
+          97,
+          108,
+          117,
+          101
+         ],
+         {
+          "number": "1.7976931348623157e+308"
+         }
+        ]
+       ]
+      }
+     }
+    },
+    "hook": {
+     "mode": "observe"
+    },
+    "expect": {
+     "hook": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          118,
+          97,
+          108,
+          117,
+          101
+         ],
+         {
+          "number": "1.7976931348623157e+308"
+         }
+        ]
+       ]
+      },
+      "is_error": false
+     },
+     "execution_end": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          118,
+          97,
+          108,
+          117,
+          101
+         ],
+         {
+          "number": "1.7976931348623157e+308"
+         }
+        ]
+       ]
+      },
+      "is_error": false
+     },
+     "message": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          118,
+          97,
+          108,
+          117,
+          101
+         ],
+         {
+          "number": "1.7976931348623157e+308"
+         }
+        ]
+       ]
+      },
+      "is_error": false
+     },
+     "session": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          118,
+          97,
+          108,
+          117,
+          101
+         ],
+         {
+          "number": "1.7976931348623157e+308"
+         }
+        ]
+       ]
+      }
+     }
+    },
+    "pi_session_file": {
+     "line_utf8_hex": "7b2274797065223a226d657373616765222c226964223a226531222c22706172656e744964223a6e756c6c2c2274696d657374616d70223a2274222c226d657373616765223a7b22726f6c65223a22746f6f6c526573756c74222c22746f6f6c43616c6c4964223a2263616c6c2d31222c22746f6f6c4e616d65223a2270726f6265222c22636f6e74656e74223a5b7b2274797065223a2274657874222c2274657874223a226f6b227d5d2c2264657461696c73223a7b2276616c7565223a312e37393736393331333438363233313537652b3330387d2c2269734572726f72223a66616c73652c2274696d657374616d70223a307d7d0a",
+     "reload": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          118,
+          97,
+          108,
+          117,
+          101
+         ],
+         {
+          "number": "1.7976931348623157e+308"
+         }
+        ]
+       ]
+      }
+     }
+    }
+   },
+   {
+    "id": "details-array-number/1.7976931348623157e+308",
+    "tool": {
+     "returns": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          118,
+          97,
+          108,
+          117,
+          101,
+          115
+         ],
+         [
+          {
+           "number": "1.7976931348623157e+308"
+          }
+         ]
+        ]
+       ]
+      }
+     }
+    },
+    "hook": {
+     "mode": "observe"
+    },
+    "expect": {
+     "hook": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          118,
+          97,
+          108,
+          117,
+          101,
+          115
+         ],
+         [
+          {
+           "number": "1.7976931348623157e+308"
+          }
+         ]
+        ]
+       ]
+      },
+      "is_error": false
+     },
+     "execution_end": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          118,
+          97,
+          108,
+          117,
+          101,
+          115
+         ],
+         [
+          {
+           "number": "1.7976931348623157e+308"
+          }
+         ]
+        ]
+       ]
+      },
+      "is_error": false
+     },
+     "message": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          118,
+          97,
+          108,
+          117,
+          101,
+          115
+         ],
+         [
+          {
+           "number": "1.7976931348623157e+308"
+          }
+         ]
+        ]
+       ]
+      },
+      "is_error": false
+     },
+     "session": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          118,
+          97,
+          108,
+          117,
+          101,
+          115
+         ],
+         [
+          {
+           "number": "1.7976931348623157e+308"
+          }
+         ]
+        ]
+       ]
+      }
+     }
+    },
+    "pi_session_file": {
+     "line_utf8_hex": "7b2274797065223a226d657373616765222c226964223a226531222c22706172656e744964223a6e756c6c2c2274696d657374616d70223a2274222c226d657373616765223a7b22726f6c65223a22746f6f6c526573756c74222c22746f6f6c43616c6c4964223a2263616c6c2d31222c22746f6f6c4e616d65223a2270726f6265222c22636f6e74656e74223a5b7b2274797065223a2274657874222c2274657874223a226f6b227d5d2c2264657461696c73223a7b2276616c756573223a5b312e37393736393331333438363233313537652b3330385d7d2c2269734572726f72223a66616c73652c2274696d657374616d70223a307d7d0a",
+     "reload": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          118,
+          97,
+          108,
+          117,
+          101,
+          115
+         ],
+         [
+          {
+           "number": "1.7976931348623157e+308"
+          }
+         ]
+        ]
+       ]
+      }
+     }
+    }
+   },
+   {
+    "id": "details-top-number/1.7976931348623157e+308",
+    "tool": {
+     "returns": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "number": "1.7976931348623157e+308"
+      }
+     }
+    },
+    "hook": {
+     "mode": "observe"
+    },
+    "expect": {
+     "hook": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "number": "1.7976931348623157e+308"
+      },
+      "is_error": false
+     },
+     "execution_end": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "number": "1.7976931348623157e+308"
+      },
+      "is_error": false
+     },
+     "message": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "number": "1.7976931348623157e+308"
+      },
+      "is_error": false
+     },
+     "session": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "number": "1.7976931348623157e+308"
+      }
+     }
+    },
+    "pi_session_file": {
+     "line_utf8_hex": "7b2274797065223a226d657373616765222c226964223a226531222c22706172656e744964223a6e756c6c2c2274696d657374616d70223a2274222c226d657373616765223a7b22726f6c65223a22746f6f6c526573756c74222c22746f6f6c43616c6c4964223a2263616c6c2d31222c22746f6f6c4e616d65223a2270726f6265222c22636f6e74656e74223a5b7b2274797065223a2274657874222c2274657874223a226f6b227d5d2c2264657461696c73223a312e37393736393331333438363233313537652b3330382c2269734572726f72223a66616c73652c2274696d657374616d70223a307d7d0a",
+     "reload": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "number": "1.7976931348623157e+308"
+      }
+     }
+    }
+   },
+   {
+    "id": "details-number/5e-324",
+    "tool": {
+     "returns": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          118,
+          97,
+          108,
+          117,
+          101
+         ],
+         {
+          "number": "5e-324"
+         }
+        ]
+       ]
+      }
+     }
+    },
+    "hook": {
+     "mode": "observe"
+    },
+    "expect": {
+     "hook": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          118,
+          97,
+          108,
+          117,
+          101
+         ],
+         {
+          "number": "5e-324"
+         }
+        ]
+       ]
+      },
+      "is_error": false
+     },
+     "execution_end": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          118,
+          97,
+          108,
+          117,
+          101
+         ],
+         {
+          "number": "5e-324"
+         }
+        ]
+       ]
+      },
+      "is_error": false
+     },
+     "message": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          118,
+          97,
+          108,
+          117,
+          101
+         ],
+         {
+          "number": "5e-324"
+         }
+        ]
+       ]
+      },
+      "is_error": false
+     },
+     "session": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          118,
+          97,
+          108,
+          117,
+          101
+         ],
+         {
+          "number": "5e-324"
+         }
+        ]
+       ]
+      }
+     }
+    },
+    "pi_session_file": {
+     "line_utf8_hex": "7b2274797065223a226d657373616765222c226964223a226531222c22706172656e744964223a6e756c6c2c2274696d657374616d70223a2274222c226d657373616765223a7b22726f6c65223a22746f6f6c526573756c74222c22746f6f6c43616c6c4964223a2263616c6c2d31222c22746f6f6c4e616d65223a2270726f6265222c22636f6e74656e74223a5b7b2274797065223a2274657874222c2274657874223a226f6b227d5d2c2264657461696c73223a7b2276616c7565223a35652d3332347d2c2269734572726f72223a66616c73652c2274696d657374616d70223a307d7d0a",
+     "reload": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          118,
+          97,
+          108,
+          117,
+          101
+         ],
+         {
+          "number": "5e-324"
+         }
+        ]
+       ]
+      }
+     }
+    }
+   },
+   {
+    "id": "details-array-number/5e-324",
+    "tool": {
+     "returns": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          118,
+          97,
+          108,
+          117,
+          101,
+          115
+         ],
+         [
+          {
+           "number": "5e-324"
+          }
+         ]
+        ]
+       ]
+      }
+     }
+    },
+    "hook": {
+     "mode": "observe"
+    },
+    "expect": {
+     "hook": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          118,
+          97,
+          108,
+          117,
+          101,
+          115
+         ],
+         [
+          {
+           "number": "5e-324"
+          }
+         ]
+        ]
+       ]
+      },
+      "is_error": false
+     },
+     "execution_end": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          118,
+          97,
+          108,
+          117,
+          101,
+          115
+         ],
+         [
+          {
+           "number": "5e-324"
+          }
+         ]
+        ]
+       ]
+      },
+      "is_error": false
+     },
+     "message": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          118,
+          97,
+          108,
+          117,
+          101,
+          115
+         ],
+         [
+          {
+           "number": "5e-324"
+          }
+         ]
+        ]
+       ]
+      },
+      "is_error": false
+     },
+     "session": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          118,
+          97,
+          108,
+          117,
+          101,
+          115
+         ],
+         [
+          {
+           "number": "5e-324"
+          }
+         ]
+        ]
+       ]
+      }
+     }
+    },
+    "pi_session_file": {
+     "line_utf8_hex": "7b2274797065223a226d657373616765222c226964223a226531222c22706172656e744964223a6e756c6c2c2274696d657374616d70223a2274222c226d657373616765223a7b22726f6c65223a22746f6f6c526573756c74222c22746f6f6c43616c6c4964223a2263616c6c2d31222c22746f6f6c4e616d65223a2270726f6265222c22636f6e74656e74223a5b7b2274797065223a2274657874222c2274657874223a226f6b227d5d2c2264657461696c73223a7b2276616c756573223a5b35652d3332345d7d2c2269734572726f72223a66616c73652c2274696d657374616d70223a307d7d0a",
+     "reload": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          118,
+          97,
+          108,
+          117,
+          101,
+          115
+         ],
+         [
+          {
+           "number": "5e-324"
+          }
+         ]
+        ]
+       ]
+      }
+     }
+    }
+   },
+   {
+    "id": "details-top-number/5e-324",
+    "tool": {
+     "returns": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "number": "5e-324"
+      }
+     }
+    },
+    "hook": {
+     "mode": "observe"
+    },
+    "expect": {
+     "hook": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "number": "5e-324"
+      },
+      "is_error": false
+     },
+     "execution_end": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "number": "5e-324"
+      },
+      "is_error": false
+     },
+     "message": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "number": "5e-324"
+      },
+      "is_error": false
+     },
+     "session": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "number": "5e-324"
+      }
+     }
+    },
+    "pi_session_file": {
+     "line_utf8_hex": "7b2274797065223a226d657373616765222c226964223a226531222c22706172656e744964223a6e756c6c2c2274696d657374616d70223a2274222c226d657373616765223a7b22726f6c65223a22746f6f6c526573756c74222c22746f6f6c43616c6c4964223a2263616c6c2d31222c22746f6f6c4e616d65223a2270726f6265222c22636f6e74656e74223a5b7b2274797065223a2274657874222c2274657874223a226f6b227d5d2c2264657461696c73223a35652d3332342c2269734572726f72223a66616c73652c2274696d657374616d70223a307d7d0a",
+     "reload": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "number": "5e-324"
+      }
+     }
+    }
+   },
+   {
+    "id": "details-number/9007199254740992",
+    "tool": {
+     "returns": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          118,
+          97,
+          108,
+          117,
+          101
+         ],
+         {
+          "number": "9007199254740992"
+         }
+        ]
+       ]
+      }
+     }
+    },
+    "hook": {
+     "mode": "observe"
+    },
+    "expect": {
+     "hook": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          118,
+          97,
+          108,
+          117,
+          101
+         ],
+         {
+          "number": "9007199254740992"
+         }
+        ]
+       ]
+      },
+      "is_error": false
+     },
+     "execution_end": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          118,
+          97,
+          108,
+          117,
+          101
+         ],
+         {
+          "number": "9007199254740992"
+         }
+        ]
+       ]
+      },
+      "is_error": false
+     },
+     "message": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          118,
+          97,
+          108,
+          117,
+          101
+         ],
+         {
+          "number": "9007199254740992"
+         }
+        ]
+       ]
+      },
+      "is_error": false
+     },
+     "session": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          118,
+          97,
+          108,
+          117,
+          101
+         ],
+         {
+          "number": "9007199254740992"
+         }
+        ]
+       ]
+      }
+     }
+    },
+    "pi_session_file": {
+     "line_utf8_hex": "7b2274797065223a226d657373616765222c226964223a226531222c22706172656e744964223a6e756c6c2c2274696d657374616d70223a2274222c226d657373616765223a7b22726f6c65223a22746f6f6c526573756c74222c22746f6f6c43616c6c4964223a2263616c6c2d31222c22746f6f6c4e616d65223a2270726f6265222c22636f6e74656e74223a5b7b2274797065223a2274657874222c2274657874223a226f6b227d5d2c2264657461696c73223a7b2276616c7565223a393030373139393235343734303939327d2c2269734572726f72223a66616c73652c2274696d657374616d70223a307d7d0a",
+     "reload": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          118,
+          97,
+          108,
+          117,
+          101
+         ],
+         {
+          "number": "9007199254740992"
+         }
+        ]
+       ]
+      }
+     }
+    }
+   },
+   {
+    "id": "details-array-number/9007199254740992",
+    "tool": {
+     "returns": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          118,
+          97,
+          108,
+          117,
+          101,
+          115
+         ],
+         [
+          {
+           "number": "9007199254740992"
+          }
+         ]
+        ]
+       ]
+      }
+     }
+    },
+    "hook": {
+     "mode": "observe"
+    },
+    "expect": {
+     "hook": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          118,
+          97,
+          108,
+          117,
+          101,
+          115
+         ],
+         [
+          {
+           "number": "9007199254740992"
+          }
+         ]
+        ]
+       ]
+      },
+      "is_error": false
+     },
+     "execution_end": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          118,
+          97,
+          108,
+          117,
+          101,
+          115
+         ],
+         [
+          {
+           "number": "9007199254740992"
+          }
+         ]
+        ]
+       ]
+      },
+      "is_error": false
+     },
+     "message": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          118,
+          97,
+          108,
+          117,
+          101,
+          115
+         ],
+         [
+          {
+           "number": "9007199254740992"
+          }
+         ]
+        ]
+       ]
+      },
+      "is_error": false
+     },
+     "session": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          118,
+          97,
+          108,
+          117,
+          101,
+          115
+         ],
+         [
+          {
+           "number": "9007199254740992"
+          }
+         ]
+        ]
+       ]
+      }
+     }
+    },
+    "pi_session_file": {
+     "line_utf8_hex": "7b2274797065223a226d657373616765222c226964223a226531222c22706172656e744964223a6e756c6c2c2274696d657374616d70223a2274222c226d657373616765223a7b22726f6c65223a22746f6f6c526573756c74222c22746f6f6c43616c6c4964223a2263616c6c2d31222c22746f6f6c4e616d65223a2270726f6265222c22636f6e74656e74223a5b7b2274797065223a2274657874222c2274657874223a226f6b227d5d2c2264657461696c73223a7b2276616c756573223a5b393030373139393235343734303939325d7d2c2269734572726f72223a66616c73652c2274696d657374616d70223a307d7d0a",
+     "reload": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "$keys": [
+        [
+         [
+          118,
+          97,
+          108,
+          117,
+          101,
+          115
+         ],
+         [
+          {
+           "number": "9007199254740992"
+          }
+         ]
+        ]
+       ]
+      }
+     }
+    }
+   },
+   {
+    "id": "details-top-number/9007199254740992",
+    "tool": {
+     "returns": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "number": "9007199254740992"
+      }
+     }
+    },
+    "hook": {
+     "mode": "observe"
+    },
+    "expect": {
+     "hook": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "number": "9007199254740992"
+      },
+      "is_error": false
+     },
+     "execution_end": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "number": "9007199254740992"
+      },
+      "is_error": false
+     },
+     "message": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "number": "9007199254740992"
+      },
+      "is_error": false
+     },
+     "session": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "number": "9007199254740992"
+      }
+     }
+    },
+    "pi_session_file": {
+     "line_utf8_hex": "7b2274797065223a226d657373616765222c226964223a226531222c22706172656e744964223a6e756c6c2c2274696d657374616d70223a2274222c226d657373616765223a7b22726f6c65223a22746f6f6c526573756c74222c22746f6f6c43616c6c4964223a2263616c6c2d31222c22746f6f6c4e616d65223a2270726f6265222c22636f6e74656e74223a5b7b2274797065223a2274657874222c2274657874223a226f6b227d5d2c2264657461696c73223a393030373139393235343734303939322c2269734572726f72223a66616c73652c2274696d657374616d70223a307d7d0a",
+     "reload": {
+      "content": [
+       {
+        "utf16": [
+         111,
+         107
+        ]
+       }
+      ],
+      "details": {
+       "number": "9007199254740992"
+      }
+     }
+    }
+   }
+  ]
+ }
+}

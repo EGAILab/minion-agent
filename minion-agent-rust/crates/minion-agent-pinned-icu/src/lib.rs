@@ -12,6 +12,19 @@ use rust_icu_sys as sys;
 use rust_icu_ucol::UCollator;
 use sha2::{Digest, Sha256};
 
+// rust_icu_sys 5.8 exposes filtered normalization but omits the two UnicodeSet
+// constructors it needs. These signatures come from the pinned ICU4C 78.3 uset.h.
+// The versioned symbols intentionally cannot link to an arbitrary system ICU.
+#[link(name = "icuuc")]
+unsafe extern "C" {
+    fn uset_openPattern_78(
+        pattern: *const u16,
+        length: i32,
+        status: *mut sys::UErrorCode,
+    ) -> *mut sys::USet;
+    fn uset_close_78(set: *mut sys::USet);
+}
+
 const SOURCE_SHA512: &str = "04a49455e1489030c520a4bfd2664fa2171e7938d08f2acdbbcb1fda976639fd8b1f0704f2eec89ba59a7b6d118ceaab6ec5a096e40d9085a0895d91ce225245";
 
 fn failed(detail: impl AsRef<str>) -> String {
@@ -189,6 +202,90 @@ fn root_lower(input: &str) -> Result<String, String> {
         return Err(failed(format!("ICU root lowercase failed: {status:?}")));
     }
     String::from_utf16(&output[..len as usize]).map_err(|error| failed(error.to_string()))
+}
+
+/// TOOL-031's Node-22.15.1 Unicode-16 NFKC view over the certified ICU4C build.
+/// Filtering by assignment age also preserves multi-code-point composition, unlike
+/// normalizing each scalar independently or post-hoc undoing Unicode-17 mappings.
+pub fn nfkc_unicode16(input: &str) -> Result<String, String> {
+    nfkc_unicode16_batch(&[input]).map(|mut values| values.remove(0))
+}
+
+/// Normalize one transaction's strings under a single verified artifact identity.
+/// There is no persistent pin cache: every batch re-verifies the loaded build.
+pub fn nfkc_unicode16_batch(inputs: &[&str]) -> Result<Vec<String>, String> {
+    // Materialize the same complete ICU library set as the existing pin verifier.
+    let _runtime = UCollator::try_from("en-001").map_err(|e| failed(e.to_string()))?;
+    let identity = std::env::var_os("MINION_AGENT_ICU_IDENTITY")
+        .ok_or_else(|| failed("MINION_AGENT_ICU_IDENTITY is not set"))?;
+    verify_identity(&loaded_modules()?, Path::new(&identity))?;
+    let mut version = [0; 4];
+    unsafe { sys::versioned_function!(u_getVersion)(version.as_mut_ptr()) };
+    if version != [78, 3, 0, 0] {
+        return Err(failed("normalization runtime is not 78.3"));
+    }
+    let pattern: Vec<u16> = "[:age=16.0:]".encode_utf16().collect();
+    let mut status = sys::UErrorCode::U_ZERO_ERROR;
+    // The filter and filtered normalizer are local, immutable for the duration of
+    // normalization, and closed in reverse order on every path. ICU owns the base.
+    unsafe {
+        let base = sys::versioned_function!(unorm2_getNFKCInstance)(&mut status);
+        if status as i32 > 0 || base.is_null() {
+            return Err(failed("cannot obtain NFKC normalizer"));
+        }
+        let filter = uset_openPattern_78(pattern.as_ptr(), pattern.len() as i32, &mut status);
+        if status as i32 > 0 || filter.is_null() {
+            if !filter.is_null() {
+                uset_close_78(filter);
+            }
+            return Err(failed("cannot obtain Unicode-16 filter"));
+        }
+        let normalizer = sys::versioned_function!(unorm2_openFiltered)(base, filter, &mut status);
+        if status as i32 > 0 || normalizer.is_null() {
+            uset_close_78(filter);
+            return Err(failed("cannot obtain filtered NFKC normalizer"));
+        }
+        let result = inputs
+            .iter()
+            .map(|input| {
+                let source: Vec<u16> = input.encode_utf16().collect();
+                let length = i32::try_from(source.len())
+                    .map_err(|_| failed("normalization input is too long"))?;
+                status = sys::UErrorCode::U_ZERO_ERROR;
+                let needed = sys::versioned_function!(unorm2_normalize)(
+                    normalizer,
+                    source.as_ptr(),
+                    length,
+                    std::ptr::null_mut(),
+                    0,
+                    &mut status,
+                );
+                if needed < 0
+                    || needed == i32::MAX
+                    || (status as i32 > 0 && status != sys::UErrorCode::U_BUFFER_OVERFLOW_ERROR)
+                {
+                    return Err(failed("NFKC sizing failed"));
+                }
+                status = sys::UErrorCode::U_ZERO_ERROR;
+                let mut output = vec![0u16; needed as usize + 1];
+                let written = sys::versioned_function!(unorm2_normalize)(
+                    normalizer,
+                    source.as_ptr(),
+                    length,
+                    output.as_mut_ptr(),
+                    output.len() as i32,
+                    &mut status,
+                );
+                if status as i32 > 0 || written < 0 || written as usize >= output.len() {
+                    return Err(failed("NFKC normalization failed"));
+                }
+                String::from_utf16(&output[..written as usize]).map_err(|e| failed(e.to_string()))
+            })
+            .collect();
+        sys::versioned_function!(unorm2_close)(normalizer);
+        uset_close_78(filter);
+        result
+    }
 }
 
 pub fn sort_names(names: Vec<String>) -> Result<Vec<String>, String> {

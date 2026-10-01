@@ -4,18 +4,31 @@
 //! message history nor filesystem registration is duplicated here.
 
 mod collation;
+mod edit;
+mod edit_apply;
+mod edit_diff;
+mod edit_prepare;
+mod edit_text;
 mod image;
 mod ls;
 mod mime;
+mod mutation_queue;
 mod numeric;
 mod paths;
 mod photon;
 mod read;
 mod text;
 mod truncate;
+mod write;
 
+pub use edit::create_edit_tool;
+pub use edit_apply::{Edit, apply_edits};
+pub use edit_diff::generate_edit_details;
+pub use edit_prepare::prepare_edit_arguments;
+pub use edit_text::fuzzy_normalize;
 pub use ls::create_ls_tool;
 pub use read::{ReadToolOptions, create_read_tool};
+pub use write::create_write_tool;
 
 async fn race_abort(
     mut worker: tokio::task::JoinHandle<

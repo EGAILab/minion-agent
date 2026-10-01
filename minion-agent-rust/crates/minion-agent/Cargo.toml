@@ -36,5 +36,6 @@ nix.workspace = true
 windows-sys.workspace = true
 
 [dev-dependencies]
+tokio = { workspace = true, features = ["test-util"] }
 serde_yaml.workspace = true
 tempfile = "3"

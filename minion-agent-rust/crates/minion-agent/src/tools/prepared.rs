@@ -112,7 +112,7 @@ impl PreparedNumber {
     }
 }
 
-/// JSON-shaped in-memory data with the additional prepared numeric domain.
+/// JSON-shaped in-memory data with prepared binary64 and UTF-16 domains.
 #[derive(Clone, Debug, PartialEq)]
 pub enum PreparedValue {
     Null,
@@ -176,7 +176,7 @@ impl PreparedValue {
 
     /// Returns JSON only when the entire value already belongs to that domain.
     ///
-    /// Failure is explicit, with the first non-finite value's JSON pointer.
+    /// Failure is explicit for a non-finite number or non-scalar string/key.
     /// This is not a diagnostic projection and never changes a runtime value.
     pub fn try_to_json(&self) -> Result<Value, NonJsonPreparedValue> {
         self.json_at("")
@@ -272,4 +272,63 @@ impl From<Value> for PreparedValue {
 #[error("prepared runtime value at {pointer:?} is not representable by serde_json")]
 pub struct NonJsonPreparedValue {
     pub pointer: String,
+}
+
+#[cfg(test)]
+mod string_tests {
+    use super::*;
+
+    #[test]
+    fn scalar_and_non_scalar_strings_have_exact_units_and_explicit_projection() {
+        for units in [
+            vec![],
+            vec![0],
+            vec![0xd800],
+            vec![0xdc00],
+            vec![0xd800, 0xd800],
+            vec![0xdc00, 0xd800],
+            vec![0xd83d, 0xde00],
+            vec![0xd83d, 0xde00, 0xd800],
+        ] {
+            let string = PreparedString::from_code_units(units.clone());
+            assert_eq!(string.code_units(), units);
+            assert_eq!(
+                string.code_point_len(),
+                char::decode_utf16(units.iter().copied()).count()
+            );
+            assert_eq!(string.to_utf8_lossy(), String::from_utf16_lossy(&units));
+            assert_eq!(string.as_str(), String::from_utf16(&units).ok().as_deref());
+        }
+        assert_eq!(
+            PreparedString::from_code_units(vec![0xd83d, 0xde00]),
+            PreparedString::from("😀")
+        );
+        assert_ne!(
+            PreparedString::from_code_units(vec![0xd800]),
+            PreparedString::from("�")
+        );
+    }
+
+    #[test]
+    fn non_scalar_keys_are_addressable_and_json_conversion_never_normalizes() {
+        let high = PreparedString::from_code_units(vec![0xd800]);
+        let low = PreparedString::from_code_units(vec![0xdc00]);
+        let mut object = PreparedValue::Object(BTreeMap::from([
+            (high.clone(), PreparedValue::Bool(true)),
+            (low.clone(), PreparedValue::Bool(false)),
+            ("�".into(), PreparedValue::Null),
+        ]));
+        assert_eq!(
+            object.get_code_units(&high),
+            Some(&PreparedValue::Bool(true))
+        );
+        assert_eq!(
+            object.get_code_units(&low),
+            Some(&PreparedValue::Bool(false))
+        );
+        assert_eq!(object.as_object().unwrap().len(), 3);
+        assert!(object.try_to_json().is_err());
+        object["scalar"] = PreparedValue::String(high);
+        assert!(object.try_to_json().is_err());
+    }
 }

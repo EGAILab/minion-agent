@@ -103,6 +103,8 @@ def declare_agent_events(bus: EventBus) -> None:
 
 
 def _order_event_arguments(args: tuple[object, ...]) -> None:
-    arguments = getattr(args[-1], "arguments", None) if args else None
-    if isinstance(arguments, dict):
-        order_in_place(arguments)
+    """Every admitted raw graph root -- an object, an ARRAY (the raw domain admits one) or a
+    primitive, which ordering leaves untouched -- is ordered in place before each listener
+    (`L0206-D001-R004`, targeted closure 1)."""
+    if args:
+        order_in_place(getattr(args[-1], "arguments", None))

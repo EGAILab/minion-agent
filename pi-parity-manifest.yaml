@@ -113,7 +113,7 @@ rows:
     in text and at any depth of details, details keys included, numbers incl. -0, +/-Infinity and NaN -- unchanged
     from the tool''s return through the after-hook (TOOL-005), tool_execution_end (TOOL-017), the
     ToolResultMessage, session append/committed-history replay (MINION-002) and any binding''s replayed
-    tool_execution_end (Python: Layer-08 project). Key order is L0206-D001''s; undefined/absent/top-level-null details stay IR-L06-004''s
+    tool_execution_end (Python: Layer-08 project). details key order is not established (outside L0206-D001, which covers tool-argument objects only); undefined/absent/top-level-null details stay IR-L06-004''s
     host mapping (ADJ-2). Projections (filesystem UTF-8, Pi''s session file, provider payloads) are
     separate boundaries. Full rules: spec/tools.md ''Tool-result runtime value domain''.'
   tests:

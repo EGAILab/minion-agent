@@ -1,0 +1,493 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$comment": "Post-certification delta L12-D001 (EXEC-002 / EXEC-003; Owner decision FSP-Q001): the filesystem path JavaScript-string domain through the Layer-12 ctx.fs seam. Scenarios live in conformance/agent/fs-path-domain/*.json. An `fs_path_domain` case runs in a fresh working directory that is already its own realpath; each step calls ONE ctx.fs operation (target_key = the FsTarget derivation) with `path` -- {\"utf16\": units} relative to that directory ('/'-separated), or {\"file_url_tail\": units}, the directory's own file URL plus the tail (fixture construction). Each result is OBSERVED platform-neutrally: a path as its components relative to the working directory, a string as UTF-16 code units, an error as {error: code, path}, a listing as names sorted by code units, file_info as {kind, name}; observe: last_component keeps only absolute_path's final component. An `fs_path_tools` case runs the REAL built-in tools; each step observes {is_error, text}. Expectations come from pinned Pi (Linux and Windows identical; macOS DEFERRED_WITH_REASON). The runner performs no projection, normalization or resolution on the provider's behalf. L12-D001-R001 error-origin cases add append_file, read_text_lines, read_binary_file, create_dir (`recursive`), remove and rename_file (`to`); where pinned Node itself answers differently per platform a step carries `expect_by_platform` {linux, win32} instead of `expect`, and a case limited by a recorded Layer-12 finding declares `platforms` with a `platform_note` naming it (a runner skips it elsewhere, visibly).",
+  "type": "object",
+  "required": [
+    "name",
+    "family",
+    "authority",
+    "pi_revision",
+    "requirements",
+    "witnesses",
+    "platforms"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "family": {
+      "const": "agent"
+    },
+    "authority": {
+      "type": "string",
+      "minLength": 1
+    },
+    "pi_revision": {
+      "type": "string",
+      "minLength": 1
+    },
+    "requirements": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string",
+        "pattern": "^[A-Z]+-[0-9]{3}$"
+      }
+    },
+    "witnesses": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "platforms": {
+      "type": "array",
+      "items": {
+        "enum": [
+          "linux",
+          "win32",
+          "darwin"
+        ]
+      },
+      "minItems": 1
+    },
+    "notes": {
+      "type": "string"
+    },
+    "fs_path_domain": {
+      "type": "object",
+      "required": [
+        "cases"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "cases": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/case"
+          }
+        }
+      }
+    },
+    "fs_path_tools": {
+      "type": "object",
+      "required": [
+        "cases"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "cases": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/tool_case"
+          }
+        }
+      }
+    }
+  },
+  "oneOf": [
+    {
+      "required": [
+        "fs_path_domain"
+      ]
+    },
+    {
+      "required": [
+        "fs_path_tools"
+      ]
+    }
+  ],
+  "$defs": {
+    "units": {
+      "type": "array",
+      "items": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 65535
+      }
+    },
+    "text": {
+      "type": "object",
+      "required": [
+        "utf16"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "utf16": {
+          "$ref": "#/$defs/units"
+        }
+      }
+    },
+    "path": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/text"
+        },
+        {
+          "type": "object",
+          "required": [
+            "file_url_tail"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "file_url_tail": {
+              "$ref": "#/$defs/units"
+            }
+          }
+        }
+      ]
+    },
+    "path_observation": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": [
+            "components"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "components": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/units"
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "outside"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "outside": {
+              "const": true
+            }
+          }
+        }
+      ]
+    },
+    "observation": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": [
+            "components"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "components": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/units"
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "outside"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "outside": {
+              "const": true
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "error",
+            "path"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "error": {
+              "enum": [
+                "not_found",
+                "permission_denied",
+                "not_directory",
+                "is_directory",
+                "invalid",
+                "aborted",
+                "not_supported",
+                "unknown"
+              ]
+            },
+            "path": {
+              "oneOf": [
+                {
+                  "$ref": "#/$defs/path_observation"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "ok"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "ok": {
+              "anyOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "type": "boolean"
+                },
+                {
+                  "$ref": "#/$defs/units"
+                },
+                {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/units"
+                  }
+                }
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "names"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "names": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/units"
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "kind",
+            "name"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "enum": [
+                "file",
+                "directory",
+                "symlink"
+              ]
+            },
+            "name": {
+              "$ref": "#/$defs/units"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "last"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "last": {
+              "$ref": "#/$defs/units"
+            }
+          }
+        }
+      ]
+    },
+    "step": {
+      "type": "object",
+      "required": [
+        "op",
+        "path"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "op": {
+          "enum": [
+            "write_file",
+            "read_text_file",
+            "list_dir",
+            "canonical_path",
+            "absolute_path",
+            "target_key",
+            "exists",
+            "file_info",
+            "append_file",
+            "read_text_lines",
+            "read_binary_file",
+            "create_dir",
+            "remove",
+            "rename_file"
+          ]
+        },
+        "path": {
+          "$ref": "#/$defs/path"
+        },
+        "content": {
+          "$ref": "#/$defs/units"
+        },
+        "observe": {
+          "const": "last_component"
+        },
+        "expect": {
+          "$ref": "#/$defs/observation"
+        },
+        "to": {
+          "$ref": "#/$defs/path"
+        },
+        "recursive": {
+          "type": "boolean"
+        },
+        "expect_by_platform": {
+          "type": "object",
+          "required": [
+            "linux",
+            "win32"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "linux": {
+              "$ref": "#/$defs/observation"
+            },
+            "win32": {
+              "$ref": "#/$defs/observation"
+            }
+          }
+        }
+      },
+      "oneOf": [
+        {
+          "required": [
+            "expect"
+          ]
+        },
+        {
+          "required": [
+            "expect_by_platform"
+          ]
+        }
+      ]
+    },
+    "tool_step": {
+      "type": "object",
+      "required": [
+        "tool",
+        "arguments",
+        "expect"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "tool": {
+          "enum": [
+            "write",
+            "read",
+            "ls",
+            "edit"
+          ]
+        },
+        "arguments": {
+          "type": "object"
+        },
+        "expect": {
+          "type": "object",
+          "required": [
+            "is_error",
+            "text"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "is_error": {
+              "type": "boolean"
+            },
+            "text": {
+              "$ref": "#/$defs/text"
+            }
+          }
+        }
+      }
+    },
+    "case": {
+      "type": "object",
+      "required": [
+        "id",
+        "steps"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "steps": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/step"
+          }
+        },
+        "platforms": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "linux",
+              "win32"
+            ]
+          }
+        },
+        "platform_note": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "dependentRequired": {
+        "platforms": [
+          "platform_note"
+        ],
+        "platform_note": [
+          "platforms"
+        ]
+      }
+    },
+    "tool_case": {
+      "type": "object",
+      "required": [
+        "id",
+        "steps"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "steps": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/tool_step"
+          }
+        }
+      }
+    }
+  }
+}

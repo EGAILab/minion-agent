@@ -1,0 +1,796 @@
+{
+ "name": "fs-path-file-url",
+ "family": "agent",
+ "authority": "pinned Pi b7bb00b9 packages/agent/src/harness/env/nodejs.ts NodeExecutionEnv (imported unmodified) + coding-agent core/tools/file-mutation-queue.ts getMutationQueueKey (sliced unmodified), Node 22.15.1, identical on Linux (node:22.15.1-alpine) and Windows 11 (L12-D001 authority)",
+ "pi_revision": "b7bb00b936dbe21b8e160b3e89efdec361846699",
+ "requirements": [
+  "EXEC-002",
+  "EXEC-003"
+ ],
+ "witnesses": [
+  "fs_path_javascript_string_domain"
+ ],
+ "platforms": [
+  "linux",
+  "win32"
+ ],
+ "notes": "FSP-D6: a raw unpaired surrogate in a file:// string is U+FFFD after WHATWG URL parsing (before any fs call); valid percent-encoded sequences decode; percent-encoded invalid UTF-8 keeps the literal URL as an ordinary path at this Layer-12 seam (certified rule; the tool pipeline's R002-A rejection is TOOL-026's). GENERATED from the pinned-Pi L12-D001 probe; regenerate with harness/make_scenarios.py.",
+ "fs_path_domain": {
+  "cases": [
+   {
+    "id": "file-url/raw-lone-high",
+    "steps": [
+     {
+      "op": "absolute_path",
+      "path": {
+       "file_url_tail": [
+        97,
+        55296
+       ]
+      },
+      "expect": {
+       "components": [
+        [
+         97,
+         65533
+        ]
+       ]
+      }
+     },
+     {
+      "op": "write_file",
+      "path": {
+       "file_url_tail": [
+        97,
+        55296
+       ]
+      },
+      "content": [
+       117,
+       114,
+       108
+      ],
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "list_dir",
+      "path": {
+       "utf16": [
+        46
+       ]
+      },
+      "expect": {
+       "names": [
+        [
+         97,
+         65533
+        ]
+       ]
+      }
+     },
+     {
+      "op": "canonical_path",
+      "path": {
+       "file_url_tail": [
+        97,
+        55296
+       ]
+      },
+      "expect": {
+       "components": [
+        [
+         97,
+         65533
+        ]
+       ]
+      }
+     },
+     {
+      "op": "target_key",
+      "path": {
+       "file_url_tail": [
+        97,
+        55296
+       ]
+      },
+      "expect": {
+       "components": [
+        [
+         97,
+         65533
+        ]
+       ]
+      }
+     }
+    ]
+   },
+   {
+    "id": "file-url/raw-lone-low",
+    "steps": [
+     {
+      "op": "absolute_path",
+      "path": {
+       "file_url_tail": [
+        97,
+        56320
+       ]
+      },
+      "expect": {
+       "components": [
+        [
+         97,
+         65533
+        ]
+       ]
+      }
+     },
+     {
+      "op": "write_file",
+      "path": {
+       "file_url_tail": [
+        97,
+        56320
+       ]
+      },
+      "content": [
+       117,
+       114,
+       108
+      ],
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "list_dir",
+      "path": {
+       "utf16": [
+        46
+       ]
+      },
+      "expect": {
+       "names": [
+        [
+         97,
+         65533
+        ]
+       ]
+      }
+     },
+     {
+      "op": "canonical_path",
+      "path": {
+       "file_url_tail": [
+        97,
+        56320
+       ]
+      },
+      "expect": {
+       "components": [
+        [
+         97,
+         65533
+        ]
+       ]
+      }
+     },
+     {
+      "op": "target_key",
+      "path": {
+       "file_url_tail": [
+        97,
+        56320
+       ]
+      },
+      "expect": {
+       "components": [
+        [
+         97,
+         65533
+        ]
+       ]
+      }
+     }
+    ]
+   },
+   {
+    "id": "file-url/raw-pair",
+    "steps": [
+     {
+      "op": "absolute_path",
+      "path": {
+       "file_url_tail": [
+        97,
+        55357,
+        56832
+       ]
+      },
+      "expect": {
+       "components": [
+        [
+         97,
+         55357,
+         56832
+        ]
+       ]
+      }
+     },
+     {
+      "op": "write_file",
+      "path": {
+       "file_url_tail": [
+        97,
+        55357,
+        56832
+       ]
+      },
+      "content": [
+       117,
+       114,
+       108
+      ],
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "list_dir",
+      "path": {
+       "utf16": [
+        46
+       ]
+      },
+      "expect": {
+       "names": [
+        [
+         97,
+         55357,
+         56832
+        ]
+       ]
+      }
+     },
+     {
+      "op": "canonical_path",
+      "path": {
+       "file_url_tail": [
+        97,
+        55357,
+        56832
+       ]
+      },
+      "expect": {
+       "components": [
+        [
+         97,
+         55357,
+         56832
+        ]
+       ]
+      }
+     },
+     {
+      "op": "target_key",
+      "path": {
+       "file_url_tail": [
+        97,
+        55357,
+        56832
+       ]
+      },
+      "expect": {
+       "components": [
+        [
+         97,
+         55357,
+         56832
+        ]
+       ]
+      }
+     }
+    ]
+   },
+   {
+    "id": "file-url/raw-mixed",
+    "steps": [
+     {
+      "op": "absolute_path",
+      "path": {
+       "file_url_tail": [
+        97,
+        55357,
+        56832,
+        56320
+       ]
+      },
+      "expect": {
+       "components": [
+        [
+         97,
+         55357,
+         56832,
+         65533
+        ]
+       ]
+      }
+     },
+     {
+      "op": "write_file",
+      "path": {
+       "file_url_tail": [
+        97,
+        55357,
+        56832,
+        56320
+       ]
+      },
+      "content": [
+       117,
+       114,
+       108
+      ],
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "list_dir",
+      "path": {
+       "utf16": [
+        46
+       ]
+      },
+      "expect": {
+       "names": [
+        [
+         97,
+         55357,
+         56832,
+         65533
+        ]
+       ]
+      }
+     },
+     {
+      "op": "canonical_path",
+      "path": {
+       "file_url_tail": [
+        97,
+        55357,
+        56832,
+        56320
+       ]
+      },
+      "expect": {
+       "components": [
+        [
+         97,
+         55357,
+         56832,
+         65533
+        ]
+       ]
+      }
+     },
+     {
+      "op": "target_key",
+      "path": {
+       "file_url_tail": [
+        97,
+        55357,
+        56832,
+        56320
+       ]
+      },
+      "expect": {
+       "components": [
+        [
+         97,
+         55357,
+         56832,
+         65533
+        ]
+       ]
+      }
+     }
+    ]
+   },
+   {
+    "id": "file-url/pct-fffd",
+    "steps": [
+     {
+      "op": "absolute_path",
+      "path": {
+       "file_url_tail": [
+        97,
+        37,
+        69,
+        70,
+        37,
+        66,
+        70,
+        37,
+        66,
+        68
+       ]
+      },
+      "expect": {
+       "components": [
+        [
+         97,
+         65533
+        ]
+       ]
+      }
+     },
+     {
+      "op": "write_file",
+      "path": {
+       "file_url_tail": [
+        97,
+        37,
+        69,
+        70,
+        37,
+        66,
+        70,
+        37,
+        66,
+        68
+       ]
+      },
+      "content": [
+       117,
+       114,
+       108
+      ],
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "list_dir",
+      "path": {
+       "utf16": [
+        46
+       ]
+      },
+      "expect": {
+       "names": [
+        [
+         97,
+         65533
+        ]
+       ]
+      }
+     },
+     {
+      "op": "canonical_path",
+      "path": {
+       "file_url_tail": [
+        97,
+        37,
+        69,
+        70,
+        37,
+        66,
+        70,
+        37,
+        66,
+        68
+       ]
+      },
+      "expect": {
+       "components": [
+        [
+         97,
+         65533
+        ]
+       ]
+      }
+     },
+     {
+      "op": "target_key",
+      "path": {
+       "file_url_tail": [
+        97,
+        37,
+        69,
+        70,
+        37,
+        66,
+        70,
+        37,
+        66,
+        68
+       ]
+      },
+      "expect": {
+       "components": [
+        [
+         97,
+         65533
+        ]
+       ]
+      }
+     }
+    ]
+   },
+   {
+    "id": "file-url/pct-astral",
+    "steps": [
+     {
+      "op": "absolute_path",
+      "path": {
+       "file_url_tail": [
+        97,
+        37,
+        70,
+        48,
+        37,
+        57,
+        70,
+        37,
+        57,
+        56,
+        37,
+        56,
+        48
+       ]
+      },
+      "expect": {
+       "components": [
+        [
+         97,
+         55357,
+         56832
+        ]
+       ]
+      }
+     },
+     {
+      "op": "write_file",
+      "path": {
+       "file_url_tail": [
+        97,
+        37,
+        70,
+        48,
+        37,
+        57,
+        70,
+        37,
+        57,
+        56,
+        37,
+        56,
+        48
+       ]
+      },
+      "content": [
+       117,
+       114,
+       108
+      ],
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "list_dir",
+      "path": {
+       "utf16": [
+        46
+       ]
+      },
+      "expect": {
+       "names": [
+        [
+         97,
+         55357,
+         56832
+        ]
+       ]
+      }
+     },
+     {
+      "op": "canonical_path",
+      "path": {
+       "file_url_tail": [
+        97,
+        37,
+        70,
+        48,
+        37,
+        57,
+        70,
+        37,
+        57,
+        56,
+        37,
+        56,
+        48
+       ]
+      },
+      "expect": {
+       "components": [
+        [
+         97,
+         55357,
+         56832
+        ]
+       ]
+      }
+     },
+     {
+      "op": "target_key",
+      "path": {
+       "file_url_tail": [
+        97,
+        37,
+        70,
+        48,
+        37,
+        57,
+        70,
+        37,
+        57,
+        56,
+        37,
+        56,
+        48
+       ]
+      },
+      "expect": {
+       "components": [
+        [
+         97,
+         55357,
+         56832
+        ]
+       ]
+      }
+     }
+    ]
+   },
+   {
+    "id": "file-url/pct-lone-high",
+    "steps": [
+     {
+      "op": "absolute_path",
+      "path": {
+       "file_url_tail": [
+        97,
+        37,
+        69,
+        68,
+        37,
+        65,
+        48,
+        37,
+        56,
+        48
+       ]
+      },
+      "observe": "last_component",
+      "expect": {
+       "last": [
+        97,
+        37,
+        69,
+        68,
+        37,
+        65,
+        48,
+        37,
+        56,
+        48
+       ]
+      }
+     }
+    ]
+   },
+   {
+    "id": "file-url/pct-lone-low",
+    "steps": [
+     {
+      "op": "absolute_path",
+      "path": {
+       "file_url_tail": [
+        97,
+        37,
+        69,
+        68,
+        37,
+        66,
+        48,
+        37,
+        56,
+        48
+       ]
+      },
+      "observe": "last_component",
+      "expect": {
+       "last": [
+        97,
+        37,
+        69,
+        68,
+        37,
+        66,
+        48,
+        37,
+        56,
+        48
+       ]
+      }
+     }
+    ]
+   },
+   {
+    "id": "file-url/pct-truncated",
+    "steps": [
+     {
+      "op": "absolute_path",
+      "path": {
+       "file_url_tail": [
+        97,
+        37,
+        70,
+        48,
+        37,
+        57,
+        70
+       ]
+      },
+      "observe": "last_component",
+      "expect": {
+       "last": [
+        97,
+        37,
+        70,
+        48,
+        37,
+        57,
+        70
+       ]
+      }
+     }
+    ]
+   },
+   {
+    "id": "file-url/pct-overlong",
+    "steps": [
+     {
+      "op": "absolute_path",
+      "path": {
+       "file_url_tail": [
+        97,
+        37,
+        67,
+        48,
+        37,
+        65,
+        70
+       ]
+      },
+      "observe": "last_component",
+      "expect": {
+       "last": [
+        97,
+        37,
+        67,
+        48,
+        37,
+        65,
+        70
+       ]
+      }
+     }
+    ]
+   }
+  ]
+ }
+}

@@ -6,8 +6,10 @@ walk, and the logical fallback where Node's error carries no path."""
 
 from __future__ import annotations
 
+import dataclasses
 import errno
 import os
+import shutil
 import stat
 from collections.abc import Callable
 from pathlib import Path
@@ -230,3 +232,184 @@ async def test_a_pre_aborted_operation_reports_the_resolved_logical_path(
     assert isinstance(result, Err)
     assert result.error.code == FsErrorCode.ABORTED
     assert result.error.path == resolve_local_path(str(tmp_path), LONE)
+
+
+# --- CE-L12-D001-01: the per-entry and recursive-removal origins (convergence witnesses) ----------
+
+NAMES = {"scalar": "b", "lone": LONE}
+
+
+async def _list_with_vanishing_entry(tmp_path: Path, name: str) -> tuple[Err, str]:
+    """Pinned Pi's per-entry `toFileError(error, entryPath)`: the entry is removed after the
+    enumeration, immediately before the provider's own `lstat` of it (a real unlink)."""
+    fs = LocalFileSystem(cwd=str(tmp_path))
+    assert isinstance(await fs.write_file(f"{name}/child.txt", "x"), Ok)
+    original = os.lstat
+
+    def lstat(path: str, *args: object, **kwargs: object) -> os.stat_result:
+        if os.fspath(path).endswith("child.txt") and os.path.exists(path):
+            os.unlink(path)
+        return original(path, *args, **kwargs)  # type: ignore[arg-type]
+
+    os.lstat = lstat  # type: ignore[assignment]
+    try:
+        result = await fs.list_dir(name)
+    finally:
+        os.lstat = original
+    assert isinstance(result, Err)
+    entry = os.path.join(
+        fs_module.native_path(resolve_local_path(str(tmp_path), name)), "child.txt"
+    )
+    return result, entry
+
+
+@pytest.mark.parametrize("name", NAMES.values(), ids=NAMES.keys())
+async def test_an_entry_failing_its_own_lstat_names_the_native_entry(
+    name: str, tmp_path: Path
+) -> None:
+    result, entry = await _list_with_vanishing_entry(tmp_path, name)
+    assert result.error.code == FsErrorCode.NOT_FOUND
+    assert result.error.path == entry
+
+
+def _deny_inner_unlink(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`unlink` of the tree's file `f` is refused (a real EACCES on POSIX; forced on every host)."""
+    original = os.unlink
+
+    def unlink(path: str, *args: object, **kwargs: object) -> None:
+        if os.path.basename(os.fspath(path)) == "f":
+            raise PermissionError(errno.EACCES, "Permission denied", path)
+        original(path, *args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(os, "unlink", unlink)
+
+
+async def _remove_failing_inside(
+    tmp_path: Path, name: str, monkeypatch: pytest.MonkeyPatch
+) -> tuple[Err, str]:
+    fs = LocalFileSystem(cwd=str(tmp_path))
+    assert isinstance(await fs.write_file(f"{name}/sub/f", "x"), Ok)
+    _deny_inner_unlink(monkeypatch)
+    result = await fs.remove(name, recursive=True)
+    assert isinstance(result, Err)
+    top = fs_module.native_path(resolve_local_path(str(tmp_path), name))
+    return result, os.path.join(top, "sub", "f")
+
+
+@pytest.mark.parametrize("name", NAMES.values(), ids=NAMES.keys())
+async def test_a_recursive_removal_names_the_inner_entry_that_failed(
+    name: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Pinned Node's `rimraf` names the failing call's path -- the file inside the tree."""
+    result, inner = await _remove_failing_inside(tmp_path, name, monkeypatch)
+    assert result.error.code == FsErrorCode.PERMISSION_DENIED
+    assert result.error.path == inner
+
+
+def test_a_non_os_removal_failure_propagates_unchanged() -> None:
+    with pytest.raises(ValueError, match="boom"):
+        fs_module._name_the_failing_path(os.unlink, "p", ValueError("boom"))
+
+
+# --- CE-L12-D001-01 negative controls (section 7): each must make its witness fail ---------------
+
+
+def _list_dir_names_the_directory(monkeypatch: pytest.MonkeyPatch) -> None:
+    original = LocalFileSystem.list_dir
+
+    async def list_dir(self: LocalFileSystem, path: str, signal: object = None) -> object:
+        result = await original(self, path)
+        if isinstance(result, Err):
+            native = fs_module.native_path(resolve_local_path(self.cwd, path))
+            return Err(dataclasses.replace(result.error, path=native))
+        return result
+
+    monkeypatch.setattr(LocalFileSystem, "list_dir", list_dir)
+
+
+def _remove_names_the_target(monkeypatch: pytest.MonkeyPatch) -> None:
+    original = LocalFileSystem.remove
+
+    async def remove(self: LocalFileSystem, path: str, *args: object, **kwargs: object) -> object:
+        result = await original(self, path, *args, **kwargs)  # type: ignore[arg-type]
+        if isinstance(result, Err):
+            native = fs_module.native_path(resolve_local_path(self.cwd, path))
+            return Err(dataclasses.replace(result.error, path=native))
+        return result
+
+    monkeypatch.setattr(LocalFileSystem, "remove", remove)
+
+
+def _rmtree_reraises_without_the_carrier(monkeypatch: pytest.MonkeyPatch) -> None:
+    def name_and_reraise(function: Callable[..., object], path: str, exc: BaseException) -> None:
+        if isinstance(exc, OSError):
+            exc.filename = path
+        raise exc
+
+    monkeypatch.setattr(fs_module, "_name_the_failing_path", name_and_reraise)
+
+
+@pytest.mark.parametrize(
+    "mutant",
+    [_list_dir_names_the_directory],
+    ids=["list-dir-names-the-directory"],
+)
+async def test_control_the_entry_witness_rejects(
+    mutant: Callable[[pytest.MonkeyPatch], None], monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    mutant(monkeypatch)
+    result, entry = await _list_with_vanishing_entry(tmp_path, LONE)
+    assert result.error.path != entry
+
+
+@pytest.mark.parametrize(
+    "mutant",
+    [
+        _remove_names_the_target,
+        pytest.param(
+            _rmtree_reraises_without_the_carrier,
+            marks=pytest.mark.skipif(
+                not shutil._use_fd_functions,  # type: ignore[attr-defined]
+                reason="the re-catch quirk lives only in rmtree's fd-based (POSIX) walk",
+            ),
+        ),
+    ],
+    ids=["remove-names-the-target", "rmtree-reraises-without-the-carrier"],
+)
+async def test_control_the_removal_witness_rejects(
+    mutant: Callable[[pytest.MonkeyPatch], None], monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    mutant(monkeypatch)
+    result, inner = await _remove_failing_inside(tmp_path, LONE, monkeypatch)
+    assert result.error.path != inner
+
+
+def test_control_the_walk_witness_rejects_eexist_for_a_failed_stat(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """R002: the pre-correction wording ("EEXIST in every other case") turns a failed final
+    `stat` into `EEXIST`; the walk witness must tell the two apart."""
+    _scripted(
+        monkeypatch, {"a": _err(errno.EEXIST, "a")}, {"a": PermissionError(errno.EACCES, "x", "a")}
+    )
+    with pytest.raises(PermissionError) as raised:
+        fs_module._node_mkdirp("a")
+    assert not isinstance(raised.value, FileExistsError)
+
+
+@pytest.mark.skipif(
+    os.name == "nt" or os.geteuid() == 0,  # type: ignore[attr-defined,unused-ignore]
+    reason="a real permission denial inside the tree needs POSIX modes and a non-root user",
+)
+async def test_a_real_recursive_removal_failure_names_the_protected_file(tmp_path: Path) -> None:
+    fs = LocalFileSystem(cwd=str(tmp_path))
+    assert isinstance(await fs.write_file(f"{LONE}/sub/f", "x"), Ok)
+    top = fs_module.native_path(resolve_local_path(str(tmp_path), LONE))
+    os.chmod(os.path.join(top, "sub"), 0o555)
+    try:
+        result = await fs.remove(LONE, recursive=True)
+    finally:
+        os.chmod(os.path.join(top, "sub"), 0o755)
+    assert isinstance(result, Err)
+    assert result.error.code == FsErrorCode.PERMISSION_DENIED
+    assert result.error.path == os.path.join(top, "sub", "f")

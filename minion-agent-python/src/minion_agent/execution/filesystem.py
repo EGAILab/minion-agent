@@ -805,6 +805,27 @@ def _check_read_write_sync(path: str) -> None:
         _check_read_write_posix(path)
 
 
+class _RemovalFailure(Exception):
+    """Carries a recursive removal's FIRST failure out of `shutil.rmtree`, which would otherwise
+    catch a re-raised `OSError` at the enclosing directory and report it again as that directory's
+    own `scandir` failure."""
+
+    def __init__(self, error: OSError) -> None:
+        super().__init__(error)
+        self.error = error
+
+
+def _name_the_failing_path(function: Callable[..., Any], path: str, exc: BaseException) -> None:
+    """`CE-L12-D001-01`: a recursive removal's failure names the path of the call that failed,
+    as pinned Node's `rimraf` (v22.15.1 `lib/internal/fs/rimraf.js`, git blob
+    `24bf3f46b878e711beadcdc8e1b08700d10aa3c5`) reports it -- an entry INSIDE the tree, not the
+    removal's own target. `rmtree` passes that path here; its fd-relative calls name only a part."""
+    if isinstance(exc, OSError):
+        exc.filename = path
+        raise _RemovalFailure(exc) from exc
+    raise exc
+
+
 def _remove_sync(path: str, recursive: bool, force: bool) -> None:
     try:
         st = os.lstat(path)
@@ -823,7 +844,10 @@ def _remove_sync(path: str, recursive: bool, force: bool) -> None:
             # Matches pinned Pi's own fs.rm exactly: ANY directory (even an empty one)
             # requires recursive=true, unlike POSIX rmdir's own more lenient default.
             raise IsADirectoryError(f"Path is a directory: {path}")
-        shutil.rmtree(path)
+        try:
+            shutil.rmtree(path, onexc=_name_the_failing_path)
+        except _RemovalFailure as failure:
+            raise failure.error from None
         return
     os.remove(path)
 
@@ -1103,7 +1127,10 @@ class LocalFileSystem:
         except _AbortedSignal:
             return Err(_aborted(resolved))
         except OSError as exc:
-            return Err(to_fs_error(exc, native))
+            # `CE-L12-D001-01` (R001): the failing call names its own path -- the directory for the
+            # enumeration, the native ENTRY for an entry's own `lstat` (pinned Pi's
+            # `toFileError(error, entryPath)`, e.g. an entry removed after the enumeration).
+            return Err(to_fs_error(exc, exc.filename if exc.filename is not None else native))
         return Ok(infos)
 
     async def list_dir_raw(
@@ -1222,8 +1249,9 @@ class LocalFileSystem:
         except OSError as exc:
             # `L12-D001-R001`: the non-recursive directory refusal is Node's own `rm` validation,
             # whose error names the path string it was given -- the logical path. It is raised here
-            # without a `filename`; every OS failure names the native path.
-            return Err(to_fs_error(exc, native if exc.filename is not None else resolved))
+            # without a `filename`. Every OS failure names its own native path: the argument, or
+            # (`CE-L12-D001-01`) an entry INSIDE the tree a recursive removal failed on.
+            return Err(to_fs_error(exc, exc.filename if exc.filename is not None else resolved))
         return Ok(None)
 
     async def create_temp_dir(

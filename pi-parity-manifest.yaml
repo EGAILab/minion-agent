@@ -6029,9 +6029,12 @@ rows:
     projects unpaired surrogates to U+FFFD ONLY at the OS call (pinned Node), so canonical_path / listings / OS error
     paths are projected while absolute_path, file_info name/path, abort/non-OS error paths and the missing-target
     target_key fallback stay logical; existing target_key = projected canonical; file:// input is a scalar value
-    string before ada (L12-R002 unchanged). spec/execution.md section 14. conformance/agent/fs-path-domain/
-    (fs-path-domain-scenario.schema.json; 56 ctx.fs cases + 5 tool cases, Linux = Windows);
-    tests/conformance/test_fs_path_conformance.py, tests/execution/test_fs_path_negative_controls.py'
+    string before ada (L12-R002 unchanged). An OS-originated error names the path of the native call that failed
+    (Node err.path: the recursive-mkdir walk position, a rename source), else the logical fallback (L12-D001-R001).
+    spec/execution.md section 14. conformance/agent/fs-path-domain/ (fs-path-domain-scenario.schema.json; 122
+    ctx.fs cases -- 66 error-origin, per-platform where pinned Node differs -- + 5 tool cases);
+    tests/conformance/test_fs_path_conformance.py, tests/execution/test_fs_path_negative_controls.py,
+    tests/execution/test_fs_error_origin.py'
   - minion-agent-rust/crates/minion-agent/tests/execution_filesystem.rs
   - minion-agent-python/tests/execution/test_filesystem.py
   python: 'minion-agent-python/src/minion_agent/execution/filesystem.py; integration evidence in
@@ -6187,9 +6190,12 @@ rows:
     projects unpaired surrogates to U+FFFD ONLY at the OS call (pinned Node), so canonical_path / listings / OS error
     paths are projected while absolute_path, file_info name/path, abort/non-OS error paths and the missing-target
     target_key fallback stay logical; existing target_key = projected canonical; file:// input is a scalar value
-    string before ada (L12-R002 unchanged). spec/execution.md section 14. conformance/agent/fs-path-domain/
-    (fs-path-domain-scenario.schema.json; 56 ctx.fs cases + 5 tool cases, Linux = Windows);
-    tests/conformance/test_fs_path_conformance.py, tests/execution/test_fs_path_negative_controls.py'
+    string before ada (L12-R002 unchanged). An OS-originated error names the path of the native call that failed
+    (Node err.path: the recursive-mkdir walk position, a rename source), else the logical fallback (L12-D001-R001).
+    spec/execution.md section 14. conformance/agent/fs-path-domain/ (fs-path-domain-scenario.schema.json; 122
+    ctx.fs cases -- 66 error-origin, per-platform where pinned Node differs -- + 5 tool cases);
+    tests/conformance/test_fs_path_conformance.py, tests/execution/test_fs_path_negative_controls.py,
+    tests/execution/test_fs_error_origin.py'
   - minion-agent-rust/crates/minion-agent/tests/execution_filesystem.rs
   - minion-agent-python/tests/execution/test_filesystem.py
   python: 'minion-agent-python/src/minion_agent/execution/filesystem.py (`FsTarget`, `resolve`,

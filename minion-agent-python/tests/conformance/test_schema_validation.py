@@ -1030,7 +1030,7 @@ def test_fs_path_domain_scenario_validates(scenario: Path) -> None:
     "mutation",
     [
         lambda s: s.pop("expect"),
-        lambda s: s.__setitem__("op", "rename_file"),
+        lambda s: s.__setitem__("op", "copy_file"),
         lambda s: s.__setitem__("path", {"utf16": [65536]}),
         lambda s: s.__setitem__("path", "f.txt"),
         lambda s: s.__setitem__("expect", {"components": [[65]], "x": 1}),
@@ -1048,4 +1048,39 @@ def test_fs_path_domain_scenario_validates(scenario: Path) -> None:
 def test_fs_path_domain_schema_rejects_malformed_steps(mutation: Any) -> None:
     document = json.loads((FS_PATH_DOMAIN_DIR / "fs-path-alias.json").read_text(encoding="utf-8"))
     mutation(document["fs_path_domain"]["cases"][0]["steps"][0])
+    assert list(_fs_path_validator().iter_errors(document))
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        lambda c: c["steps"][-1].__setitem__("expect", {"ok": None}),
+        lambda c: c["steps"][-1]["expect_by_platform"].pop("win32"),
+        lambda c: c["steps"][-1]["expect_by_platform"].__setitem__("darwin", {"ok": None}),
+        lambda c: c.__setitem__("platforms", ["linux"]),
+        lambda c: c.__setitem__("platform_note", "why"),
+        lambda c: c["steps"][-1].__setitem__("recursive", "yes"),
+    ],
+    ids=[
+        "both-expectations",
+        "missing-platform",
+        "unknown-platform",
+        "platforms-without-note",
+        "note-without-platforms",
+        "non-boolean-recursive",
+    ],
+)
+def test_fs_path_error_origin_schema_rejects_malformed_cases(mutation: Any) -> None:
+    """`L12-D001-R001`: a per-platform expectation is exactly {linux, win32} and excludes `expect`;
+    `platforms` and `platform_note` come together."""
+    document = json.loads(
+        (FS_PATH_DOMAIN_DIR / "fs-path-error-origin.json").read_text(encoding="utf-8")
+    )
+    case = next(
+        c
+        for c in document["fs_path_domain"]["cases"]
+        if c["id"] == "error/scalar/grandparent-file/create-dir"
+    )
+    assert "expect_by_platform" in case["steps"][-1]
+    mutation(case)
     assert list(_fs_path_validator().iter_errors(document))

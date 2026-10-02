@@ -30,6 +30,7 @@ unretrieved-exception warning).
 from __future__ import annotations
 
 import asyncio
+import errno as _errno
 import os
 import re
 import shutil
@@ -400,6 +401,61 @@ suppress-and-fall-through wrapper. Raises `ValueError` (or `OSError`) on a malfo
 
 def _aborted(path: str | None = None) -> FsError:
     return FsError(FsErrorCode.ABORTED, "aborted", path)
+
+
+_NODE_PATH_SEPARATORS = "\\/" if os.name == "nt" else "/"
+
+
+def _node_mkdirp(path: str) -> None:
+    """Pinned Node's recursive `mkdir` walk (v22.15.1 `src/node_file.cc` `MKDirpAsync`, git blob
+    `49816349d8bab37fea1d84e5326ee5a11acad7a2`), reproduced step for step because it decides BOTH
+    the failure's code and the path it names (`L12-D001-R001`): the path the walk was at when it
+    failed -- never the operation's own target. `os.makedirs` walks differently (it skips parents
+    that merely exist, so it never reaches Node's `ENOTDIR` for a file used as a component, and
+    names other paths), so it is not used."""
+    stack = [path]
+    while stack:
+        current = stack.pop()
+        try:
+            os.mkdir(current)
+            continue
+        except (PermissionError, NotADirectoryError):  # Node: EACCES / EPERM / ENOTDIR end the walk
+            raise
+        except FileNotFoundError:
+            cut = max(current.rfind(sep) for sep in _NODE_PATH_SEPARATORS)
+            dirname = current[:cut] if cut >= 0 else current
+            if dirname != current:
+                stack += [current, dirname]
+                continue
+            if stack:
+                continue
+            error: OSError = FileExistsError(_errno.EEXIST, os.strerror(_errno.EEXIST), current)
+        except OSError as exc:
+            error = exc
+        # Node's default branch: stat the path the walk is at.
+        intermediate = error.errno == _errno.EEXIST and bool(stack)
+        try:
+            st = os.stat(current)
+        except OSError as stat_exc:
+            if intermediate:
+                raise NotADirectoryError(
+                    _errno.ENOTDIR, os.strerror(_errno.ENOTDIR), current
+                ) from stat_exc
+            raise
+        if _stat.S_ISDIR(st.st_mode):
+            if intermediate:
+                continue
+            return  # Node: `Done(0)` -- the walk ends successfully
+        if intermediate:
+            raise NotADirectoryError(_errno.ENOTDIR, os.strerror(_errno.ENOTDIR), current)
+        raise FileExistsError(_errno.EEXIST, os.strerror(_errno.EEXIST), current)
+
+
+def _mkdir_error(exc: OSError) -> FsError:
+    """`L12-D001-R001`: a recursive directory creation's failure names the path `_node_mkdirp` was
+    at (Node's `err.path`, which pinned Pi's `toFileError` prefers to its fallback): the native path
+    of that directory, never the target of the write that needed it."""
+    return to_fs_error(exc, exc.filename)
 
 
 async def _race_signal(op: Coroutine[Any, Any, Any], signal: RunSignal | None) -> Any:
@@ -910,14 +966,19 @@ class LocalFileSystem:
     async def read_text_file(
         self, path: str, signal: RunSignal | None = None
     ) -> Result[str, FsError]:
-        if signal is not None and signal.aborted:
-            return Err(_aborted(path))
         resolved = resolve_local_path(self.cwd, path)
+        if signal is not None and signal.aborted:
+            return Err(_aborted(resolved))
         native = native_path(resolved)
         try:
             content = await _race_signal(asyncio.to_thread(_read_text_sync, native), signal)
         except _AbortedSignal:
             return Err(_aborted(resolved))
+        except IsADirectoryError as exc:
+            # `L12-D001-R001`: Node opens a directory for reading and fails the READ with `EISDIR`,
+            # an error that carries no path, so pinned Pi reports its fallback: the logical path.
+            # (On Windows the open itself is refused instead -- the recorded `#67`.)
+            return Err(to_fs_error(exc, resolved))
         except OSError as exc:
             return Err(to_fs_error(exc, native))
         return Ok(content)
@@ -931,6 +992,11 @@ class LocalFileSystem:
             lines = await asyncio.to_thread(_read_text_lines_sync, native, max_lines, signal)
         except _AbortedSignal:
             return Err(_aborted(resolved))
+        except IsADirectoryError as exc:
+            # `L12-D001-R001`: Node opens a directory for reading and fails the READ with `EISDIR`,
+            # an error that carries no path, so pinned Pi reports its fallback: the logical path.
+            # (On Windows the open itself is refused instead -- the recorded `#67`.)
+            return Err(to_fs_error(exc, resolved))
         except OSError as exc:
             return Err(to_fs_error(exc, native))
         return Ok(lines)
@@ -938,14 +1004,19 @@ class LocalFileSystem:
     async def read_binary_file(
         self, path: str, signal: RunSignal | None = None
     ) -> Result[bytes, FsError]:
-        if signal is not None and signal.aborted:
-            return Err(_aborted(path))
         resolved = resolve_local_path(self.cwd, path)
+        if signal is not None and signal.aborted:
+            return Err(_aborted(resolved))
         native = native_path(resolved)
         try:
             content = await _race_signal(asyncio.to_thread(_read_binary_sync, native), signal)
         except _AbortedSignal:
             return Err(_aborted(resolved))
+        except IsADirectoryError as exc:
+            # `L12-D001-R001`: Node opens a directory for reading and fails the READ with `EISDIR`,
+            # an error that carries no path, so pinned Pi reports its fallback: the logical path.
+            # (On Windows the open itself is refused instead -- the recorded `#67`.)
+            return Err(to_fs_error(exc, resolved))
         except OSError as exc:
             return Err(to_fs_error(exc, native))
         return Ok(content)
@@ -953,16 +1024,16 @@ class LocalFileSystem:
     async def write_file(
         self, path: str, content: str | bytes, signal: RunSignal | None = None
     ) -> Result[None, FsError]:
-        if signal is not None and signal.aborted:
-            return Err(_aborted(path))
         resolved = resolve_local_path(self.cwd, path)
+        if signal is not None and signal.aborted:
+            return Err(_aborted(resolved))
         native = native_path(resolved)
         parent = os.path.dirname(native)
         try:
             if parent:
-                await asyncio.to_thread(os.makedirs, parent, exist_ok=True)
+                await asyncio.to_thread(_node_mkdirp, parent)
         except OSError as exc:
-            return Err(to_fs_error(exc, native))
+            return Err(_mkdir_error(exc))
         if signal is not None and signal.aborted:
             return Err(_aborted(resolved))
         try:
@@ -981,7 +1052,10 @@ class LocalFileSystem:
         parent = os.path.dirname(native)
         try:
             if parent:
-                await asyncio.to_thread(os.makedirs, parent, exist_ok=True)
+                await asyncio.to_thread(_node_mkdirp, parent)
+        except OSError as exc:
+            return Err(_mkdir_error(exc))
+        try:
             await asyncio.to_thread(_append_file_sync, native, content)
         except OSError as exc:
             return Err(to_fs_error(exc, native))
@@ -1127,11 +1201,11 @@ class LocalFileSystem:
         native = native_path(resolved)
         try:
             if recursive:
-                await asyncio.to_thread(os.makedirs, native, exist_ok=True)
+                await asyncio.to_thread(_node_mkdirp, native)
             else:
                 await asyncio.to_thread(os.mkdir, native)
         except OSError as exc:
-            return Err(to_fs_error(exc, native))
+            return Err(_mkdir_error(exc))
         return Ok(None)
 
     async def remove(
@@ -1146,7 +1220,10 @@ class LocalFileSystem:
         try:
             await asyncio.to_thread(_remove_sync, native, recursive, force)
         except OSError as exc:
-            return Err(to_fs_error(exc, native))
+            # `L12-D001-R001`: the non-recursive directory refusal is Node's own `rm` validation,
+            # whose error names the path string it was given -- the logical path. It is raised here
+            # without a `filename`; every OS failure names the native path.
+            return Err(to_fs_error(exc, native if exc.filename is not None else resolved))
         return Ok(None)
 
     async def create_temp_dir(

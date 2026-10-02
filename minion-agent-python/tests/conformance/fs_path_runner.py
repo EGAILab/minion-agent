@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import os
 import struct
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -49,6 +50,14 @@ def observe_error(cwd: str, error: Any) -> dict[str, Any]:
         "error": str(error.code),
         "path": observe_path(cwd, path) if isinstance(path, str) else None,
     }
+
+
+PLATFORM = "win32" if sys.platform == "win32" else "linux"
+
+
+def applies(case: dict[str, Any]) -> bool:
+    """An error-origin case may be declared for some platforms only (`platform_note` says why)."""
+    return PLATFORM in case.get("platforms", ["linux", "win32"])
 
 
 def path_argument(cwd: str, path: dict[str, Any]) -> str:
@@ -105,15 +114,43 @@ async def run_case(case: dict[str, Any], root: Path) -> list[Any]:
                 if isinstance(r, Ok)
                 else observe_error(cwd, r.error)
             )
+        elif op == "append_file":
+            r = await fs.append_file(p, string(step["content"]))
+            o = {"ok": None} if isinstance(r, Ok) else observe_error(cwd, r.error)
+        elif op == "read_text_lines":
+            r = await fs.read_text_lines(p)
+            o = (
+                {"ok": [units(line) for line in r.value]}
+                if isinstance(r, Ok)
+                else observe_error(cwd, r.error)
+            )
+        elif op == "read_binary_file":
+            r = await fs.read_binary_file(p)
+            o = {"ok": list(r.value)} if isinstance(r, Ok) else observe_error(cwd, r.error)
+        elif op == "create_dir":
+            r = await fs.create_dir(p, recursive=step["recursive"])
+            o = {"ok": None} if isinstance(r, Ok) else observe_error(cwd, r.error)
+        elif op == "remove":
+            r = await fs.remove(p)
+            o = {"ok": None} if isinstance(r, Ok) else observe_error(cwd, r.error)
+        elif op == "rename_file":
+            r = await fs.rename_file(p, path_argument(cwd, step["to"]))
+            o = {"ok": None} if isinstance(r, Ok) else observe_error(cwd, r.error)
         else:  # pragma: no cover -- the schema closes the op set
             raise AssertionError(f"unknown op {op}")
         observed.append(o)
     return observed
 
 
+def expected(step: dict[str, Any]) -> Any:
+    """`expect`, or this platform's answer where pinned Node itself differs by platform."""
+    return step["expect"] if "expect" in step else step["expect_by_platform"][PLATFORM]
+
+
 def check(case: dict[str, Any], observed: list[Any]) -> None:
     for index, (step, got) in enumerate(zip(case["steps"], observed, strict=True)):
-        assert got == step["expect"], (case["id"], index, step["op"], got, step["expect"])
+        want = expected(step)
+        assert got == want, (case["id"], index, step.get("op", step.get("tool")), got, want)
 
 
 async def run_tool_case(case: dict[str, Any], root: Path) -> list[Any]:

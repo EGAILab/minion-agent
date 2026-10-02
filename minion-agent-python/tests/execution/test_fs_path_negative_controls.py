@@ -38,6 +38,8 @@ def _has_lone(text: str) -> bool:
 async def _failures(tmp_path: Path) -> list[str]:
     failed = []
     for index, case in enumerate([*CASES, *TOOL_CASES]):
+        if not runner.applies(case):
+            continue
         root = tmp_path / str(index)
         root.mkdir()
         try:
@@ -192,6 +194,24 @@ def _never_project_key(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(LocalFileSystem, "canonical_path", canonical_path)
 
 
+def _report_requested_target(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`L12-D001-R001`: a write/append failure names the projected full target (the requested
+    child) instead of the path of the native call that failed."""
+    for name in ("write_file", "append_file"):
+        original = getattr(LocalFileSystem, name)
+
+        async def wrapped(
+            self: LocalFileSystem, path: str, *args: Any, _original: Any = original, **kwargs: Any
+        ) -> Any:
+            result = await _original(self, path, *args, **kwargs)
+            if isinstance(result, Err):
+                target = fs_module.native_path(resolve_local_path(self.cwd, path))
+                return Err(dataclasses.replace(result.error, path=target))
+            return result
+
+        monkeypatch.setattr(LocalFileSystem, name, wrapped)
+
+
 MUTANTS: dict[str, Callable[[pytest.MonkeyPatch], None]] = {
     "early-tool-level-fffd-conversion": _project_arguments,
     "tool-message-changed-to-fffd": _project_messages,
@@ -205,6 +225,11 @@ MUTANTS: dict[str, Callable[[pytest.MonkeyPatch], None]] = {
     ),
     "always-project-before-target-key": _always_project_key,
     "never-project-before-target-key": _never_project_key,
+    # L12-D001-R001 (Codex contract review 1): which path an OS-originated failure names.
+    "error-path-is-the-requested-target": _report_requested_target,
+    "os-makedirs-walk": lambda m: m.setattr(
+        fs_module, "_node_mkdirp", lambda p: os.makedirs(p, exist_ok=True)
+    ),
 }
 
 

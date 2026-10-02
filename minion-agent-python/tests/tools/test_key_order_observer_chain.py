@@ -474,6 +474,6 @@ async def test_control_fails_the_matrix(name: str, monkeypatch: pytest.MonkeyPat
     for witness, run in MATRIX.items():
         try:
             await run()
-        except AssertionError:
+        except Exception:  # an assertion mismatch or a broken pipeline both fail the witness
             failed.append(witness)
     assert failed, f"{name} survived the observer-chain matrix"

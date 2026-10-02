@@ -6030,7 +6030,9 @@ rows:
     paths are projected while absolute_path, file_info name/path, abort/non-OS error paths and the missing-target
     target_key fallback stay logical; existing target_key = projected canonical; file:// input is a scalar value
     string before ada (L12-R002 unchanged). An OS-originated error names the path of the native call that failed
-    (Node err.path: the recursive-mkdir walk position, a rename source), else the logical fallback (L12-D001-R001).
+    (Node err.path: the recursive-mkdir walk position, a rename source, a list_dir entry, the single failing call
+    inside a recursive remove), else the logical fallback (L12-D001-R001/R002, convergence CE-L12-D001-01;
+    multi-failure selection excluded, #127).
     spec/execution.md section 14. conformance/agent/fs-path-domain/ (fs-path-domain-scenario.schema.json; 122
     ctx.fs cases -- 66 error-origin, per-platform where pinned Node differs -- + 5 tool cases);
     tests/conformance/test_fs_path_conformance.py, tests/execution/test_fs_path_negative_controls.py,
@@ -6191,7 +6193,9 @@ rows:
     paths are projected while absolute_path, file_info name/path, abort/non-OS error paths and the missing-target
     target_key fallback stay logical; existing target_key = projected canonical; file:// input is a scalar value
     string before ada (L12-R002 unchanged). An OS-originated error names the path of the native call that failed
-    (Node err.path: the recursive-mkdir walk position, a rename source), else the logical fallback (L12-D001-R001).
+    (Node err.path: the recursive-mkdir walk position, a rename source, a list_dir entry, the single failing call
+    inside a recursive remove), else the logical fallback (L12-D001-R001/R002, convergence CE-L12-D001-01;
+    multi-failure selection excluded, #127).
     spec/execution.md section 14. conformance/agent/fs-path-domain/ (fs-path-domain-scenario.schema.json; 122
     ctx.fs cases -- 66 error-origin, per-platform where pinned Node differs -- + 5 tool cases);
     tests/conformance/test_fs_path_conformance.py, tests/execution/test_fs_path_negative_controls.py,

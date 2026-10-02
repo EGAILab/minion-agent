@@ -9,7 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from .js_object import js_object
+from .js_object import order_in_place
 
 
 @dataclass(frozen=True, slots=True)
@@ -78,8 +78,9 @@ class ToolCallBlock:
 
     def __post_init__(self) -> None:
         # `L0206-D001` (K1): the arguments object, and every object in it, enumerates its keys in
-        # ECMAScript order from construction on -- the order pinned Pi's `JSON.parse` gives it.
-        object.__setattr__(self, "arguments", js_object(self.arguments))
+        # ECMAScript order from construction on -- the order pinned Pi's `JSON.parse` gives it. In
+        # place: the call carries the very object it was given (R002).
+        order_in_place(self.arguments)
 
 
 type ContentBlock = TextBlock | ThinkingBlock | ImageBlock | ToolCallBlock

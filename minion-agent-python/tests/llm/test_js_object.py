@@ -12,7 +12,7 @@ import pytest
 from pydantic import BaseModel
 
 from minion_agent.llm import ToolCallBlock
-from minion_agent.llm.js_object import JsObject, is_array_index, js_object
+from minion_agent.llm.js_object import JsObject, is_array_index, order_in_place
 from minion_agent.runtime import Context
 from minion_agent.tools.definition import ToolDefinition
 from minion_agent.tools.events import declare_tools_events
@@ -38,6 +38,8 @@ from minion_agent.tools.registry import ToolRegistry
         ("0x1", False),
         ("", False),
         (chr(0x661), False),  # ARABIC-INDIC DIGIT ONE: not a canonical decimal string
+        ("10000000000", False),  # eleven digits: beyond 2**32 - 2 by length alone
+        ("9" * 5000, False),  # R003: beyond the int-string conversion limit, still total
     ],
 )
 def test_array_index_is_the_canonical_decimal_of_0_to_2_pow_32_minus_2(
@@ -81,29 +83,48 @@ def test_update_setdefault_and_the_merge_operators_keep_the_rule() -> None:
     assert list(copied) == list(obj)
 
 
-def test_assigned_values_and_nested_values_follow_the_rule_recursively() -> None:
+def test_assigned_values_are_stored_as_given_and_ordered_in_place() -> None:
+    """R002: an assigned object is the very object assigned (never a copy); `order_in_place`
+    orders it, and everything nested, without replacing anything."""
+    child: dict[str, Any] = {"y": 1, "1": 1}
     obj = JsObject({"o": {"z": 1, "2": 2}, "list": [{"b": 1, "0": 0}, 5]})
-    obj["n"] = {"y": 1, "1": 1}
+    obj["n"] = child
+    assert obj["n"] is child
+    child["0"] = 0
+    inner, items = obj["o"], obj["list"]
+    assert order_in_place(obj) is obj
+    assert obj["n"] is child and obj["o"] is inner and obj["list"] is items
+    assert list(child) == ["0", "1", "y"]
     assert list(obj["o"]) == ["2", "z"]
     assert list(obj["list"][0]) == ["0", "b"]
-    assert list(obj["n"]) == ["1", "y"]
 
 
 def test_json_encoding_emits_the_rule() -> None:
     assert json.dumps(JsObject({"b": 1, "1": 2})) == '{"1": 2, "b": 1}'
 
 
-def test_js_object_keeps_identity_where_it_can() -> None:
-    existing = JsObject({"a": 1})
-    assert js_object(existing) is existing
-    items: list[Any] = [{"b": 1, "0": 0}]
-    assert js_object(items) is items
-    assert isinstance(items[0], JsObject)
-    assert js_object(5) == 5
+def test_order_in_place_visits_shared_and_cyclic_objects_once() -> None:
+    shared: dict[str, Any] = {"b": 1, "1": 1}
+    cyclic: dict[str, Any] = {"z": 1, "0": 0}
+    cyclic["self"] = cyclic
+    value = [shared, shared, cyclic, 5]
+    assert order_in_place(value) is value
+    assert list(shared) == ["1", "b"]
+    assert list(cyclic) == ["0", "z", "self"]
+    assert order_in_place(5) == 5
+
+
+def test_a_long_decimal_key_is_an_ordinary_key_at_construction() -> None:
+    """R003: construction is total over every string key."""
+    key = "9" * 5000
+    call = ToolCallBlock(id="c", name="t", arguments={"b": 1, key: 2, "1": 3})
+    assert list(call.arguments) == ["1", "b", key]
 
 
 def test_a_tool_call_carries_ordered_arguments() -> None:
-    call = ToolCallBlock(id="c", name="t", arguments={"b": 1, "2": 2, "o": {"z": 1, "0": 0}})
+    given: dict[str, Any] = {"b": 1, "2": 2, "o": {"z": 1, "0": 0}}
+    call = ToolCallBlock(id="c", name="t", arguments=given)
+    assert call.arguments is given
     assert list(call.arguments) == ["2", "b", "o"]
     assert list(call.arguments["o"]) == ["0", "z"]
 

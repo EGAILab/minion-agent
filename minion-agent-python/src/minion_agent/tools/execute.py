@@ -65,7 +65,7 @@ from pydantic import (
 from pydantic import ValidationError as PydanticValidationError
 
 from ..llm import ToolCallBlock
-from ..llm.js_object import JsObject, js_object
+from ..llm.js_object import JsObject, order_in_place
 from ..runtime import Context, RunSignal, Scope, ScopeKey
 from .decisions import AfterToolCallOverride, Block, PreExecuteDecision, Proceed
 from .definition import ToolDefinition
@@ -149,7 +149,7 @@ def _prepare(definition: ToolDefinition, arguments: dict[str, Any]) -> dict[str,
         return arguments
     # `L0206-D001` (K1): a shim's objects (for example `edit`'s re-parsed `edits`) enumerate in
     # ECMAScript order, as pinned Pi's do.
-    prepared: dict[str, Any] = js_object(definition.prepare_arguments(dict(arguments)))
+    prepared: dict[str, Any] = order_in_place(definition.prepare_arguments(dict(arguments)))
     return prepared
 
 
@@ -176,7 +176,8 @@ def _validate(definition: ToolDefinition, arguments: dict[str, Any]) -> dict[str
             raise ArgumentValidationError(error.message) from error
         # `L0206-D001` (K1): validation never reorders -- the validated object enumerates as its
         # input did (pinned Pi's `structuredClone` + `Value.Convert`); no schema order is imposed.
-        return JsObject(arguments)
+        validated: dict[str, Any] = order_in_place(JsObject(arguments))
+        return validated
     try:
         model = definition.parameters.model_validate(arguments)
     except PydanticValidationError as error:
@@ -644,6 +645,9 @@ async def _preflight(
         # `RunSignal`, or a bare `next_(call, definition, arguments)` that omitted it entirely).
         # `call`/`definition`/`arguments` remain the listener's own to transform freely -- only
         # `signal`'s own identity is protected.
+        # `L0206-D001` (K1): each listener receives the arguments in ECMAScript order, including
+        # objects an earlier listener assigned or appended -- ordered in place, never copied.
+        order_in_place(current[2])
         return (*current[:3], signal)
 
     try:
@@ -699,10 +703,11 @@ async def _preflight(
             on_execution_end,
         )
 
-    # `L0206-D001` (K1): a listener's REPLACEMENT arguments (a Minion mapping; pinned Pi's hook can
-    # only mutate) enumerate by the ECMAScript rule too. The terminal (validated) object is already
-    # a `JsObject` and is passed through unchanged, so an in-place mutation stays visible.
-    decision = Proceed(arguments=js_object(decision.arguments))
+    # `L0206-D001` (K1): what `execute` receives enumerates by the ECMAScript rule -- the validated
+    # object after any listener's in-place mutation (including objects a listener assigned or
+    # appended, R001/R002), or a listener's REPLACEMENT arguments (a Minion mapping; pinned Pi's
+    # hook can only mutate). Ordered in place: identity, and every retained reference, survive.
+    decision = Proceed(arguments=order_in_place(decision.arguments))
     return _Prepared(call=call, definition=definition, arguments=decision.arguments)
 
 

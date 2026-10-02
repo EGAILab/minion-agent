@@ -43,6 +43,28 @@ def build(value: Any) -> Any:
     return value
 
 
+def run_program(arguments: dict[str, Any], program: list[dict[str, Any]]) -> None:
+    """The case's mutation program, op by op, IN PLACE on the arguments object the listener holds
+    (L0206-D001-R001/R002): `set`/`push`/`insert` place a value built from the grammar (or, with
+    `ref`, an object already placed), `get` takes a handle on an existing object; `as` names the
+    object for later ops, which then mutate it through that retained reference."""
+    handles: dict[str, Any] = {"args": arguments}
+    for op in program:
+        target = handles[op["target"]]
+        if op["op"] == "get":
+            handles[op["as"]] = target[op["key"]]
+            continue
+        value = handles[op["ref"]] if "ref" in op else build(op["value"])
+        if op["op"] == "set":
+            target[op["key"]] = value
+        elif op["op"] == "push":
+            target[op["key"]].append(value)
+        else:  # insert -- the schema closes the op set
+            target[op["key"]].insert(op["index"], value)
+        if "as" in op:
+            handles[op["as"]] = value
+
+
 def observe(value: Any) -> Any:
     """The recursive key enumeration, exactly as the object iterates."""
     if isinstance(value, list):
@@ -96,11 +118,19 @@ async def run_case(case: dict[str, Any], root: str) -> dict[str, Any]:
         seen["hook"] = observe(arguments)
         for key, item in case.get("mutate", []):
             arguments[key] = build(item)
+        run_program(arguments, case.get("program", []))
         if "replace" in case:
             return Proceed(arguments=build(case["replace"]))
         return await next_()
 
+    async def second(c: Any, d: Any, arguments: Any, signal: Any, next_: Any) -> Any:
+        """A later listener: it observes what the first forwarded."""
+        seen["second"] = observe(arguments)
+        return await next_()
+
     ctx.events.on(TOOLS_PRE_EXECUTE, hook)
+    if case.get("observe_second"):
+        ctx.events.on(TOOLS_PRE_EXECUTE, second)
     result = await execute_call(call, registry=registry, ctx=ctx)
     first = result.content[0]
     seen["result"] = (result.is_error, first.text if isinstance(first, TextBlock) else "")
@@ -112,6 +142,6 @@ BOUNDARIES = ("raw", "replay", "hook", "execute")
 
 def check(case: dict[str, Any], seen: dict[str, Any]) -> None:
     assert seen["result"] == (False, "ok"), (case["id"], seen["result"])
-    for boundary in BOUNDARIES:
+    for boundary in (*BOUNDARIES, *(("second",) if "second" in case["expect"] else ())):
         want = case["expect"][boundary]
         assert seen.get(boundary) == want, (case["id"], boundary, seen.get(boundary), want)

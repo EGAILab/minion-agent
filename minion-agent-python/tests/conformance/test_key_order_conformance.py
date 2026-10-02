@@ -18,7 +18,7 @@ CASES = [case for document in DOCUMENTS for case in document["key_order"]["cases
 
 def test_the_key_order_corpus_is_complete() -> None:
     assert len(DOCUMENTS) == 1
-    assert len(CASES) == 28
+    assert len(CASES) == 37
 
 
 @pytest.mark.parametrize("case", CASES, ids=[case["id"] for case in CASES])

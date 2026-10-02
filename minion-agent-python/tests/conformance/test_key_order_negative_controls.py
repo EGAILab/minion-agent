@@ -5,6 +5,7 @@ the runner and the scenarios are unchanged."""
 
 from __future__ import annotations
 
+import copy
 import dataclasses
 from collections.abc import Callable
 from pathlib import Path
@@ -38,60 +39,70 @@ async def test_the_unmodified_code_passes_every_case(tmp_path: Path) -> None:
     assert await _failures(tmp_path) == []
 
 
-def _recursive(order: Callable[[dict[str, Any]], list[str]], deep: bool = True) -> Any:
-    def convert(value: Any, top: bool = True) -> Any:
-        if isinstance(value, dict):
-            keys = order(value)
-            return {k: (convert(value[k], False) if deep else value[k]) for k in keys}
-        if isinstance(value, list):
-            return [convert(item, False) if deep else item for item in value]
-        return value
-
-    return convert
-
-
-def _install(monkeypatch: pytest.MonkeyPatch, convert: Any) -> None:
-    """Replace the binding's ES ordering everywhere it is applied with `convert` (plain dicts)."""
-    monkeypatch.setattr(content_module, "js_object", convert)
-    monkeypatch.setattr(execute_module, "js_object", convert)
-    monkeypatch.setattr(execute_module, "JsObject", lambda value=(): convert(dict(value)))
+def _plain_assignment(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(js_module.JsObject, "__setitem__", dict.__setitem__)
 
 
 def _insertion(monkeypatch: pytest.MonkeyPatch) -> None:
-    _install(monkeypatch, _recursive(list))
+    """The binding as it was: insertion order everywhere."""
+    monkeypatch.setattr(js_module, "es_order", list)
+    _plain_assignment(monkeypatch)
 
 
 def _sorted(monkeypatch: pytest.MonkeyPatch) -> None:
-    _install(monkeypatch, _recursive(sorted))
+    """Rust's prepared BTreeMap: keys sorted."""
+    monkeypatch.setattr(js_module, "es_order", sorted)
+    _plain_assignment(monkeypatch)
 
 
 def _top_level_only(monkeypatch: pytest.MonkeyPatch) -> None:
-    _install(monkeypatch, _recursive(lambda d: list(js_module.JsObject(dict.fromkeys(d))), False))
+    """Only the top-level arguments object is ordered; nested objects keep insertion order."""
+
+    def top_only(value: Any) -> Any:
+        if isinstance(value, dict):
+            ordered = {k: value[k] for k in js_module.es_order(list(value))}
+            dict.clear(value)
+            dict.update(value, ordered)
+        return value
+
+    monkeypatch.setattr(content_module, "order_in_place", top_only)
+    monkeypatch.setattr(execute_module, "order_in_place", top_only)
 
 
 def _non_canonical_numeral_as_index(monkeypatch: pytest.MonkeyPatch) -> None:
     def loose(key: str) -> bool:  # "01", "00", "4294967295" treated as indices
-        return key.isascii() and key.isdigit()
+        return key.isascii() and key.isdigit() and len(key) < 12
 
     monkeypatch.setattr(js_module, "is_array_index", loose)
 
 
 def _ordered_at_construction_only(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Ordered when built, but a later assignment (a hook's in-place mutation) simply appends."""
-    monkeypatch.setattr(
-        js_module.JsObject,
-        "__setitem__",
-        lambda self, key, value: dict.__setitem__(self, key, js_module.js_object(value)),
-    )
-    original = js_module.JsObject.__init__
+    """Ordered when the call is built, never again: a hook's assignments, appended objects and
+    retained-reference mutations reach execute in insertion order (L0206-D001-R001)."""
+    monkeypatch.setattr(execute_module, "order_in_place", lambda value: value)
+    _plain_assignment(monkeypatch)
 
-    def init(self: Any, items: Any = (), /) -> None:
-        pairs = list(items.items() if isinstance(items, dict) else items)
-        last = dict(pairs)
-        indices = sorted((k for k in last if js_module.is_array_index(k)), key=int)
-        original(self, [(k, last[k]) for k in [*indices, *(k for k in last if k not in indices)]])
 
-    monkeypatch.setattr(js_module.JsObject, "__init__", init)
+def _copy_on_assignment(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The rejected checkpoint-1 mechanism: an assigned object is stored as an ordered COPY, so a
+    hook's later mutation through its retained reference is lost (L0206-D001-R002)."""
+    original = js_module.JsObject.__setitem__
+
+    def setitem(self: Any, key: str, value: Any) -> None:
+        original(self, key, js_module.order_in_place(copy.deepcopy(value)))
+
+    monkeypatch.setattr(js_module.JsObject, "__setitem__", setitem)
+
+
+def _crashing_index_check(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The rejected checkpoint-1 classifier: int() on any decimal key (L0206-D001-R003)."""
+
+    def converting(key: str) -> bool:
+        if not key or not key.isascii() or not key.isdigit() or (len(key) > 1 and key[0] == "0"):
+            return False
+        return int(key) <= 4294967294
+
+    monkeypatch.setattr(js_module, "is_array_index", converting)
 
 
 def _schema_order(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -132,6 +143,8 @@ MUTANTS: dict[str, Callable[[pytest.MonkeyPatch], None]] = {
     "non-canonical-numeral-as-index": _non_canonical_numeral_as_index,
     "ordered-at-construction-only": _ordered_at_construction_only,
     "order-lost-on-replay": _replay_sorted,
+    "copy-on-assignment": _copy_on_assignment,
+    "index-check-converts-any-decimal": _crashing_index_check,
 }
 
 

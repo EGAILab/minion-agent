@@ -11,6 +11,7 @@ error text, queue outcomes and cancellation outcomes through the real Layer-06 p
 from __future__ import annotations
 
 import asyncio
+import copy
 import dataclasses
 import json
 from pathlib import Path
@@ -31,8 +32,10 @@ FIXTURE = b"alpha\nbeta\ngamma\n"
 
 
 def _permute(mapping: dict[str, Any], order: list[str]) -> dict[str, Any]:
+    """A fresh copy (L0206-D001: a ToolCallBlock orders its arguments IN PLACE, so variants must
+    not share nested objects with each other or with the module fixtures)."""
     assert sorted(order) == sorted(mapping)
-    return {key: mapping[key] for key in order}
+    return {key: copy.deepcopy(mapping[key]) for key in order}
 
 
 def _orders(mapping: dict[str, Any]) -> list[dict[str, Any]]:
@@ -42,7 +45,7 @@ def _orders(mapping: dict[str, Any]) -> list[dict[str, Any]]:
     index_like = sorted((k for k in keys if k.isdigit()), key=int)
     other = [k for k in keys if not k.isdigit()]
     return [
-        mapping,
+        _permute(mapping, keys),
         _permute(mapping, keys[::-1]),
         _permute(mapping, index_like + other),
         _permute(mapping, sorted(keys)),

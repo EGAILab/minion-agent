@@ -65,6 +65,7 @@ from pydantic import (
 from pydantic import ValidationError as PydanticValidationError
 
 from ..llm import ToolCallBlock
+from ..llm.js_object import JsObject, js_object
 from ..runtime import Context, RunSignal, Scope, ScopeKey
 from .decisions import AfterToolCallOverride, Block, PreExecuteDecision, Proceed
 from .definition import ToolDefinition
@@ -146,7 +147,10 @@ def _prepare(definition: ToolDefinition, arguments: dict[str, Any]) -> dict[str,
     """
     if definition.prepare_arguments is None:
         return arguments
-    return definition.prepare_arguments(dict(arguments))
+    # `L0206-D001` (K1): a shim's objects (for example `edit`'s re-parsed `edits`) enumerate in
+    # ECMAScript order, as pinned Pi's do.
+    prepared: dict[str, Any] = js_object(definition.prepare_arguments(dict(arguments)))
+    return prepared
 
 
 def _validate(definition: ToolDefinition, arguments: dict[str, Any]) -> dict[str, Any]:
@@ -170,13 +174,40 @@ def _validate(definition: ToolDefinition, arguments: dict[str, Any]) -> dict[str
             PreparedArgumentsValidator(definition.parameters).validate(arguments)
         except JsonSchemaValidationError as error:
             raise ArgumentValidationError(error.message) from error
-        return dict(arguments)
+        # `L0206-D001` (K1): validation never reorders -- the validated object enumerates as its
+        # input did (pinned Pi's `structuredClone` + `Value.Convert`); no schema order is imposed.
+        return JsObject(arguments)
     try:
         model = definition.parameters.model_validate(arguments)
     except PydanticValidationError as error:
         raise ArgumentValidationError(str(error)) from error
     delivered = model.model_dump()
     _reject_declared_non_finite(definition.parameters, delivered)
+    ordered: dict[str, Any] = _in_input_order(delivered, arguments)
+    return ordered
+
+
+def _in_input_order(delivered: Any, given: Any) -> Any:
+    """`L0206-D001` K1-F1 (typed-model parameters, the `TOOL-003` pydantic mapping): the model's
+    validated values keyed and ordered as the INPUT enumerates (by the ECMAScript rule), then any
+    key the model filled by default, in declared order, each placed by the rule -- never the
+    model's declared order imposed on keys the input supplied. Applied to nested objects too."""
+    if isinstance(delivered, dict):
+        source = given if isinstance(given, dict) else {}
+        ordered = JsObject()
+        for key in source:
+            if key in delivered:
+                ordered[key] = _in_input_order(delivered[key], source[key])
+        for key, value in delivered.items():
+            if key not in ordered:
+                ordered[key] = _in_input_order(value, None)
+        return ordered
+    if isinstance(delivered, list):
+        source_list = given if isinstance(given, list) else []
+        return [
+            _in_input_order(item, source_list[index] if index < len(source_list) else None)
+            for index, item in enumerate(delivered)
+        ]
     return delivered
 
 
@@ -668,6 +699,10 @@ async def _preflight(
             on_execution_end,
         )
 
+    # `L0206-D001` (K1): a listener's REPLACEMENT arguments (a Minion mapping; pinned Pi's hook can
+    # only mutate) enumerate by the ECMAScript rule too. The terminal (validated) object is already
+    # a `JsObject` and is passed through unchanged, so an in-place mutation stays visible.
+    decision = Proceed(arguments=js_object(decision.arguments))
     return _Prepared(call=call, definition=definition, arguments=decision.arguments)
 
 

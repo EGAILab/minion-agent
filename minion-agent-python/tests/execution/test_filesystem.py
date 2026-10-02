@@ -1282,7 +1282,8 @@ async def test_write_file_mkdir_failure_propagates(
     def _raise(*_args: object, **_kwargs: object) -> None:
         raise PermissionError("simulated mkdir failure")
 
-    monkeypatch.setattr(os, "makedirs", _raise)
+    # `L12-D001-R001`: parents are created by the Node recursive-mkdir walk, not `os.makedirs`.
+    monkeypatch.setattr(filesystem_module, "_node_mkdirp", _raise)
     result = await fs.write_file("sub/a.txt", "x")
     assert isinstance(result, Err)
     assert result.error.code == FsErrorCode.PERMISSION_DENIED
@@ -1304,10 +1305,20 @@ async def test_append_file_mkdir_or_write_failure_propagates(
     def _raise(*_args: object, **_kwargs: object) -> None:
         raise PermissionError("simulated failure")
 
-    monkeypatch.setattr(os, "makedirs", _raise)
+    monkeypatch.setattr(filesystem_module, "_node_mkdirp", _raise)
     result = await fs.append_file("sub/a.txt", "x")
     assert isinstance(result, Err)
     assert result.error.code == FsErrorCode.PERMISSION_DENIED
+
+
+async def test_append_file_to_a_directory_path_fails(tmp_path: Path) -> None:
+    """The append itself failing (after its parent exists) names the target's native path. The
+    code is host-dependent (`is_directory` on POSIX; Windows refuses the open, recorded `#67`)."""
+    fs = LocalFileSystem(cwd=str(tmp_path))
+    await fs.create_dir("adir")
+    result = await fs.append_file("adir", "x")
+    assert isinstance(result, Err)
+    assert result.error.path == str(tmp_path / "adir")
 
 
 async def test_list_dir_not_found_returns_err(tmp_path: Path) -> None:

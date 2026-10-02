@@ -6024,6 +6024,19 @@ rows:
 
     Full detail: `spec/execution.md` §3, §3.1-§3.8.'
   tests:
+  - 'fs_path_javascript_string_domain -- L12-D001 (minion-agent#123; Owner decision FSP-Q001 Option 1; intentional
+    divergence NONE; CONTRACT_DRAFT, Rust NOT_IMPLEMENTED): ctx.fs paths are JavaScript strings; the local provider
+    projects unpaired surrogates to U+FFFD ONLY at the OS call (pinned Node), so canonical_path / listings / OS error
+    paths are projected while absolute_path, file_info name/path, abort/non-OS error paths and the missing-target
+    target_key fallback stay logical; existing target_key = projected canonical; file:// input is a scalar value
+    string before ada (L12-R002 unchanged). An OS-originated error names the path of the native call that failed
+    (Node err.path: the recursive-mkdir walk position, a rename source, a list_dir entry, the single failing call
+    inside a recursive remove), else the logical fallback (L12-D001-R001/R002, convergence CE-L12-D001-01;
+    multi-failure selection excluded, #127).
+    spec/execution.md section 14. conformance/agent/fs-path-domain/ (fs-path-domain-scenario.schema.json; 122
+    ctx.fs cases -- 66 error-origin, per-platform where pinned Node differs -- + 5 tool cases);
+    tests/conformance/test_fs_path_conformance.py, tests/execution/test_fs_path_negative_controls.py,
+    tests/execution/test_fs_error_origin.py'
   - minion-agent-rust/crates/minion-agent/tests/execution_filesystem.rs
   - minion-agent-python/tests/execution/test_filesystem.py
   python: 'minion-agent-python/src/minion_agent/execution/filesystem.py; integration evidence in
@@ -6174,6 +6187,19 @@ rows:
 
     Full detail: `spec/execution.md` §4.'
   tests:
+  - 'fs_path_javascript_string_domain -- L12-D001 (minion-agent#123; Owner decision FSP-Q001 Option 1; intentional
+    divergence NONE; CONTRACT_DRAFT, Rust NOT_IMPLEMENTED): ctx.fs paths are JavaScript strings; the local provider
+    projects unpaired surrogates to U+FFFD ONLY at the OS call (pinned Node), so canonical_path / listings / OS error
+    paths are projected while absolute_path, file_info name/path, abort/non-OS error paths and the missing-target
+    target_key fallback stay logical; existing target_key = projected canonical; file:// input is a scalar value
+    string before ada (L12-R002 unchanged). An OS-originated error names the path of the native call that failed
+    (Node err.path: the recursive-mkdir walk position, a rename source, a list_dir entry, the single failing call
+    inside a recursive remove), else the logical fallback (L12-D001-R001/R002, convergence CE-L12-D001-01;
+    multi-failure selection excluded, #127).
+    spec/execution.md section 14. conformance/agent/fs-path-domain/ (fs-path-domain-scenario.schema.json; 122
+    ctx.fs cases -- 66 error-origin, per-platform where pinned Node differs -- + 5 tool cases);
+    tests/conformance/test_fs_path_conformance.py, tests/execution/test_fs_path_negative_controls.py,
+    tests/execution/test_fs_error_origin.py'
   - minion-agent-rust/crates/minion-agent/tests/execution_filesystem.rs
   - minion-agent-python/tests/execution/test_filesystem.py
   python: 'minion-agent-python/src/minion_agent/execution/filesystem.py (`FsTarget`, `resolve`,
@@ -6820,6 +6846,9 @@ rows:
     "Operation aborted", a result settled first stands; in-flight ctx.fs work is never cancelled.
     Python -- implemented and merged at `b60f47157965c4aa81c96a20a6105758d33cbf9f` (minion-agent#60) after exact-SHA final review. Rust -- implemented and merged at `9802721fd4099ea6b6b1ecc1396f64889e4a1bc5` (minion-agent#72; assurance minion-agent-docs#171, master `e2f35bfadb04bb77463f753ac955c6d4aa2f2ba0`) after exact-SHA independent review. Cross-language closure: CERTIFIED_CLOSED per the owner closure decision (minion-agent#48 issuecomment-5870661040).'
   tests:
+  - 'fs_path_javascript_string_domain -- L12-D001 inheritance (minion-agent#123): conformance/agent/fs-path-domain/
+    fs-path-tools.json -- a surrogate-bearing path reaches ctx.fs (no refusal, no "." substitution); tool text keeps
+    the path as given'
   - read_offset_limit_then_truncation_ordering (canonical scenario conformance/agent/builtin-read-offset-limit-then-truncation-ordering.yaml)
   - read_first_line_exceeds_byte_limit (canonical scenario conformance/agent/builtin-read-first-line-exceeds-byte-limit.yaml)
   - read_offset_out_of_bounds (canonical scenario conformance/agent/builtin-read-offset-out-of-bounds.yaml)
@@ -6968,6 +6997,9 @@ rows:
     and Pi''s race-only raw stat(dirPath) site has no counterpart, because existence and kind come from
     one probe. Python -- implemented and merged at `b60f47157965c4aa81c96a20a6105758d33cbf9f` (minion-agent#60) after exact-SHA final review. Rust -- implemented and merged at `9802721fd4099ea6b6b1ecc1396f64889e4a1bc5` (minion-agent#72; assurance minion-agent-docs#171, master `e2f35bfadb04bb77463f753ac955c6d4aa2f2ba0`) after exact-SHA independent review. Cross-language closure: CERTIFIED_CLOSED per the owner closure decision (minion-agent#48 issuecomment-5870661040).'
   tests:
+  - 'fs_path_javascript_string_domain -- L12-D001 inheritance (minion-agent#123): conformance/agent/fs-path-domain/
+    fs-path-tools.json -- a surrogate-bearing path reaches ctx.fs (no refusal, no "." substitution); tool text keeps
+    the path as given'
   - ls_lazy_cap_never_probes_beyond_limit (canonical scenario conformance/agent/builtin-ls-lazy-cap-never-probes-beyond-limit.yaml)
   - ls_entry_limit_checked_before_next_probe (canonical scenario conformance/agent/builtin-ls-entry-limit-checked-before-next-probe.yaml)
   - ls_zero_limit_on_nonempty_dir_no_details (canonical scenario conformance/agent/builtin-ls-zero-limit-on-nonempty-dir-no-details.yaml)
@@ -6999,6 +7031,9 @@ rows:
     bytes to <path>'' with n = UTF-16 code units (Pi''s content.length, a known Pi misnomer reproduced verbatim),
     details {}. Raw failure sites per TOOL-039. Full rules: spec/tools.md, WP-13.2, ''`write` (TOOL-029)''.'
   tests:
+  - 'fs_path_javascript_string_domain -- L12-D001 inheritance (minion-agent#123): conformance/agent/fs-path-domain/
+    fs-path-tools.json -- a surrogate-bearing path reaches ctx.fs (no refusal, no "." substitution); tool text keeps
+    the path as given'
   - write_success_parents_overwrite_utf16_length (canonical scenario conformance/agent/builtin-mutation/builtin-write-creates-parents-overwrites-and-reports-utf16-length.yaml)
   - write_error_sites_r010b_vocabulary (canonical scenario conformance/agent/builtin-mutation/builtin-write-error-sites.yaml)
   - write_cancellation_checkpoints (canonical scenario conformance/agent/builtin-mutation/builtin-write-cancellation-checkpoints.yaml)
@@ -7026,6 +7061,9 @@ rows:
     exactly. UTF-16 string semantics throughout. Full rules: spec/tools.md, WP-13.2, ''`edit` (TOOL-030)'' and ''edit
     result details''.'
   tests:
+  - 'fs_path_javascript_string_domain -- L12-D001 inheritance (minion-agent#123): conformance/agent/fs-path-domain/
+    fs-path-tools.json -- a surrogate-bearing path reaches ctx.fs (no refusal, no "." substitution); tool text keeps
+    the path as given'
   - edit_write_pinned_pi_authority_corpus (canonical scenarios conformance/agent/builtin-mutation/builtin-edit-corpus-*.yaml, generated from
     the pinned-Pi authority run in minion-agent-docs assurance/layers/data/13-wp132-evidence; candidate, pending
     contract review)

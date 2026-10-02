@@ -1,0 +1,3394 @@
+{
+ "name": "fs-path-error-origin",
+ "family": "agent",
+ "authority": "pinned Pi b7bb00b9 packages/agent/src/harness/env/nodejs.ts NodeExecutionEnv (imported unmodified) + coding-agent core/tools/file-mutation-queue.ts getMutationQueueKey (sliced unmodified), Node 22.15.1, identical on Linux (node:22.15.1-alpine) and Windows 11 (L12-D001 authority)",
+ "pi_revision": "b7bb00b936dbe21b8e160b3e89efdec361846699",
+ "requirements": [
+  "EXEC-002",
+  "EXEC-003"
+ ],
+ "witnesses": [
+  "fs_path_javascript_string_domain"
+ ],
+ "platforms": [
+  "linux",
+  "win32"
+ ],
+ "notes": "L12-D001-R001: the path an OS-originated failure names is the path of the native call that failed, as Node's err.path reports it -- a recursive directory creation's walk position (parent or blocking ancestor; it differs by platform), a rename's source -- and the logical fallback where Node's error carries no path (a read of a directory). Ordinary and unpaired-surrogate names alike. Codes and paths that differ by platform in pinned Pi itself are per-platform expectations. GENERATED from the pinned-Pi L12-D001 probe; regenerate with harness/make_scenarios.py.",
+ "fs_path_domain": {
+  "cases": [
+   {
+    "id": "error/scalar/parent-file/write",
+    "steps": [
+     {
+      "op": "write_file",
+      "path": {
+       "utf16": [
+        98
+       ]
+      },
+      "content": [
+       99
+      ],
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "write_file",
+      "path": {
+       "utf16": [
+        98,
+        47,
+        99,
+        104,
+        105,
+        108,
+        100
+       ]
+      },
+      "content": [
+       99
+      ],
+      "expect": {
+       "error": "unknown",
+       "path": {
+        "components": [
+         [
+          98
+         ]
+        ]
+       }
+      }
+     }
+    ]
+   },
+   {
+    "id": "error/scalar/parent-file/append",
+    "steps": [
+     {
+      "op": "write_file",
+      "path": {
+       "utf16": [
+        98
+       ]
+      },
+      "content": [
+       99
+      ],
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "append_file",
+      "path": {
+       "utf16": [
+        98,
+        47,
+        99,
+        104,
+        105,
+        108,
+        100
+       ]
+      },
+      "content": [
+       99
+      ],
+      "expect": {
+       "error": "unknown",
+       "path": {
+        "components": [
+         [
+          98
+         ]
+        ]
+       }
+      }
+     }
+    ]
+   },
+   {
+    "id": "error/scalar/grandparent-file/write",
+    "steps": [
+     {
+      "op": "write_file",
+      "path": {
+       "utf16": [
+        98
+       ]
+      },
+      "content": [
+       99
+      ],
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "write_file",
+      "path": {
+       "utf16": [
+        98,
+        47,
+        120,
+        47,
+        99,
+        104,
+        105,
+        108,
+        100
+       ]
+      },
+      "content": [
+       99
+      ],
+      "expect_by_platform": {
+       "linux": {
+        "error": "not_directory",
+        "path": {
+         "components": [
+          [
+           98
+          ],
+          [
+           120
+          ]
+         ]
+        }
+       },
+       "win32": {
+        "error": "not_directory",
+        "path": {
+         "components": [
+          [
+           98
+          ]
+         ]
+        }
+       }
+      }
+     }
+    ]
+   },
+   {
+    "id": "error/scalar/grandparent-file/append",
+    "steps": [
+     {
+      "op": "write_file",
+      "path": {
+       "utf16": [
+        98
+       ]
+      },
+      "content": [
+       99
+      ],
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "append_file",
+      "path": {
+       "utf16": [
+        98,
+        47,
+        120,
+        47,
+        99,
+        104,
+        105,
+        108,
+        100
+       ]
+      },
+      "content": [
+       99
+      ],
+      "expect_by_platform": {
+       "linux": {
+        "error": "not_directory",
+        "path": {
+         "components": [
+          [
+           98
+          ],
+          [
+           120
+          ]
+         ]
+        }
+       },
+       "win32": {
+        "error": "not_directory",
+        "path": {
+         "components": [
+          [
+           98
+          ]
+         ]
+        }
+       }
+      }
+     }
+    ]
+   },
+   {
+    "id": "error/scalar/parent-file/create-dir",
+    "steps": [
+     {
+      "op": "write_file",
+      "path": {
+       "utf16": [
+        98
+       ]
+      },
+      "content": [
+       99
+      ],
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "create_dir",
+      "path": {
+       "utf16": [
+        98,
+        47,
+        120
+       ]
+      },
+      "recursive": true,
+      "expect_by_platform": {
+       "linux": {
+        "error": "not_directory",
+        "path": {
+         "components": [
+          [
+           98
+          ],
+          [
+           120
+          ]
+         ]
+        }
+       },
+       "win32": {
+        "error": "not_directory",
+        "path": {
+         "components": [
+          [
+           98
+          ]
+         ]
+        }
+       }
+      }
+     }
+    ]
+   },
+   {
+    "id": "error/scalar/grandparent-file/create-dir",
+    "steps": [
+     {
+      "op": "write_file",
+      "path": {
+       "utf16": [
+        98
+       ]
+      },
+      "content": [
+       99
+      ],
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "create_dir",
+      "path": {
+       "utf16": [
+        98,
+        47,
+        120,
+        47,
+        121
+       ]
+      },
+      "recursive": true,
+      "expect_by_platform": {
+       "linux": {
+        "error": "not_directory",
+        "path": {
+         "components": [
+          [
+           98
+          ],
+          [
+           120
+          ],
+          [
+           121
+          ]
+         ]
+        }
+       },
+       "win32": {
+        "error": "not_directory",
+        "path": {
+         "components": [
+          [
+           98
+          ]
+         ]
+        }
+       }
+      }
+     }
+    ]
+   },
+   {
+    "id": "error/scalar/self-file/create-dir",
+    "steps": [
+     {
+      "op": "write_file",
+      "path": {
+       "utf16": [
+        98
+       ]
+      },
+      "content": [
+       99
+      ],
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "create_dir",
+      "path": {
+       "utf16": [
+        98
+       ]
+      },
+      "recursive": true,
+      "expect": {
+       "error": "unknown",
+       "path": {
+        "components": [
+         [
+          98
+         ]
+        ]
+       }
+      }
+     }
+    ]
+   },
+   {
+    "id": "error/scalar/parent-file/create-dir-nonrecursive",
+    "steps": [
+     {
+      "op": "write_file",
+      "path": {
+       "utf16": [
+        98
+       ]
+      },
+      "content": [
+       99
+      ],
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "create_dir",
+      "path": {
+       "utf16": [
+        98,
+        47,
+        120
+       ]
+      },
+      "recursive": false,
+      "expect_by_platform": {
+       "linux": {
+        "error": "not_directory",
+        "path": {
+         "components": [
+          [
+           98
+          ],
+          [
+           120
+          ]
+         ]
+        }
+       },
+       "win32": {
+        "error": "not_found",
+        "path": {
+         "components": [
+          [
+           98
+          ],
+          [
+           120
+          ]
+         ]
+        }
+       }
+      }
+     }
+    ]
+   },
+   {
+    "id": "error/scalar/missing-parent/create-dir-nonrecursive",
+    "steps": [
+     {
+      "op": "create_dir",
+      "path": {
+       "utf16": [
+        98,
+        47,
+        120
+       ]
+      },
+      "recursive": false,
+      "expect": {
+       "error": "not_found",
+       "path": {
+        "components": [
+         [
+          98
+         ],
+         [
+          120
+         ]
+        ]
+       }
+      }
+     }
+    ]
+   },
+   {
+    "id": "error/scalar/parent-file/read",
+    "steps": [
+     {
+      "op": "write_file",
+      "path": {
+       "utf16": [
+        98
+       ]
+      },
+      "content": [
+       99
+      ],
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "read_text_file",
+      "path": {
+       "utf16": [
+        98,
+        47,
+        99,
+        104,
+        105,
+        108,
+        100
+       ]
+      },
+      "expect_by_platform": {
+       "linux": {
+        "error": "not_directory",
+        "path": {
+         "components": [
+          [
+           98
+          ],
+          [
+           99,
+           104,
+           105,
+           108,
+           100
+          ]
+         ]
+        }
+       },
+       "win32": {
+        "error": "not_found",
+        "path": {
+         "components": [
+          [
+           98
+          ],
+          [
+           99,
+           104,
+           105,
+           108,
+           100
+          ]
+         ]
+        }
+       }
+      }
+     }
+    ]
+   },
+   {
+    "id": "error/scalar/parent-file/read-lines",
+    "steps": [
+     {
+      "op": "write_file",
+      "path": {
+       "utf16": [
+        98
+       ]
+      },
+      "content": [
+       99
+      ],
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "read_text_lines",
+      "path": {
+       "utf16": [
+        98,
+        47,
+        99,
+        104,
+        105,
+        108,
+        100
+       ]
+      },
+      "expect_by_platform": {
+       "linux": {
+        "error": "not_directory",
+        "path": {
+         "components": [
+          [
+           98
+          ],
+          [
+           99,
+           104,
+           105,
+           108,
+           100
+          ]
+         ]
+        }
+       },
+       "win32": {
+        "error": "not_found",
+        "path": {
+         "components": [
+          [
+           98
+          ],
+          [
+           99,
+           104,
+           105,
+           108,
+           100
+          ]
+         ]
+        }
+       }
+      }
+     }
+    ]
+   },
+   {
+    "id": "error/scalar/parent-file/read-binary",
+    "steps": [
+     {
+      "op": "write_file",
+      "path": {
+       "utf16": [
+        98
+       ]
+      },
+      "content": [
+       99
+      ],
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "read_binary_file",
+      "path": {
+       "utf16": [
+        98,
+        47,
+        99,
+        104,
+        105,
+        108,
+        100
+       ]
+      },
+      "expect_by_platform": {
+       "linux": {
+        "error": "not_directory",
+        "path": {
+         "components": [
+          [
+           98
+          ],
+          [
+           99,
+           104,
+           105,
+           108,
+           100
+          ]
+         ]
+        }
+       },
+       "win32": {
+        "error": "not_found",
+        "path": {
+         "components": [
+          [
+           98
+          ],
+          [
+           99,
+           104,
+           105,
+           108,
+           100
+          ]
+         ]
+        }
+       }
+      }
+     }
+    ]
+   },
+   {
+    "id": "error/scalar/parent-file/file-info",
+    "steps": [
+     {
+      "op": "write_file",
+      "path": {
+       "utf16": [
+        98
+       ]
+      },
+      "content": [
+       99
+      ],
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "file_info",
+      "path": {
+       "utf16": [
+        98,
+        47,
+        99,
+        104,
+        105,
+        108,
+        100
+       ]
+      },
+      "expect_by_platform": {
+       "linux": {
+        "error": "not_directory",
+        "path": {
+         "components": [
+          [
+           98
+          ],
+          [
+           99,
+           104,
+           105,
+           108,
+           100
+          ]
+         ]
+        }
+       },
+       "win32": {
+        "error": "not_found",
+        "path": {
+         "components": [
+          [
+           98
+          ],
+          [
+           99,
+           104,
+           105,
+           108,
+           100
+          ]
+         ]
+        }
+       }
+      }
+     }
+    ]
+   },
+   {
+    "id": "error/scalar/parent-file/exists",
+    "steps": [
+     {
+      "op": "write_file",
+      "path": {
+       "utf16": [
+        98
+       ]
+      },
+      "content": [
+       99
+      ],
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "exists",
+      "path": {
+       "utf16": [
+        98,
+        47,
+        99,
+        104,
+        105,
+        108,
+        100
+       ]
+      },
+      "expect_by_platform": {
+       "linux": {
+        "error": "not_directory",
+        "path": {
+         "components": [
+          [
+           98
+          ],
+          [
+           99,
+           104,
+           105,
+           108,
+           100
+          ]
+         ]
+        }
+       },
+       "win32": {
+        "ok": false
+       }
+      }
+     }
+    ]
+   },
+   {
+    "id": "error/scalar/parent-file/canonical",
+    "steps": [
+     {
+      "op": "write_file",
+      "path": {
+       "utf16": [
+        98
+       ]
+      },
+      "content": [
+       99
+      ],
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "canonical_path",
+      "path": {
+       "utf16": [
+        98,
+        47,
+        99,
+        104,
+        105,
+        108,
+        100
+       ]
+      },
+      "expect_by_platform": {
+       "linux": {
+        "error": "not_directory",
+        "path": {
+         "components": [
+          [
+           98
+          ],
+          [
+           99,
+           104,
+           105,
+           108,
+           100
+          ]
+         ]
+        }
+       },
+       "win32": {
+        "error": "not_found",
+        "path": {
+         "components": [
+          [
+           98
+          ],
+          [
+           99,
+           104,
+           105,
+           108,
+           100
+          ]
+         ]
+        }
+       }
+      }
+     }
+    ]
+   },
+   {
+    "id": "error/scalar/parent-file/remove",
+    "steps": [
+     {
+      "op": "write_file",
+      "path": {
+       "utf16": [
+        98
+       ]
+      },
+      "content": [
+       99
+      ],
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "remove",
+      "path": {
+       "utf16": [
+        98,
+        47,
+        99,
+        104,
+        105,
+        108,
+        100
+       ]
+      },
+      "expect_by_platform": {
+       "linux": {
+        "error": "not_directory",
+        "path": {
+         "components": [
+          [
+           98
+          ],
+          [
+           99,
+           104,
+           105,
+           108,
+           100
+          ]
+         ]
+        }
+       },
+       "win32": {
+        "error": "not_found",
+        "path": {
+         "components": [
+          [
+           98
+          ],
+          [
+           99,
+           104,
+           105,
+           108,
+           100
+          ]
+         ]
+        }
+       }
+      }
+     }
+    ]
+   },
+   {
+    "id": "error/scalar/self-file/list-dir",
+    "steps": [
+     {
+      "op": "write_file",
+      "path": {
+       "utf16": [
+        98
+       ]
+      },
+      "content": [
+       99
+      ],
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "list_dir",
+      "path": {
+       "utf16": [
+        98
+       ]
+      },
+      "expect": {
+       "error": "not_directory",
+       "path": {
+        "components": [
+         [
+          98
+         ]
+        ]
+       }
+      }
+     }
+    ]
+   },
+   {
+    "id": "error/scalar/missing/read-lines",
+    "steps": [
+     {
+      "op": "read_text_lines",
+      "path": {
+       "utf16": [
+        98
+       ]
+      },
+      "expect": {
+       "error": "not_found",
+       "path": {
+        "components": [
+         [
+          98
+         ]
+        ]
+       }
+      }
+     }
+    ]
+   },
+   {
+    "id": "error/scalar/missing/read-binary",
+    "steps": [
+     {
+      "op": "read_binary_file",
+      "path": {
+       "utf16": [
+        98
+       ]
+      },
+      "expect": {
+       "error": "not_found",
+       "path": {
+        "components": [
+         [
+          98
+         ]
+        ]
+       }
+      }
+     }
+    ]
+   },
+   {
+    "id": "error/scalar/missing/file-info",
+    "steps": [
+     {
+      "op": "file_info",
+      "path": {
+       "utf16": [
+        98
+       ]
+      },
+      "expect": {
+       "error": "not_found",
+       "path": {
+        "components": [
+         [
+          98
+         ]
+        ]
+       }
+      }
+     }
+    ]
+   },
+   {
+    "id": "error/scalar/missing/remove",
+    "steps": [
+     {
+      "op": "remove",
+      "path": {
+       "utf16": [
+        98
+       ]
+      },
+      "expect": {
+       "error": "not_found",
+       "path": {
+        "components": [
+         [
+          98
+         ]
+        ]
+       }
+      }
+     }
+    ]
+   },
+   {
+    "id": "error/scalar/missing-parent/canonical",
+    "steps": [
+     {
+      "op": "canonical_path",
+      "path": {
+       "utf16": [
+        98,
+        47,
+        120
+       ]
+      },
+      "expect": {
+       "error": "not_found",
+       "path": {
+        "components": [
+         [
+          98
+         ],
+         [
+          120
+         ]
+        ]
+       }
+      }
+     }
+    ]
+   },
+   {
+    "id": "error/scalar/rename/missing-source",
+    "steps": [
+     {
+      "op": "rename_file",
+      "path": {
+       "utf16": [
+        98
+       ]
+      },
+      "to": {
+       "utf16": [
+        100,
+        115,
+        116
+       ]
+      },
+      "expect": {
+       "error": "not_found",
+       "path": {
+        "components": [
+         [
+          98
+         ]
+        ]
+       }
+      }
+     }
+    ]
+   },
+   {
+    "id": "error/scalar/rename/missing-source-named-dest",
+    "steps": [
+     {
+      "op": "rename_file",
+      "path": {
+       "utf16": [
+        115,
+        114,
+        99
+       ]
+      },
+      "to": {
+       "utf16": [
+        98
+       ]
+      },
+      "expect": {
+       "error": "not_found",
+       "path": {
+        "components": [
+         [
+          115,
+          114,
+          99
+         ]
+        ]
+       }
+      }
+     }
+    ]
+   },
+   {
+    "id": "error/scalar/rename/dest-parent-file",
+    "steps": [
+     {
+      "op": "write_file",
+      "path": {
+       "utf16": [
+        115,
+        114,
+        99
+       ]
+      },
+      "content": [
+       115
+      ],
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "write_file",
+      "path": {
+       "utf16": [
+        98
+       ]
+      },
+      "content": [
+       99
+      ],
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "rename_file",
+      "path": {
+       "utf16": [
+        115,
+        114,
+        99
+       ]
+      },
+      "to": {
+       "utf16": [
+        98,
+        47,
+        99,
+        104,
+        105,
+        108,
+        100
+       ]
+      },
+      "expect_by_platform": {
+       "linux": {
+        "error": "not_directory",
+        "path": {
+         "components": [
+          [
+           115,
+           114,
+           99
+          ]
+         ]
+        }
+       },
+       "win32": {
+        "error": "not_found",
+        "path": {
+         "components": [
+          [
+           115,
+           114,
+           99
+          ]
+         ]
+        }
+       }
+      }
+     }
+    ]
+   },
+   {
+    "id": "error/scalar/rename/dest-parent-missing",
+    "steps": [
+     {
+      "op": "write_file",
+      "path": {
+       "utf16": [
+        115,
+        114,
+        99
+       ]
+      },
+      "content": [
+       115
+      ],
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "rename_file",
+      "path": {
+       "utf16": [
+        115,
+        114,
+        99
+       ]
+      },
+      "to": {
+       "utf16": [
+        98,
+        47,
+        99,
+        104,
+        105,
+        108,
+        100
+       ]
+      },
+      "expect": {
+       "error": "not_found",
+       "path": {
+        "components": [
+         [
+          115,
+          114,
+          99
+         ]
+        ]
+       }
+      }
+     }
+    ]
+   },
+   {
+    "id": "error/scalar/rename/source-parent-file",
+    "steps": [
+     {
+      "op": "write_file",
+      "path": {
+       "utf16": [
+        98
+       ]
+      },
+      "content": [
+       99
+      ],
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "rename_file",
+      "path": {
+       "utf16": [
+        98,
+        47,
+        99,
+        104,
+        105,
+        108,
+        100
+       ]
+      },
+      "to": {
+       "utf16": [
+        100,
+        115,
+        116
+       ]
+      },
+      "expect_by_platform": {
+       "linux": {
+        "error": "not_directory",
+        "path": {
+         "components": [
+          [
+           98
+          ],
+          [
+           99,
+           104,
+           105,
+           108,
+           100
+          ]
+         ]
+        }
+       },
+       "win32": {
+        "error": "not_found",
+        "path": {
+         "components": [
+          [
+           98
+          ],
+          [
+           99,
+           104,
+           105,
+           108,
+           100
+          ]
+         ]
+        }
+       }
+      }
+     }
+    ]
+   },
+   {
+    "id": "error/scalar/rename/dest-nonempty-dir",
+    "steps": [
+     {
+      "op": "write_file",
+      "path": {
+       "utf16": [
+        115,
+        114,
+        99
+       ]
+      },
+      "content": [
+       115
+      ],
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "write_file",
+      "path": {
+       "utf16": [
+        98,
+        47,
+        102
+       ]
+      },
+      "content": [
+       99
+      ],
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "rename_file",
+      "path": {
+       "utf16": [
+        115,
+        114,
+        99
+       ]
+      },
+      "to": {
+       "utf16": [
+        98
+       ]
+      },
+      "expect_by_platform": {
+       "linux": {
+        "error": "is_directory",
+        "path": {
+         "components": [
+          [
+           115,
+           114,
+           99
+          ]
+         ]
+        }
+       },
+       "win32": {
+        "error": "permission_denied",
+        "path": {
+         "components": [
+          [
+           115,
+           114,
+           99
+          ]
+         ]
+        }
+       }
+      }
+     }
+    ]
+   },
+   {
+    "id": "error/scalar/self-dir/write",
+    "platforms": [
+     "linux"
+    ],
+    "platform_note": "win32 excluded: opening a directory as a file is refused on Windows before Node's own EISDIR, the recorded Layer-12 finding minion-agent#67 (code and, where Node's error has no path, path)",
+    "steps": [
+     {
+      "op": "create_dir",
+      "path": {
+       "utf16": [
+        98
+       ]
+      },
+      "recursive": true,
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "write_file",
+      "path": {
+       "utf16": [
+        98
+       ]
+      },
+      "content": [
+       99
+      ],
+      "expect": {
+       "error": "is_directory",
+       "path": {
+        "components": [
+         [
+          98
+         ]
+        ]
+       }
+      }
+     }
+    ]
+   },
+   {
+    "id": "error/scalar/self-dir/append",
+    "platforms": [
+     "linux"
+    ],
+    "platform_note": "win32 excluded: opening a directory as a file is refused on Windows before Node's own EISDIR, the recorded Layer-12 finding minion-agent#67 (code and, where Node's error has no path, path)",
+    "steps": [
+     {
+      "op": "create_dir",
+      "path": {
+       "utf16": [
+        98
+       ]
+      },
+      "recursive": true,
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "append_file",
+      "path": {
+       "utf16": [
+        98
+       ]
+      },
+      "content": [
+       99
+      ],
+      "expect": {
+       "error": "is_directory",
+       "path": {
+        "components": [
+         [
+          98
+         ]
+        ]
+       }
+      }
+     }
+    ]
+   },
+   {
+    "id": "error/scalar/self-dir/read",
+    "platforms": [
+     "linux"
+    ],
+    "platform_note": "win32 excluded: opening a directory as a file is refused on Windows before Node's own EISDIR, the recorded Layer-12 finding minion-agent#67 (code and, where Node's error has no path, path)",
+    "steps": [
+     {
+      "op": "create_dir",
+      "path": {
+       "utf16": [
+        98
+       ]
+      },
+      "recursive": true,
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "read_text_file",
+      "path": {
+       "utf16": [
+        98
+       ]
+      },
+      "expect": {
+       "error": "is_directory",
+       "path": {
+        "components": [
+         [
+          98
+         ]
+        ]
+       }
+      }
+     }
+    ]
+   },
+   {
+    "id": "error/scalar/self-dir/read-lines",
+    "platforms": [
+     "linux"
+    ],
+    "platform_note": "win32 excluded: opening a directory as a file is refused on Windows before Node's own EISDIR, the recorded Layer-12 finding minion-agent#67 (code and, where Node's error has no path, path)",
+    "steps": [
+     {
+      "op": "create_dir",
+      "path": {
+       "utf16": [
+        98
+       ]
+      },
+      "recursive": true,
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "read_text_lines",
+      "path": {
+       "utf16": [
+        98
+       ]
+      },
+      "expect": {
+       "error": "is_directory",
+       "path": {
+        "components": [
+         [
+          98
+         ]
+        ]
+       }
+      }
+     }
+    ]
+   },
+   {
+    "id": "error/scalar/self-dir/read-binary",
+    "platforms": [
+     "linux"
+    ],
+    "platform_note": "win32 excluded: opening a directory as a file is refused on Windows before Node's own EISDIR, the recorded Layer-12 finding minion-agent#67 (code and, where Node's error has no path, path)",
+    "steps": [
+     {
+      "op": "create_dir",
+      "path": {
+       "utf16": [
+        98
+       ]
+      },
+      "recursive": true,
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "read_binary_file",
+      "path": {
+       "utf16": [
+        98
+       ]
+      },
+      "expect": {
+       "error": "is_directory",
+       "path": {
+        "components": [
+         [
+          98
+         ]
+        ]
+       }
+      }
+     }
+    ]
+   },
+   {
+    "id": "error/lone/parent-file/write",
+    "steps": [
+     {
+      "op": "write_file",
+      "path": {
+       "utf16": [
+        97,
+        55296
+       ]
+      },
+      "content": [
+       99
+      ],
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "write_file",
+      "path": {
+       "utf16": [
+        97,
+        55296,
+        47,
+        99,
+        104,
+        105,
+        108,
+        100
+       ]
+      },
+      "content": [
+       99
+      ],
+      "expect": {
+       "error": "unknown",
+       "path": {
+        "components": [
+         [
+          97,
+          65533
+         ]
+        ]
+       }
+      }
+     }
+    ]
+   },
+   {
+    "id": "error/lone/parent-file/append",
+    "steps": [
+     {
+      "op": "write_file",
+      "path": {
+       "utf16": [
+        97,
+        55296
+       ]
+      },
+      "content": [
+       99
+      ],
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "append_file",
+      "path": {
+       "utf16": [
+        97,
+        55296,
+        47,
+        99,
+        104,
+        105,
+        108,
+        100
+       ]
+      },
+      "content": [
+       99
+      ],
+      "expect": {
+       "error": "unknown",
+       "path": {
+        "components": [
+         [
+          97,
+          65533
+         ]
+        ]
+       }
+      }
+     }
+    ]
+   },
+   {
+    "id": "error/lone/grandparent-file/write",
+    "steps": [
+     {
+      "op": "write_file",
+      "path": {
+       "utf16": [
+        97,
+        55296
+       ]
+      },
+      "content": [
+       99
+      ],
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "write_file",
+      "path": {
+       "utf16": [
+        97,
+        55296,
+        47,
+        120,
+        47,
+        99,
+        104,
+        105,
+        108,
+        100
+       ]
+      },
+      "content": [
+       99
+      ],
+      "expect_by_platform": {
+       "linux": {
+        "error": "not_directory",
+        "path": {
+         "components": [
+          [
+           97,
+           65533
+          ],
+          [
+           120
+          ]
+         ]
+        }
+       },
+       "win32": {
+        "error": "not_directory",
+        "path": {
+         "components": [
+          [
+           97,
+           65533
+          ]
+         ]
+        }
+       }
+      }
+     }
+    ]
+   },
+   {
+    "id": "error/lone/grandparent-file/append",
+    "steps": [
+     {
+      "op": "write_file",
+      "path": {
+       "utf16": [
+        97,
+        55296
+       ]
+      },
+      "content": [
+       99
+      ],
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "append_file",
+      "path": {
+       "utf16": [
+        97,
+        55296,
+        47,
+        120,
+        47,
+        99,
+        104,
+        105,
+        108,
+        100
+       ]
+      },
+      "content": [
+       99
+      ],
+      "expect_by_platform": {
+       "linux": {
+        "error": "not_directory",
+        "path": {
+         "components": [
+          [
+           97,
+           65533
+          ],
+          [
+           120
+          ]
+         ]
+        }
+       },
+       "win32": {
+        "error": "not_directory",
+        "path": {
+         "components": [
+          [
+           97,
+           65533
+          ]
+         ]
+        }
+       }
+      }
+     }
+    ]
+   },
+   {
+    "id": "error/lone/parent-file/create-dir",
+    "steps": [
+     {
+      "op": "write_file",
+      "path": {
+       "utf16": [
+        97,
+        55296
+       ]
+      },
+      "content": [
+       99
+      ],
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "create_dir",
+      "path": {
+       "utf16": [
+        97,
+        55296,
+        47,
+        120
+       ]
+      },
+      "recursive": true,
+      "expect_by_platform": {
+       "linux": {
+        "error": "not_directory",
+        "path": {
+         "components": [
+          [
+           97,
+           65533
+          ],
+          [
+           120
+          ]
+         ]
+        }
+       },
+       "win32": {
+        "error": "not_directory",
+        "path": {
+         "components": [
+          [
+           97,
+           65533
+          ]
+         ]
+        }
+       }
+      }
+     }
+    ]
+   },
+   {
+    "id": "error/lone/grandparent-file/create-dir",
+    "steps": [
+     {
+      "op": "write_file",
+      "path": {
+       "utf16": [
+        97,
+        55296
+       ]
+      },
+      "content": [
+       99
+      ],
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "create_dir",
+      "path": {
+       "utf16": [
+        97,
+        55296,
+        47,
+        120,
+        47,
+        121
+       ]
+      },
+      "recursive": true,
+      "expect_by_platform": {
+       "linux": {
+        "error": "not_directory",
+        "path": {
+         "components": [
+          [
+           97,
+           65533
+          ],
+          [
+           120
+          ],
+          [
+           121
+          ]
+         ]
+        }
+       },
+       "win32": {
+        "error": "not_directory",
+        "path": {
+         "components": [
+          [
+           97,
+           65533
+          ]
+         ]
+        }
+       }
+      }
+     }
+    ]
+   },
+   {
+    "id": "error/lone/self-file/create-dir",
+    "steps": [
+     {
+      "op": "write_file",
+      "path": {
+       "utf16": [
+        97,
+        55296
+       ]
+      },
+      "content": [
+       99
+      ],
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "create_dir",
+      "path": {
+       "utf16": [
+        97,
+        55296
+       ]
+      },
+      "recursive": true,
+      "expect": {
+       "error": "unknown",
+       "path": {
+        "components": [
+         [
+          97,
+          65533
+         ]
+        ]
+       }
+      }
+     }
+    ]
+   },
+   {
+    "id": "error/lone/parent-file/create-dir-nonrecursive",
+    "steps": [
+     {
+      "op": "write_file",
+      "path": {
+       "utf16": [
+        97,
+        55296
+       ]
+      },
+      "content": [
+       99
+      ],
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "create_dir",
+      "path": {
+       "utf16": [
+        97,
+        55296,
+        47,
+        120
+       ]
+      },
+      "recursive": false,
+      "expect_by_platform": {
+       "linux": {
+        "error": "not_directory",
+        "path": {
+         "components": [
+          [
+           97,
+           65533
+          ],
+          [
+           120
+          ]
+         ]
+        }
+       },
+       "win32": {
+        "error": "not_found",
+        "path": {
+         "components": [
+          [
+           97,
+           65533
+          ],
+          [
+           120
+          ]
+         ]
+        }
+       }
+      }
+     }
+    ]
+   },
+   {
+    "id": "error/lone/missing-parent/create-dir-nonrecursive",
+    "steps": [
+     {
+      "op": "create_dir",
+      "path": {
+       "utf16": [
+        97,
+        55296,
+        47,
+        120
+       ]
+      },
+      "recursive": false,
+      "expect": {
+       "error": "not_found",
+       "path": {
+        "components": [
+         [
+          97,
+          65533
+         ],
+         [
+          120
+         ]
+        ]
+       }
+      }
+     }
+    ]
+   },
+   {
+    "id": "error/lone/parent-file/read",
+    "steps": [
+     {
+      "op": "write_file",
+      "path": {
+       "utf16": [
+        97,
+        55296
+       ]
+      },
+      "content": [
+       99
+      ],
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "read_text_file",
+      "path": {
+       "utf16": [
+        97,
+        55296,
+        47,
+        99,
+        104,
+        105,
+        108,
+        100
+       ]
+      },
+      "expect_by_platform": {
+       "linux": {
+        "error": "not_directory",
+        "path": {
+         "components": [
+          [
+           97,
+           65533
+          ],
+          [
+           99,
+           104,
+           105,
+           108,
+           100
+          ]
+         ]
+        }
+       },
+       "win32": {
+        "error": "not_found",
+        "path": {
+         "components": [
+          [
+           97,
+           65533
+          ],
+          [
+           99,
+           104,
+           105,
+           108,
+           100
+          ]
+         ]
+        }
+       }
+      }
+     }
+    ]
+   },
+   {
+    "id": "error/lone/parent-file/read-lines",
+    "steps": [
+     {
+      "op": "write_file",
+      "path": {
+       "utf16": [
+        97,
+        55296
+       ]
+      },
+      "content": [
+       99
+      ],
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "read_text_lines",
+      "path": {
+       "utf16": [
+        97,
+        55296,
+        47,
+        99,
+        104,
+        105,
+        108,
+        100
+       ]
+      },
+      "expect_by_platform": {
+       "linux": {
+        "error": "not_directory",
+        "path": {
+         "components": [
+          [
+           97,
+           65533
+          ],
+          [
+           99,
+           104,
+           105,
+           108,
+           100
+          ]
+         ]
+        }
+       },
+       "win32": {
+        "error": "not_found",
+        "path": {
+         "components": [
+          [
+           97,
+           65533
+          ],
+          [
+           99,
+           104,
+           105,
+           108,
+           100
+          ]
+         ]
+        }
+       }
+      }
+     }
+    ]
+   },
+   {
+    "id": "error/lone/parent-file/read-binary",
+    "steps": [
+     {
+      "op": "write_file",
+      "path": {
+       "utf16": [
+        97,
+        55296
+       ]
+      },
+      "content": [
+       99
+      ],
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "read_binary_file",
+      "path": {
+       "utf16": [
+        97,
+        55296,
+        47,
+        99,
+        104,
+        105,
+        108,
+        100
+       ]
+      },
+      "expect_by_platform": {
+       "linux": {
+        "error": "not_directory",
+        "path": {
+         "components": [
+          [
+           97,
+           65533
+          ],
+          [
+           99,
+           104,
+           105,
+           108,
+           100
+          ]
+         ]
+        }
+       },
+       "win32": {
+        "error": "not_found",
+        "path": {
+         "components": [
+          [
+           97,
+           65533
+          ],
+          [
+           99,
+           104,
+           105,
+           108,
+           100
+          ]
+         ]
+        }
+       }
+      }
+     }
+    ]
+   },
+   {
+    "id": "error/lone/parent-file/file-info",
+    "steps": [
+     {
+      "op": "write_file",
+      "path": {
+       "utf16": [
+        97,
+        55296
+       ]
+      },
+      "content": [
+       99
+      ],
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "file_info",
+      "path": {
+       "utf16": [
+        97,
+        55296,
+        47,
+        99,
+        104,
+        105,
+        108,
+        100
+       ]
+      },
+      "expect_by_platform": {
+       "linux": {
+        "error": "not_directory",
+        "path": {
+         "components": [
+          [
+           97,
+           65533
+          ],
+          [
+           99,
+           104,
+           105,
+           108,
+           100
+          ]
+         ]
+        }
+       },
+       "win32": {
+        "error": "not_found",
+        "path": {
+         "components": [
+          [
+           97,
+           65533
+          ],
+          [
+           99,
+           104,
+           105,
+           108,
+           100
+          ]
+         ]
+        }
+       }
+      }
+     }
+    ]
+   },
+   {
+    "id": "error/lone/parent-file/exists",
+    "steps": [
+     {
+      "op": "write_file",
+      "path": {
+       "utf16": [
+        97,
+        55296
+       ]
+      },
+      "content": [
+       99
+      ],
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "exists",
+      "path": {
+       "utf16": [
+        97,
+        55296,
+        47,
+        99,
+        104,
+        105,
+        108,
+        100
+       ]
+      },
+      "expect_by_platform": {
+       "linux": {
+        "error": "not_directory",
+        "path": {
+         "components": [
+          [
+           97,
+           65533
+          ],
+          [
+           99,
+           104,
+           105,
+           108,
+           100
+          ]
+         ]
+        }
+       },
+       "win32": {
+        "ok": false
+       }
+      }
+     }
+    ]
+   },
+   {
+    "id": "error/lone/parent-file/canonical",
+    "steps": [
+     {
+      "op": "write_file",
+      "path": {
+       "utf16": [
+        97,
+        55296
+       ]
+      },
+      "content": [
+       99
+      ],
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "canonical_path",
+      "path": {
+       "utf16": [
+        97,
+        55296,
+        47,
+        99,
+        104,
+        105,
+        108,
+        100
+       ]
+      },
+      "expect_by_platform": {
+       "linux": {
+        "error": "not_directory",
+        "path": {
+         "components": [
+          [
+           97,
+           65533
+          ],
+          [
+           99,
+           104,
+           105,
+           108,
+           100
+          ]
+         ]
+        }
+       },
+       "win32": {
+        "error": "not_found",
+        "path": {
+         "components": [
+          [
+           97,
+           65533
+          ],
+          [
+           99,
+           104,
+           105,
+           108,
+           100
+          ]
+         ]
+        }
+       }
+      }
+     }
+    ]
+   },
+   {
+    "id": "error/lone/parent-file/remove",
+    "steps": [
+     {
+      "op": "write_file",
+      "path": {
+       "utf16": [
+        97,
+        55296
+       ]
+      },
+      "content": [
+       99
+      ],
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "remove",
+      "path": {
+       "utf16": [
+        97,
+        55296,
+        47,
+        99,
+        104,
+        105,
+        108,
+        100
+       ]
+      },
+      "expect_by_platform": {
+       "linux": {
+        "error": "not_directory",
+        "path": {
+         "components": [
+          [
+           97,
+           65533
+          ],
+          [
+           99,
+           104,
+           105,
+           108,
+           100
+          ]
+         ]
+        }
+       },
+       "win32": {
+        "error": "not_found",
+        "path": {
+         "components": [
+          [
+           97,
+           65533
+          ],
+          [
+           99,
+           104,
+           105,
+           108,
+           100
+          ]
+         ]
+        }
+       }
+      }
+     }
+    ]
+   },
+   {
+    "id": "error/lone/self-file/list-dir",
+    "steps": [
+     {
+      "op": "write_file",
+      "path": {
+       "utf16": [
+        97,
+        55296
+       ]
+      },
+      "content": [
+       99
+      ],
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "list_dir",
+      "path": {
+       "utf16": [
+        97,
+        55296
+       ]
+      },
+      "expect": {
+       "error": "not_directory",
+       "path": {
+        "components": [
+         [
+          97,
+          65533
+         ]
+        ]
+       }
+      }
+     }
+    ]
+   },
+   {
+    "id": "error/lone/missing/read-lines",
+    "steps": [
+     {
+      "op": "read_text_lines",
+      "path": {
+       "utf16": [
+        97,
+        55296
+       ]
+      },
+      "expect": {
+       "error": "not_found",
+       "path": {
+        "components": [
+         [
+          97,
+          65533
+         ]
+        ]
+       }
+      }
+     }
+    ]
+   },
+   {
+    "id": "error/lone/missing/read-binary",
+    "steps": [
+     {
+      "op": "read_binary_file",
+      "path": {
+       "utf16": [
+        97,
+        55296
+       ]
+      },
+      "expect": {
+       "error": "not_found",
+       "path": {
+        "components": [
+         [
+          97,
+          65533
+         ]
+        ]
+       }
+      }
+     }
+    ]
+   },
+   {
+    "id": "error/lone/missing/file-info",
+    "steps": [
+     {
+      "op": "file_info",
+      "path": {
+       "utf16": [
+        97,
+        55296
+       ]
+      },
+      "expect": {
+       "error": "not_found",
+       "path": {
+        "components": [
+         [
+          97,
+          65533
+         ]
+        ]
+       }
+      }
+     }
+    ]
+   },
+   {
+    "id": "error/lone/missing/remove",
+    "steps": [
+     {
+      "op": "remove",
+      "path": {
+       "utf16": [
+        97,
+        55296
+       ]
+      },
+      "expect": {
+       "error": "not_found",
+       "path": {
+        "components": [
+         [
+          97,
+          65533
+         ]
+        ]
+       }
+      }
+     }
+    ]
+   },
+   {
+    "id": "error/lone/missing-parent/canonical",
+    "steps": [
+     {
+      "op": "canonical_path",
+      "path": {
+       "utf16": [
+        97,
+        55296,
+        47,
+        120
+       ]
+      },
+      "expect": {
+       "error": "not_found",
+       "path": {
+        "components": [
+         [
+          97,
+          65533
+         ],
+         [
+          120
+         ]
+        ]
+       }
+      }
+     }
+    ]
+   },
+   {
+    "id": "error/lone/rename/missing-source",
+    "steps": [
+     {
+      "op": "rename_file",
+      "path": {
+       "utf16": [
+        97,
+        55296
+       ]
+      },
+      "to": {
+       "utf16": [
+        100,
+        115,
+        116
+       ]
+      },
+      "expect": {
+       "error": "not_found",
+       "path": {
+        "components": [
+         [
+          97,
+          65533
+         ]
+        ]
+       }
+      }
+     }
+    ]
+   },
+   {
+    "id": "error/lone/rename/missing-source-named-dest",
+    "steps": [
+     {
+      "op": "rename_file",
+      "path": {
+       "utf16": [
+        115,
+        114,
+        99
+       ]
+      },
+      "to": {
+       "utf16": [
+        97,
+        55296
+       ]
+      },
+      "expect": {
+       "error": "not_found",
+       "path": {
+        "components": [
+         [
+          115,
+          114,
+          99
+         ]
+        ]
+       }
+      }
+     }
+    ]
+   },
+   {
+    "id": "error/lone/rename/dest-parent-file",
+    "steps": [
+     {
+      "op": "write_file",
+      "path": {
+       "utf16": [
+        115,
+        114,
+        99
+       ]
+      },
+      "content": [
+       115
+      ],
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "write_file",
+      "path": {
+       "utf16": [
+        97,
+        55296
+       ]
+      },
+      "content": [
+       99
+      ],
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "rename_file",
+      "path": {
+       "utf16": [
+        115,
+        114,
+        99
+       ]
+      },
+      "to": {
+       "utf16": [
+        97,
+        55296,
+        47,
+        99,
+        104,
+        105,
+        108,
+        100
+       ]
+      },
+      "expect_by_platform": {
+       "linux": {
+        "error": "not_directory",
+        "path": {
+         "components": [
+          [
+           115,
+           114,
+           99
+          ]
+         ]
+        }
+       },
+       "win32": {
+        "error": "not_found",
+        "path": {
+         "components": [
+          [
+           115,
+           114,
+           99
+          ]
+         ]
+        }
+       }
+      }
+     }
+    ]
+   },
+   {
+    "id": "error/lone/rename/dest-parent-missing",
+    "steps": [
+     {
+      "op": "write_file",
+      "path": {
+       "utf16": [
+        115,
+        114,
+        99
+       ]
+      },
+      "content": [
+       115
+      ],
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "rename_file",
+      "path": {
+       "utf16": [
+        115,
+        114,
+        99
+       ]
+      },
+      "to": {
+       "utf16": [
+        97,
+        55296,
+        47,
+        99,
+        104,
+        105,
+        108,
+        100
+       ]
+      },
+      "expect": {
+       "error": "not_found",
+       "path": {
+        "components": [
+         [
+          115,
+          114,
+          99
+         ]
+        ]
+       }
+      }
+     }
+    ]
+   },
+   {
+    "id": "error/lone/rename/source-parent-file",
+    "steps": [
+     {
+      "op": "write_file",
+      "path": {
+       "utf16": [
+        97,
+        55296
+       ]
+      },
+      "content": [
+       99
+      ],
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "rename_file",
+      "path": {
+       "utf16": [
+        97,
+        55296,
+        47,
+        99,
+        104,
+        105,
+        108,
+        100
+       ]
+      },
+      "to": {
+       "utf16": [
+        100,
+        115,
+        116
+       ]
+      },
+      "expect_by_platform": {
+       "linux": {
+        "error": "not_directory",
+        "path": {
+         "components": [
+          [
+           97,
+           65533
+          ],
+          [
+           99,
+           104,
+           105,
+           108,
+           100
+          ]
+         ]
+        }
+       },
+       "win32": {
+        "error": "not_found",
+        "path": {
+         "components": [
+          [
+           97,
+           65533
+          ],
+          [
+           99,
+           104,
+           105,
+           108,
+           100
+          ]
+         ]
+        }
+       }
+      }
+     }
+    ]
+   },
+   {
+    "id": "error/lone/rename/dest-nonempty-dir",
+    "steps": [
+     {
+      "op": "write_file",
+      "path": {
+       "utf16": [
+        115,
+        114,
+        99
+       ]
+      },
+      "content": [
+       115
+      ],
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "write_file",
+      "path": {
+       "utf16": [
+        97,
+        55296,
+        47,
+        102
+       ]
+      },
+      "content": [
+       99
+      ],
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "rename_file",
+      "path": {
+       "utf16": [
+        115,
+        114,
+        99
+       ]
+      },
+      "to": {
+       "utf16": [
+        97,
+        55296
+       ]
+      },
+      "expect_by_platform": {
+       "linux": {
+        "error": "is_directory",
+        "path": {
+         "components": [
+          [
+           115,
+           114,
+           99
+          ]
+         ]
+        }
+       },
+       "win32": {
+        "error": "permission_denied",
+        "path": {
+         "components": [
+          [
+           115,
+           114,
+           99
+          ]
+         ]
+        }
+       }
+      }
+     }
+    ]
+   },
+   {
+    "id": "error/lone/self-dir/write",
+    "platforms": [
+     "linux"
+    ],
+    "platform_note": "win32 excluded: opening a directory as a file is refused on Windows before Node's own EISDIR, the recorded Layer-12 finding minion-agent#67 (code and, where Node's error has no path, path)",
+    "steps": [
+     {
+      "op": "create_dir",
+      "path": {
+       "utf16": [
+        97,
+        55296
+       ]
+      },
+      "recursive": true,
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "write_file",
+      "path": {
+       "utf16": [
+        97,
+        55296
+       ]
+      },
+      "content": [
+       99
+      ],
+      "expect": {
+       "error": "is_directory",
+       "path": {
+        "components": [
+         [
+          97,
+          65533
+         ]
+        ]
+       }
+      }
+     }
+    ]
+   },
+   {
+    "id": "error/lone/self-dir/append",
+    "platforms": [
+     "linux"
+    ],
+    "platform_note": "win32 excluded: opening a directory as a file is refused on Windows before Node's own EISDIR, the recorded Layer-12 finding minion-agent#67 (code and, where Node's error has no path, path)",
+    "steps": [
+     {
+      "op": "create_dir",
+      "path": {
+       "utf16": [
+        97,
+        55296
+       ]
+      },
+      "recursive": true,
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "append_file",
+      "path": {
+       "utf16": [
+        97,
+        55296
+       ]
+      },
+      "content": [
+       99
+      ],
+      "expect": {
+       "error": "is_directory",
+       "path": {
+        "components": [
+         [
+          97,
+          65533
+         ]
+        ]
+       }
+      }
+     }
+    ]
+   },
+   {
+    "id": "error/lone/self-dir/read",
+    "platforms": [
+     "linux"
+    ],
+    "platform_note": "win32 excluded: opening a directory as a file is refused on Windows before Node's own EISDIR, the recorded Layer-12 finding minion-agent#67 (code and, where Node's error has no path, path)",
+    "steps": [
+     {
+      "op": "create_dir",
+      "path": {
+       "utf16": [
+        97,
+        55296
+       ]
+      },
+      "recursive": true,
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "read_text_file",
+      "path": {
+       "utf16": [
+        97,
+        55296
+       ]
+      },
+      "expect": {
+       "error": "is_directory",
+       "path": {
+        "components": [
+         [
+          97,
+          55296
+         ]
+        ]
+       }
+      }
+     }
+    ]
+   },
+   {
+    "id": "error/lone/self-dir/read-lines",
+    "platforms": [
+     "linux"
+    ],
+    "platform_note": "win32 excluded: opening a directory as a file is refused on Windows before Node's own EISDIR, the recorded Layer-12 finding minion-agent#67 (code and, where Node's error has no path, path)",
+    "steps": [
+     {
+      "op": "create_dir",
+      "path": {
+       "utf16": [
+        97,
+        55296
+       ]
+      },
+      "recursive": true,
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "read_text_lines",
+      "path": {
+       "utf16": [
+        97,
+        55296
+       ]
+      },
+      "expect": {
+       "error": "is_directory",
+       "path": {
+        "components": [
+         [
+          97,
+          55296
+         ]
+        ]
+       }
+      }
+     }
+    ]
+   },
+   {
+    "id": "error/lone/self-dir/read-binary",
+    "platforms": [
+     "linux"
+    ],
+    "platform_note": "win32 excluded: opening a directory as a file is refused on Windows before Node's own EISDIR, the recorded Layer-12 finding minion-agent#67 (code and, where Node's error has no path, path)",
+    "steps": [
+     {
+      "op": "create_dir",
+      "path": {
+       "utf16": [
+        97,
+        55296
+       ]
+      },
+      "recursive": true,
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "read_binary_file",
+      "path": {
+       "utf16": [
+        97,
+        55296
+       ]
+      },
+      "expect": {
+       "error": "is_directory",
+       "path": {
+        "components": [
+         [
+          97,
+          55296
+         ]
+        ]
+       }
+      }
+     }
+    ]
+   }
+  ]
+ }
+}

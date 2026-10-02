@@ -1,0 +1,835 @@
+{
+ "name": "fs-path-alias",
+ "family": "agent",
+ "authority": "pinned Pi b7bb00b9 packages/agent/src/harness/env/nodejs.ts NodeExecutionEnv (imported unmodified) + coding-agent core/tools/file-mutation-queue.ts getMutationQueueKey (sliced unmodified), Node 22.15.1, identical on Linux (node:22.15.1-alpine) and Windows 11 (L12-D001 authority)",
+ "pi_revision": "b7bb00b936dbe21b8e160b3e89efdec361846699",
+ "requirements": [
+  "EXEC-002",
+  "EXEC-003"
+ ],
+ "witnesses": [
+  "fs_path_javascript_string_domain"
+ ],
+ "platforms": [
+  "linux",
+  "win32"
+ ],
+ "notes": "Owner decision sections 6-8: a<D800>, a<DC00> and a<FFFD> while missing have three distinct target keys; after a write through the first, every spelling reads the same file and shares the projected key; a second write through another spelling overwrites it; listing and canonical_path report the projected name. GENERATED from the pinned-Pi L12-D001 probe; regenerate with harness/make_scenarios.py.",
+ "fs_path_domain": {
+  "cases": [
+   {
+    "id": "alias/file",
+    "steps": [
+     {
+      "op": "target_key",
+      "path": {
+       "utf16": [
+        97,
+        55296
+       ]
+      },
+      "expect": {
+       "components": [
+        [
+         97,
+         55296
+        ]
+       ]
+      }
+     },
+     {
+      "op": "target_key",
+      "path": {
+       "utf16": [
+        97,
+        56320
+       ]
+      },
+      "expect": {
+       "components": [
+        [
+         97,
+         56320
+        ]
+       ]
+      }
+     },
+     {
+      "op": "target_key",
+      "path": {
+       "utf16": [
+        97,
+        65533
+       ]
+      },
+      "expect": {
+       "components": [
+        [
+         97,
+         65533
+        ]
+       ]
+      }
+     },
+     {
+      "op": "write_file",
+      "path": {
+       "utf16": [
+        97,
+        55296
+       ]
+      },
+      "content": [
+       102,
+       105,
+       114,
+       115,
+       116
+      ],
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "read_text_file",
+      "path": {
+       "utf16": [
+        97,
+        55296
+       ]
+      },
+      "expect": {
+       "ok": [
+        102,
+        105,
+        114,
+        115,
+        116
+       ]
+      }
+     },
+     {
+      "op": "read_text_file",
+      "path": {
+       "utf16": [
+        97,
+        56320
+       ]
+      },
+      "expect": {
+       "ok": [
+        102,
+        105,
+        114,
+        115,
+        116
+       ]
+      }
+     },
+     {
+      "op": "read_text_file",
+      "path": {
+       "utf16": [
+        97,
+        65533
+       ]
+      },
+      "expect": {
+       "ok": [
+        102,
+        105,
+        114,
+        115,
+        116
+       ]
+      }
+     },
+     {
+      "op": "target_key",
+      "path": {
+       "utf16": [
+        97,
+        55296
+       ]
+      },
+      "expect": {
+       "components": [
+        [
+         97,
+         65533
+        ]
+       ]
+      }
+     },
+     {
+      "op": "target_key",
+      "path": {
+       "utf16": [
+        97,
+        56320
+       ]
+      },
+      "expect": {
+       "components": [
+        [
+         97,
+         65533
+        ]
+       ]
+      }
+     },
+     {
+      "op": "target_key",
+      "path": {
+       "utf16": [
+        97,
+        65533
+       ]
+      },
+      "expect": {
+       "components": [
+        [
+         97,
+         65533
+        ]
+       ]
+      }
+     },
+     {
+      "op": "write_file",
+      "path": {
+       "utf16": [
+        97,
+        56320
+       ]
+      },
+      "content": [
+       115,
+       101,
+       99,
+       111,
+       110,
+       100
+      ],
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "read_text_file",
+      "path": {
+       "utf16": [
+        97,
+        55296
+       ]
+      },
+      "expect": {
+       "ok": [
+        115,
+        101,
+        99,
+        111,
+        110,
+        100
+       ]
+      }
+     },
+     {
+      "op": "read_text_file",
+      "path": {
+       "utf16": [
+        97,
+        56320
+       ]
+      },
+      "expect": {
+       "ok": [
+        115,
+        101,
+        99,
+        111,
+        110,
+        100
+       ]
+      }
+     },
+     {
+      "op": "read_text_file",
+      "path": {
+       "utf16": [
+        97,
+        65533
+       ]
+      },
+      "expect": {
+       "ok": [
+        115,
+        101,
+        99,
+        111,
+        110,
+        100
+       ]
+      }
+     },
+     {
+      "op": "list_dir",
+      "path": {
+       "utf16": [
+        46
+       ]
+      },
+      "expect": {
+       "names": [
+        [
+         97,
+         65533
+        ]
+       ]
+      }
+     },
+     {
+      "op": "canonical_path",
+      "path": {
+       "utf16": [
+        97,
+        55296
+       ]
+      },
+      "expect": {
+       "components": [
+        [
+         97,
+         65533
+        ]
+       ]
+      }
+     },
+     {
+      "op": "canonical_path",
+      "path": {
+       "utf16": [
+        97,
+        56320
+       ]
+      },
+      "expect": {
+       "components": [
+        [
+         97,
+         65533
+        ]
+       ]
+      }
+     },
+     {
+      "op": "canonical_path",
+      "path": {
+       "utf16": [
+        97,
+        65533
+       ]
+      },
+      "expect": {
+       "components": [
+        [
+         97,
+         65533
+        ]
+       ]
+      }
+     }
+    ]
+   },
+   {
+    "id": "alias/dir",
+    "steps": [
+     {
+      "op": "target_key",
+      "path": {
+       "utf16": [
+        100,
+        55296,
+        47,
+        102,
+        46,
+        116,
+        120,
+        116
+       ]
+      },
+      "expect": {
+       "components": [
+        [
+         100,
+         55296
+        ],
+        [
+         102,
+         46,
+         116,
+         120,
+         116
+        ]
+       ]
+      }
+     },
+     {
+      "op": "target_key",
+      "path": {
+       "utf16": [
+        100,
+        56320,
+        47,
+        102,
+        46,
+        116,
+        120,
+        116
+       ]
+      },
+      "expect": {
+       "components": [
+        [
+         100,
+         56320
+        ],
+        [
+         102,
+         46,
+         116,
+         120,
+         116
+        ]
+       ]
+      }
+     },
+     {
+      "op": "target_key",
+      "path": {
+       "utf16": [
+        100,
+        65533,
+        47,
+        102,
+        46,
+        116,
+        120,
+        116
+       ]
+      },
+      "expect": {
+       "components": [
+        [
+         100,
+         65533
+        ],
+        [
+         102,
+         46,
+         116,
+         120,
+         116
+        ]
+       ]
+      }
+     },
+     {
+      "op": "write_file",
+      "path": {
+       "utf16": [
+        100,
+        55296,
+        47,
+        102,
+        46,
+        116,
+        120,
+        116
+       ]
+      },
+      "content": [
+       102,
+       105,
+       114,
+       115,
+       116
+      ],
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "read_text_file",
+      "path": {
+       "utf16": [
+        100,
+        55296,
+        47,
+        102,
+        46,
+        116,
+        120,
+        116
+       ]
+      },
+      "expect": {
+       "ok": [
+        102,
+        105,
+        114,
+        115,
+        116
+       ]
+      }
+     },
+     {
+      "op": "read_text_file",
+      "path": {
+       "utf16": [
+        100,
+        56320,
+        47,
+        102,
+        46,
+        116,
+        120,
+        116
+       ]
+      },
+      "expect": {
+       "ok": [
+        102,
+        105,
+        114,
+        115,
+        116
+       ]
+      }
+     },
+     {
+      "op": "read_text_file",
+      "path": {
+       "utf16": [
+        100,
+        65533,
+        47,
+        102,
+        46,
+        116,
+        120,
+        116
+       ]
+      },
+      "expect": {
+       "ok": [
+        102,
+        105,
+        114,
+        115,
+        116
+       ]
+      }
+     },
+     {
+      "op": "target_key",
+      "path": {
+       "utf16": [
+        100,
+        55296,
+        47,
+        102,
+        46,
+        116,
+        120,
+        116
+       ]
+      },
+      "expect": {
+       "components": [
+        [
+         100,
+         65533
+        ],
+        [
+         102,
+         46,
+         116,
+         120,
+         116
+        ]
+       ]
+      }
+     },
+     {
+      "op": "target_key",
+      "path": {
+       "utf16": [
+        100,
+        56320,
+        47,
+        102,
+        46,
+        116,
+        120,
+        116
+       ]
+      },
+      "expect": {
+       "components": [
+        [
+         100,
+         65533
+        ],
+        [
+         102,
+         46,
+         116,
+         120,
+         116
+        ]
+       ]
+      }
+     },
+     {
+      "op": "target_key",
+      "path": {
+       "utf16": [
+        100,
+        65533,
+        47,
+        102,
+        46,
+        116,
+        120,
+        116
+       ]
+      },
+      "expect": {
+       "components": [
+        [
+         100,
+         65533
+        ],
+        [
+         102,
+         46,
+         116,
+         120,
+         116
+        ]
+       ]
+      }
+     },
+     {
+      "op": "write_file",
+      "path": {
+       "utf16": [
+        100,
+        56320,
+        47,
+        102,
+        46,
+        116,
+        120,
+        116
+       ]
+      },
+      "content": [
+       115,
+       101,
+       99,
+       111,
+       110,
+       100
+      ],
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "read_text_file",
+      "path": {
+       "utf16": [
+        100,
+        55296,
+        47,
+        102,
+        46,
+        116,
+        120,
+        116
+       ]
+      },
+      "expect": {
+       "ok": [
+        115,
+        101,
+        99,
+        111,
+        110,
+        100
+       ]
+      }
+     },
+     {
+      "op": "read_text_file",
+      "path": {
+       "utf16": [
+        100,
+        56320,
+        47,
+        102,
+        46,
+        116,
+        120,
+        116
+       ]
+      },
+      "expect": {
+       "ok": [
+        115,
+        101,
+        99,
+        111,
+        110,
+        100
+       ]
+      }
+     },
+     {
+      "op": "read_text_file",
+      "path": {
+       "utf16": [
+        100,
+        65533,
+        47,
+        102,
+        46,
+        116,
+        120,
+        116
+       ]
+      },
+      "expect": {
+       "ok": [
+        115,
+        101,
+        99,
+        111,
+        110,
+        100
+       ]
+      }
+     },
+     {
+      "op": "list_dir",
+      "path": {
+       "utf16": [
+        46
+       ]
+      },
+      "expect": {
+       "names": [
+        [
+         100,
+         65533
+        ]
+       ]
+      }
+     },
+     {
+      "op": "canonical_path",
+      "path": {
+       "utf16": [
+        100,
+        55296,
+        47,
+        102,
+        46,
+        116,
+        120,
+        116
+       ]
+      },
+      "expect": {
+       "components": [
+        [
+         100,
+         65533
+        ],
+        [
+         102,
+         46,
+         116,
+         120,
+         116
+        ]
+       ]
+      }
+     },
+     {
+      "op": "canonical_path",
+      "path": {
+       "utf16": [
+        100,
+        56320,
+        47,
+        102,
+        46,
+        116,
+        120,
+        116
+       ]
+      },
+      "expect": {
+       "components": [
+        [
+         100,
+         65533
+        ],
+        [
+         102,
+         46,
+         116,
+         120,
+         116
+        ]
+       ]
+      }
+     },
+     {
+      "op": "canonical_path",
+      "path": {
+       "utf16": [
+        100,
+        65533,
+        47,
+        102,
+        46,
+        116,
+        120,
+        116
+       ]
+      },
+      "expect": {
+       "components": [
+        [
+         100,
+         65533
+        ],
+        [
+         102,
+         46,
+         116,
+         120,
+         116
+        ]
+       ]
+      }
+     }
+    ]
+   }
+  ]
+ }
+}

@@ -155,6 +155,33 @@ def resolve_local_path(cwd: str, path: str) -> str:
     return os.path.normpath(os.path.join(cwd, normalized))
 
 
+_UNPAIRED_SURROGATE = re.compile(f"[{chr(0xD800)}-{chr(0xDFFF)}]")
+
+
+def scalar_value_string(text: str) -> str:
+    """A JavaScript String as a Unicode scalar value string (WHATWG Infra "convert to a scalar value
+    string"): a valid surrogate pair -- even one held as two separate surrogate characters -- is
+    its one astral character, and every unpaired surrogate becomes U+FFFD. Scalar input is
+    returned unchanged. `L12-D001` (minion-agent#123): the conversion pinned Node applies (1) when
+    an fs call turns a path string into a native path, and (2) when WHATWG URL parsing reads a
+    `file://` string."""
+    if text.isascii():
+        return text
+    combined = text.encode("utf-16-le", "surrogatepass").decode("utf-16-le", "surrogatepass")
+    return _UNPAIRED_SURROGATE.sub(chr(0xFFFD), combined)
+
+
+def native_path(path: str) -> str:
+    """`L12-D001`: the NATIVE projection of a logical path, applied only at the host filesystem
+    call.
+    A path stays a lossless JavaScript string through every Layer-12 operation before the OS call
+    (`absolute_path`, `target_key` fallback, reported `FileInfo` name/path); pinned Node projects
+    it at its fs binding -- every unpaired surrogate to U+FFFD, identically on Linux and Windows --
+    so distinct spellings (`a<U+D800>`, `a<U+DC00>`, `a<U+FFFD>`) address one native file, and
+    `realpath` / directory listing / OS error paths report the projected form."""
+    return scalar_value_string(path)
+
+
 _WINDOWS_DRIVE_PATH_RE = re.compile(r"^/[A-Za-z]:")
 
 _HEX_DIGITS = frozenset("0123456789abcdefABCDEF")
@@ -304,6 +331,10 @@ def _file_url_to_path(url: str) -> str:
     probes of `resolve('C:')` -> `"C:\\\\"` and `resolve('\\\\\\\\a\\\\share')` ->
     `"\\\\\\\\a\\\\share\\\\"`), not here -- this function returns the bare, un-rooted form."""
     windows = os.name == "nt"
+    # `L12-D001` / FSP-D6: WHATWG URL parsing reads a scalar value string -- an unpaired surrogate
+    # in
+    # the URL string is U+FFFD before ada parses it (ada stays the URL authority, `L12-R002`).
+    url = scalar_value_string(url)
     normalized_url = url.replace("\\", "/")
     parsed = urlparse(normalized_url)
 
@@ -412,7 +443,9 @@ def _file_kind_from_stat(st: os.stat_result) -> FileKind | None:
 
 
 def _file_info_sync(path: str) -> FileInfo:
-    st = os.lstat(path)
+    """`L12-D001`: stats the NATIVE projection of `path` but reports the logical `path` itself --
+    pinned Pi's `fileInfoFromStats(resolved, ...)` names the entry from the path asked about."""
+    st = os.lstat(native_path(path))
     kind = _file_kind_from_stat(st)
     if kind is None:
         raise _UnsupportedFileType
@@ -492,12 +525,15 @@ def _list_dir_sync(path: str, signal: RunSignal | None) -> list[FileInfo]:
         # returned Ok([]). This is the genuine pre-check, independent of entry count.
         raise _AbortedSignal
     infos: list[FileInfo] = []
-    with os.scandir(path) as entries:
+    with os.scandir(native_path(path)) as entries:
         for entry in entries:
             if signal is not None and signal.aborted:
                 raise _AbortedSignal
             try:
-                infos.append(_file_info_sync(entry.path))
+                # Pinned Pi: `resolve(resolved, entry.name)` -- the logical directory plus the
+                # entry's
+                # native (already projected) name (`L12-D001`).
+                infos.append(_file_info_sync(os.path.join(path, entry.name)))
             except _UnsupportedFileType:
                 # Matches pinned Pi's own listDir exactly: an unsupported entry kind is
                 # silently skipped (fileInfoFromStats returns an error Result Pi discards,
@@ -529,9 +565,10 @@ def _probe_dir_entry_sync(path: str) -> DirEntryProbe:
     symlink's following `stat` raises `FileNotFoundError` (an `OSError`), left to the caller to
     convert via `to_fs_error` -- this is this call's OWN `Result` error, never a raised exception
     escaping the seam."""
-    st = os.lstat(path)
+    host = native_path(path)
+    st = os.lstat(host)
     if _stat.S_ISLNK(st.st_mode):
-        target_kind = _file_kind_from_stat(os.stat(path))
+        target_kind = _file_kind_from_stat(os.stat(host))
         if target_kind is FileKind.FILE:
             kind = DirEntryProbeKind.SYMLINK_TO_FILE
         elif target_kind is FileKind.DIRECTORY:
@@ -876,24 +913,26 @@ class LocalFileSystem:
         if signal is not None and signal.aborted:
             return Err(_aborted(path))
         resolved = resolve_local_path(self.cwd, path)
+        native = native_path(resolved)
         try:
-            content = await _race_signal(asyncio.to_thread(_read_text_sync, resolved), signal)
+            content = await _race_signal(asyncio.to_thread(_read_text_sync, native), signal)
         except _AbortedSignal:
             return Err(_aborted(resolved))
         except OSError as exc:
-            return Err(to_fs_error(exc, resolved))
+            return Err(to_fs_error(exc, native))
         return Ok(content)
 
     async def read_text_lines(
         self, path: str, max_lines: int | None = None, signal: RunSignal | None = None
     ) -> Result[list[str], FsError]:
         resolved = resolve_local_path(self.cwd, path)
+        native = native_path(resolved)
         try:
-            lines = await asyncio.to_thread(_read_text_lines_sync, resolved, max_lines, signal)
+            lines = await asyncio.to_thread(_read_text_lines_sync, native, max_lines, signal)
         except _AbortedSignal:
             return Err(_aborted(resolved))
         except OSError as exc:
-            return Err(to_fs_error(exc, resolved))
+            return Err(to_fs_error(exc, native))
         return Ok(lines)
 
     async def read_binary_file(
@@ -902,12 +941,13 @@ class LocalFileSystem:
         if signal is not None and signal.aborted:
             return Err(_aborted(path))
         resolved = resolve_local_path(self.cwd, path)
+        native = native_path(resolved)
         try:
-            content = await _race_signal(asyncio.to_thread(_read_binary_sync, resolved), signal)
+            content = await _race_signal(asyncio.to_thread(_read_binary_sync, native), signal)
         except _AbortedSignal:
             return Err(_aborted(resolved))
         except OSError as exc:
-            return Err(to_fs_error(exc, resolved))
+            return Err(to_fs_error(exc, native))
         return Ok(content)
 
     async def write_file(
@@ -916,33 +956,35 @@ class LocalFileSystem:
         if signal is not None and signal.aborted:
             return Err(_aborted(path))
         resolved = resolve_local_path(self.cwd, path)
-        parent = os.path.dirname(resolved)
+        native = native_path(resolved)
+        parent = os.path.dirname(native)
         try:
             if parent:
                 await asyncio.to_thread(os.makedirs, parent, exist_ok=True)
         except OSError as exc:
-            return Err(to_fs_error(exc, resolved))
+            return Err(to_fs_error(exc, native))
         if signal is not None and signal.aborted:
             return Err(_aborted(resolved))
         try:
-            await _race_signal(asyncio.to_thread(_write_file_sync, resolved, content), signal)
+            await _race_signal(asyncio.to_thread(_write_file_sync, native, content), signal)
         except _AbortedSignal:
             return Err(_aborted(resolved))
         except OSError as exc:
-            return Err(to_fs_error(exc, resolved))
+            return Err(to_fs_error(exc, native))
         return Ok(None)
 
     async def append_file(
         self, path: str, content: str | bytes, signal: RunSignal | None = None
     ) -> Result[None, FsError]:
         resolved = resolve_local_path(self.cwd, path)
-        parent = os.path.dirname(resolved)
+        native = native_path(resolved)
+        parent = os.path.dirname(native)
         try:
             if parent:
                 await asyncio.to_thread(os.makedirs, parent, exist_ok=True)
-            await asyncio.to_thread(_append_file_sync, resolved, content)
+            await asyncio.to_thread(_append_file_sync, native, content)
         except OSError as exc:
-            return Err(to_fs_error(exc, resolved))
+            return Err(to_fs_error(exc, native))
         return Ok(None)
 
     async def rename_file(
@@ -959,33 +1001,35 @@ class LocalFileSystem:
             # EXISTING there, giving the SAME cross-platform observable behavior pinned Pi's own
             # rename() (which wraps the OS primitive) provides. Still never follows a symlink at
             # either endpoint -- same underlying non-dereferencing primitive as os.rename.
-            await asyncio.to_thread(os.replace, src, dst)
+            await asyncio.to_thread(os.replace, native_path(src), native_path(dst))
         except OSError as exc:
-            return Err(to_fs_error(exc, src))
+            return Err(to_fs_error(exc, native_path(src)))
         return Ok(None)
 
     async def file_info(
         self, path: str, signal: RunSignal | None = None
     ) -> Result[FileInfo, FsError]:
         resolved = resolve_local_path(self.cwd, path)
+        native = native_path(resolved)
         try:
             info = await asyncio.to_thread(_file_info_sync, resolved)
         except _UnsupportedFileType:
             return Err(FsError(FsErrorCode.INVALID, "Unsupported file type", resolved))
         except OSError as exc:
-            return Err(to_fs_error(exc, resolved))
+            return Err(to_fs_error(exc, native))
         return Ok(info)
 
     async def list_dir(
         self, path: str, signal: RunSignal | None = None
     ) -> Result[list[FileInfo], FsError]:
         resolved = resolve_local_path(self.cwd, path)
+        native = native_path(resolved)
         try:
             infos = await asyncio.to_thread(_list_dir_sync, resolved, signal)
         except _AbortedSignal:
             return Err(_aborted(resolved))
         except OSError as exc:
-            return Err(to_fs_error(exc, resolved))
+            return Err(to_fs_error(exc, native))
         return Ok(infos)
 
     async def list_dir_raw(
@@ -994,12 +1038,13 @@ class LocalFileSystem:
         """`EXEC-007`, spec section 11.3. Additive Layer-12 extension -- `list_dir` above is
         UNCHANGED by this method's addition."""
         resolved = resolve_local_path(self.cwd, path)
+        native = native_path(resolved)
         try:
-            names = await asyncio.to_thread(_list_dir_raw_sync, resolved, signal)
+            names = await asyncio.to_thread(_list_dir_raw_sync, native, signal)
         except _AbortedSignal:
             return Err(_aborted(resolved))
         except OSError as exc:
-            return Err(to_fs_error(exc, resolved))
+            return Err(to_fs_error(exc, native))
         return Ok(names)
 
     async def probe_dir_entry(
@@ -1010,10 +1055,11 @@ class LocalFileSystem:
         deliberately never inspected, matching `file_info`'s own established behavior and this
         operation's own explicit `MINION_ARCHITECTURAL_MAPPING` cancellation classification."""
         resolved = resolve_local_path(self.cwd, path)
+        native = native_path(resolved)
         try:
             probe = await asyncio.to_thread(_probe_dir_entry_sync, resolved)
         except OSError as exc:
-            return Err(to_fs_error(exc, resolved))
+            return Err(to_fs_error(exc, native))
         return Ok(probe)
 
     async def check_readable(
@@ -1024,10 +1070,11 @@ class LocalFileSystem:
         target exists and is readable without consuming content. `signal` is accepted but never
         inspected (section 12.3), like `file_info`/`probe_dir_entry`."""
         resolved = resolve_local_path(self.cwd, path)
+        native = native_path(resolved)
         try:
-            await asyncio.to_thread(_check_readable_sync, resolved)
+            await asyncio.to_thread(_check_readable_sync, native)
         except OSError as exc:
-            return Err(to_fs_error(exc, resolved))
+            return Err(to_fs_error(exc, native))
         except _EmbeddedNulPath as exc:
             # Section 2.1's mapping of that rejection: Node's `ERR_INVALID_ARG_VALUE` is none of
             # `toFileError`'s listed codes (in particular not the `EINVAL` errno), so `unknown`.
@@ -1044,10 +1091,11 @@ class LocalFileSystem:
         promise that a later create/remove/write succeeds (WP12E3-C001). `signal` is accepted but
         never inspected (section 13.3)."""
         resolved = resolve_local_path(self.cwd, path)
+        native = native_path(resolved)
         try:
-            await asyncio.to_thread(_check_read_write_sync, resolved)
+            await asyncio.to_thread(_check_read_write_sync, native)
         except OSError as exc:
-            return Err(to_fs_error(exc, resolved))
+            return Err(to_fs_error(exc, native))
         except _EmbeddedNulPath as exc:
             # The same section 2.1 mapping as `check_readable`'s NUL rejection: `unknown`.
             return Err(FsError(FsErrorCode.UNKNOWN, str(exc), resolved, exc))
@@ -1057,10 +1105,11 @@ class LocalFileSystem:
         self, path: str, signal: RunSignal | None = None
     ) -> Result[str, FsError]:
         resolved = resolve_local_path(self.cwd, path)
+        native = native_path(resolved)
         try:
-            real = await asyncio.to_thread(os.path.realpath, resolved, strict=True)
+            real = await asyncio.to_thread(os.path.realpath, native, strict=True)
         except OSError as exc:
-            return Err(to_fs_error(exc, resolved))
+            return Err(to_fs_error(exc, native))
         return Ok(real)
 
     async def exists(self, path: str, signal: RunSignal | None = None) -> Result[bool, FsError]:
@@ -1075,13 +1124,14 @@ class LocalFileSystem:
         self, path: str, recursive: bool = True, signal: RunSignal | None = None
     ) -> Result[None, FsError]:
         resolved = resolve_local_path(self.cwd, path)
+        native = native_path(resolved)
         try:
             if recursive:
-                await asyncio.to_thread(os.makedirs, resolved, exist_ok=True)
+                await asyncio.to_thread(os.makedirs, native, exist_ok=True)
             else:
-                await asyncio.to_thread(os.mkdir, resolved)
+                await asyncio.to_thread(os.mkdir, native)
         except OSError as exc:
-            return Err(to_fs_error(exc, resolved))
+            return Err(to_fs_error(exc, native))
         return Ok(None)
 
     async def remove(
@@ -1092,10 +1142,11 @@ class LocalFileSystem:
         signal: RunSignal | None = None,
     ) -> Result[None, FsError]:
         resolved = resolve_local_path(self.cwd, path)
+        native = native_path(resolved)
         try:
-            await asyncio.to_thread(_remove_sync, resolved, recursive, force)
+            await asyncio.to_thread(_remove_sync, native, recursive, force)
         except OSError as exc:
-            return Err(to_fs_error(exc, resolved))
+            return Err(to_fs_error(exc, native))
         return Ok(None)
 
     async def create_temp_dir(

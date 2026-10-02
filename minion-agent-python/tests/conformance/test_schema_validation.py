@@ -68,6 +68,9 @@ SCHEMA_DOMAIN_DIR = CONFORMANCE / "agent" / "schema-domain"
 TOOL_RESULT_DOMAIN_SCHEMA = CONFORMANCE / "schema" / "tool-result-domain-scenario.schema.json"
 # Layer 05/06 delta L0506-D003 (AI-006/TOOL-005/TOOL-017/MINION-002 tool-result value domain).
 TOOL_RESULT_DOMAIN_DIR = CONFORMANCE / "agent" / "tool-result-domain"
+FS_PATH_DOMAIN_SCHEMA = CONFORMANCE / "schema" / "fs-path-domain-scenario.schema.json"
+# Layer-12 delta L12-D001 (EXEC-002/EXEC-003 filesystem path JavaScript-string domain).
+FS_PATH_DOMAIN_DIR = CONFORMANCE / "agent" / "fs-path-domain"
 
 # Families whose scenarios arrive in a later plan. Their schema must still exist
 # and must still be a valid JSON Schema. Empty now that every family is
@@ -1004,3 +1007,45 @@ def test_a_gate_document_holds_only_real_edit_cases() -> None:
     gate = _tool_result_document("gate-wp132-edit-result")
     del gate["gate"]
     assert list(_tool_result_validator().iter_errors(gate))
+
+
+def _fs_path_validator() -> Draft202012Validator:
+    return Draft202012Validator(json.loads(FS_PATH_DOMAIN_SCHEMA.read_text(encoding="utf-8")))
+
+
+def test_fs_path_domain_schema_is_wellformed() -> None:
+    Draft202012Validator.check_schema(json.loads(FS_PATH_DOMAIN_SCHEMA.read_text(encoding="utf-8")))
+
+
+@pytest.mark.parametrize(
+    "scenario", sorted(FS_PATH_DOMAIN_DIR.glob("*.json")), ids=lambda value: value.stem
+)
+def test_fs_path_domain_scenario_validates(scenario: Path) -> None:
+    assert not list(
+        _fs_path_validator().iter_errors(json.loads(scenario.read_text(encoding="utf-8")))
+    )
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        lambda s: s.pop("expect"),
+        lambda s: s.__setitem__("op", "rename_file"),
+        lambda s: s.__setitem__("path", {"utf16": [65536]}),
+        lambda s: s.__setitem__("path", "f.txt"),
+        lambda s: s.__setitem__("expect", {"components": [[65]], "x": 1}),
+        lambda s: s.__setitem__("observe", "basename"),
+    ],
+    ids=[
+        "no-expect",
+        "unknown-op",
+        "code-unit-above-ffff",
+        "bare-string-path",
+        "extra-key",
+        "unknown-observe",
+    ],
+)
+def test_fs_path_domain_schema_rejects_malformed_steps(mutation: Any) -> None:
+    document = json.loads((FS_PATH_DOMAIN_DIR / "fs-path-alias.json").read_text(encoding="utf-8"))
+    mutation(document["fs_path_domain"]["cases"][0]["steps"][0])
+    assert list(_fs_path_validator().iter_errors(document))

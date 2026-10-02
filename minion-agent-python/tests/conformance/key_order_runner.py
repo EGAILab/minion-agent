@@ -13,6 +13,7 @@ is the pipeline's job: the runner never sorts or reorders.
 
 from __future__ import annotations
 
+import copy
 from typing import Any
 
 from minion_agent.execution import LocalFileSystem
@@ -25,10 +26,15 @@ from minion_agent.session.log import SessionLog
 from minion_agent.tools.builtin import create_edit_tool
 from minion_agent.tools.decisions import Proceed
 from minion_agent.tools.definition import ToolDefinition
-from minion_agent.tools.events import TOOLS_PRE_EXECUTE, declare_tools_events
+from minion_agent.tools.events import (
+    TOOLS_EXECUTION_START,
+    TOOLS_PRE_EXECUTE,
+    TOOLS_UPDATE,
+    declare_tools_events,
+)
 from minion_agent.tools.execute import execute_call
 from minion_agent.tools.registry import ToolRegistry
-from minion_agent.tools.result import ToolResult
+from minion_agent.tools.result import ToolPartialResult, ToolResult
 
 
 def build(value: Any) -> Any:
@@ -77,6 +83,9 @@ def observe(value: Any) -> Any:
 async def run_case(case: dict[str, Any], root: str) -> dict[str, Any]:
     call = ToolCallBlock(id="call-1", name="probe", arguments=build(case["arguments"]))
     seen: dict[str, Any] = {"raw": observe(call.arguments)}
+    # L0206-D001-R004: the RAW object is shared and mutable after construction; mutate THIS call's
+    # arguments (never a rebuilt call) before it is persisted or executed.
+    run_program(call.arguments, case.get("raw_program", []))
     message = AssistantMessage(
         content=(call,),
         stop_reason=StopReason.TOOL_USE,
@@ -85,15 +94,21 @@ async def run_case(case: dict[str, Any], root: str) -> dict[str, Any]:
         provider="p",
         timestamp=0,
     )
-    event = SessionLog(session_id="s").append(
-        EventKind.ASSISTANT_MESSAGE, {"message": encode_message(message)}
-    )
-    replayed = decode_message(event.data["message"]).content[0]
+    encoded = encode_message(message)
+    # The SERIALIZED order (what a persisted form carries), observed on an order-preserving copy:
+    # observing must not touch the live raw object (L0206-D001-R004).
+    persisted = copy.deepcopy(encoded["content"][0]["arguments"])
+    seen["persisted"] = observe(persisted)
+    event = SessionLog(session_id="s").append(EventKind.ASSISTANT_MESSAGE, {"message": encoded})
+    # Replay from a copy: decoding builds a new call, which must not reorder the live object
+    # (the in-memory log holds the live value, so decoding it directly would order it in place).
+    replayed = decode_message(copy.deepcopy(event.data["message"])).content[0]
     assert isinstance(replayed, ToolCallBlock)
     seen["replay"] = observe(replayed.arguments)
 
-    async def execute(tool_call_id: str, arguments: dict[str, Any]) -> ToolResult:
+    async def execute(tool_call_id: str, arguments: dict[str, Any], update: Any) -> ToolResult:
         seen["execute"] = observe(arguments)
+        update(ToolPartialResult(content=(TextBlock(text="partial"),), details={}))
         return ToolResult(
             tool_call_id=tool_call_id, content=(TextBlock(text="ok"),), tool_name="probe"
         )
@@ -128,6 +143,14 @@ async def run_case(case: dict[str, Any], root: str) -> dict[str, Any]:
         seen["second"] = observe(arguments)
         return await next_()
 
+    def on_start(call_id: str, name: str, arguments: Any, *rest: Any) -> None:
+        seen["start"] = observe(arguments)
+
+    def on_update(call_id: str, name: str, arguments: Any, *rest: Any) -> None:
+        seen["update"] = observe(arguments)
+
+    ctx.events.on(TOOLS_EXECUTION_START, on_start)
+    ctx.events.on(TOOLS_UPDATE, on_update)
     ctx.events.on(TOOLS_PRE_EXECUTE, hook)
     if case.get("observe_second"):
         ctx.events.on(TOOLS_PRE_EXECUTE, second)
@@ -142,6 +165,13 @@ BOUNDARIES = ("raw", "replay", "hook", "execute")
 
 def check(case: dict[str, Any], seen: dict[str, Any]) -> None:
     assert seen["result"] == (False, "ok"), (case["id"], seen["result"])
-    for boundary in (*BOUNDARIES, *(("second",) if "second" in case["expect"] else ())):
+    optional = tuple(b for b in ("second", "start", "update") if b in case["expect"])
+    # The serialized order is the replayed order (JSON.parse of JSON.stringify's text, in Pi).
+    assert seen["persisted"] == case["expect"]["replay"], (
+        case["id"],
+        "persisted",
+        seen["persisted"],
+    )
+    for boundary in (*BOUNDARIES, *optional):
         want = case["expect"][boundary]
         assert seen.get(boundary) == want, (case["id"], boundary, seen.get(boundary), want)

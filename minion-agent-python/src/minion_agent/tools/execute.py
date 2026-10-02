@@ -65,7 +65,7 @@ from pydantic import (
 from pydantic import ValidationError as PydanticValidationError
 
 from ..llm import ToolCallBlock
-from ..llm.js_object import JsObject, order_in_place
+from ..llm.js_object import JsObject, order_in_place, order_raw
 from ..runtime import Context, RunSignal, Scope, ScopeKey
 from .decisions import AfterToolCallOverride, Block, PreExecuteDecision, Proceed
 from .definition import ToolDefinition
@@ -624,6 +624,9 @@ async def _preflight(
     "hook ran without blocking/aborting") are, in Minion, the SAME code path reaching the SAME
     check).
     """
+    # `L0206-D001-R004` (K1): the raw arguments object is shared and mutable after construction;
+    # it is ordered in place wherever it is observed -- here, prepare's input, and each update.
+    order_raw(call.arguments)
     ctx.events.emit(TOOLS_EXECUTION_START, call.id, call.name, call.arguments, scope=scope)
     if on_execution_start is not None:
         await on_execution_start(call.id, call.name, call.arguments)
@@ -768,6 +771,7 @@ async def _execute_and_finalize(
         # `prepared.toolCall.arguments`, and `PreparedToolCall.toolCall` is the untouched
         # original call `prepareToolCall` was given, not the `prepareArguments`-shimmed or
         # validated one.
+        order_raw(call.arguments)  # `L0206-D001-R004`: the raw object, as observed
         ctx.events.emit(TOOLS_UPDATE, call.id, call.name, call.arguments, partial, scope=scope)
         if on_execution_update is not None:
             # `eager_task_factory`, not `ensure_future`/`create_task`, and not `await`

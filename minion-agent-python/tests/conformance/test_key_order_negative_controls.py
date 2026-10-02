@@ -135,6 +135,17 @@ def _replay_sorted(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(runner, "decode_message", decode)
 
 
+def _raw_boundaries_unordered(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Single seam (L0206-D001-R004): the raw object is ordered at construction only -- a later
+    mutation of a call's arguments reaches persistence and the start/update payloads unordered.
+    Every other boundary (validation, listeners, execute) is untouched."""
+    from minion_agent.agent_loop import driver as driver_module
+    from minion_agent.tools import batch as batch_module
+
+    for module in (derive_module, driver_module, batch_module, execute_module):
+        monkeypatch.setattr(module, "order_raw", lambda value: value)
+
+
 MUTANTS: dict[str, Callable[[pytest.MonkeyPatch], None]] = {
     "insertion-order": _insertion,
     "sorted-order": _sorted,
@@ -144,6 +155,7 @@ MUTANTS: dict[str, Callable[[pytest.MonkeyPatch], None]] = {
     "ordered-at-construction-only": _ordered_at_construction_only,
     "order-lost-on-replay": _replay_sorted,
     "copy-on-assignment": _copy_on_assignment,
+    "raw-boundaries-unordered": _raw_boundaries_unordered,
     "index-check-converts-any-decimal": _crashing_index_check,
 }
 

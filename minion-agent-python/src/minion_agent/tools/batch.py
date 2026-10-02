@@ -16,6 +16,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 
 from ..llm import ToolCallBlock
+from ..llm.js_object import order_raw
 from ..runtime import Context, RunSignal, Scope, ScopeKey
 from .definition import ExecutionMode
 from .events import TOOLS_EXECUTION_END, TOOLS_EXECUTION_START
@@ -235,6 +236,7 @@ async def execute_length_stop_batch(
     results: list[ToolResult] = []
     completion: list[str] = []
     for call in calls:
+        order_raw(call.arguments)  # `L0206-D001-R004` (K1): the raw object, as observed
         ctx.events.emit(TOOLS_EXECUTION_START, call.id, call.name, call.arguments, scope=scope_key)
         if on_execution_start is not None:
             await on_execution_start(call.id, call.name, call.arguments)

@@ -118,3 +118,11 @@ def order_in_place(value: Any) -> Any:
                 dict.__setitem__(item, k, values[k])
         pending.extend(dict.values(item))
     return value
+
+
+def order_raw(arguments: Any) -> Any:
+    """`L0206-D001-R004`: order a call's RAW arguments object where it is observed or serialized
+    (session encoding, the session tool-call record, the execution-start and update payloads). The
+    raw object is shared and mutable after construction, so construction-time ordering alone is
+    not enough. A separate name from `order_in_place` so each boundary family is controllable."""
+    return order_in_place(arguments)

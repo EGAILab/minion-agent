@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$comment": "Cross-layer delta L0206-D001 (K1; AI-003 / TOOL-003): ECMAScript own-property enumeration order of tool-argument objects. Scenarios live in conformance/agent/key-order/*.json, discriminated by a top-level `key_order` key. A runner builds `arguments` (an INSERTION SEQUENCE {\"$o\": [[key, value], ...]}, a key may repeat) by plain assignment in that order, constructs ONE ToolCall with it, and OBSERVES the recursive key enumeration -- never reorders on the pipeline's behalf -- at: `raw` (the constructed ToolCall.arguments, which is also the tools/execution-start payload), `replay` (an AssistantMessage holding the call appended to a fresh session log and replayed), `hook` (the tools/pre-execute listener, before any mutation), `execute`. The tool has `schema` as its parameters (\"edit\": the built-in edit tool's schema) and, for `prepare: edit`, edit's prepare_arguments. `mutate`: the listener assigns these [key, value] pairs IN PLACE on the arguments object (pinned Pi's beforeToolCall). `replace`: the listener returns this insertion sequence as REPLACEMENT arguments (a Minion mapping; Pi's hook cannot replace). OBSERVATION GRAMMAR: {\"o\": [[key, observation], ...]} an object in enumeration order; {\"a\": [...]} an array; a JSON scalar is itself. `provider_text` is the provider argument text pinned Pi decoded (evidence; Minion has no certified raw decoder yet). Expectations: pinned Pi (spec/llm.md, L0206-D001). L0206-D001-R001/R002: `program` is a mutation program the pre-execute listener runs IN PLACE on the arguments object (set/push/insert/get by target handle; `as` names the object a value builds, or the object got; `ref` places an existing handle again), so retained references and objects appended to arrays are exercised; `observe_second` adds `second`, a later listener's view after the program. `key` may be any string.",
+  "$comment": "Cross-layer delta L0206-D001 (K1; AI-003 / TOOL-003): ECMAScript own-property enumeration order of tool-argument objects. Scenarios live in conformance/agent/key-order/*.json, discriminated by a top-level `key_order` key. A runner builds `arguments` (an INSERTION SEQUENCE {\"$o\": [[key, value], ...]}, a key may repeat) by plain assignment in that order, constructs ONE ToolCall with it, and OBSERVES the recursive key enumeration -- never reorders on the pipeline's behalf -- at: `raw` (the constructed ToolCall.arguments, which is also the tools/execution-start payload), `replay` (an AssistantMessage holding the call appended to a fresh session log and replayed), `hook` (the tools/pre-execute listener, before any mutation), `execute`. The tool has `schema` as its parameters (\"edit\": the built-in edit tool's schema) and, for `prepare: edit`, edit's prepare_arguments. `mutate`: the listener assigns these [key, value] pairs IN PLACE on the arguments object (pinned Pi's beforeToolCall). `replace`: the listener returns this insertion sequence as REPLACEMENT arguments (a Minion mapping; Pi's hook cannot replace). OBSERVATION GRAMMAR: {\"o\": [[key, observation], ...]} an object in enumeration order; {\"a\": [...]} an array; a JSON scalar is itself. `provider_text` is the provider argument text pinned Pi decoded (evidence; Minion has no certified raw decoder yet). Expectations: pinned Pi (spec/llm.md, L0206-D001). L0206-D001-R001/R002: `program` is a mutation program the pre-execute listener runs IN PLACE on the arguments object (set/push/insert/get by target handle; `as` names the object a value builds, or the object got; `ref` places an existing handle again), so retained references and objects appended to arrays are exercised; `observe_second` adds `second`, a later listener's view after the program. `key` may be any string. L0206-D001-R004: `raw_program` runs the same op grammar on the RAW arguments object after the call is constructed (it is shared and mutable), before persistence and execution; `start` (the tools/execution-start payload) and `update` (the tools/update payload of the tool's one partial result) observe the raw object; they are omitted for a prepare-shim case (the shim's in-place raw mutation is the certified nonmutation mapping's).",
   "type": "object",
   "required": [
     "name",
@@ -232,6 +232,12 @@
             },
             "second": {
               "$ref": "#/$defs/observation"
+            },
+            "start": {
+              "$ref": "#/$defs/observation"
+            },
+            "update": {
+              "$ref": "#/$defs/observation"
             }
           }
         },
@@ -244,6 +250,13 @@
         },
         "observe_second": {
           "const": true
+        },
+        "raw_program": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/op"
+          }
         }
       },
       "not": {

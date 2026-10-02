@@ -20,8 +20,8 @@ binding keeps the order itself WITHOUT copying:
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping
-from typing import Any
+from collections.abc import Iterable, Iterator, Mapping
+from typing import Any, SupportsIndex
 
 _MAX_ARRAY_INDEX = 4294967294
 _MAX_ARRAY_INDEX_DIGITS = len(str(_MAX_ARRAY_INDEX))
@@ -47,8 +47,12 @@ def es_order(keys: Iterable[str]) -> list[str]:
 
 
 class JsObject(dict[str, Any]):
-    """The validated top-level arguments object: keeps the rule on its own assignments (module
-    docstring). Values are stored as given; nested objects are ordered by `order_in_place`."""
+    """A tool-argument object that keeps ECMAScript order on its own assignments (a new array-index
+    key moves to its ascending position) and is a Minion graph seam (Owner K1 Q1 decision,
+    `minion-agent#100` comment `5947071963`): a value ATTACHED to it is ordered in place before the
+    assignment returns -- the same object, never a copy (`R002`) -- and every value READ through it
+    is ordered in place before it is exposed, so a retained alias mutated out of order is repaired
+    by the next graph-mediated read."""
 
     __slots__ = ()
 
@@ -59,6 +63,7 @@ class JsObject(dict[str, Any]):
             self[key] = value
 
     def __setitem__(self, key: str, value: Any) -> None:
+        order_in_place(value)  # attachment: the same object, ordered before this returns
         if key in self or not is_array_index(key):
             super().__setitem__(key, value)
             return
@@ -69,6 +74,20 @@ class JsObject(dict[str, Any]):
         super().__setitem__(key, value)
         for k, v in moved:
             super().__setitem__(k, v)
+
+    def __getitem__(self, key: str) -> Any:
+        return order_in_place(super().__getitem__(key))
+
+    def get(self, key: str, default: Any = None, /) -> Any:
+        return order_in_place(super().get(key, default))
+
+    def values(self) -> Any:
+        order_in_place(self)
+        return super().values()
+
+    def items(self) -> Any:
+        order_in_place(self)
+        return super().items()
 
     def update(self, other: Any = (), /, **kwargs: Any) -> None:
         pairs = other.items() if isinstance(other, Mapping) else other
@@ -95,6 +114,49 @@ class JsObject(dict[str, Any]):
         return JsObject(self)
 
 
+class JsArray(list[Any]):
+    """A tool-argument array: the Minion graph seam for array mutation (Owner K1 Q1 decision, §4).
+    `append`, `insert`, `extend`, `+=` and element or slice replacement order the attached value in
+    place before returning; element reads, slices and iteration order what they expose (§5)."""
+
+    __slots__ = ()
+
+    def __init__(self, items: Iterable[Any] = (), /) -> None:
+        super().__init__()
+        self.extend(items)
+
+    def append(self, value: Any) -> None:
+        super().append(order_in_place(value))
+
+    def insert(self, index: SupportsIndex, value: Any) -> None:
+        super().insert(index, order_in_place(value))
+
+    def extend(self, values: Iterable[Any]) -> None:
+        super().extend([order_in_place(value) for value in values])
+
+    def __iadd__(self, values: Iterable[Any]) -> JsArray:  # type: ignore[misc]
+        self.extend(values)
+        return self
+
+    def __setitem__(self, index: Any, value: Any) -> None:
+        if isinstance(index, slice):
+            super().__setitem__(index, [order_in_place(item) for item in value])
+        else:
+            super().__setitem__(index, order_in_place(value))
+
+    def __getitem__(self, index: Any) -> Any:
+        result = super().__getitem__(index)
+        if isinstance(index, slice):
+            for item in result:
+                order_in_place(item)
+            return result
+        return order_in_place(result)
+
+    def __iter__(self) -> Iterator[Any]:
+        for item in list.__iter__(self):
+            yield order_in_place(item)
+
+
 def order_in_place(value: Any) -> Any:
     """Re-sequence every `dict` reachable from `value` into ECMAScript order, in place, and return
     `value` itself. Identity is preserved everywhere (no object or list is replaced), shared and
@@ -107,9 +169,9 @@ def order_in_place(value: Any) -> Any:
             continue
         seen.add(id(item))
         if isinstance(item, list):
-            pending.extend(item)
+            pending.extend(list.__iter__(item))
             continue
-        keys = list(item)
+        keys = list(dict.__iter__(item))
         wanted = es_order(keys)
         if wanted != keys:
             values = {k: dict.__getitem__(item, k) for k in keys}
@@ -129,25 +191,27 @@ def order_raw(arguments: Any) -> Any:
 
 
 def adopt(value: Any) -> Any:
-    """`CE-L0206-D001-01`: make every object in a value the pipeline is about to OWN (a call's raw
-    arguments, as a provider decoded them) a `JsObject`, recursively, so that any later mutation of
-    an object the pipeline owns keeps the rule immediately -- for every observer, including the
-    mutating observer itself, as a JavaScript object does. Lists are converted in place (identity
-    kept); an existing `JsObject` is kept as is, so adoption never replaces an object a hook or
-    caller already shares with the pipeline. Plain objects a listener assigns LATER are not adopted
-    (no copy, `R002`): they are ordered in place at every observer invocation."""
+    """`CE-L0206-D001-01`: make every object and array in a value the pipeline is about to OWN (a
+    call's raw arguments, as a provider decoded them) a `JsObject` / `JsArray`, recursively, so the
+    graph's own seams hold the rule from construction on. Adoption happens once, before the value
+    enters the pipeline; an existing `JsObject`/`JsArray` is kept as is, so it never replaces an
+    object a hook or caller already shares with the pipeline. Plain objects attached LATER are not
+    adopted (no copy, `R002`): the seam they are attached through orders them in place."""
     if isinstance(value, JsObject):
         for item in dict.values(value):
             adopt(item)
         return value
+    if isinstance(value, JsArray):
+        for index, item in enumerate(list.__iter__(value)):
+            list.__setitem__(value, index, adopt(item))
+        return value
     if isinstance(value, dict):
         adopted = JsObject()
-        for key, item in value.items():
+        for key, item in dict.items(value):
             dict.__setitem__(adopted, key, adopt(item))
         return order_in_place(adopted)
     if isinstance(value, list):
-        for index, item in enumerate(value):
-            converted = adopt(item)
-            if converted is not item:
-                value[index] = converted
+        array = JsArray()
+        list.extend(array, [adopt(item) for item in value])
+        return array
     return value

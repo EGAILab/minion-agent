@@ -12,7 +12,7 @@ import pytest
 from pydantic import BaseModel
 
 from minion_agent.llm import ToolCallBlock
-from minion_agent.llm.js_object import JsObject, is_array_index, order_in_place
+from minion_agent.llm.js_object import JsArray, JsObject, is_array_index, order_in_place
 from minion_agent.runtime import Context
 from minion_agent.tools.definition import ToolDefinition
 from minion_agent.tools.events import declare_tools_events
@@ -129,7 +129,7 @@ def test_a_tool_call_carries_ordered_arguments() -> None:
     assert isinstance(call.arguments, JsObject)
     assert isinstance(call.arguments["o"], JsObject)
     assert isinstance(call.arguments["l"][0], JsObject)
-    assert call.arguments["l"] is given["l"]  # lists keep identity
+    assert isinstance(call.arguments["l"], JsArray)  # arrays adopted too (the array seam)
     call.arguments["o"]["1"] = 1
     call.arguments["0"] = 0
     assert list(call.arguments["o"]) == ["0", "1", "z"]
@@ -166,3 +166,30 @@ async def test_a_typed_model_tool_receives_input_order_then_defaults() -> None:
     assert list(seen[0]) == ["items", "a", "inner", "z", "d"]
     assert list(seen[0]["inner"]) == ["1", "q"]
     assert list(seen[0]["items"][0]) == ["0", "b"]
+
+
+def test_js_array_seams_order_what_they_attach_and_expose() -> None:
+    """Owner K1 Q1 decision section 4/5: every Minion-owned array mutation orders the attached
+    object in place before it returns, and every read through the array orders what it exposes."""
+    array = JsArray([{"b": 1, "1": 1}])
+    added: dict[str, Any] = {"z": 1, "0": 0}
+    array += [added]
+    assert list(dict.__iter__(added)) == ["0", "z"]
+    replacement: dict[str, Any] = {"y": 1, "2": 2}
+    array[0:1] = [replacement]
+    assert array[0] is replacement and list(dict.__iter__(replacement)) == ["2", "y"]
+    replacement["1"] = 1  # a direct alias mutation, repaired by the next read through the array
+    sliced = array[0:1]
+    assert list(dict.__iter__(sliced[0])) == ["1", "2", "y"]
+    assert [list(dict.__iter__(item)) for item in array] == [["1", "2", "y"], ["0", "z"]]
+
+
+def test_js_object_values_and_items_order_what_they_expose() -> None:
+    obj = JsObject({"o": {}})
+    child = dict.__getitem__(obj, "o")
+    child["b"] = 1
+    child["1"] = 1  # alias mutation
+    assert [list(dict.__iter__(value)) for value in obj.values()] == [["1", "b"]]
+    child["0"] = 0
+    assert [list(dict.__iter__(value)) for _, value in obj.items()] == [["0", "1", "b"]]
+    assert list(dict.__iter__(obj.get("o"))) == ["0", "1", "b"]

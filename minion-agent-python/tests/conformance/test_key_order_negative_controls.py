@@ -147,6 +147,11 @@ def _raw_boundaries_unordered(monkeypatch: pytest.MonkeyPatch) -> None:
 
     for module in (derive_module, driver_module, batch_module, execute_module):
         monkeypatch.setattr(module, "order_raw", lambda value: value)
+    # The raw object is also no longer adopted at construction (it stays a plain dict, so its later
+    # mutations are not ordered by the graph's own types) -- CE-L0206-D001-01.
+    from minion_agent.llm import content as content_module
+
+    monkeypatch.setattr(content_module, "adopt", lambda value: js_module.order_in_place(value))
 
 
 MUTANTS: dict[str, Callable[[pytest.MonkeyPatch], None]] = {

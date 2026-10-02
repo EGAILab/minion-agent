@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from ..llm.js_object import order_in_place
 from ..runtime import DispatchMode, EventBus
 
 TOOLS_PRE_EXECUTE = "tools/pre-execute"
@@ -41,3 +42,13 @@ def declare_tools_events(bus: EventBus) -> None:
     """Declare every tools event. Idempotent for matching modes."""
     for name, mode in TOOLS_EVENT_MODES.items():
         bus.declare(name, mode)
+    # `L0206-D001` (K1, CE-L0206-D001-01): every listener of an argument-bearing event receives the
+    # shared arguments object in ECMAScript order, even after an earlier listener mutated it.
+    for name in (TOOLS_EXECUTION_START, TOOLS_UPDATE, TOOLS_PRE_EXECUTE):
+        bus.before_each(name, _order_arguments)
+
+
+def _order_arguments(args: tuple[object, ...]) -> None:
+    """The payload's arguments (third positional) ordered in place -- identity kept."""
+    if len(args) > 2:
+        order_in_place(args[2])

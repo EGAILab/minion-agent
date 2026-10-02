@@ -14,7 +14,6 @@ from typing import Any
 import pytest
 
 from minion_agent.llm import ToolCallBlock
-from minion_agent.llm import content as content_module
 from minion_agent.llm import js_object as js_module
 from minion_agent.session import derive as derive_module
 from minion_agent.tools import execute as execute_module
@@ -65,8 +64,12 @@ def _top_level_only(monkeypatch: pytest.MonkeyPatch) -> None:
             dict.update(value, ordered)
         return value
 
-    monkeypatch.setattr(content_module, "order_in_place", top_only)
-    monkeypatch.setattr(execute_module, "order_in_place", top_only)
+    from minion_agent.agent import events as agent_events_module
+    from minion_agent.tools import events as tools_events_module
+
+    for module in (js_module, execute_module, tools_events_module, agent_events_module):
+        monkeypatch.setattr(module, "order_in_place", top_only)
+    _plain_assignment(monkeypatch)
 
 
 def _non_canonical_numeral_as_index(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -239,6 +239,7 @@ async def execute_length_stop_batch(
         order_raw(call.arguments)  # `L0206-D001-R004` (K1): the raw object, as observed
         ctx.events.emit(TOOLS_EXECUTION_START, call.id, call.name, call.arguments, scope=scope_key)
         if on_execution_start is not None:
+            order_raw(call.arguments)  # after the emit's listeners, which may have mutated it
             await on_execution_start(call.id, call.name, call.arguments)
         result = text_result(
             call.id,

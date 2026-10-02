@@ -126,3 +126,28 @@ def order_raw(arguments: Any) -> Any:
     raw object is shared and mutable after construction, so construction-time ordering alone is
     not enough. A separate name from `order_in_place` so each boundary family is controllable."""
     return order_in_place(arguments)
+
+
+def adopt(value: Any) -> Any:
+    """`CE-L0206-D001-01`: make every object in a value the pipeline is about to OWN (a call's raw
+    arguments, as a provider decoded them) a `JsObject`, recursively, so that any later mutation of
+    an object the pipeline owns keeps the rule immediately -- for every observer, including the
+    mutating observer itself, as a JavaScript object does. Lists are converted in place (identity
+    kept); an existing `JsObject` is kept as is, so adoption never replaces an object a hook or
+    caller already shares with the pipeline. Plain objects a listener assigns LATER are not adopted
+    (no copy, `R002`): they are ordered in place at every observer invocation."""
+    if isinstance(value, JsObject):
+        for item in dict.values(value):
+            adopt(item)
+        return value
+    if isinstance(value, dict):
+        adopted = JsObject()
+        for key, item in value.items():
+            dict.__setitem__(adopted, key, adopt(item))
+        return order_in_place(adopted)
+    if isinstance(value, list):
+        for index, item in enumerate(value):
+            converted = adopt(item)
+            if converted is not item:
+                value[index] = converted
+    return value

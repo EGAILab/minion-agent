@@ -629,6 +629,7 @@ async def _preflight(
     order_raw(call.arguments)
     ctx.events.emit(TOOLS_EXECUTION_START, call.id, call.name, call.arguments, scope=scope)
     if on_execution_start is not None:
+        order_raw(call.arguments)  # after the emit's listeners, which may have mutated it
         await on_execution_start(call.id, call.name, call.arguments)
 
     definition = registry.resolve(call.name, scope)
@@ -795,6 +796,9 @@ async def _execute_and_finalize(
             # with the rest of `execute()`, and, in a parallel batch, with every OTHER call's own
             # in-flight work.
             loop = asyncio.get_running_loop()
+            # `L0206-D001` (CE-L0206-D001-01): the delivery begins after the emit's listeners,
+            # which may have mutated the shared raw object.
+            order_raw(call.arguments)
             pending_updates.append(
                 asyncio.eager_task_factory(
                     loop,
@@ -802,6 +806,7 @@ async def _execute_and_finalize(
                 )
             )
 
+    order_in_place(arguments)  # `L0206-D001`: execute is an observer too
     try:
         if _wants_signal(definition) and _wants_update(definition):
             outcome = definition.execute(call.id, arguments, signal, update)

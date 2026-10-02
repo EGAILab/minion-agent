@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from ..llm.js_object import order_in_place
 from ..runtime import DispatchMode, EventBus
 
 AGENT_STATUS = "agent/status"
@@ -96,3 +97,12 @@ def declare_agent_events(bus: EventBus) -> None:
     """Declare every agent event. Idempotent for matching modes."""
     for name, mode in AGENT_EVENT_MODES.items():
         bus.declare(name, mode)
+    # `L0206-D001` (K1, CE-L0206-D001-01): a lifecycle event carrying a call's arguments
+    # (`ToolExecutionStart`/`ToolExecutionUpdate`) reaches every listener in ECMAScript order.
+    bus.before_each(AGENT_LIFECYCLE_EVENT, _order_event_arguments)
+
+
+def _order_event_arguments(args: tuple[object, ...]) -> None:
+    arguments = getattr(args[-1], "arguments", None) if args else None
+    if isinstance(arguments, dict):
+        order_in_place(arguments)

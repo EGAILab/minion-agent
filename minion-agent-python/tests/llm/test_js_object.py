@@ -122,11 +122,18 @@ def test_a_long_decimal_key_is_an_ordinary_key_at_construction() -> None:
 
 
 def test_a_tool_call_carries_ordered_arguments() -> None:
-    given: dict[str, Any] = {"b": 1, "2": 2, "o": {"z": 1, "0": 0}}
+    """CE-L0206-D001-01: construction ADOPTS the decoded value -- every object in it becomes a
+    `JsObject`, so a later mutation of any object the pipeline owns keeps the rule at once."""
+    given: dict[str, Any] = {"b": 1, "2": 2, "o": {"z": 1, "0": 0}, "l": [{"y": 1}]}
     call = ToolCallBlock(id="c", name="t", arguments=given)
-    assert call.arguments is given
-    assert list(call.arguments) == ["2", "b", "o"]
-    assert list(call.arguments["o"]) == ["0", "z"]
+    assert isinstance(call.arguments, JsObject)
+    assert isinstance(call.arguments["o"], JsObject)
+    assert isinstance(call.arguments["l"][0], JsObject)
+    assert call.arguments["l"] is given["l"]  # lists keep identity
+    call.arguments["o"]["1"] = 1
+    call.arguments["0"] = 0
+    assert list(call.arguments["o"]) == ["0", "1", "z"]
+    assert list(call.arguments) == ["0", "2", "b", "o", "l"]
 
 
 class _Typed(BaseModel):

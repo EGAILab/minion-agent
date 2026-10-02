@@ -50,12 +50,17 @@ rows:
     assurance/layers/data/l0206-raw-boundaries), every boundary per case incl. the tools/update payload and
     on_execution_update delivery (L0206-D002-R001); canonical number tokens only (R002)
   - 'ecmascript_object_key_order -- L0206-D001 (K1, minion-agent#100; Owner K1 decision Option 1, minion-agent#99
-    issuecomment-5924847773; intentional divergence NONE; CONTRACT_DRAFT, Rust NOT_IMPLEMENTED): tool-argument objects
-    enumerate keys in ECMAScript OrdinaryOwnPropertyKeys order (array indices 0..4294967294 ascending, then insertion),
-    recursively, at construction, session replay, the pre-execute listener (incl. in-place mutation and Minion
-    replacement) and execute; validation never reorders. conformance/agent/key-order/ (key-order-scenario.schema.json,
-    28 cases from minion-agent-docs assurance/layers/data/l0206-d001-k1); tests/conformance/test_key_order_conformance.py,
-    tests/conformance/test_key_order_negative_controls.py, tests/llm/test_js_object.py; spec/llm.md ''Tool-argument
+    issuecomment-5924847773; Owner K1 Q1/Q2, minion-agent#100 issuecomment-5947071963/-5948712829; convergence
+    CE-L0206-D001-01; CONTRACT_CONVERGENCE, Rust NOT_IMPLEMENTED): tool-argument objects enumerate keys in ECMAScript
+    OrdinaryOwnPropertyKeys order (array indices 0..4294967294 ascending, then insertion), recursively, at every
+    Minion-mediated attachment and observation (construction, session, events and their live deliveries, prepare,
+    validation, every pre-execute listener, execute, serialization), objects shared by reference (no copy).
+    INTENTIONAL_BOUNDED_DIVERGENCE (Python binding only, Owner Q1/Q2): direct mutation and enumeration through an
+    externally retained native dict/list alias within one uninterrupted callback, before any further Minion-mediated
+    graph operation; never past the next framework boundary; Rust exact. conformance/agent/key-order/
+    (key-order-scenario.schema.json, 49 cases from minion-agent-docs assurance/layers/data/l0206-d001-k1);
+    tests/conformance/test_key_order_conformance.py, test_key_order_negative_controls.py, tests/llm/test_js_object.py,
+    tests/tools/test_key_order_observer_chain.py, test_key_order_native_containers.py; spec/llm.md ''Tool-argument
     object key order'''
   python: 'src/minion_agent/llm/content.py (rewrite). L0206-D002: conforms with no production change --
     tests/conformance/raw_arguments_runner.py, test_raw_arguments_conformance.py (38),

@@ -49,22 +49,37 @@ def build(value: Any) -> Any:
     return value
 
 
-def run_program(arguments: dict[str, Any], program: list[dict[str, Any]]) -> None:
-    """The case's mutation program, op by op, IN PLACE on the arguments object the listener holds
-    (L0206-D001-R001/R002): `set`/`push`/`insert` place a value built from the grammar (or, with
-    `ref`, an object already placed), `get` takes a handle on an existing object; `as` names the
-    object for later ops, which then mutate it through that retained reference."""
+def run_program(
+    arguments: dict[str, Any], program: list[dict[str, Any]], reads: list[Any] | None = None
+) -> None:
+    """The case's mutation program, op by op, IN PLACE on the arguments object the listener holds:
+    `set`/`push`/`insert`/`replace`/`extend` place values built from the grammar (or, with `ref`,
+    an object already placed), `get` takes a handle; `as` names the object for later ops, which then
+    mutate it through that retained reference. `read` (CE-L0206-D001-01) reads a path FROM THE
+    ARGUMENTS OBJECT by ordinary indexing -- the graph read under test -- and records it."""
     handles: dict[str, Any] = {"args": arguments}
     for op in program:
+        if op["op"] == "read":
+            value: Any = arguments
+            for step in op["path"]:
+                value = value[step]
+            assert reads is not None
+            reads.append(observe(value))
+            continue
         target = handles[op["target"]]
         if op["op"] == "get":
             handles[op["as"]] = target[op["key"]]
+            continue
+        if op["op"] == "extend":
+            target[op["key"]].extend([build(item) for item in op["values"]])
             continue
         value = handles[op["ref"]] if "ref" in op else build(op["value"])
         if op["op"] == "set":
             target[op["key"]] = value
         elif op["op"] == "push":
             target[op["key"]].append(value)
+        elif op["op"] == "replace":
+            target[op["key"]][op["index"]] = value
         else:  # insert -- the schema closes the op set
             target[op["key"]].insert(op["index"], value)
         if "as" in op:
@@ -72,11 +87,12 @@ def run_program(arguments: dict[str, Any], program: list[dict[str, Any]]) -> Non
 
 
 def observe(value: Any) -> Any:
-    """The recursive key enumeration, exactly as the object iterates."""
+    """The recursive key enumeration as the object HOLDS it -- read natively (`dict`/`list`
+    iteration), so observing never orders anything on the pipeline's behalf."""
     if isinstance(value, list):
-        return {"a": [observe(item) for item in value]}
+        return {"a": [observe(item) for item in list.__iter__(value)]}
     if isinstance(value, dict):
-        return {"o": [[key, observe(item)] for key, item in value.items()]}
+        return {"o": [[key, observe(item)] for key, item in dict.items(value)]}
     return value
 
 
@@ -133,7 +149,10 @@ async def run_case(case: dict[str, Any], root: str) -> dict[str, Any]:
         seen["hook"] = observe(arguments)
         for key, item in case.get("mutate", []):
             arguments[key] = build(item)
-        run_program(arguments, case.get("program", []))
+        reads: list[Any] = []
+        run_program(arguments, case.get("program", []), reads)
+        if reads:
+            seen["hook_reads"] = reads
         if "replace" in case:
             return Proceed(arguments=build(case["replace"]))
         return await next_()
@@ -143,18 +162,28 @@ async def run_case(case: dict[str, Any], root: str) -> dict[str, Any]:
         seen["second"] = observe(arguments)
         return await next_()
 
-    def on_start(call_id: str, name: str, arguments: Any, *rest: Any) -> None:
+    # CE-L0206-D001-01: a listener of each raw event may mutate the raw object (start_program /
+    # update_program); the LIVE delivery after the event's listeners is what is observed.
+    def start_listener(call_id: str, name: str, arguments: Any, *rest: Any) -> None:
+        run_program(arguments, case.get("start_program", []))
+
+    def update_listener(call_id: str, name: str, arguments: Any, *rest: Any) -> None:
+        run_program(arguments, case.get("update_program", []))
+
+    async def on_start(call_id: str, name: str, arguments: Any) -> None:
         seen["start"] = observe(arguments)
 
-    def on_update(call_id: str, name: str, arguments: Any, *rest: Any) -> None:
+    async def on_update(call_id: str, name: str, arguments: Any, partial: Any) -> None:
         seen["update"] = observe(arguments)
 
-    ctx.events.on(TOOLS_EXECUTION_START, on_start)
-    ctx.events.on(TOOLS_UPDATE, on_update)
+    ctx.events.on(TOOLS_EXECUTION_START, start_listener)
+    ctx.events.on(TOOLS_UPDATE, update_listener)
     ctx.events.on(TOOLS_PRE_EXECUTE, hook)
     if case.get("observe_second"):
         ctx.events.on(TOOLS_PRE_EXECUTE, second)
-    result = await execute_call(call, registry=registry, ctx=ctx)
+    result = await execute_call(
+        call, registry=registry, ctx=ctx, on_execution_start=on_start, on_execution_update=on_update
+    )
     first = result.content[0]
     seen["result"] = (result.is_error, first.text if isinstance(first, TextBlock) else "")
     return seen
@@ -165,7 +194,7 @@ BOUNDARIES = ("raw", "replay", "hook", "execute")
 
 def check(case: dict[str, Any], seen: dict[str, Any]) -> None:
     assert seen["result"] == (False, "ok"), (case["id"], seen["result"])
-    optional = tuple(b for b in ("second", "start", "update") if b in case["expect"])
+    optional = tuple(b for b in ("second", "start", "update", "hook_reads") if b in case["expect"])
     # The serialized order is the replayed order (JSON.parse of JSON.stringify's text, in Pi).
     assert seen["persisted"] == case["expect"]["replay"], (
         case["id"],

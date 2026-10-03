@@ -2,6 +2,7 @@ param(
     [Parameter(Mandatory=$true)][string]$EvidenceDirectory
 )
 $ErrorActionPreference = 'Stop'
+if (-not $env:CARGO_TARGET_DIR) { throw 'Set an explicit task-private CARGO_TARGET_DIR before running source mutants' }
 # Run against a committed snapshot in a separate detached worktree. Never edit
 # the candidate worktree. The normal pinned ICU/Cargo environment is inherited.
 $repository = (git -C $PSScriptRoot rev-parse --show-toplevel).Trim()
@@ -55,6 +56,11 @@ try {
         foreach ($entry in $mutants.GetEnumerator()) {
             foreach ($name in $files.Keys) { [IO.File]::WriteAllText((Join-Path $src $name),$files[$name],[Text.UTF8Encoding]::new($false)) }
             & $entry.Value
+            # Cargo can reuse a same-name crate's artifact from another worktree
+            # when its source timestamps predate that artifact. Force recompiling
+            # the tested crate (dependencies remain cached) for every mutation.
+            cargo clean -p minion-agent
+            if ($LASTEXITCODE -ne 0) { throw 'Could not clear mutant crate artifacts' }
             $ErrorActionPreference = 'Continue'
             $output = & cargo test -p minion-agent --all-features --offline --lib --test argument_object_order --test argument_graph_identity --test key_order_conformance --no-fail-fast --quiet 2>&1
             $exit = $LASTEXITCODE
@@ -71,6 +77,11 @@ try {
 } finally {
     foreach ($name in $files.Keys) { [IO.File]::WriteAllText((Join-Path $src $name),$files[$name],[Text.UTF8Encoding]::new($false)) }
     $results | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $evidence 'results.json') -Encoding UTF8
+    Push-Location $rust
+    try {
+        cargo clean -p minion-agent
+        if ($LASTEXITCODE -ne 0) { throw 'Could not clear final mutant crate artifacts' }
+    } finally { Pop-Location }
 }
 # Keep the restored scratch worktree and logs for independent inspection.
 if (($results | Where-Object { -not $_.killed }).Count -gt 0) { throw 'A K1 semantic mutant survived or failed to compile' }

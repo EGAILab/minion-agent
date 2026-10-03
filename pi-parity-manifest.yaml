@@ -2846,13 +2846,7 @@ rows:
   - length-stop-executes-no-tools
   - test_length_stop_executes_nothing_and_fails_every_call
   python: src/minion_agent/tools/batch.py::execute_length_stop_batch, src/minion_agent/agent_loop/driver.py (stop-reason dispatch)
-  rust: 'minion-agent-rust/crates/minion-agent/src/tools/execution.rs::execute_tool_calls;
-    minion-agent-rust/crates/minion-agent/tests/tool_execution.rs;
-    minion-agent-rust/crates/minion-agent/tests/tool_execution_conformance.rs.
-    K1 L0206-D001 implementation candidate (not yet independently certified): tools/prepared.rs::structured_clone
-    preserves aliases within the validated graph while isolating shim-owned containers;
-    tests/key_order_conformance.rs and tests/argument_graph_identity.rs cover prepared/replacement ordering,
-    listener mutation and cross-frontier object/array sharing. Existing coercion/diagnostic dispositions unchanged.'
+  rust: minion-agent-rust/crates/minion-agent/src/tools/execution.rs::execute_tool_calls; minion-agent-rust/crates/minion-agent/tests/tool_execution.rs; minion-agent-rust/crates/minion-agent/tests/tool_execution_conformance.rs
   disposition: adopted
 - id: TOOL-003
   phase: 4
@@ -2884,7 +2878,13 @@ rows:
   - test_prepare_arguments_repairs_raw_schema_arguments_before_validation
   - test_prepare_arguments_can_invalidate_previously_valid_raw_schema_arguments
   python: src/minion_agent/tools/execute.py::_prepare, _validate, ArgumentValidationError, execute_call
-  rust: minion-agent-rust/crates/minion-agent/src/tools/execution.rs::execute_tool_calls; minion-agent-rust/crates/minion-agent/tests/tool_execution.rs; minion-agent-rust/crates/minion-agent/tests/tool_execution_conformance.rs
+  rust: 'minion-agent-rust/crates/minion-agent/src/tools/execution.rs::execute_tool_calls;
+    minion-agent-rust/crates/minion-agent/tests/tool_execution.rs;
+    minion-agent-rust/crates/minion-agent/tests/tool_execution_conformance.rs.
+    K1 L0206-D001 implementation candidate (not yet independently certified): tools/prepared.rs::structured_clone
+    preserves aliases within the validated graph while isolating shim-owned containers;
+    tests/key_order_conformance.rs and tests/argument_graph_identity.rs cover prepared/replacement ordering,
+    listener mutation and cross-frontier object/array sharing. Existing coercion/diagnostic dispositions unchanged.'
   disposition: adopted
 - id: TOOL-004
   phase: 4

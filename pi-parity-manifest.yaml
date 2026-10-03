@@ -70,7 +70,13 @@ rows:
     tools/execution.rs raw start/update payloads and tools/definition.rs raw preparation capability.
     tests/raw_arguments_conformance.rs (38 canonical cases, every live boundary and exactly one update event/delivery);
     tests/raw_arguments.rs (decoder, typed session fork/compaction, explicit JSON projection, raw preparation).
-    CERTIFIED (#110 -> 2ec46f4b; independent closure review minion-agent-docs#215 issuecomment-5934307103).'
+    CERTIFIED (#110 -> 2ec46f4b; independent closure review minion-agent-docs#215 issuecomment-5934307103).
+    K1 L0206-D001 Rust implementation candidate (not yet independently certified):
+    argument_object.rs ordered storage; argument_graph.rs shared object/array handles;
+    llm/raw.rs ordered construction and explicit serialization; tools/prepared.rs alias-preserving conversion;
+    tests/key_order_conformance.rs (49 canonical cases through hooks, events/live deliveries, execute and session);
+    tests/argument_graph_identity.rs (retained aliases and prepare provenance);
+    scripts/k1-negative-controls.ps1 (source mutants, isolated worktree and forced crate rebuild).'
   disposition: adopted
 - id: AI-004
   phase: 2
@@ -2840,7 +2846,13 @@ rows:
   - length-stop-executes-no-tools
   - test_length_stop_executes_nothing_and_fails_every_call
   python: src/minion_agent/tools/batch.py::execute_length_stop_batch, src/minion_agent/agent_loop/driver.py (stop-reason dispatch)
-  rust: minion-agent-rust/crates/minion-agent/src/tools/execution.rs::execute_tool_calls; minion-agent-rust/crates/minion-agent/tests/tool_execution.rs; minion-agent-rust/crates/minion-agent/tests/tool_execution_conformance.rs
+  rust: 'minion-agent-rust/crates/minion-agent/src/tools/execution.rs::execute_tool_calls;
+    minion-agent-rust/crates/minion-agent/tests/tool_execution.rs;
+    minion-agent-rust/crates/minion-agent/tests/tool_execution_conformance.rs.
+    K1 L0206-D001 implementation candidate (not yet independently certified): tools/prepared.rs::structured_clone
+    preserves aliases within the validated graph while isolating shim-owned containers;
+    tests/key_order_conformance.rs and tests/argument_graph_identity.rs cover prepared/replacement ordering,
+    listener mutation and cross-frontier object/array sharing. Existing coercion/diagnostic dispositions unchanged.'
   disposition: adopted
 - id: TOOL-003
   phase: 4

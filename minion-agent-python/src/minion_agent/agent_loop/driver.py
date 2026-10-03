@@ -136,6 +136,7 @@ from ..llm import (
     UserContentBlock,
     UserMessage,
 )
+from ..llm.js_object import order_raw
 from ..runtime.errors import WaterfallError
 from ..session import (
     ArtifactStore,
@@ -1176,7 +1177,8 @@ class AgentLoop:
         for call in calls:
             log.append(
                 EventKind.TOOL_CALL,
-                {"id": call.id, "name": call.name, "arguments": call.arguments},
+                # `L0206-D001-R004` (K1): logged in ECMAScript order (the raw object is mutable).
+                {"id": call.id, "name": call.name, "arguments": order_raw(call.arguments)},
             )
 
         outcome: BatchOutcome | None = None

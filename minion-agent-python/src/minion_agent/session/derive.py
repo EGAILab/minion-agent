@@ -24,6 +24,7 @@ from ..llm.content import (
     ToolResultContentBlock,
     UserContentBlock,
 )
+from ..llm.js_object import order_raw
 from ..llm.messages import (
     AssistantMessage,
     AssistantMessageDiagnostic,
@@ -68,7 +69,9 @@ def _encode_block(block: ContentBlock) -> dict[str, Any]:
                 "type": "tool_call",
                 "id": block.id,
                 "name": block.name,
-                "arguments": block.arguments,
+                # `L0206-D001-R004` (K1): serialized in ECMAScript order even after a later
+                # mutation of the call's (shared, mutable) arguments object.
+                "arguments": order_raw(block.arguments),
             }
             if block.thought_signature is not None:
                 encoded["thought_signature"] = block.thought_signature

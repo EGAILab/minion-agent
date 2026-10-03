@@ -11,6 +11,7 @@ error text, queue outcomes and cancellation outcomes through the real Layer-06 p
 from __future__ import annotations
 
 import asyncio
+import copy
 import dataclasses
 import json
 from pathlib import Path
@@ -31,8 +32,10 @@ FIXTURE = b"alpha\nbeta\ngamma\n"
 
 
 def _permute(mapping: dict[str, Any], order: list[str]) -> dict[str, Any]:
+    """A fresh copy (L0206-D001: a ToolCallBlock orders its arguments IN PLACE, so variants must
+    not share nested objects with each other or with the module fixtures)."""
     assert sorted(order) == sorted(mapping)
-    return {key: mapping[key] for key in order}
+    return {key: copy.deepcopy(mapping[key]) for key in order}
 
 
 def _orders(mapping: dict[str, Any]) -> list[dict[str, Any]]:
@@ -42,7 +45,7 @@ def _orders(mapping: dict[str, Any]) -> list[dict[str, Any]]:
     index_like = sorted((k for k in keys if k.isdigit()), key=int)
     other = [k for k in keys if not k.isdigit()]
     return [
-        mapping,
+        _permute(mapping, keys),
         _permute(mapping, keys[::-1]),
         _permute(mapping, index_like + other),
         _permute(mapping, sorted(keys)),
@@ -175,6 +178,24 @@ async def test_cancellation_outcomes_do_not_depend_on_key_order(tmp_path: Path) 
     )
 
 
+async def _require_a_working_edit(tmp_path: Path) -> None:
+    """Prerequisite guard: `edit` must actually succeed here (it needs the pinned ICU for its NFKC
+    normalization). Where it cannot, every variant fails identically, so each `edit` witness, and
+    the negative control below, would pass VACUOUSLY. Fail loudly instead."""
+    root = tmp_path / "prerequisite"
+    root.mkdir(parents=True)
+    (root / "f.txt").write_bytes(FIXTURE)
+    outcome = await _run(root, [("edit", copy.deepcopy(EDIT))])
+    assert not outcome["results"][0]["is_error"], (
+        "edit does not run in this environment, so the independence witnesses cannot discriminate "
+        f"(is the pinned ICU loadable?): {outcome['results'][0]['text']}"
+    )
+
+
+async def test_the_edit_witnesses_are_not_vacuous(tmp_path: Path) -> None:
+    await _require_a_working_edit(tmp_path)
+
+
 def test_the_variants_really_enumerate_differently() -> None:
     """Guard: the witness is only discriminating if its variants' key enumerations differ."""
     enumerations = {tuple(variant) for variant in _orders(EDIT)}
@@ -188,6 +209,7 @@ async def test_an_order_dependent_output_is_detected(
 ) -> None:
     """Negative control: a mutant edit whose result text leaks argument key enumeration order (a
     realistic wrong implementation, e.g. echoing the arguments) must make the witness fail."""
+    await _require_a_working_edit(tmp_path)
     real = edit_module.create_edit_tool
 
     def leaky(fs: Any) -> Any:

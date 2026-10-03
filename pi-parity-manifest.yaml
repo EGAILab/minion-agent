@@ -49,6 +49,19 @@ rows:
     38 cases -- 22 string, 15 number, 1 key -- generated from the pinned-Pi raw-boundary probe in minion-agent-docs
     assurance/layers/data/l0206-raw-boundaries), every boundary per case incl. the tools/update payload and
     on_execution_update delivery (L0206-D002-R001); canonical number tokens only (R002)
+  - 'ecmascript_object_key_order -- L0206-D001 (K1, minion-agent#100; Owner K1 decision Option 1, minion-agent#99
+    issuecomment-5924847773; Owner K1 Q1/Q2, minion-agent#100 issuecomment-5947071963/-5948712829; convergence
+    CE-L0206-D001-01; CONTRACT_CONVERGENCE, Rust NOT_IMPLEMENTED): tool-argument objects enumerate keys in ECMAScript
+    OrdinaryOwnPropertyKeys order (array indices 0..4294967294 ascending, then insertion), recursively, at every
+    Minion-mediated attachment and observation (construction, session, events and their live deliveries, prepare,
+    validation, every pre-execute listener, execute, serialization), objects shared by reference (no copy).
+    INTENTIONAL_BOUNDED_DIVERGENCE (Python binding only, Owner Q1/Q2): direct mutation and enumeration through an
+    externally retained native dict/list alias within one uninterrupted callback, before any further Minion-mediated
+    graph operation; never past the next framework boundary; Rust exact. conformance/agent/key-order/
+    (key-order-scenario.schema.json, 49 cases from minion-agent-docs assurance/layers/data/l0206-d001-k1);
+    tests/conformance/test_key_order_conformance.py, test_key_order_negative_controls.py, tests/llm/test_js_object.py,
+    tests/tools/test_key_order_observer_chain.py, test_key_order_native_containers.py; spec/llm.md ''Tool-argument
+    object key order'''
   python: 'src/minion_agent/llm/content.py (rewrite). L0206-D002: conforms with no production change --
     tests/conformance/raw_arguments_runner.py, test_raw_arguments_conformance.py (38),
     tests/session/test_raw_arguments_negative_controls.py (Owner decision section 11 mutants) -- contract APPROVED (#105); implementation review APPROVED (minion-agent-docs#210 issuecomment-5930277399).'
@@ -100,7 +113,7 @@ rows:
     in text and at any depth of details, details keys included, numbers incl. -0, +/-Infinity and NaN -- unchanged
     from the tool''s return through the after-hook (TOOL-005), tool_execution_end (TOOL-017), the
     ToolResultMessage, session append/committed-history replay (MINION-002) and any binding''s replayed
-    tool_execution_end (Python: Layer-08 project). Key order is L0206-D001''s; undefined/absent/top-level-null details stay IR-L06-004''s
+    tool_execution_end (Python: Layer-08 project). details key order is not established (outside L0206-D001, which covers tool-argument objects only); undefined/absent/top-level-null details stay IR-L06-004''s
     host mapping (ADJ-2). Projections (filesystem UTF-8, Pi''s session file, provider payloads) are
     separate boundaries. Full rules: spec/tools.md ''Tool-result runtime value domain''.'
   tests:

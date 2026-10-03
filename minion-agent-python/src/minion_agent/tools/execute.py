@@ -65,6 +65,7 @@ from pydantic import (
 from pydantic import ValidationError as PydanticValidationError
 
 from ..llm import ToolCallBlock
+from ..llm.js_object import JsArray, JsObject, adopt, order_in_place, order_raw
 from ..runtime import Context, RunSignal, Scope, ScopeKey
 from .decisions import AfterToolCallOverride, Block, PreExecuteDecision, Proceed
 from .definition import ToolDefinition
@@ -146,7 +147,12 @@ def _prepare(definition: ToolDefinition, arguments: dict[str, Any]) -> dict[str,
     """
     if definition.prepare_arguments is None:
         return arguments
-    return definition.prepare_arguments(dict(arguments))
+    # `L0206-D001` (K1): a shim's objects (for example `edit`'s re-parsed `edits`) enumerate in
+    # ECMAScript order, as pinned Pi's do. The containers it produced are the pipeline's from here
+    # on (`R007`): adopted, so an observer mutating them goes through the graph's seams. Pinned Pi
+    # hands observers a `structuredClone` of the prepared value, never the shim's own objects.
+    prepared: dict[str, Any] = adopt(definition.prepare_arguments(dict(arguments)))
+    return prepared
 
 
 def _validate(definition: ToolDefinition, arguments: dict[str, Any]) -> dict[str, Any]:
@@ -170,13 +176,47 @@ def _validate(definition: ToolDefinition, arguments: dict[str, Any]) -> dict[str
             PreparedArgumentsValidator(definition.parameters).validate(arguments)
         except JsonSchemaValidationError as error:
             raise ArgumentValidationError(error.message) from error
-        return dict(arguments)
+        # `L0206-D001` (K1): validation never reorders -- the validated object enumerates as its
+        # input did (pinned Pi's `structuredClone` + `Value.Convert`); no schema order is imposed.
+        validated: dict[str, Any] = order_in_place(JsObject(arguments))
+        return validated
     try:
         model = definition.parameters.model_validate(arguments)
     except PydanticValidationError as error:
         raise ArgumentValidationError(str(error)) from error
     delivered = model.model_dump()
     _reject_declared_non_finite(definition.parameters, delivered)
+    ordered: dict[str, Any] = _in_input_order(delivered, arguments)
+    return ordered
+
+
+def _in_input_order(delivered: Any, given: Any) -> Any:
+    """`L0206-D001` K1-F1 (typed-model parameters, the `TOOL-003` pydantic mapping): the model's
+    validated values keyed and ordered as the INPUT enumerates (by the ECMAScript rule), then any
+    key the model filled by default, in declared order, each placed by the rule -- never the
+    model's declared order imposed on keys the input supplied. Applied to nested objects too."""
+    if isinstance(delivered, dict):
+        source = given if isinstance(given, dict) else {}
+        ordered = JsObject()
+        for key in source:
+            if key in delivered:
+                ordered[key] = _in_input_order(delivered[key], source[key])
+        for key, value in delivered.items():
+            if key not in ordered:
+                ordered[key] = _in_input_order(value, None)
+        return ordered
+    if isinstance(delivered, list):
+        # `R007`: the rebuilt array is the pipeline's own, so it carries the graph's seams.
+        source_list = given if isinstance(given, list) else []
+        array = JsArray()
+        list.extend(
+            array,
+            [
+                _in_input_order(item, source_list[index] if index < len(source_list) else None)
+                for index, item in enumerate(delivered)
+            ],
+        )
+        return array
     return delivered
 
 
@@ -592,8 +632,12 @@ async def _preflight(
     "hook ran without blocking/aborting") are, in Minion, the SAME code path reaching the SAME
     check).
     """
+    # `L0206-D001-R004` (K1): the raw arguments object is shared and mutable after construction;
+    # it is ordered in place wherever it is observed -- here, prepare's input, and each update.
+    order_raw(call.arguments)
     ctx.events.emit(TOOLS_EXECUTION_START, call.id, call.name, call.arguments, scope=scope)
     if on_execution_start is not None:
+        order_raw(call.arguments)  # after the emit's listeners, which may have mutated it
         await on_execution_start(call.id, call.name, call.arguments)
 
     definition = registry.resolve(call.name, scope)
@@ -613,6 +657,9 @@ async def _preflight(
         # `RunSignal`, or a bare `next_(call, definition, arguments)` that omitted it entirely).
         # `call`/`definition`/`arguments` remain the listener's own to transform freely -- only
         # `signal`'s own identity is protected.
+        # `L0206-D001` (K1): each listener receives the arguments in ECMAScript order, including
+        # objects an earlier listener assigned or appended -- ordered in place, never copied.
+        order_in_place(current[2])
         return (*current[:3], signal)
 
     try:
@@ -668,6 +715,11 @@ async def _preflight(
             on_execution_end,
         )
 
+    # `L0206-D001` (K1): what `execute` receives enumerates by the ECMAScript rule -- the validated
+    # object after any listener's in-place mutation (including objects a listener assigned or
+    # appended, R001/R002), or a listener's REPLACEMENT arguments (a Minion mapping; pinned Pi's
+    # hook can only mutate). Ordered in place: identity, and every retained reference, survive.
+    decision = Proceed(arguments=order_in_place(decision.arguments))
     return _Prepared(call=call, definition=definition, arguments=decision.arguments)
 
 
@@ -728,6 +780,7 @@ async def _execute_and_finalize(
         # `prepared.toolCall.arguments`, and `PreparedToolCall.toolCall` is the untouched
         # original call `prepareToolCall` was given, not the `prepareArguments`-shimmed or
         # validated one.
+        order_raw(call.arguments)  # `L0206-D001-R004`: the raw object, as observed
         ctx.events.emit(TOOLS_UPDATE, call.id, call.name, call.arguments, partial, scope=scope)
         if on_execution_update is not None:
             # `eager_task_factory`, not `ensure_future`/`create_task`, and not `await`
@@ -751,6 +804,9 @@ async def _execute_and_finalize(
             # with the rest of `execute()`, and, in a parallel batch, with every OTHER call's own
             # in-flight work.
             loop = asyncio.get_running_loop()
+            # `L0206-D001` (CE-L0206-D001-01): the delivery begins after the emit's listeners,
+            # which may have mutated the shared raw object.
+            order_raw(call.arguments)
             pending_updates.append(
                 asyncio.eager_task_factory(
                     loop,
@@ -758,6 +814,7 @@ async def _execute_and_finalize(
                 )
             )
 
+    order_in_place(arguments)  # `L0206-D001`: execute is an observer too
     try:
         if _wants_signal(definition) and _wants_update(definition):
             outcome = definition.execute(call.id, arguments, signal, update)

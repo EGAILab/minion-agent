@@ -44,11 +44,26 @@ class _Listener:
 class EventBus:
     """Holds event declarations and their listeners."""
 
-    __slots__ = ("_declarations", "_listeners")
+    __slots__ = ("_before_each", "_declarations", "_listeners")
 
     def __init__(self) -> None:
         self._declarations: dict[str, DispatchMode] = {}
         self._listeners: dict[str, list[_Listener]] = {}
+        self._before_each: dict[str, Callable[[tuple[Any, ...]], None]] = {}
+
+    def before_each(self, name: str, prepare: Callable[[tuple[Any, ...]], None]) -> None:
+        """Run `prepare` on a dispatch's arguments immediately before EACH admitted listener of
+        `name` is invoked, in every dispatch mode. An event whose payload is a shared, mutable
+        value uses it to hold an invariant at every observer -- including after an earlier
+        listener mutated that value (`L0206-D001`, `CE-L0206-D001-01`). Additive: an event with no
+        `prepare` dispatches exactly as before."""
+        self.mode_of(name)
+        self._before_each[name] = prepare
+
+    def _prepare(self, name: str, args: tuple[Any, ...]) -> None:
+        prepare = self._before_each.get(name)
+        if prepare is not None:
+            prepare(args)
 
     def declare(self, name: str, mode: DispatchMode) -> None:
         """Bind `name` to `mode`. Re-declaring the same mode is a no-op."""
@@ -125,6 +140,7 @@ class EventBus:
         """Invoke every admitted listener synchronously in registration order."""
         self._require_mode(name, DispatchMode.EMIT)
         for callback in self._chain(name, scope):
+            self._prepare(name, args)
             callback(*args)
 
     @staticmethod
@@ -140,8 +156,13 @@ class EventBus:
         callbacks = self._chain(name, scope)
         if not callbacks:
             return
+
+        async def invoke(callback: Callable[..., Any]) -> Any:
+            self._prepare(name, args)
+            return await self._call(callback, *args)
+
         outcomes = await asyncio.gather(
-            *(self._call(callback, *args) for callback in callbacks),
+            *(invoke(callback) for callback in callbacks),
             return_exceptions=True,
         )
         failures = [outcome for outcome in outcomes if isinstance(outcome, Exception)]
@@ -174,6 +195,7 @@ class EventBus:
         self._require_mode(name, DispatchMode.SERIAL)
         result: Any = None
         for callback in self._chain(name, scope):
+            self._prepare(name, args)
             result = await self._call(callback, *args)
             if yield_after_each:
                 await asyncio.sleep(0)
@@ -255,6 +277,7 @@ class EventBus:
                     forwarded = normalize_step(forwarded)
                 return await step(index + 1, forwarded)
 
+            self._prepare(name, current)
             return await self._call(callbacks[index], *current, next_)
 
         return await step(0, args)

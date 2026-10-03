@@ -9,6 +9,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from .js_object import adopt
+
 
 @dataclass(frozen=True, slots=True)
 class TextBlock:
@@ -73,6 +75,12 @@ class ToolCallBlock:
     namespace: str | None = None
     """The tool namespace this call belongs to, when a provider distinguishes
     tools by more than name alone."""
+
+    def __post_init__(self) -> None:
+        # `L0206-D001` (K1, CE-L0206-D001-01): every object in the arguments is a `JsObject` from
+        # construction on -- the order pinned Pi's `JSON.parse` gives it, kept on every later
+        # mutation of an object the pipeline owns, whoever makes it.
+        object.__setattr__(self, "arguments", adopt(self.arguments))
 
 
 type ContentBlock = TextBlock | ThinkingBlock | ImageBlock | ToolCallBlock

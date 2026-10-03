@@ -21,8 +21,9 @@ use crate::{
 };
 
 use super::{
-    AgentToolResult, ExecutionMode, ExecutionSignal, PreparedValue, ToolDefinition,
-    ToolExecutionRequest, ToolExecutionSignal, prepared_validation::PreparedValidationError,
+    AgentToolResult, ExecutionMode, ExecutionSignal, PreparedValue, ToolContextProvider,
+    ToolDefinition, ToolExecutionRequest, ToolExecutionSignal,
+    prepared_validation::PreparedValidationError,
 };
 
 /// Batch-level execution inputs owned by Layer 06.
@@ -36,6 +37,7 @@ pub struct ToolExecutionOptions {
     on_execution_start: Option<ToolExecutionStartCallback>,
     on_execution_update: Option<ToolExecutionUpdateCallback>,
     on_execution_end: Option<ToolExecutionEndCallback>,
+    context_provider: Option<ToolContextProvider>,
 }
 
 impl ToolExecutionOptions {
@@ -49,6 +51,7 @@ impl ToolExecutionOptions {
             on_execution_start: None,
             on_execution_update: None,
             on_execution_end: None,
+            context_provider: None,
         }
     }
 
@@ -59,6 +62,18 @@ impl ToolExecutionOptions {
 
     pub fn with_signal(mut self, signal: Arc<dyn ToolExecutionSignal>) -> Self {
         self.signal = Some(signal);
+        self
+    }
+
+    /// Supplies a fresh context at EACH execute invocation, never at batch creation.
+    pub fn with_context_provider<F>(mut self, provider: F) -> Self
+    where
+        F: Fn() -> Result<Option<super::ToolExecutionContext>, super::ToolCapabilityError>
+            + Send
+            + Sync
+            + 'static,
+    {
+        self.context_provider = Some(Arc::new(provider));
         self
     }
 
@@ -684,6 +699,7 @@ pub async fn execute_tool_calls(
                             update_spec.clone(),
                             end_spec.clone(),
                             options.signal.clone(),
+                            options.context_provider.clone(),
                             options.on_execution_update.clone(),
                             options.on_execution_end.clone(),
                             options.timestamp,
@@ -748,6 +764,7 @@ pub async fn execute_tool_calls(
                     update_spec.clone(),
                     end_spec.clone(),
                     options.signal.clone(),
+                    options.context_provider.clone(),
                     options.on_execution_update.clone(),
                     options.on_execution_end.clone(),
                     options.timestamp,
@@ -945,6 +962,7 @@ async fn execute_and_finalize_prepared(
     update_spec: EventSpec<ToolExecutionUpdate, ()>,
     end_spec: EventSpec<ToolExecutionEnd, ()>,
     signal: Option<Arc<dyn ToolExecutionSignal>>,
+    context_provider: Option<ToolContextProvider>,
     on_execution_update: Option<ToolExecutionUpdateCallback>,
     on_execution_end: Option<ToolExecutionEndCallback>,
     timestamp: f64,
@@ -983,14 +1001,24 @@ async fn execute_and_finalize_prepared(
                 }
             })
         };
-        let request = ToolExecutionRequest {
-            tool_call_id: call.id.clone(),
-            params: arguments,
-            signal,
-            on_update: Some(update_callback),
-        };
-        let outcome =
-            execute_with_live_updates((tool.execute())(request), Arc::clone(&live_updates)).await?;
+        let tool_call_id = call.id.clone();
+        // The factory belongs to the ordinary execute-failure boundary, like Pi's wrapper.
+        let execution = async move {
+            let context = match context_provider {
+                Some(provider) => provider()?,
+                None => None,
+            };
+            let request = ToolExecutionRequest {
+                tool_call_id,
+                params: arguments,
+                signal,
+                on_update: Some(update_callback),
+                context,
+            };
+            (tool.execute())(request).await
+        }
+        .boxed();
+        let outcome = execute_with_live_updates(execution, Arc::clone(&live_updates)).await?;
         match outcome {
             Ok(result) => AfterToolCallResult {
                 tool_call_id: call.id.clone(),

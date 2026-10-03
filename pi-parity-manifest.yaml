@@ -7386,5 +7386,11 @@ rows:
   python: minion_agent/tools/definition.py (ToolExecutionContext, ToolContextProvider, ToolDefinition.wants_context);
     tools/execute.py (_arity excludes the opted-in context keyword; provider called as execute is invoked); tools/batch.py;
     agent_loop/driver.py (AgentLoop._tool_execution_context)
-  rust: NOT_IMPLEMENTED
+  rust: 'Implementation candidate (L0506-D004; independent closure pending): tools/definition.rs
+    (owned immutable ToolExecutionContext, ToolContextProvider, ToolExecutionRequest.context);
+    tools/execution.rs (per-execute provider inside the ordinary error boundary);
+    agent/instance.rs and agent_loop/driver.rs (authoritative atomic snapshot, explicitly bound to the agent).
+    Evidence: tests/tool_execution_context.rs (absence, failure/finalization/sibling, preflight and hook boundaries);
+    agent_loop/driver.rs::tests::per_call_context_is_fresh_in_one_batch_and_prior_snapshot_is_immutable;
+    agent_loop/driver.rs::tests::concurrent_agents_share_a_registration_without_sharing_context.'
   disposition: adopted

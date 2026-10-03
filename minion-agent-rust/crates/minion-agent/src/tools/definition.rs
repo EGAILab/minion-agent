@@ -63,11 +63,63 @@ impl Eq for ExecutionSignal {}
 
 pub type ToolUpdateCallback = Arc<dyn Fn(AgentToolResult) + Send + Sync + 'static>;
 
+/// Immutable, per-execute projection of the executing agent's authoritative state (TOOL-042).
+/// No agent reference or mutable access is exposed. Absence is distinct from a present `off`.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ToolExecutionContext {
+    session_id: String,
+    session_file: Option<String>,
+    provider: Option<String>,
+    model: Option<String>,
+    reasoning_level: Option<String>,
+}
+
+impl ToolExecutionContext {
+    pub fn new(
+        session_id: String,
+        session_file: Option<String>,
+        provider: Option<String>,
+        model: Option<String>,
+        reasoning_level: Option<String>,
+    ) -> Self {
+        Self {
+            session_id,
+            session_file,
+            provider,
+            model,
+            reasoning_level,
+        }
+    }
+
+    pub fn session_id(&self) -> &str {
+        &self.session_id
+    }
+    pub fn session_file(&self) -> Option<&str> {
+        self.session_file.as_deref()
+    }
+    pub fn provider(&self) -> Option<&str> {
+        self.provider.as_deref()
+    }
+    pub fn model(&self) -> Option<&str> {
+        self.model.as_deref()
+    }
+    pub fn reasoning_level(&self) -> Option<&str> {
+        self.reasoning_level.as_deref()
+    }
+}
+
+/// Explicit per-call factory. A typed failure settles as an ordinary tool execution failure.
+pub type ToolContextProvider = Arc<
+    dyn Fn() -> Result<Option<ToolExecutionContext>, ToolCapabilityError> + Send + Sync + 'static,
+>;
+
 pub struct ToolExecutionRequest {
     pub tool_call_id: String,
     pub params: PreparedValue,
     pub signal: Option<Arc<dyn ToolExecutionSignal>>,
     pub on_update: Option<ToolUpdateCallback>,
+    /// Sampled at execute invocation, after preflight and hooks; absent outside an agent.
+    pub context: Option<ToolExecutionContext>,
 }
 
 pub type PrepareArguments = Arc<

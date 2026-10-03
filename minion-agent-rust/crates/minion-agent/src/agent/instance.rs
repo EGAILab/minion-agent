@@ -137,6 +137,27 @@ impl AgentInstance {
     pub fn thinking_level(&self) -> ThinkingLevel {
         self.state.lock().thinking_level
     }
+
+    /// Atomic metadata projection only; no lock survives the factory call or tool invocation.
+    pub(crate) fn tool_execution_context(&self) -> crate::tools::ToolExecutionContext {
+        let state = self.state.lock();
+        let level = match state.thinking_level {
+            ThinkingLevel::Off => "off",
+            ThinkingLevel::Minimal => "minimal",
+            ThinkingLevel::Low => "low",
+            ThinkingLevel::Medium => "medium",
+            ThinkingLevel::High => "high",
+            ThinkingLevel::XHigh => "xhigh",
+            ThinkingLevel::Max => "max",
+        };
+        crate::tools::ToolExecutionContext::new(
+            self.session.id().to_owned(),
+            None,
+            Some(state.model.provider().to_owned()),
+            Some(state.model.model_id().to_owned()),
+            Some(level.to_owned()),
+        )
+    }
     pub fn status(&self) -> AgentStatus {
         self.state.lock().status
     }

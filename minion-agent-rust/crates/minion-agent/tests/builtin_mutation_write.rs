@@ -25,6 +25,7 @@ async fn write_uses_the_filesystem_and_reports_utf16_units_not_bytes() {
         params: PreparedValue::from(json!({"path":"@nested/file.txt", "content":"a😀é"})),
         signal: None,
         on_update: None,
+        context: None,
     })
     .await
     .unwrap();
@@ -51,6 +52,7 @@ async fn direct_aborted_execution_registers_but_does_not_create_parents() {
         params: PreparedValue::from(json!({"path":"new/file.txt", "content":"x"})),
         signal: Some(Arc::new(Signal(AtomicBool::new(true)))),
         on_update: None,
+        context: None,
     })
     .await
     .unwrap_err();
@@ -70,6 +72,7 @@ async fn parent_creation_error_keeps_the_argument_and_deterministic_cause() {
         params: PreparedValue::from(json!({"path":"parent/file", "content":"x"})),
         signal: None,
         on_update: None,
+        context: None,
     })
     .await
     .unwrap_err();

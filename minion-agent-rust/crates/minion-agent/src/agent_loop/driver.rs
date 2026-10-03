@@ -493,9 +493,11 @@ impl AgentLoop {
         let update_context = self.context.clone();
         let end_agent = Arc::clone(&self.agent);
         let end_context = self.context.clone();
+        let context_agent = Arc::clone(&self.agent);
         let options = ToolExecutionOptions::new(assistant.stop_reason, now_millis())
             .with_execution_tools(prepared.context.tools.clone())
             .with_signal(Arc::new(prepared.signal.clone()))
+            .with_context_provider(move || Ok(Some(context_agent.tool_execution_context())))
             .with_execution_start(move |event| {
                 live_tool_event(
                     Arc::clone(&start_agent),
@@ -997,6 +999,168 @@ mod tests {
             false,
             3.0,
         )))
+    }
+
+    #[test]
+    fn per_call_context_is_fresh_in_one_batch_and_prior_snapshot_is_immutable() {
+        run(async {
+            let runtime = Runtime::new();
+            let observations = Arc::new(parking_lot::Mutex::new(Vec::new()));
+            let owner = Arc::new(parking_lot::Mutex::new(None::<Arc<AgentInstance>>));
+            let seen = observations.clone();
+            let current = owner.clone();
+            runtime
+                .tools()
+                .register_for_scope(
+                    None,
+                    ToolDefinition::new(
+                        "context",
+                        "context",
+                        serde_json::from_value(json!({"type":"object"})).unwrap(),
+                        "context",
+                        move |request: ToolExecutionRequest| {
+                            seen.lock().push(request.context.unwrap());
+                            if request.tool_call_id == "a" {
+                                let agent = current.lock().as_ref().unwrap().clone();
+                                agent.set_model(
+                                    ModelIdentity::new("next-provider", "api", "next-model")
+                                        .unwrap(),
+                                );
+                                agent.set_thinking_level(crate::agent::ThinkingLevel::High);
+                            }
+                            Box::pin(async { Ok(tool_output("ok")) })
+                        },
+                    )
+                    .with_execution_mode(crate::tools::ExecutionMode::Sequential),
+                )
+                .unwrap();
+            let (driver, agent) = loop_for(
+                &runtime,
+                Session::new("context-session", [] as [&str; 0]).unwrap(),
+            );
+            *owner.lock() = Some(agent);
+            let mut prepared = driver
+                .prepare_prompt_run(PromptInput::Message(user("prompt")))
+                .await
+                .unwrap();
+            // Provider overrides are deliberately different from the authoritative instance.
+            prepared.config.model =
+                ModelIdentity::new("override", "api", "override-model").unwrap();
+            prepared.config.thinking_level = crate::agent::ThinkingLevel::Max;
+            let message = AssistantMessage::new(
+                identity(),
+                ["a", "b"]
+                    .into_iter()
+                    .map(|id| {
+                        AssistantContentBlock::ToolCall(ToolCall::new(
+                            id,
+                            "context",
+                            BTreeMap::new(),
+                        ))
+                    })
+                    .collect(),
+                Usage::default(),
+                StopReason::ToolUse,
+                2.0,
+            );
+            driver
+                .run_tool_calls(&mut prepared, &message)
+                .await
+                .unwrap();
+            let snapshots = observations.lock();
+            assert_eq!(snapshots.len(), 2);
+            assert_eq!(snapshots[0].session_id(), "context-session");
+            assert_eq!(snapshots[0].session_file(), None);
+            assert_eq!(snapshots[0].provider(), Some("provider"));
+            assert_eq!(snapshots[0].model(), Some("model"));
+            assert_eq!(snapshots[0].reasoning_level(), Some("off"));
+            assert_eq!(snapshots[1].provider(), Some("next-provider"));
+            assert_eq!(snapshots[1].model(), Some("next-model"));
+            assert_eq!(snapshots[1].reasoning_level(), Some("high"));
+        });
+    }
+
+    #[test]
+    fn concurrent_agents_share_a_registration_without_sharing_context() {
+        run(async {
+            let runtime = Runtime::new();
+            let observed = Arc::new(parking_lot::Mutex::new(Vec::new()));
+            let seen = observed.clone();
+            let barrier = Arc::new(tokio::sync::Barrier::new(2));
+            runtime
+                .tools()
+                .register_for_scope(
+                    None,
+                    ToolDefinition::new(
+                        "context",
+                        "context",
+                        serde_json::from_value(json!({"type":"object"})).unwrap(),
+                        "context",
+                        move |request: ToolExecutionRequest| {
+                            let seen = seen.clone();
+                            let barrier = barrier.clone();
+                            Box::pin(async move {
+                                barrier.wait().await;
+                                seen.lock().push(request.context.unwrap());
+                                Ok(tool_output("ok"))
+                            })
+                        },
+                    ),
+                )
+                .unwrap();
+            let (first, a) = loop_for(&runtime, Session::new("first", [] as [&str; 0]).unwrap());
+            let (second, b) = loop_for(&runtime, Session::new("second", [] as [&str; 0]).unwrap());
+            a.set_model(ModelIdentity::new("p-a", "api", "m-a").unwrap());
+            b.set_model(ModelIdentity::new("p-b", "api", "m-b").unwrap());
+            a.set_thinking_level(crate::agent::ThinkingLevel::Low);
+            b.set_thinking_level(crate::agent::ThinkingLevel::Max);
+            let mut pa = first
+                .prepare_prompt_run(PromptInput::Message(user("a")))
+                .await
+                .unwrap();
+            let mut pb = second
+                .prepare_prompt_run(PromptInput::Message(user("b")))
+                .await
+                .unwrap();
+            let message = AssistantMessage::new(
+                identity(),
+                vec![AssistantContentBlock::ToolCall(ToolCall::new(
+                    "call",
+                    "context",
+                    BTreeMap::new(),
+                ))],
+                Usage::default(),
+                StopReason::ToolUse,
+                2.0,
+            );
+            let (ra, rb) = tokio::join!(
+                first.run_tool_calls(&mut pa, &message),
+                second.run_tool_calls(&mut pb, &message)
+            );
+            ra.unwrap();
+            rb.unwrap();
+            let mut contexts = observed.lock().clone();
+            contexts.sort_by(|a, b| a.session_id().cmp(b.session_id()));
+            assert_eq!(contexts.len(), 2);
+            assert_eq!(
+                (
+                    contexts[0].session_id(),
+                    contexts[0].provider(),
+                    contexts[0].model(),
+                    contexts[0].reasoning_level()
+                ),
+                ("first", Some("p-a"), Some("m-a"), Some("low"))
+            );
+            assert_eq!(
+                (
+                    contexts[1].session_id(),
+                    contexts[1].provider(),
+                    contexts[1].model(),
+                    contexts[1].reasoning_level()
+                ),
+                ("second", Some("p-b"), Some("m-b"), Some("max"))
+            );
+        });
     }
 
     fn loop_for(runtime: &Runtime, session: Session) -> (AgentLoop, Arc<AgentInstance>) {

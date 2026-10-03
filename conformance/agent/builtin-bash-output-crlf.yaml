@@ -1,0 +1,21 @@
+name: builtin-bash-output-crlf
+family: agent
+authority: minion-agent-docs spec/tools.md WP-13.3 (master a805f6ed); pinned-Pi bash_probe outputs
+pi_revision: b7bb00b936dbe21b8e160b3e89efdec361846699
+requirements:
+- TOOL-035
+witnesses:
+- bash_output_crlf
+builtin_bash:
+  command: printf 'a\r\nb\r\n'
+  expect:
+    win32:
+      is_error: false
+      text: "a\r\nb\r\n"
+      details: {}
+      full_output: null
+    linux:
+      is_error: false
+      text: "a\r\nb\r\n"
+      details: {}
+      full_output: null

@@ -1,0 +1,26 @@
+name: builtin-bash-kill-external-sigkill
+family: agent
+authority: minion-agent-docs spec/tools.md WP-13.3 (master a805f6ed); pinned-Pi bash_probe outputs
+pi_revision: b7bb00b936dbe21b8e160b3e89efdec361846699
+requirements:
+- TOOL-034
+witnesses:
+- bash_kill_external_sigkill
+notes: 'Platform fact (characterization section 11): Linux reports no exit code (success, no output);
+  Windows Git Bash reports exit 2304.'
+builtin_bash:
+  command: kill -9 $$
+  expect:
+    win32:
+      is_error: true
+      text: '(no output)
+
+
+        Command exited with code 2304'
+      details: {}
+      full_output: null
+    linux:
+      is_error: false
+      text: (no output)
+      details: {}
+      full_output: null

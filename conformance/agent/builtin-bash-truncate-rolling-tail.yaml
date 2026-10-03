@@ -1,0 +1,103 @@
+name: builtin-bash-truncate-rolling-tail
+family: agent
+authority: minion-agent-docs spec/tools.md WP-13.3 (master a805f6ed); pinned-Pi bash_probe outputs
+pi_revision: b7bb00b936dbe21b8e160b3e89efdec361846699
+requirements:
+- TOOL-035
+witnesses:
+- bash_truncate_rolling_tail
+builtin_bash:
+  command: yes 0123456789012345678901234567890123456789 | head -n 9000
+  expect:
+    win32:
+      is_error: false
+      text_length: 51245
+      text_head: '0123456789012345678901234567890123456789
+
+        0123456789012345678901234567890123456789
+
+        0123456789012345678901234567890123456789
+
+        0123456789012345678901234567890123456789
+
+        012345678901234567890123456789012345'
+      text_tail: '56789012345678901234567890123456789
+
+        0123456789012345678901234567890123456789
+
+        0123456789012345678901234567890123456789
+
+        0123456789012345678901234567890123456789
+
+        0123456789012345678901234567890123456789
+
+        0123456789012345678901234567890123456789
+
+        0123456789012345678901234567890123456789
+
+        0123456789012345678901234567890123456789
+
+
+        [Showing lines 7753-9000 of 9000 (50.0KB limit). Full output: <FULL_OUTPUT>]'
+      details:
+        truncation:
+          truncated: true
+          truncatedBy: bytes
+          totalLines: 9000
+          totalBytes: 369000
+          outputLines: 1248
+          outputBytes: 51167
+          lastLinePartial: false
+          firstLineExceedsLimit: false
+          maxLines: 2000
+          maxBytes: 51200
+        fullOutputPath: <FULL_OUTPUT>
+      full_output:
+        size: 369000
+        sha256: bfce4af028812bca7c38500d06d42fa56ba88d4614db2e1a0ebc62e023313717
+    linux:
+      is_error: false
+      text_length: 51245
+      text_head: '0123456789012345678901234567890123456789
+
+        0123456789012345678901234567890123456789
+
+        0123456789012345678901234567890123456789
+
+        0123456789012345678901234567890123456789
+
+        012345678901234567890123456789012345'
+      text_tail: '56789012345678901234567890123456789
+
+        0123456789012345678901234567890123456789
+
+        0123456789012345678901234567890123456789
+
+        0123456789012345678901234567890123456789
+
+        0123456789012345678901234567890123456789
+
+        0123456789012345678901234567890123456789
+
+        0123456789012345678901234567890123456789
+
+        0123456789012345678901234567890123456789
+
+
+        [Showing lines 7753-9000 of 9000 (50.0KB limit). Full output: <FULL_OUTPUT>]'
+      details:
+        truncation:
+          truncated: true
+          truncatedBy: bytes
+          totalLines: 9000
+          totalBytes: 369000
+          outputLines: 1248
+          outputBytes: 51167
+          lastLinePartial: false
+          firstLineExceedsLimit: false
+          maxLines: 2000
+          maxBytes: 51200
+        fullOutputPath: <FULL_OUTPUT>
+      full_output:
+        size: 369000
+        sha256: bfce4af028812bca7c38500d06d42fa56ba88d4614db2e1a0ebc62e023313717

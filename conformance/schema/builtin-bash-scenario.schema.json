@@ -1,0 +1,93 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$comment": "Layer 13 WP-13.3 `bash` canonical shape, discriminated by a top-level `builtin_bash` key -- another schema for conformance/agent/'s own directory. A runner creates a fresh temporary working directory, constructs the real `bash` tool over the real local ctx.fs and ctx.subprocess (the host's own shell: Git Bash on Windows, /bin/bash on POSIX), and runs the case through the real Layer 06 execute pipeline. Expectations are generated from the pinned-Pi bash_probe outputs (minion-agent-docs assurance/layers/data/13-wp133/out/pi-{win32,linux}.json) and keyed by host platform; a host whose platform has no expectation skips the case. Normalization, never behaviour: in the result text and details, the full-output file's path becomes `<FULL_OUTPUT>` and the working directory becomes `<CWD>`.",
+  "type": "object",
+  "required": ["name", "family", "authority", "pi_revision", "requirements", "witnesses", "builtin_bash"],
+  "additionalProperties": false,
+  "properties": {
+    "name": { "type": "string", "minLength": 1 },
+    "family": { "const": "agent" },
+    "authority": { "type": "string", "minLength": 1 },
+    "pi_revision": { "type": "string", "minLength": 1 },
+    "requirements": { "type": "array", "minItems": 1, "items": { "type": "string", "pattern": "^TOOL-0[0-9]{2}$" } },
+    "witnesses": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
+    "notes": { "type": "string" },
+    "builtin_bash": {
+      "type": "object",
+      "required": ["command", "expect"],
+      "additionalProperties": false,
+      "properties": {
+        "command": { "type": "string" },
+        "timeout": {
+          "oneOf": [
+            { "type": "number" },
+            { "enum": ["Infinity", "-Infinity", "NaN"], "$comment": "JSON has no non-finite numbers; the runner passes the binary64 value" }
+          ]
+        },
+        "signal": { "const": "pre_aborted", "$comment": "aborted before the call: Layer 06 preflight answers it" },
+        "abort_after_ms": { "type": "integer", "minimum": 0, "$comment": "the runner aborts the call's signal this long after starting it" },
+        "missing_cwd": { "const": true, "$comment": "the provider's cwd is a non-existent child of the temporary directory" },
+        "expect": {
+          "type": "object",
+          "additionalProperties": false,
+          "minProperties": 1,
+          "properties": {
+            "win32": { "$ref": "#/$defs/expectation" },
+            "linux": { "$ref": "#/$defs/expectation" }
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "expectation": {
+      "type": "object",
+      "required": ["is_error", "details", "full_output"],
+      "additionalProperties": false,
+      "oneOf": [{ "required": ["text"] }, { "required": ["text_length", "text_head", "text_tail"] }, { "required": ["validation_rejected"] }],
+      "properties": {
+        "is_error": { "type": "boolean" },
+        "validation_rejected": { "const": true, "$comment": "Layer 06 argument validation rejected the call before execute (L0506-D001: a declared number is finite-only). The validator's text is binding-specific (TOOL-003), so each runner checks its own validator's rejection" },
+        "text": { "type": "string", "$comment": "content_blocks[0].text after normalization, exact" },
+        "text_length": { "type": "integer", "minimum": 0, "$comment": "UTF-16 code units, as Pi's `length` (a text over 4000 units is recorded by length, head and tail, as the pinned probe records it)" },
+        "text_head": { "type": "string", "$comment": "the first 200 UTF-16 code units, exact" },
+        "text_tail": { "type": "string", "$comment": "the last 400 UTF-16 code units, exact" },
+        "details": {
+          "oneOf": [
+            { "type": "object", "maxProperties": 0, "$comment": "no truncation details (Pi: undefined; error results carry {})" },
+            {
+              "type": "object", "required": ["truncation", "fullOutputPath"], "additionalProperties": false,
+              "properties": {
+                "truncation": {
+                  "type": "object",
+                  "$comment": "Pi's TruncationResult without `content`; the runner checks `content` separately: it is the text before the notice",
+                  "required": ["truncated", "truncatedBy", "totalLines", "totalBytes", "outputLines", "outputBytes", "lastLinePartial", "firstLineExceedsLimit", "maxLines", "maxBytes"],
+                  "additionalProperties": false,
+                  "properties": {
+                    "truncated": { "type": "boolean" },
+                    "truncatedBy": { "enum": ["lines", "bytes", null] },
+                    "totalLines": { "type": "integer" }, "totalBytes": { "type": "integer" },
+                    "outputLines": { "type": "integer" }, "outputBytes": { "type": "integer" },
+                    "lastLinePartial": { "type": "boolean" }, "firstLineExceedsLimit": { "type": "boolean" },
+                    "maxLines": { "type": "integer" }, "maxBytes": { "type": "integer" }
+                  }
+                },
+                "fullOutputPath": { "const": "<FULL_OUTPUT>" }
+              }
+            }
+          ]
+        },
+        "full_output": {
+          "oneOf": [
+            { "type": "null", "$comment": "no full-output file was created" },
+            {
+              "type": "object", "required": ["size", "sha256"], "additionalProperties": false,
+              "$comment": "the file's raw bytes; its name is minion-bash-<unique>.log in the provider's temporary area",
+              "properties": { "size": { "type": "integer", "minimum": 0 }, "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" } }
+            }
+          ]
+        }
+      }
+    }
+  }
+}

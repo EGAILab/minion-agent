@@ -1,0 +1,123 @@
+{
+ "node": "v22.15.1",
+ "platform": "win32",
+ "argvToNode": {
+  "loneHigh": {
+   "sent": [
+    "0061",
+    "D800",
+    "0062"
+   ],
+   "childArgv": [
+    "0061",
+    "FFFD",
+    "0062"
+   ]
+  },
+  "loneLow": {
+   "sent": [
+    "0061",
+    "DC80",
+    "0062"
+   ],
+   "childArgv": [
+    "0061",
+    "FFFD",
+    "0062"
+   ]
+  },
+  "pair": {
+   "sent": [
+    "0061",
+    "D83D",
+    "DE00",
+    "0062"
+   ],
+   "childArgv": [
+    "0061",
+    "D83D",
+    "DE00",
+    "0062"
+   ]
+  },
+  "reversed": {
+   "sent": [
+    "0061",
+    "DE00",
+    "D83D",
+    "0062"
+   ],
+   "childArgv": [
+    "0061",
+    "FFFD",
+    "FFFD",
+    "0062"
+   ]
+  }
+ },
+ "argvToBashBytes": {
+  "loneHigh": "61efbfbd62",
+  "loneLow": "61efbfbd62",
+  "pair": "61f09f988062",
+  "reversed": "61efbfbdefbfbd62"
+ },
+ "stdinToBashBytes": {
+  "loneHigh": "61efbfbd62",
+  "loneLow": "61efbfbd62",
+  "pair": "61f09f988062",
+  "reversed": "61efbfbdefbfbd62"
+ },
+ "bom": {
+  "initial": {
+   "content": [
+    "0061"
+   ],
+   "totalBytes": 1,
+   "outputBytes": 1
+  },
+  "splitInitial": {
+   "content": [
+    "0061"
+   ],
+   "totalBytes": 1,
+   "outputBytes": 1
+  },
+  "splitThree": {
+   "content": [
+    "0061"
+   ],
+   "totalBytes": 1,
+   "outputBytes": 1
+  },
+  "nonInitial": {
+   "content": [
+    "0078",
+    "FEFF",
+    "0061"
+   ],
+   "totalBytes": 5,
+   "outputBytes": 5
+  },
+  "doubleInitial": {
+   "content": [
+    "FEFF",
+    "0061"
+   ],
+   "totalBytes": 4,
+   "outputBytes": 4
+  },
+  "initialOnly": {
+   "content": [],
+   "totalBytes": 0,
+   "outputBytes": 0
+  },
+  "partialBomThenOther": {
+   "content": [
+    "FFFD",
+    "0061"
+   ],
+   "totalBytes": 4,
+   "outputBytes": 4
+  }
+ }
+}

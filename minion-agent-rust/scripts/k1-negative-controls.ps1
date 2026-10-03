@@ -24,17 +24,25 @@ function Change([string]$name,[string]$old,[string]$new) {
     if (-not $text.Contains($old)) { throw "Mutant anchor absent: $name / $old" }
     [IO.File]::WriteAllText($path,$text.Replace($old,$new),[Text.UTF8Encoding]::new($false))
 }
-$sort = [regex]::Match($files['argument_object.rs'],'(?s)        // Stable sorting.*?        previous').Value.Replace('        previous','')
-if (-not $sort) { throw 'Order mutation anchor absent' }
+# Route every operation to the insertion map for controls that deliberately
+# discard the index-prefix representation. Lookup/removal must use the same
+# wrong routing as insertion; a missing-value panic is not the intended defect.
+function InsertionOnly {
+    Change 'argument_object.rs' 'if let Some(index) = array_index(key.code_units())' 'if let Some(index) = None::<u32>'
+}
 $mutants = [ordered]@{
-    'insertion-without-index-first' = { Change 'argument_object.rs' $sort '' }
-    'sorted-map' = { Change 'argument_object.rs' '(None, None) => std::cmp::Ordering::Equal' '(None, None) => a.code_units().cmp(b.code_units())' }
+    'insertion-without-index-first' = { InsertionOnly }
+    'sorted-map' = {
+        # As before, keep the numeric index prefix correct and incorrectly sort
+        # ordinary properties. Do not introduce a second index-order defect.
+        Change 'argument_object.rs' '            self.ordinary.insert(key, value)' "            let previous = self.ordinary.insert(key, value);`n            self.ordinary.sort_by(|a, _, b, _| a.code_units().cmp(b.code_units()));`n            previous"
+    }
     'noncanonical-leading-zero' = { Change 'argument_object.rs' ' || (units.len() > 1 && units[0] == 48)' '' }
     'noncanonical-u32-max' = { Change 'argument_object.rs' 'number < u64::from(u32::MAX)' 'number <= u64::from(u32::MAX)' }
     'long-decimal-conversion' = { Change 'argument_object.rs' ' || units.len() > 10' '' }
     'construction-only' = {
-        Change 'argument_object.rs' $sort ''
-        Change 'argument_object.rs' "        object`n    }`n}" ($sort.Replace('self.0','object.0') + "        object`n    }`n}")
+        InsertionOnly
+        Change 'argument_object.rs' "        object`n    }`n}" "        object.ordinary.sort_by(|a, _, b, _| {`n            match (array_index(a.code_units()), array_index(b.code_units())) {`n                (Some(a), Some(b)) => a.cmp(&b),`n                (Some(_), None) => std::cmp::Ordering::Less,`n                (None, Some(_)) => std::cmp::Ordering::Greater,`n                (None, None) => std::cmp::Ordering::Equal,`n            }`n        });`n        object`n    }`n}"
     }
     'sorted-prepared-value' = {
         Change 'tools/prepared.rs' 'for (key, child) in values {' "let mut entries = values.iter().collect::<Vec<_>>();`n                    entries.sort_by(|a,b| a.0.code_units().cmp(b.0.code_units()));`n                    for (key, child) in entries {"

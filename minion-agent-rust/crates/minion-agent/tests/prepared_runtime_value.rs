@@ -39,8 +39,8 @@ fn json_round_trip_is_exact_and_keeps_missing_null_false_and_empty_distinct() {
     let prepared = PreparedValue::from(raw.clone());
     assert_eq!(prepared.try_to_json().unwrap(), raw);
     assert!(prepared.get("missing").is_none());
-    assert_eq!(prepared.get("null"), Some(&PreparedValue::Null));
-    assert_eq!(prepared.get("false"), Some(&PreparedValue::Bool(false)));
+    assert_eq!(prepared.get("null"), Some(PreparedValue::Null));
+    assert_eq!(prepared.get("false"), Some(PreparedValue::Bool(false)));
     assert!(
         prepared
             .get("negativeZero")
@@ -56,14 +56,20 @@ fn nested_non_finite_values_are_neither_strings_nor_null_and_conversion_is_falli
     let mut prepared = PreparedValue::from(json!({"a/b~c": [0]}));
     prepared.as_object_mut().unwrap().insert(
         "a/b~c".into(),
-        PreparedValue::Array(vec![PreparedValue::number(f64::NAN)]),
+        PreparedValue::Array(vec![PreparedValue::number(f64::NAN)].into()),
     );
     let before = prepared.clone();
     let error = prepared.try_to_json().unwrap_err();
     assert_eq!(error.pointer, "/a~1b~0c/0");
     assert_eq!(prepared, before);
     assert!(
-        prepared.get("a/b~c").unwrap().as_array().unwrap()[0]
+        prepared
+            .get("a/b~c")
+            .unwrap()
+            .as_array()
+            .unwrap()
+            .get(0)
+            .unwrap()
             .as_f64()
             .unwrap()
             .is_nan()

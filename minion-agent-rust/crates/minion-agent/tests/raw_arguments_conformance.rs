@@ -103,10 +103,10 @@ fn observe(value: &RawValue) -> Value {
         RawValue::Bool(v) => json!(v),
         RawValue::Number(v) => number(v.as_f64()),
         RawValue::String(v) => json!({"utf16":v.code_units()}),
-        RawValue::Array(a) => Value::Array(a.iter().map(observe).collect()),
+        RawValue::Array(a) => Value::Array(a.iter().map(|v| observe(&v)).collect()),
         RawValue::Object(o) => object(
             o.iter()
-                .map(|(k, v)| (k.code_units().to_vec(), observe(v)))
+                .map(|(k, v)| (k.code_units().to_vec(), observe(&v)))
                 .collect(),
         ),
     }
@@ -117,10 +117,10 @@ fn observe_prepared(value: &PreparedValue) -> Value {
         PreparedValue::Bool(v) => json!(v),
         PreparedValue::Number(v) => number(v.as_f64()),
         PreparedValue::String(v) => json!({"utf16":v.code_units()}),
-        PreparedValue::Array(a) => Value::Array(a.iter().map(observe_prepared).collect()),
+        PreparedValue::Array(a) => Value::Array(a.iter().map(|v| observe_prepared(&v)).collect()),
         PreparedValue::Object(o) => object(
             o.iter()
-                .map(|(k, v)| (k.code_units().to_vec(), observe_prepared(v)))
+                .map(|(k, v)| (k.code_units().to_vec(), observe_prepared(&v)))
                 .collect(),
         ),
     }

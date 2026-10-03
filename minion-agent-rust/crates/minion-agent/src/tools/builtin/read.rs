@@ -122,7 +122,7 @@ async fn read(
 }
 
 fn optional_number(params: &PreparedValue, name: &str) -> Option<f64> {
-    params.get(name).and_then(PreparedValue::as_f64)
+    params.get(name).and_then(|v| v.as_f64())
 }
 
 pub fn create_read_tool(fs: Arc<dyn FileSystem>, options: ReadToolOptions) -> ToolDefinition {

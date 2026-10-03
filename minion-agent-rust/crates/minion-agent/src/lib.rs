@@ -2,6 +2,8 @@
 
 pub mod agent;
 pub mod agent_loop;
+pub mod argument_graph;
+pub mod argument_object;
 pub mod auth;
 pub mod execution;
 pub mod javascript;

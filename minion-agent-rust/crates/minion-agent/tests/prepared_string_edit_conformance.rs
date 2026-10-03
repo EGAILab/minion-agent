@@ -77,10 +77,10 @@ async fn gate_wp132_real_edit_preserves_all_prepared_strings_and_file_bytes() {
         let observed = seen.lock().clone().unwrap();
         for pointer in case["observe"].as_array().unwrap() {
             let pointer = pointer.as_str().unwrap();
-            let mut value = &observed;
+            let mut value = observed.clone();
             for key in pointer.strip_prefix('/').unwrap().split('/') {
-                value = if let PreparedValue::Array(values) = value {
-                    &values[key.parse::<usize>().unwrap()]
+                value = if let PreparedValue::Array(values) = &value {
+                    values.get(key.parse::<usize>().unwrap()).unwrap()
                 } else {
                     value.get(key).unwrap()
                 };

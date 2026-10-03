@@ -5,7 +5,7 @@ use crate::{
     tools::{PreparedValue, ToolCapabilityError},
 };
 
-fn is_string(value: &PreparedValue) -> bool {
+fn is_string(value: PreparedValue) -> bool {
     matches!(value, PreparedValue::String(_))
 }
 
@@ -31,11 +31,11 @@ pub fn prepare_edit_arguments(
                 if parsed.as_array().is_some() {
                     args.insert("edits".into(), parsed);
                 } else if single(&parsed) {
-                    args.insert("edits".into(), PreparedValue::Array(vec![parsed]));
+                    args.insert("edits".into(), PreparedValue::Array(vec![parsed].into()));
                 }
             }
-        } else if single(edits) {
-            args.insert("edits".into(), PreparedValue::Array(vec![edits.clone()]));
+        } else if single(&edits) {
+            args.insert("edits".into(), PreparedValue::Array(vec![edits].into()));
         }
     }
     if single(&PreparedValue::Object(args.clone())) {
@@ -47,15 +47,15 @@ pub fn prepare_edit_arguments(
             .expect("single edit has newText");
         let mut edits = args
             .get(&"edits".into())
-            .and_then(PreparedValue::as_array)
-            .unwrap_or(&[])
-            .to_vec();
+            .and_then(|v| v.as_array())
+            .map(|v| v.to_vec())
+            .unwrap_or_default();
         edits.push(PreparedValue::Object(
             [("oldText".into(), old), ("newText".into(), new)]
                 .into_iter()
                 .collect(),
         ));
-        args.insert("edits".into(), PreparedValue::Array(edits));
+        args.insert("edits".into(), PreparedValue::Array(edits.into()));
     }
     Ok(value)
 }

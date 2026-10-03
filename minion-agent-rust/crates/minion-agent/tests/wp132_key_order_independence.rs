@@ -151,13 +151,16 @@ async fn owned_outputs_are_independent_of_distinct_raw_key_enumerations() {
     ];
     for (name, text) in fixtures {
         let permutations = variants(&RawValue::decode(text).unwrap());
+        // K1 now canonicalizes index keys in every construction. The index-first
+        // and sorted variants collapse onto the two distinct ordinary-key orders;
+        // both must still give identical WP-13.2-owned outputs.
         assert_eq!(
             permutations
                 .iter()
                 .map(order)
                 .collect::<std::collections::BTreeSet<_>>()
                 .len(),
-            4
+            2
         );
         for aborted in [false, true] {
             let mut baseline = None;
@@ -195,7 +198,7 @@ async fn nested_json_string_and_same_target_queue_are_order_independent() {
                     serde_json::to_string(&nested).unwrap()
                 )))
             } else {
-                RawValue::Array(vec![nested.clone()])
+                RawValue::Array(vec![nested.clone()].into())
             };
             let base = RawValue::decode(
                 r#"{"path":"f.txt","edits":[],"0":"x","10":"y","1":"z","b":true}"#,

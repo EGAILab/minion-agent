@@ -5,7 +5,7 @@
 //! strings, or clamped values. This vocabulary deliberately does not implement
 //! `Serialize`: any future serialization boundary must specify its projection.
 
-use std::collections::BTreeMap;
+use crate::argument_graph::{ArgumentArray, ArgumentObjectRef};
 
 use serde_json::{Number, Value};
 use thiserror::Error;
@@ -14,7 +14,7 @@ use thiserror::Error;
 ///
 /// Scalar text is available only when conversion is lossless. The UTF-16
 /// sequence remains authoritative; replacement is an explicit later boundary.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct PreparedString {
     units: Vec<u16>,
     scalar: Option<String>,
@@ -119,8 +119,8 @@ pub enum PreparedValue {
     Bool(bool),
     Number(PreparedNumber),
     String(PreparedString),
-    Array(Vec<Self>),
-    Object(BTreeMap<PreparedString, Self>),
+    Array(ArgumentArray<Self>),
+    Object(ArgumentObjectRef<PreparedString, Self>),
 }
 
 impl PreparedValue {
@@ -145,32 +145,32 @@ impl PreparedValue {
         }
     }
 
-    pub fn as_object(&self) -> Option<&BTreeMap<PreparedString, Self>> {
+    pub fn as_object(&self) -> Option<&ArgumentObjectRef<PreparedString, Self>> {
         match self {
             Self::Object(object) => Some(object),
             _ => None,
         }
     }
 
-    pub fn as_object_mut(&mut self) -> Option<&mut BTreeMap<PreparedString, Self>> {
+    pub fn as_object_mut(&mut self) -> Option<&mut ArgumentObjectRef<PreparedString, Self>> {
         match self {
             Self::Object(object) => Some(object),
             _ => None,
         }
     }
 
-    pub fn as_array(&self) -> Option<&[Self]> {
+    pub fn as_array(&self) -> Option<ArgumentArray<Self>> {
         match self {
-            Self::Array(array) => Some(array),
+            Self::Array(array) => Some(array.clone()),
             _ => None,
         }
     }
 
-    pub fn get(&self, key: &str) -> Option<&Self> {
+    pub fn get(&self, key: &str) -> Option<Self> {
         self.get_code_units(&PreparedString::from(key))
     }
 
-    pub fn get_code_units(&self, key: &PreparedString) -> Option<&Self> {
+    pub fn get_code_units(&self, key: &PreparedString) -> Option<Self> {
         self.as_object()?.get(key)
     }
 
@@ -219,22 +219,53 @@ impl PreparedValue {
     }
 }
 
-impl std::ops::Index<&str> for PreparedValue {
-    type Output = Self;
-    fn index(&self, key: &str) -> &Self {
-        self.get(key).unwrap_or(&Self::Null)
-    }
-}
-
-impl std::ops::IndexMut<&str> for PreparedValue {
-    fn index_mut(&mut self, key: &str) -> &mut Self {
-        if self.is_null() {
-            *self = Self::Object(BTreeMap::new());
+impl PreparedValue {
+    /// Pi's structuredClone boundary: a new graph, preserving all aliases
+    /// within that graph, including references crossing object/array frontiers.
+    pub fn structured_clone(&self) -> Self {
+        fn copy(
+            value: &PreparedValue,
+            memo: &mut std::collections::HashMap<(u8, usize), PreparedValue>,
+        ) -> PreparedValue {
+            match value {
+                PreparedValue::Object(object) => {
+                    let id = (0, object.identity());
+                    if let Some(value) = memo.get(&id) {
+                        return value.clone();
+                    }
+                    let out = ArgumentObjectRef::new();
+                    let value = PreparedValue::Object(out.clone());
+                    memo.insert(id, value.clone());
+                    for (key, child) in object.iter() {
+                        out.insert(key, copy(&child, memo));
+                    }
+                    value
+                }
+                PreparedValue::Array(array) => {
+                    let id = (1, array.identity());
+                    if let Some(value) = memo.get(&id) {
+                        return value.clone();
+                    }
+                    let out = ArgumentArray::default();
+                    let value = PreparedValue::Array(out.clone());
+                    memo.insert(id, value.clone());
+                    for child in array.iter() {
+                        out.push(copy(&child, memo));
+                    }
+                    value
+                }
+                _ => value.clone(),
+            }
         }
-        self.as_object_mut()
+        copy(self, &mut std::collections::HashMap::new())
+    }
+
+    /// Set a property through the shared object identity. A handle clone is not
+    /// a structured clone and mutations remain visible through retained handles.
+    pub fn set(&self, key: impl Into<PreparedString>, value: Self) -> Option<Self> {
+        self.as_object()
             .expect("prepared value is an object")
-            .entry(key.into())
-            .or_insert(Self::Null)
+            .insert(key.into(), value)
     }
 }
 
@@ -270,33 +301,56 @@ impl From<Value> for PreparedValue {
 
 impl From<crate::llm::RawValue> for PreparedValue {
     fn from(value: crate::llm::RawValue) -> Self {
-        use crate::llm::RawValue;
-        match value {
-            RawValue::Null => Self::Null,
-            RawValue::Bool(value) => Self::Bool(value),
-            RawValue::Number(value) => {
-                let number = match RawValue::Number(value).try_to_json() {
-                    Ok(Value::Number(number)) => PreparedNumber::Finite(number),
-                    _ => PreparedNumber::from_f64(value.as_f64()),
-                };
-                Self::Number(number)
-            }
-            RawValue::String(value) => {
-                Self::String(PreparedString::from_code_units(value.code_units().to_vec()))
-            }
-            RawValue::Array(values) => Self::Array(values.into_iter().map(Self::from).collect()),
-            RawValue::Object(values) => Self::Object(
-                values
-                    .into_iter()
-                    .map(|(key, value)| {
-                        (
+        fn convert(
+            value: crate::llm::RawValue,
+            memo: &mut std::collections::HashMap<(u8, usize), PreparedValue>,
+        ) -> PreparedValue {
+            use crate::llm::RawValue;
+            match value {
+                RawValue::Null => PreparedValue::Null,
+                RawValue::Bool(value) => PreparedValue::Bool(value),
+                RawValue::Number(value) => {
+                    let number = match RawValue::Number(value).try_to_json() {
+                        Ok(Value::Number(number)) => PreparedNumber::Finite(number),
+                        _ => PreparedNumber::from_f64(value.as_f64()),
+                    };
+                    PreparedValue::Number(number)
+                }
+                RawValue::String(value) => PreparedValue::String(PreparedString::from_code_units(
+                    value.code_units().to_vec(),
+                )),
+                RawValue::Array(values) => {
+                    let id = (1, values.identity());
+                    if let Some(value) = memo.get(&id) {
+                        return value.clone();
+                    }
+                    let out = ArgumentArray::default();
+                    let value = PreparedValue::Array(out.clone());
+                    memo.insert(id, value.clone());
+                    for child in values {
+                        out.push(convert(child, memo));
+                    }
+                    value
+                }
+                RawValue::Object(values) => {
+                    let id = (0, values.identity());
+                    if let Some(value) = memo.get(&id) {
+                        return value.clone();
+                    }
+                    let out = ArgumentObjectRef::new();
+                    let value = PreparedValue::Object(out.clone());
+                    memo.insert(id, value.clone());
+                    for (key, child) in values {
+                        out.insert(
                             PreparedString::from_code_units(key.code_units().to_vec()),
-                            Self::from(value),
-                        )
-                    })
-                    .collect(),
-            ),
+                            convert(child, memo),
+                        );
+                    }
+                    value
+                }
+            }
         }
+        convert(value, &mut std::collections::HashMap::new())
     }
 }
 
@@ -345,22 +399,22 @@ mod string_tests {
     fn non_scalar_keys_are_addressable_and_json_conversion_never_normalizes() {
         let high = PreparedString::from_code_units(vec![0xd800]);
         let low = PreparedString::from_code_units(vec![0xdc00]);
-        let mut object = PreparedValue::Object(BTreeMap::from([
+        let object = PreparedValue::Object(ArgumentObjectRef::from([
             (high.clone(), PreparedValue::Bool(true)),
             (low.clone(), PreparedValue::Bool(false)),
             ("�".into(), PreparedValue::Null),
         ]));
         assert_eq!(
             object.get_code_units(&high),
-            Some(&PreparedValue::Bool(true))
+            Some(PreparedValue::Bool(true))
         );
         assert_eq!(
             object.get_code_units(&low),
-            Some(&PreparedValue::Bool(false))
+            Some(PreparedValue::Bool(false))
         );
         assert_eq!(object.as_object().unwrap().len(), 3);
         assert!(object.try_to_json().is_err());
-        object["scalar"] = PreparedValue::String(high);
+        object.set("scalar", PreparedValue::String(high));
         assert!(object.try_to_json().is_err());
     }
 }

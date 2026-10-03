@@ -37,14 +37,23 @@ fn arguments(message: &Message) -> &RawValue {
 #[test]
 fn decoder_is_binary64_utf16_and_never_repairs_with_replacement() {
     let raw=RawValue::decode(r#"{"high":"\ud800","low":"\udc00","pair":"\ud83d\ude00","\ud800":-0,"n":1e999,"big":1000000000000000100}"#).unwrap();
-    assert_eq!(raw["high"].as_string().unwrap().code_units(), [0xd800]);
-    assert_eq!(raw["low"].as_string().unwrap().code_units(), [0xdc00]);
     assert_eq!(
-        raw["pair"].as_string().unwrap().code_units(),
+        raw.get("high").unwrap().as_string().unwrap().code_units(),
+        [0xd800]
+    );
+    assert_eq!(
+        raw.get("low").unwrap().as_string().unwrap().code_units(),
+        [0xdc00]
+    );
+    assert_eq!(
+        raw.get("pair").unwrap().as_string().unwrap().code_units(),
         [0xd83d, 0xde00]
     );
-    assert_eq!(raw["n"].as_f64(), Some(f64::INFINITY));
-    assert_eq!(raw["big"].as_f64(), Some(1000000000000000128.0));
+    assert_eq!(raw.get("n").unwrap().as_f64(), Some(f64::INFINITY));
+    assert_eq!(
+        raw.get("big").unwrap().as_f64(),
+        Some(1000000000000000128.0)
+    );
     let RawValue::Object(entries) = &raw else {
         panic!()
     };
@@ -93,7 +102,11 @@ fn literal_utf16_argument_text_is_not_forced_through_utf8_replacement() {
         "raw objects have unique keys by construction"
     );
     assert_eq!(
-        RawValue::decode(r#"{"a":1,"a":2}"#).unwrap()["a"].as_f64(),
+        RawValue::decode(r#"{"a":1,"a":2}"#)
+            .unwrap()
+            .get("a")
+            .unwrap()
+            .as_f64(),
         Some(2.0)
     );
 }

@@ -49,14 +49,14 @@ fn observed(
     pointers
         .iter()
         .map(|p| {
-            let mut at = value;
+            let mut at = value.clone();
             for part in p
                 .strip_prefix('/')
                 .ok_or_else(|| format!("invalid pointer {p}"))?
                 .split('/')
             {
                 let key = part.replace("~1", "/").replace("~0", "~");
-                at = match at {
+                at = match &at {
                     PreparedValue::Array(a) => key.parse::<usize>().ok().and_then(|i| a.get(i)),
                     _ => at.get(&key),
                 }
@@ -114,11 +114,11 @@ fn mutate(value: PreparedValue, mutation: Mutation) -> Result<PreparedValue, Too
             .into_iter()
             .map(|v| mutate(v, mutation))
             .collect::<Result<Vec<_>, _>>()
-            .map(PreparedValue::Array),
+            .map(|v| PreparedValue::Array(v.into())),
         PreparedValue::Object(o) => o
             .into_iter()
             .map(|(k, v)| mutate(v, mutation).map(|v| (k, v)))
-            .collect::<Result<BTreeMap<_, _>, _>>()
+            .collect::<Result<minion_agent::argument_graph::ArgumentObjectRef<_, _>, _>>()
             .map(PreparedValue::Object),
         _ => Ok(value),
     }
@@ -189,9 +189,9 @@ fn run_case(case: &Value, mutation: Mutation) -> Observation {
         },
     )
     .with_prepare_runtime_arguments(move |raw| {
-        let mut prepared = PreparedValue::from(raw);
+        let prepared = PreparedValue::from(raw);
         for (key, n) in &set {
-            prepared[key.as_str()] = PreparedValue::number(*n);
+            prepared.set(key.as_str(), PreparedValue::number(*n));
         }
         mutate(prepared, mutation)
     });
@@ -208,15 +208,15 @@ fn run_case(case: &Value, mutation: Mutation) -> Observation {
             let hook = hook_observation.clone();
             async move {
                 register_before_tool_call_hook(&context, move |current| {
-                    *hook.lock() = Some(current.arguments.clone());
+                    *hook.lock() = Some(current.arguments.structured_clone());
                     async move {
                         let replacement = match mutation {
                             Mutation::LoseAtHook => {
                                 Some(mutate(current.arguments, Mutation::NullNonFinite)?)
                             }
                             Mutation::ReplaceAtHook => {
-                                let mut replacement = current.arguments;
-                                replacement["extra"] = PreparedValue::number(f64::INFINITY);
+                                let replacement = current.arguments;
+                                replacement.set("extra", PreparedValue::number(f64::INFINITY));
                                 Some(replacement)
                             }
                             _ => None,
@@ -431,9 +431,18 @@ fn pre_execute_replacement_carries_the_runtime_domain_without_revalidation_or_js
         .unwrap();
     let result = run_case(case, Mutation::ReplaceAtHook);
     assert!(!result.error);
-    assert_eq!(result.hook.as_ref().unwrap()["extra"].as_f64(), Some(0.0));
     assert_eq!(
-        result.execute.as_ref().unwrap()["extra"].as_f64(),
+        result.hook.as_ref().unwrap().get("extra").unwrap().as_f64(),
+        Some(0.0)
+    );
+    assert_eq!(
+        result
+            .execute
+            .as_ref()
+            .unwrap()
+            .get("extra")
+            .unwrap()
+            .as_f64(),
         Some(f64::INFINITY)
     );
     assert_eq!(result.raw_events, vec![json!({}), json!({})]);

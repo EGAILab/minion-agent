@@ -4,8 +4,16 @@ use super::PreparedValue;
 use crate::llm::JsonSchemaObject;
 use thiserror::Error;
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Debug, PartialEq)]
 pub struct RuntimeSchemaObject(PreparedValue);
+
+// K1 makes argument handles shared; it does not grant a new schema mutator or
+// let a previously validated schema acquire non-finite leaves through an alias.
+impl Clone for RuntimeSchemaObject {
+    fn clone(&self) -> Self {
+        Self(self.0.structured_clone())
+    }
+}
 
 #[derive(Clone, Debug, Error, Eq, PartialEq)]
 pub enum RuntimeSchemaError {
@@ -16,8 +24,8 @@ pub enum RuntimeSchemaError {
 }
 
 impl RuntimeSchemaObject {
-    pub fn as_value(&self) -> &PreparedValue {
-        &self.0
+    pub fn as_value(&self) -> PreparedValue {
+        self.0.structured_clone()
     }
 
     pub fn try_to_json(&self) -> Result<JsonSchemaObject, RuntimeSchemaError> {
@@ -35,15 +43,15 @@ impl TryFrom<PreparedValue> for RuntimeSchemaObject {
         fn finite(value: &PreparedValue) -> bool {
             match value {
                 PreparedValue::Number(n) => n.is_finite(),
-                PreparedValue::Array(a) => a.iter().all(finite),
-                PreparedValue::Object(o) => o.values().all(finite),
+                PreparedValue::Array(a) => a.iter().all(|v| finite(&v)),
+                PreparedValue::Object(o) => o.values().all(|v| finite(&v)),
                 _ => true,
             }
         }
         if value.as_object().is_none() || !finite(&value) {
             return Err(RuntimeSchemaError::InvalidDomain);
         }
-        Ok(Self(value))
+        Ok(Self(value.structured_clone()))
     }
 }
 

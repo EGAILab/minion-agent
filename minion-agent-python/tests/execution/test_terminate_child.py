@@ -8,7 +8,9 @@ from __future__ import annotations
 
 import asyncio
 import os
+import signal as signal_module
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -147,6 +149,88 @@ async def test_posix_terminate_child_is_not_a_cause_claim() -> None:
     controller.abort()
     result = await asyncio.wait_for(process.wait(), 10)
     assert isinstance(result, Err)
+
+
+def _record_signals(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, int, int]]:
+    """Records every signal request through `os.kill` and `signal.pidfd_send_signal`, then lets
+    the real call proceed."""
+    sent: list[tuple[str, int, int]] = []
+    real_kill = os.kill
+
+    def kill(pid: int, signum: int) -> None:
+        sent.append(("kill", pid, signum))
+        real_kill(pid, signum)
+
+    monkeypatch.setattr(os, "kill", kill)
+    real_pidfd_send = getattr(signal_module, "pidfd_send_signal", None)
+    if real_pidfd_send is not None:
+
+        def pidfd_send(fd: int, signum: int, *rest: object) -> None:
+            sent.append(("pidfd", fd, signum))
+            real_pidfd_send(fd, signum, *rest)
+
+        monkeypatch.setattr(signal_module, "pidfd_send_signal", pidfd_send)
+    return sent
+
+
+@POSIX
+async def test_posix_released_pid_is_never_signalled(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`WP12E5-I001`: asyncio's watcher has REAPED the child but its queued callback has not yet
+    published the exit, so `returncode` is still `None` -- the PID is no longer the child's and
+    must not be signalled. The request runs in exactly that window (it is scheduled from the
+    watcher callback, ahead of the transport's own exit notification)."""
+    loop = asyncio.get_running_loop()
+    original_callback = loop._child_watcher_callback  # type: ignore[attr-defined]
+    window: dict[str, object] = {}
+    done = asyncio.Event()
+
+    async def request() -> None:
+        process = window["process"]
+        assert isinstance(process, Process)
+        window["returncode_in_window"] = process._proc.returncode
+        await process.terminate_child()
+        done.set()
+
+    def callback(pid: int, code: int, transport: object) -> None:
+        try:
+            os.waitid(os.P_PID, pid, os.WEXITED | os.WNOHANG | os.WNOWAIT)  # type: ignore[attr-defined]
+            window["reaped"] = False
+        except ChildProcessError:
+            window["reaped"] = True
+        window["task"] = loop.create_task(request())
+        original_callback(pid, code, transport)
+
+    monkeypatch.setattr(loop, "_child_watcher_callback", callback)
+    result = await LocalSubprocess().spawn(
+        [PY, "-c", "import time; time.sleep(0.2); raise SystemExit(7)"]
+    )
+    assert isinstance(result, Ok)
+    window["process"] = result.value
+    sent = _record_signals(monkeypatch)
+    await asyncio.wait_for(done.wait(), 5)
+    assert window["reaped"] is True
+    assert window["returncode_in_window"] is None
+    assert sent == []
+    assert await _exit_code(result.value) == 7
+
+
+@POSIX
+async def test_posix_exited_unreaped_child_is_not_signalled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An exited child the watcher has not reaped yet (a zombie: the event loop is blocked) has
+    finished, so nothing is requested, and its real code stands."""
+    result = await LocalSubprocess().spawn(
+        [PY, "-c", "import time; time.sleep(0.2); raise SystemExit(5)"]
+    )
+    assert isinstance(result, Ok)
+    process = result.value
+    sent = _record_signals(monkeypatch)
+    time.sleep(0.8)  # block the loop: the child exits, and the watcher cannot reap it yet
+    assert process._proc.returncode is None
+    await process.terminate_child()
+    assert sent == []
+    assert await _exit_code(process) == 5
 
 
 @POSIX

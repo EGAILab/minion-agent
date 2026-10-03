@@ -190,6 +190,51 @@ async def _issue_and_confirm_kill(pid: int) -> None:
     await _confirm_kill(await _issue_kill(pid))
 
 
+def _posix_terminate_child(pid: int) -> None:  # pragma: no cover
+    """`EXEC-011` (WP-12.E5), POSIX: one `SIGTERM` to the direct child, only while the child still
+    owns its PID (`WP12E5-I001`).
+
+    asyncio's child watcher reaps the child, then publishes the exit to the transport through a
+    queued callback, so `Process.returncode is None` does not prove the PID is still ours: a
+    released (and possibly reused) PID must never be signalled. Order matters:
+
+    1. `pidfd_open(pid)` first, where available (Linux), pinning the process the PID names now.
+    2. `waitid(P_PID, pid, WEXITED | WNOHANG | WNOWAIT)` -- it never reaps. `ChildProcessError`:
+       already reaped, the PID is not ours, do nothing. A result: exited (a zombie), nothing to
+       request. `None`: still running and unreaped -- and since reaping is irreversible, the
+       pidfd opened in step 1 names this same child.
+    3. Signal through the pidfd (`pidfd_send_signal`), which is safe even if the child is reaped
+       afterwards (`ESRCH`).
+
+    Without pidfd support (Linux before 5.3, other POSIX systems) `os.kill` follows step 2 in the
+    same synchronous block; asyncio then reaps on a watcher THREAD, so a microsecond window
+    between step 2 and the signal remains there -- disclosed, and outside the certified hosts
+    (Linux with pidfd; Windows). `Popen.send_signal` is avoided: its `poll()` can reap the child
+    behind asyncio's own watcher."""
+    pidfd: int | None = None
+    with suppress(AttributeError, OSError):
+        pidfd = os.pidfd_open(pid)  # type: ignore[attr-defined]
+    try:
+        try:
+            exited = os.waitid(  # type: ignore[attr-defined]
+                os.P_PID,  # type: ignore[attr-defined]
+                pid,
+                os.WEXITED | os.WNOHANG | os.WNOWAIT,  # type: ignore[attr-defined]
+            )
+        except ChildProcessError:
+            return
+        if exited is not None:
+            return
+        with suppress(OSError):
+            if pidfd is not None:
+                _os_signal.pidfd_send_signal(pidfd, _os_signal.SIGTERM)  # type: ignore[attr-defined]
+            else:
+                os.kill(pid, _os_signal.SIGTERM)
+    finally:
+        if pidfd is not None:
+            os.close(pidfd)
+
+
 class WritableStream:
     """`EXEC-005`."""
 
@@ -414,11 +459,11 @@ class Process:
         directly spawned process only -- Node's `uv_process_kill(process, SIGTERM)`, which pinned
         Pi's `spawnSync` lookup interruption sends. Best-effort, MUST NOT raise, idempotent.
 
-        POSIX: one `SIGTERM` to the direct PID -- never `SIGKILL`, never the process group (the
-        child leads its own session, so its descendants share the group and are left alone).
-        `os.kill` is used directly: `Popen.send_signal` would `poll()`, which can reap the child
-        behind asyncio's own child watcher. Windows: `TerminateProcess(handle, 1)` on the direct
-        process (the transport's `Popen.terminate`); no tree, no job.
+        POSIX: one `SIGTERM` to the direct child -- never `SIGKILL`, never the process group (the
+        child leads its own session, so its descendants share the group and are left alone) --
+        and never to a PID the child no longer owns (`_posix_terminate_child`, `WP12E5-I001`).
+        Windows: `TerminateProcess(handle, 1)` on the direct process (the transport's
+        `Popen.terminate`); no tree, no job.
 
         A no-op when the process has already exited, when this was already called (Node's
         `spawn_sync` `Kill()` sends once), or after `terminate()`. Not a cause claim: section 6's
@@ -445,8 +490,7 @@ class Process:
             self._terminated_by_child_request = popen.returncode is None
             return
         # POSIX-only: unreachable on Windows (the branch above always returns first).
-        with suppress(OSError):  # pragma: no cover
-            os.kill(self.pid, _os_signal.SIGTERM)
+        _posix_terminate_child(self.pid)  # pragma: no cover
 
     async def __aenter__(self) -> Process:
         return self

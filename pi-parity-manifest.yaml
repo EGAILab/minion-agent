@@ -6859,12 +6859,13 @@ rows:
     first-claim classification unchanged. terminate() unchanged. Full rules: spec/execution.md section 16.'
   tests:
   - tests/execution/test_terminate_child.py (POSIX default/handled 0 and 7/delayed/SIG_IGN, direct child only with an
-    in-group descendant versus terminate(), acknowledged single delivery, not a cause claim, a later terminate() still hard-kills; Windows effective termination None,
+    in-group descendant versus terminate(), acknowledged single delivery, not a cause claim, a later terminate() still hard-kills, a reaped-but-unpublished PID and an exited-unreaped child are never signalled (WP12E5-I001); Windows effective termination None,
     descendant survives, terminate() keeps its code, exited-unobserved not effective; no-op after exit and after
     terminate)
   - scripts/e5_negative_controls.py (as-terminate, POSIX SIGKILL, killpg, handled exit as no status, delayed exit
-    completed at request, resend on repeat, cause claim; Windows synthesized 1, tree kill)
-  python: minion_agent/execution/subprocess.py (Process.terminate_child, wait mapping)
+    completed at request, unsynchronized kill (the rejected I001 candidate), zombie signalled, resend on repeat, cause claim; Windows synthesized 1, tree kill)
+  python: minion_agent/execution/subprocess.py (Process.terminate_child, _posix_terminate_child -- pidfd_open, then a
+    non-reaping waitid, then pidfd_send_signal; wait mapping)
   rust: NOT_IMPLEMENTED
   disposition: adopted
 - id: TOOL-025

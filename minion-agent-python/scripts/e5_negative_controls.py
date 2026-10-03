@@ -23,7 +23,10 @@ TESTS = "tests/execution/test_terminate_child.py"
 
 _CALLED = "        self._terminate_child_called = True\n"
 _CALL_GATE = "            self._terminate_child_called\n            or self._terminate_called"
-_POSIX_SEND = "            os.kill(self.pid, _os_signal.SIGTERM)\n"
+_POSIX_CALL = "        _posix_terminate_child(self.pid)  # pragma: no cover\n"
+_PIDFD_SEND = "_os_signal.pidfd_send_signal(pidfd, _os_signal.SIGTERM)"
+_KILL_SEND = "os.kill(pid, _os_signal.SIGTERM)"
+_ZOMBIE_GATE = "        if exited is not None:\n            return\n"
 _WIN_TERMINATE = "                popen.terminate()\n"
 _WAIT_MAP = "if returncode >= 0 and not self._terminated_by_child_request"
 _IGNORE = "  # type: ignore[attr-defined]"
@@ -36,11 +39,17 @@ FAULTS: dict[str, tuple[str, list[tuple[str, str]]]] = {
     ),
     "posix-sigkill": (
         "posix",
-        [(_POSIX_SEND, f"            os.kill(self.pid, _os_signal.SIGKILL){_IGNORE}\n")],
+        [
+            (_PIDFD_SEND, "_os_signal.pidfd_send_signal(pidfd, _os_signal.SIGKILL)"),
+            (_KILL_SEND, "os.kill(pid, _os_signal.SIGKILL)"),
+        ],
     ),
     "posix-killpg": (
         "posix",
-        [(_POSIX_SEND, f"            os.killpg(self.pid, _os_signal.SIGTERM){_IGNORE}\n")],
+        [
+            (_PIDFD_SEND, "os.killpg(pid, _os_signal.SIGTERM)"),
+            (_KILL_SEND, "os.killpg(pid, _os_signal.SIGTERM)"),
+        ],
     ),
     "handled-exit-as-no-status": (
         "any",
@@ -50,11 +59,17 @@ FAULTS: dict[str, tuple[str, list[tuple[str, str]]]] = {
         "posix",
         [
             (
-                _POSIX_SEND,
-                _POSIX_SEND + "            self._wait_result = Ok(ExitStatus(exit_code=None))\n",
+                _POSIX_CALL,
+                _POSIX_CALL + "        self._wait_result = Ok(ExitStatus(exit_code=None))\n",
             )
         ],
     ),
+    # WP12E5-I001: the rejected candidate -- an unsynchronized signal to the integer PID
+    "unsynchronized-kill": (
+        "posix",
+        [(_POSIX_CALL, f"        os.kill(self.pid, _os_signal.SIGTERM){_IGNORE}\n")],
+    ),
+    "zombie-signalled": ("posix", [(_ZOMBIE_GATE, "")]),
     "resend-on-repeat": (
         "posix",
         [(_CALL_GATE, "            False\n            or self._terminate_called")],

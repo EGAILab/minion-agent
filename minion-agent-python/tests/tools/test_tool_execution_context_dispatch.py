@@ -185,3 +185,162 @@ async def test_control_counting_context_as_positional_breaks_the_context_only_di
 
     result = await _call(_define(execute))
     assert result.is_error and seen == {}
+
+
+# --- L0506-D004-I001: a failing provider is an ordinary per-call execution failure -------------
+
+
+def _boom() -> ToolExecutionContext:
+    raise RuntimeError("context boom")
+
+
+async def test_a_failing_provider_settles_the_call_as_an_error_result() -> None:
+    ran: list[str] = []
+    ended: list[tuple[str, bool]] = []
+
+    def execute(tool_call_id: str, args: Any, *, context: Any) -> str:  # pragma: no cover
+        ran.append("body")
+        return "ok"
+
+    async def on_end(call_id: str, name: str, result: Any) -> None:
+        ended.append((call_id, result.is_error))
+
+    ctx = Context()
+    declare_tools_events(ctx.events)
+    result = await execute_call(
+        ToolCallBlock(id="c", name="t", arguments={}),
+        registry=_define(execute),
+        ctx=ctx,
+        on_execution_end=on_end,
+        context_provider=_boom,
+    )
+    assert result.is_error and "context boom" in result.content[0].text  # type: ignore[union-attr]
+    assert ran == [] and ended == [("c", True)]
+
+
+async def test_a_failing_provider_fails_only_its_own_call_in_a_batch() -> None:
+    from minion_agent.tools.batch import execute_batch
+    from minion_agent.tools.definition import ExecutionMode
+
+    seen: list[str] = []
+    attempts: list[int] = []
+
+    def provider() -> ToolExecutionContext:
+        attempts.append(1)
+        if len(attempts) == 1:
+            raise RuntimeError("context boom")
+        return CONTEXT
+
+    def execute(tool_call_id: str, args: Any, *, context: Any) -> str:
+        seen.append(tool_call_id)
+        return "ok"
+
+    registry = ToolRegistry()
+    registry.register(
+        ToolDefinition(
+            name="t",
+            label="t",
+            description="t",
+            parameters={"type": "object", "properties": {}},
+            execute=execute,
+            wants_context=True,
+            mode=ExecutionMode.SEQUENTIAL,
+        )
+    )
+    ctx = Context()
+    declare_tools_events(ctx.events)
+    outcome = await execute_batch(
+        [
+            ToolCallBlock(id="a", name="t", arguments={}),
+            ToolCallBlock(id="b", name="t", arguments={}),
+        ],
+        registry=registry,
+        ctx=ctx,
+        context_provider=provider,
+    )
+    assert [r.is_error for r in outcome.results] == [True, False] and seen == ["b"]
+
+
+async def test_control_a_provider_called_outside_the_boundary_escapes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Negative control: evaluating the provider before (outside) the execute boundary -- the
+    rejected 9ced384e placement -- lets its exception escape `execute_call`."""
+    real = execute_module._execute_and_finalize
+
+    async def outside(prepared: Any, *, context_provider: Any = None, **kw: Any) -> Any:
+        value = (
+            context_provider()
+            if context_provider is not None and prepared.definition.wants_context
+            else None
+        )
+        return await real(prepared, context_provider=lambda: value, **kw)
+
+    monkeypatch.setattr(execute_module, "_execute_and_finalize", outside)
+    with pytest.raises(RuntimeError, match="context boom"):
+        await test_a_failing_provider_settles_the_call_as_an_error_result()
+
+
+# --- L0506-D004-I002: every execute in ONE batch gets its own then-current snapshot -----------
+
+
+async def _same_batch(provider_wrapper: Any = None) -> tuple[list[str | None], int]:
+    from minion_agent.tools.batch import execute_batch
+    from minion_agent.tools.definition import ExecutionMode
+
+    state = {"model": "first"}
+    calls: list[int] = []
+
+    def provider() -> ToolExecutionContext:
+        calls.append(1)
+        return ToolExecutionContext(session_id="s", model=state["model"])
+
+    seen: list[str | None] = []
+
+    def execute(tool_call_id: str, args: Any, *, context: Any) -> str:
+        seen.append(context.model)
+        state["model"] = "second"  # changes the source between the two calls of this batch
+        return "ok"
+
+    registry = ToolRegistry()
+    registry.register(
+        ToolDefinition(
+            name="t",
+            label="t",
+            description="t",
+            parameters={"type": "object", "properties": {}},
+            execute=execute,
+            wants_context=True,
+            mode=ExecutionMode.SEQUENTIAL,
+        )
+    )
+    ctx = Context()
+    declare_tools_events(ctx.events)
+    await execute_batch(
+        [
+            ToolCallBlock(id="a", name="t", arguments={}),
+            ToolCallBlock(id="b", name="t", arguments={}),
+        ],
+        registry=registry,
+        ctx=ctx,
+        context_provider=provider if provider_wrapper is None else provider_wrapper(provider),
+    )
+    return seen, len(calls)
+
+
+async def test_each_call_in_one_sequential_batch_gets_its_own_snapshot() -> None:
+    assert await _same_batch() == (["first", "second"], 2)
+
+
+async def test_control_a_once_per_batch_capture_fails_the_same_batch_witness() -> None:
+    def once_per_batch(provider: Any) -> Any:
+        captured: list[ToolExecutionContext] = []
+
+        def lazy() -> ToolExecutionContext:
+            if not captured:
+                captured.append(provider())
+            return captured[0]
+
+        return lazy
+
+    assert await _same_batch(once_per_batch) == (["first", "first"], 1)

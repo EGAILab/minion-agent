@@ -185,3 +185,47 @@ async def test_control_a_registration_time_capture_fails_the_two_agent_witness(
     monkeypatch.setattr(AgentLoop, "_tool_execution_context", first_ever)
     with pytest.raises(AssertionError):
         await test_two_agents_sharing_one_registration_each_see_their_own_context()
+
+
+async def test_two_calls_in_one_agent_batch_each_see_the_then_current_state() -> None:
+    """`L0506-D004-I002`, agent-driven: ONE model reply with two calls to a sequential tool; the
+    first call changes the agent's model, and the second call's context shows the change."""
+    from minion_agent.tools.definition import ExecutionMode
+
+    agents, sessions = _world()
+    instance = agents.create(
+        "ada", AgentDefinition(name="ada", model=ModelId("mock", "m-1"))
+    ).instance
+    seen: list[ToolExecutionContext | None] = []
+    registry = ToolRegistry()
+
+    async def execute(
+        tool_call_id: str, args: dict[str, Any], *, context: ToolExecutionContext | None
+    ) -> str:
+        seen.append(context)
+        instance.model = ModelId("mock", "m-2")
+        return "ok"
+
+    registry.register(
+        ToolDefinition(
+            name="probe",
+            label="probe",
+            description="probe",
+            parameters={"type": "object", "properties": {}},
+            execute=execute,
+            wants_context=True,
+            mode=ExecutionMode.SEQUENTIAL,
+        )
+    )
+    both = ScriptedResponse(
+        (
+            ToolCallBlock(id="t1", name="probe", arguments={}),
+            ToolCallBlock(id="t2", name="probe", arguments={}),
+        ),
+        StopReason.TOOL_USE,
+    )
+    loop = AgentLoop(
+        instance=instance, llm=_llm(both, _stop()), tools=registry, artifacts=sessions.artifacts
+    )
+    await _run(loop)
+    assert [c.model for c in seen if c is not None] == ["m-1", "m-2"]

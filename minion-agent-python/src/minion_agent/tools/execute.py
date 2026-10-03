@@ -823,12 +823,14 @@ async def _execute_and_finalize(
             )
 
     order_in_place(arguments)  # `L0206-D001`: execute is an observer too
-    # `L0506-D004`: the context is snapshotted now, as `execute` is invoked (pinned Pi's
-    # `wrapToolDefinition` calls its factory here), and only for a tool that asked for it.
-    extra: dict[str, Any] = {}
-    if definition.wants_context:
-        extra["context"] = context_provider() if context_provider is not None else None
     try:
+        # `L0506-D004`: the context is snapshotted now, as `execute` is invoked, and only for a
+        # tool that asked for it -- INSIDE the execution failure boundary (`L0506-D004-I001`):
+        # pinned Pi's `wrapToolDefinition` calls its factory within the wrapped `execute`, so a
+        # failing factory is an ordinary per-call execution failure, not a pipeline exception.
+        extra: dict[str, Any] = {}
+        if definition.wants_context:
+            extra["context"] = context_provider() if context_provider is not None else None
         if _wants_signal(definition) and _wants_update(definition):
             outcome = definition.execute(call.id, arguments, signal, update, **extra)
         elif _wants_signal(definition):

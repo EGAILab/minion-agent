@@ -12,7 +12,7 @@ import pytest
 from pydantic import BaseModel
 
 from minion_agent.llm import ToolCallBlock
-from minion_agent.llm.js_object import JsArray, JsObject, is_array_index, order_in_place
+from minion_agent.llm.js_object import JsArray, JsObject, adopt, is_array_index, order_in_place
 from minion_agent.runtime import Context
 from minion_agent.tools.definition import ToolDefinition
 from minion_agent.tools.events import declare_tools_events
@@ -193,3 +193,29 @@ def test_js_object_values_and_items_order_what_they_expose() -> None:
     child["0"] = 0
     assert [list(dict.__iter__(value)) for _, value in obj.items()] == [["0", "1", "b"]]
     assert list(dict.__iter__(obj.get("o"))) == ["0", "1", "b"]
+
+
+def test_adopt_converts_the_native_frontier_and_keeps_aliasing_and_cycles() -> None:
+    """`L0206-D001-R007`: a plain container reached twice becomes ONE adopted container; a cycle
+    terminates; every adopted object enumerates by the rule."""
+    shared: list[Any] = [{"b": 1, "2": 2}]
+    cyclic: dict[str, Any] = {"z": 0}
+    cyclic["self"] = cyclic
+    adopted = adopt({"x": shared, "y": shared, "c": cyclic})
+    assert isinstance(adopted, JsObject)
+    assert isinstance(adopted["x"], JsArray) and adopted["x"] is adopted["y"]
+    assert list(dict.keys(list.__getitem__(adopted["x"], 0))) == ["2", "b"]
+    assert adopted["c"]["self"] is adopted["c"]
+
+
+def test_adopt_keeps_graph_containers_and_what_was_attached_to_them() -> None:
+    """An existing `JsObject`/`JsArray` is never replaced, and a native container attached into it
+    stays native (no copy, `R002`; Owner Q2)."""
+    native: list[Any] = []
+    graph = JsObject({"a": JsArray()})
+    dict.__setitem__(graph, "n", native)
+    assert adopt(graph) is graph
+    assert dict.__getitem__(graph, "n") is native
+    holder = adopt({"g": graph})
+    assert dict.__getitem__(holder, "g") is graph
+    assert adopt(5) == 5

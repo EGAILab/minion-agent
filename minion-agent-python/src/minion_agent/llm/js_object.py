@@ -190,28 +190,29 @@ def order_raw(arguments: Any) -> Any:
     return order_in_place(arguments)
 
 
-def adopt(value: Any) -> Any:
-    """`CE-L0206-D001-01`: make every object and array in a value the pipeline is about to OWN (a
-    call's raw arguments, as a provider decoded them) a `JsObject` / `JsArray`, recursively, so the
-    graph's own seams hold the rule from construction on. Adoption happens once, before the value
-    enters the pipeline; an existing `JsObject`/`JsArray` is kept as is, so it never replaces an
-    object a hook or caller already shares with the pipeline. Plain objects attached LATER are not
-    adopted (no copy, `R002`): the seam they are attached through orders them in place."""
-    if isinstance(value, JsObject):
-        for item in dict.values(value):
-            adopt(item)
+def adopt(value: Any, _adopted: dict[int, Any] | None = None) -> Any:
+    """`CE-L0206-D001-01`: make every object and array in a value the pipeline is about to OWN a
+    `JsObject` / `JsArray`, recursively, so the graph's own seams hold the rule from then on. The
+    pipeline owns a call's raw arguments as a provider decoded them (construction) and the graph a
+    `prepare_arguments` shim hands it (`L0206-D001-R007`).
+
+    Only the native frontier is adopted: a plain `dict`/`list` and its plain descendants. An
+    existing `JsObject`/`JsArray` is kept as is, contents included, so adoption never replaces an
+    object a hook or caller already shares with the graph, nor a native container attached into the
+    graph later (no copy, `R002`; Owner Q2: it stays native). A plain container reached twice
+    becomes one adopted container, so aliasing and cycles inside the adopted value survive."""
+    if isinstance(value, (JsObject, JsArray)) or not isinstance(value, (dict, list)):
         return value
-    if isinstance(value, JsArray):
-        for index, item in enumerate(list.__iter__(value)):
-            list.__setitem__(value, index, adopt(item))
-        return value
+    adopted = {} if _adopted is None else _adopted
+    if id(value) in adopted:
+        return adopted[id(value)]
     if isinstance(value, dict):
-        adopted = JsObject()
+        js_object = JsObject()
+        adopted[id(value)] = js_object
         for key, item in dict.items(value):
-            dict.__setitem__(adopted, key, adopt(item))
-        return order_in_place(adopted)
-    if isinstance(value, list):
-        array = JsArray()
-        list.extend(array, [adopt(item) for item in value])
-        return array
-    return value
+            dict.__setitem__(js_object, key, adopt(item, adopted))
+        return order_in_place(js_object)
+    array = JsArray()
+    adopted[id(value)] = array
+    list.extend(array, [adopt(item, adopted) for item in value])
+    return array

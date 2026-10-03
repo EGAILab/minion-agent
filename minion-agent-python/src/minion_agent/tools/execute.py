@@ -65,7 +65,7 @@ from pydantic import (
 from pydantic import ValidationError as PydanticValidationError
 
 from ..llm import ToolCallBlock
-from ..llm.js_object import JsObject, order_in_place, order_raw
+from ..llm.js_object import JsArray, JsObject, adopt, order_in_place, order_raw
 from ..runtime import Context, RunSignal, Scope, ScopeKey
 from .decisions import AfterToolCallOverride, Block, PreExecuteDecision, Proceed
 from .definition import ToolDefinition
@@ -148,8 +148,10 @@ def _prepare(definition: ToolDefinition, arguments: dict[str, Any]) -> dict[str,
     if definition.prepare_arguments is None:
         return arguments
     # `L0206-D001` (K1): a shim's objects (for example `edit`'s re-parsed `edits`) enumerate in
-    # ECMAScript order, as pinned Pi's do.
-    prepared: dict[str, Any] = order_in_place(definition.prepare_arguments(dict(arguments)))
+    # ECMAScript order, as pinned Pi's do. The containers it produced are the pipeline's from here
+    # on (`R007`): adopted, so an observer mutating them goes through the graph's seams. Pinned Pi
+    # hands observers a `structuredClone` of the prepared value, never the shim's own objects.
+    prepared: dict[str, Any] = adopt(definition.prepare_arguments(dict(arguments)))
     return prepared
 
 
@@ -204,11 +206,17 @@ def _in_input_order(delivered: Any, given: Any) -> Any:
                 ordered[key] = _in_input_order(value, None)
         return ordered
     if isinstance(delivered, list):
+        # `R007`: the rebuilt array is the pipeline's own, so it carries the graph's seams.
         source_list = given if isinstance(given, list) else []
-        return [
-            _in_input_order(item, source_list[index] if index < len(source_list) else None)
-            for index, item in enumerate(delivered)
-        ]
+        array = JsArray()
+        list.extend(
+            array,
+            [
+                _in_input_order(item, source_list[index] if index < len(source_list) else None)
+                for index, item in enumerate(delivered)
+            ],
+        )
+        return array
     return delivered
 
 

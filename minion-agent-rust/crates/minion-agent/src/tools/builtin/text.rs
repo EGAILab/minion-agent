@@ -2,6 +2,8 @@
 
 use serde_json::{Value, json};
 
+use super::paths::path_message;
+use crate::execution::FsPath;
 use crate::tools::ToolCapabilityError;
 
 use super::{
@@ -13,10 +15,11 @@ const UNDEFINED_LINE_ERROR: &str = "The \"string\" argument must be of type stri
 
 pub(super) fn read_text(
     data: &[u8],
-    path: &str,
+    path: impl Into<FsPath>,
     offset: Option<f64>,
     limit: Option<f64>,
-) -> Result<(String, Value), ToolCapabilityError> {
+) -> Result<(FsPath, Value), ToolCapabilityError> {
+    let path = path.into();
     let decoded = String::from_utf8_lossy(data);
     let all_lines: Vec<&str> = decoded.split('\n').collect();
     let total_file_lines = all_lines.len();
@@ -55,10 +58,13 @@ pub(super) fn read_text(
             .get(start as usize)
             .ok_or_else(|| ToolCapabilityError::new(UNDEFINED_LINE_ERROR))?;
         let display = number_to_string(start_display);
-        let text = format!(
-            "[Line {display} is {}, exceeds {} limit. Use bash: sed -n '{display}p' {path} | head -c {DEFAULT_MAX_BYTES}]",
-            format_size(first.len()),
-            format_size(DEFAULT_MAX_BYTES)
+        let text = path_message(
+            &format!(
+                "[Line {display} is {}, exceeds {} limit. Use bash: sed -n '{display}p' {{path}} | head -c {DEFAULT_MAX_BYTES}]",
+                format_size(first.len()),
+                format_size(DEFAULT_MAX_BYTES)
+            ),
+            &path,
         );
         return Ok((text, details));
     }
@@ -82,7 +88,10 @@ pub(super) fn read_text(
                 number_to_string(next_offset)
             )
         };
-        return Ok((format!("{}\n\n{notice}", truncation.content), details));
+        return Ok((
+            format!("{}\n\n{notice}", truncation.content).into(),
+            details,
+        ));
     }
     if let Some(selected_count) = user_limited
         && start + selected_count < total_file_lines as f64
@@ -95,11 +104,12 @@ pub(super) fn read_text(
                 truncation.content,
                 number_to_string(remaining),
                 number_to_string(next_offset)
-            ),
+            )
+            .into(),
             details,
         ));
     }
-    Ok((truncation.content, details))
+    Ok((truncation.content.into(), details))
 }
 
 #[cfg(test)]
@@ -119,8 +129,8 @@ mod tests {
     #[test]
     fn fractional_and_negative_js_slice_domain() {
         let (text, _) = read_text(b"1\n2\n3\n4", "x", None, Some(-1.0)).unwrap();
-        assert!(text.starts_with("1\n2\n3"));
+        assert!(text.as_str().unwrap().starts_with("1\n2\n3"));
         let (text, _) = read_text(b"1\n2\n3\n4", "x", Some(2.5), Some(-1.0)).unwrap();
-        assert!(text.contains("more lines in file"));
+        assert!(text.as_str().unwrap().contains("more lines in file"));
     }
 }

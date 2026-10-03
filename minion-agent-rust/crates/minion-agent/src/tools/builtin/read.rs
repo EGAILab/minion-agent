@@ -3,8 +3,8 @@
 use std::sync::Arc;
 
 use crate::{
-    execution::{FileSystem, FsError, FsErrorCode},
-    llm::{TextBlock, ToolResultContentBlock},
+    execution::{FileSystem, FsError, FsErrorCode, FsPath},
+    llm::{ResultTextBlock, ToolResultContentBlock},
     tools::{
         AgentToolResult, PreparedValue, ToolCapabilityError, ToolDefinition, ToolExecutionRequest,
         ToolExecutionSignal,
@@ -14,7 +14,7 @@ use serde_json::{Value, json};
 
 use super::{
     mime::detect_supported_image_mime_type,
-    paths::{OPERATION_ABORTED, cause, preprocess_path},
+    paths::{OPERATION_ABORTED, argument_path, cause, path_message, preprocess_path},
     text::read_text,
 };
 
@@ -53,7 +53,7 @@ fn result(content: Vec<ToolResultContentBlock>, details: Value) -> AgentToolResu
     }
 }
 
-async fn absolute_or_working(fs: &dyn FileSystem, working: &str) -> String {
+async fn absolute_or_working(fs: &dyn FileSystem, working: &FsPath) -> FsPath {
     fs.absolute_path(working, None)
         .await
         .unwrap_or_else(|_| working.to_owned())
@@ -61,7 +61,7 @@ async fn absolute_or_working(fs: &dyn FileSystem, working: &str) -> String {
 
 async fn fs_failure(
     fs: &dyn FileSystem,
-    working: &str,
+    working: &FsPath,
     site: &str,
     error: FsError,
 ) -> ToolCapabilityError {
@@ -69,13 +69,16 @@ async fn fs_failure(
         return aborted();
     }
     let absolute = absolute_or_working(fs, working).await;
-    ToolCapabilityError::new(format!("{site} {absolute}: {}", cause(error.code)))
+    ToolCapabilityError::new(path_message(
+        &format!("{site} {{path}}: {}", cause(error.code)),
+        &absolute,
+    ))
 }
 
 async fn read(
     fs: Arc<dyn FileSystem>,
     options: ReadToolOptions,
-    path: String,
+    path: FsPath,
     offset: Option<f64>,
     limit: Option<f64>,
     signal: Option<Arc<dyn ToolExecutionSignal>>,
@@ -113,7 +116,7 @@ async fn read(
     }
     let (text, details) = read_text(&bytes, &path, offset, limit)?;
     Ok(result(
-        vec![ToolResultContentBlock::Text(TextBlock::new(text).into())],
+        vec![ToolResultContentBlock::Text(ResultTextBlock::new(text))],
         details,
     ))
 }
@@ -147,9 +150,8 @@ pub fn create_read_tool(fs: Arc<dyn FileSystem>, options: ReadToolOptions) -> To
                 let path = request
                     .params
                     .get("path")
-                    .and_then(PreparedValue::as_str)
-                    .ok_or_else(|| ToolCapabilityError::new("path is required"))?
-                    .to_owned();
+                    .and_then(argument_path)
+                    .ok_or_else(|| ToolCapabilityError::new("path is required"))?;
                 let offset = optional_number(&request.params, "offset");
                 let limit = optional_number(&request.params, "limit");
                 let signal = request.signal;

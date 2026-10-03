@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use minion_agent::execution::{CancellationController, FileSystem, FsErrorCode, LocalFileSystem};
+use minion_agent::execution::{CancellationController, FsErrorCode, LocalFileSystem};
 use uuid::Uuid;
 
 struct Fixture {

@@ -2,7 +2,7 @@
 
 use std::path::Path;
 
-use minion_agent::execution::{CancellationController, FileSystem, FsErrorCode, LocalFileSystem};
+use minion_agent::execution::{CancellationController, FsErrorCode, LocalFileSystem};
 
 fn fixture() -> (tempfile::TempDir, LocalFileSystem) {
     let root = tempfile::tempdir().unwrap();

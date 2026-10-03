@@ -8,7 +8,7 @@ use thiserror::Error;
 use crate::javascript::JsString;
 
 /// UTF-16 authority with a cached scalar view only when conversion is lossless.
-#[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq, Ord, PartialOrd)]
 pub struct ResultString {
     units: JsString,
     scalar: Option<String>,

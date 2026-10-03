@@ -1,6 +1,8 @@
 //! Simultaneous matching and touched-line preservation from pinned edit-diff.ts.
 
 use super::edit_text::fuzzy_normalize_units;
+use super::paths::path_message;
+use crate::execution::FsPath;
 use crate::{
     llm::ResultString,
     tools::{PreparedString, ToolCapabilityError},
@@ -142,14 +144,18 @@ pub fn apply_edits(
     edits: &[Edit],
     path: &str,
 ) -> Result<ResultString, ToolCapabilityError> {
-    apply_edits_with_base(&normalized.encode_utf16().collect::<Vec<_>>(), edits, path)
-        .map(|(_, output)| ResultString::from_code_units(output))
+    apply_edits_with_base(
+        &normalized.encode_utf16().collect::<Vec<_>>(),
+        edits,
+        &path.into(),
+    )
+    .map(|(_, output)| ResultString::from_code_units(output))
 }
 
 pub(super) fn apply_edits_with_base(
     normalized: &[u16],
     edits: &[Edit],
-    path: &str,
+    path: &FsPath,
 ) -> Result<(Vec<u16>, Vec<u16>), ToolCapabilityError> {
     let edits: Vec<_> = edits
         .iter()
@@ -164,9 +170,12 @@ pub(super) fn apply_edits_with_base(
     for (i, e) in edits.iter().enumerate() {
         if e.0.is_empty() {
             return Err(ToolCapabilityError::new(if singular {
-                format!("oldText must not be empty in {path}.")
+                path_message("oldText must not be empty in {path}.", path)
             } else {
-                format!("edits[{i}].oldText must not be empty in {path}.")
+                path_message(
+                    &format!("edits[{i}].oldText must not be empty in {{path}}."),
+                    path,
+                )
             }));
         }
     }
@@ -190,8 +199,8 @@ pub(super) fn apply_edits_with_base(
     let mut replacements = Vec::new();
     for (i, e) in edits.iter().enumerate() {
         let (index,length,_) = find(&base, &e.0, counted_base, &fuzzy[i+1]).ok_or_else(|| ToolCapabilityError::new(if singular {
-            format!("Could not find the exact text in {path}. The old text must match exactly including all whitespace and newlines.")
-        } else { format!("Could not find edits[{i}] in {path}. The oldText must match exactly including all whitespace and newlines.") }))?;
+            path_message("Could not find the exact text in {path}. The old text must match exactly including all whitespace and newlines.", path)
+        } else { path_message(&format!("Could not find edits[{i}] in {{path}}. The oldText must match exactly including all whitespace and newlines."), path) }))?;
         let old = &fuzzy[i + 1];
         let occurrences = if old.is_empty() {
             counted_base.len() as isize - 1
@@ -206,12 +215,18 @@ pub(super) fn apply_edits_with_base(
         };
         if occurrences > 1 {
             return Err(ToolCapabilityError::new(if singular {
-                format!(
-                    "Found {occurrences} occurrences of the text in {path}. The text must be unique. Please provide more context to make it unique."
+                path_message(
+                    &format!(
+                        "Found {occurrences} occurrences of the text in {{path}}. The text must be unique. Please provide more context to make it unique."
+                    ),
+                    path,
                 )
             } else {
-                format!(
-                    "Found {occurrences} occurrences of edits[{i}] in {path}. Each oldText must be unique. Please provide more context to make it unique."
+                path_message(
+                    &format!(
+                        "Found {occurrences} occurrences of edits[{i}] in {{path}}. Each oldText must be unique. Please provide more context to make it unique."
+                    ),
+                    path,
                 )
             }));
         }
@@ -225,9 +240,12 @@ pub(super) fn apply_edits_with_base(
     replacements.sort_by_key(|r| r.index);
     for pair in replacements.windows(2) {
         if pair[0].index + pair[0].length > pair[1].index {
-            return Err(ToolCapabilityError::new(format!(
-                "edits[{}] and edits[{}] overlap in {path}. Merge them into one edit or target disjoint regions.",
-                pair[0].edit, pair[1].edit
+            return Err(ToolCapabilityError::new(path_message(
+                &format!(
+                    "edits[{}] and edits[{}] overlap in {{path}}. Merge them into one edit or target disjoint regions.",
+                    pair[0].edit, pair[1].edit
+                ),
+                path,
             )));
         }
     }
@@ -238,11 +256,15 @@ pub(super) fn apply_edits_with_base(
     };
     if output == normalized {
         return Err(ToolCapabilityError::new(if singular {
-            format!(
-                "No changes made to {path}. The replacement produced identical content. This might indicate an issue with special characters or the text not existing as expected."
+            path_message(
+                "No changes made to {path}. The replacement produced identical content. This might indicate an issue with special characters or the text not existing as expected.",
+                path,
             )
         } else {
-            format!("No changes made to {path}. The replacements produced identical content.")
+            path_message(
+                "No changes made to {path}. The replacements produced identical content.",
+                path,
+            )
         }));
     }
     // Pi's display/patch base is the original normalized file, not its fuzzy

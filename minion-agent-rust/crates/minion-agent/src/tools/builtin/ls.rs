@@ -5,7 +5,7 @@ use std::sync::Arc;
 use serde_json::{Value, json};
 
 use crate::{
-    execution::{DirEntryProbeKind, FileSystem, FsErrorCode},
+    execution::{DirEntryProbeKind, FileSystem, FsErrorCode, FsPath},
     llm::{TextBlock, ToolResultContentBlock},
     tools::{
         AgentToolResult, PreparedValue, ToolCapabilityError, ToolDefinition, ToolExecutionRequest,
@@ -16,7 +16,7 @@ use crate::{
 use super::{
     collation::sort_names,
     numeric::number_to_string,
-    paths::{OPERATION_ABORTED, cause, preprocess_path},
+    paths::{OPERATION_ABORTED, argument_path, cause, path_message, preprocess_path},
     truncate::{DEFAULT_MAX_BYTES, format_size, truncate_head},
 };
 
@@ -33,7 +33,7 @@ fn aborted(signal: Option<&Arc<dyn ToolExecutionSignal>>) -> bool {
 
 async fn list(
     fs: Arc<dyn FileSystem>,
-    path: String,
+    path: FsPath,
     limit: f64,
     limit_value: PreparedValue,
 ) -> Result<AgentToolResult, ToolCapabilityError> {
@@ -44,19 +44,21 @@ async fn list(
         .unwrap_or_else(|_| working.clone());
     match fs.probe_dir_entry(&working, None).await {
         Err(error) if error.code == FsErrorCode::NotSupported => {
-            return Err(ToolCapabilityError::new(format!(
-                "Cannot access {absolute}: {}",
-                cause(error.code)
+            return Err(ToolCapabilityError::new(path_message(
+                &format!("Cannot access {{path}}: {}", cause(error.code)),
+                &absolute,
             )));
         }
         Err(_) => {
-            return Err(ToolCapabilityError::new(format!(
-                "Path not found: {absolute}"
+            return Err(ToolCapabilityError::new(path_message(
+                "Path not found: {path}",
+                &absolute,
             )));
         }
         Ok(entry) if !directory(entry.kind) => {
-            return Err(ToolCapabilityError::new(format!(
-                "Not a directory: {absolute}"
+            return Err(ToolCapabilityError::new(path_message(
+                "Not a directory: {path}",
+                &absolute,
             )));
         }
         Ok(_) => {}
@@ -76,7 +78,7 @@ async fn list(
             entry_limit_reached = true;
             break;
         }
-        let Ok(joined) = fs.join_path(&[&absolute, &name], None).await else {
+        let Ok(joined) = fs.join_path(&[&absolute, &name.clone().into()], None).await else {
             continue;
         };
         let Ok(entry) = fs.probe_dir_entry(&joined, None).await else {
@@ -152,10 +154,9 @@ pub fn create_ls_tool(fs: Arc<dyn FileSystem>) -> ToolDefinition {
                 let path = request
                     .params
                     .get("path")
-                    .and_then(PreparedValue::as_str)
-                    .filter(|path| !path.is_empty())
-                    .unwrap_or(".")
-                    .to_owned();
+                    .and_then(argument_path)
+                    .filter(|path| !path.code_units().is_empty())
+                    .unwrap_or_else(|| ".".into());
                 let limit_value = request
                     .params
                     .get("limit")

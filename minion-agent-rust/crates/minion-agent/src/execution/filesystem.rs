@@ -15,7 +15,8 @@ use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use uuid::Uuid;
 
-use super::{AbortSignal, ExecutionWorldIdentity, FsError, FsErrorCode};
+use super::path::{basename, from_native, join, native, resolve};
+use super::{AbortSignal, ExecutionWorldIdentity, FsError, FsErrorCode, FsPath};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum FileKind {
@@ -26,8 +27,8 @@ pub enum FileKind {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct FileInfo {
-    pub name: String,
-    pub path: String,
+    pub name: FsPath,
+    pub path: FsPath,
     pub kind: FileKind,
     pub size: u64,
     pub mtime_ms: u64,
@@ -53,8 +54,8 @@ pub enum DirEntryProbeKind {
 /// never substitute the followed target's identity.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct DirEntryProbe {
-    pub name: String,
-    pub path: String,
+    pub name: FsPath,
+    pub path: FsPath,
     pub kind: DirEntryProbeKind,
 }
 
@@ -89,7 +90,7 @@ impl DirectoryProbeOperations for TokioDirectoryProbeOperations {
 }
 
 #[derive(Clone, Eq, Hash, PartialEq)]
-pub struct TargetKey(Arc<str>);
+pub struct TargetKey(Arc<FsPath>);
 
 impl std::fmt::Debug for TargetKey {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -101,7 +102,7 @@ impl std::fmt::Debug for TargetKey {
 pub struct FsTarget {
     provider_id: Uuid,
     target_key: TargetKey,
-    process_path: Arc<str>,
+    process_path: Arc<FsPath>,
 }
 
 impl FsTarget {
@@ -126,61 +127,61 @@ pub trait FileSystem: Send + Sync {
 
     async fn absolute_path(
         &self,
-        path: &str,
+        path: &FsPath,
         signal: Option<&dyn AbortSignal>,
-    ) -> Result<String, FsError>;
+    ) -> Result<FsPath, FsError>;
     async fn join_path(
         &self,
-        parts: &[&str],
+        parts: &[&FsPath],
         signal: Option<&dyn AbortSignal>,
-    ) -> Result<String, FsError>;
+    ) -> Result<FsPath, FsError>;
     async fn read_text_file(
         &self,
-        path: &str,
+        path: &FsPath,
         signal: Option<&dyn AbortSignal>,
     ) -> Result<String, FsError>;
     async fn read_text_lines(
         &self,
-        path: &str,
+        path: &FsPath,
         max_lines: Option<isize>,
         signal: Option<&dyn AbortSignal>,
     ) -> Result<Vec<String>, FsError>;
     async fn read_binary_file(
         &self,
-        path: &str,
+        path: &FsPath,
         signal: Option<&dyn AbortSignal>,
     ) -> Result<Vec<u8>, FsError>;
     async fn write_file(
         &self,
-        path: &str,
+        path: &FsPath,
         content: &[u8],
         signal: Option<&dyn AbortSignal>,
     ) -> Result<(), FsError>;
     async fn append_file(
         &self,
-        path: &str,
+        path: &FsPath,
         content: &[u8],
         signal: Option<&dyn AbortSignal>,
     ) -> Result<(), FsError>;
     async fn rename_file(
         &self,
-        source: &str,
-        destination: &str,
+        source: &FsPath,
+        destination: &FsPath,
         signal: Option<&dyn AbortSignal>,
     ) -> Result<(), FsError>;
     async fn file_info(
         &self,
-        path: &str,
+        path: &FsPath,
         signal: Option<&dyn AbortSignal>,
     ) -> Result<FileInfo, FsError>;
     async fn list_dir(
         &self,
-        path: &str,
+        path: &FsPath,
         signal: Option<&dyn AbortSignal>,
     ) -> Result<Vec<FileInfo>, FsError>;
     async fn list_dir_raw(
         &self,
-        _path: &str,
+        _path: &FsPath,
         _signal: Option<&dyn AbortSignal>,
     ) -> Result<Vec<String>, FsError> {
         Err(FsError::new(
@@ -190,7 +191,7 @@ pub trait FileSystem: Send + Sync {
     }
     async fn probe_dir_entry(
         &self,
-        _path: &str,
+        _path: &FsPath,
         _signal: Option<&dyn AbortSignal>,
     ) -> Result<DirEntryProbe, FsError> {
         Err(FsError::new(
@@ -202,7 +203,7 @@ pub trait FileSystem: Send + Sync {
     /// Providers without it answer `not_supported`, never a fabricated success.
     async fn check_readable(
         &self,
-        _path: &str,
+        _path: &FsPath,
         _signal: Option<&dyn AbortSignal>,
     ) -> Result<(), FsError> {
         Err(FsError::new(
@@ -214,7 +215,7 @@ pub trait FileSystem: Send + Sync {
     /// is not inspected by this metadata-class query.
     async fn check_read_write(
         &self,
-        _path: &str,
+        _path: &FsPath,
         _signal: Option<&dyn AbortSignal>,
     ) -> Result<(), FsError> {
         Err(FsError::new(
@@ -224,19 +225,23 @@ pub trait FileSystem: Send + Sync {
     }
     async fn canonical_path(
         &self,
-        path: &str,
+        path: &FsPath,
         signal: Option<&dyn AbortSignal>,
-    ) -> Result<String, FsError>;
-    async fn exists(&self, path: &str, signal: Option<&dyn AbortSignal>) -> Result<bool, FsError>;
+    ) -> Result<FsPath, FsError>;
+    async fn exists(
+        &self,
+        path: &FsPath,
+        signal: Option<&dyn AbortSignal>,
+    ) -> Result<bool, FsError>;
     async fn create_dir(
         &self,
-        path: &str,
+        path: &FsPath,
         recursive: bool,
         signal: Option<&dyn AbortSignal>,
     ) -> Result<(), FsError>;
     async fn remove(
         &self,
-        path: &str,
+        path: &FsPath,
         recursive: bool,
         force: bool,
         signal: Option<&dyn AbortSignal>,
@@ -254,10 +259,10 @@ pub trait FileSystem: Send + Sync {
     ) -> Result<String, FsError>;
     async fn resolve(
         &self,
-        path: &str,
+        path: &FsPath,
         signal: Option<&dyn AbortSignal>,
     ) -> Result<FsTarget, FsError>;
-    async fn process_path(&self, target: &FsTarget) -> Result<String, FsError>;
+    async fn process_path(&self, target: &FsTarget) -> Result<FsPath, FsError>;
     async fn cleanup(&self);
 }
 
@@ -283,22 +288,25 @@ impl LocalFileSystem {
         }
     }
 
-    fn resolved(&self, raw: &str) -> PathBuf {
-        resolve_local_path(&self.cwd, raw)
+    fn resolved(&self, raw: &FsPath) -> FsPath {
+        resolve(&self.cwd, raw)
     }
 
-    fn aborted(signal: Option<&dyn AbortSignal>) -> Result<(), FsError> {
+    fn aborted(signal: Option<&dyn AbortSignal>, logical: &FsPath) -> Result<(), FsError> {
         if signal.is_some_and(AbortSignal::aborted) {
-            Err(FsError::new(FsErrorCode::Aborted, "operation aborted"))
+            Err(FsError::new(FsErrorCode::Aborted, "operation aborted").with_path(logical))
         } else {
             Ok(())
         }
     }
 
-    async fn info_for(&self, path: PathBuf) -> Result<FileInfo, FsError> {
-        let metadata = tokio::fs::symlink_metadata(&path)
+    async fn info_for(&self, logical: &FsPath) -> Result<FileInfo, FsError> {
+        let path = native(logical);
+        let metadata = self
+            .directory_probe_operations
+            .symlink_metadata(&path)
             .await
-            .map_err(map_fs_error)?;
+            .map_err(|e| native_error(e, &path))?;
         let file_type = metadata.file_type();
         let kind = if file_type.is_symlink() {
             FileKind::Symlink
@@ -307,21 +315,18 @@ impl LocalFileSystem {
         } else if file_type.is_file() {
             FileKind::File
         } else {
-            return Err(FsError::new(
-                FsErrorCode::Invalid,
-                format!("unsupported file type: {}", path.display()),
-            ));
+            return Err(
+                FsError::new(FsErrorCode::Invalid, "unsupported file type").with_path(logical)
+            );
         };
         let mtime_ms = metadata
             .modified()
             .ok()
-            .and_then(|modified| modified.duration_since(UNIX_EPOCH).ok())
-            .map_or(0, |duration| duration.as_millis() as u64);
+            .and_then(|m| m.duration_since(UNIX_EPOCH).ok())
+            .map_or(0, |d| d.as_millis() as u64);
         Ok(FileInfo {
-            name: path
-                .file_name()
-                .map_or_else(String::new, |name| name.to_string_lossy().into_owned()),
-            path: path.to_string_lossy().into_owned(),
+            name: basename(logical),
+            path: logical.clone(),
             kind,
             size: metadata.len(),
             mtime_ms,
@@ -334,66 +339,58 @@ impl FileSystem for LocalFileSystem {
     fn cwd(&self) -> &Path {
         &self.cwd
     }
-
     fn execution_world(&self) -> &ExecutionWorldIdentity {
         &self.world
     }
 
     async fn absolute_path(
         &self,
-        path: &str,
+        path: &FsPath,
         _signal: Option<&dyn AbortSignal>,
-    ) -> Result<String, FsError> {
-        Ok(self.resolved(path).to_string_lossy().into_owned())
+    ) -> Result<FsPath, FsError> {
+        Ok(self.resolved(path))
     }
-
     async fn join_path(
         &self,
-        parts: &[&str],
+        parts: &[&FsPath],
         _signal: Option<&dyn AbortSignal>,
-    ) -> Result<String, FsError> {
-        let Some((first, rest)) = parts.split_first() else {
-            return Ok(".".to_owned());
-        };
-        let mut path = PathBuf::from(first);
-        for part in rest {
-            path.push(part.trim_start_matches(['/', '\\']));
-        }
-        Ok(lexical_normalize(&path).to_string_lossy().into_owned())
+    ) -> Result<FsPath, FsError> {
+        Ok(join(parts))
     }
-
     async fn read_text_file(
         &self,
-        path: &str,
+        path: &FsPath,
         signal: Option<&dyn AbortSignal>,
     ) -> Result<String, FsError> {
-        Self::aborted(signal)?;
-        let bytes = abortable_io(signal, tokio::fs::read(self.resolved(path))).await?;
+        let bytes = <Self as FileSystem>::read_binary_file(self, path, signal).await?;
         Ok(String::from_utf8_lossy(&bytes).into_owned())
     }
-
     async fn read_text_lines(
         &self,
-        path: &str,
+        path: &FsPath,
         max_lines: Option<isize>,
         signal: Option<&dyn AbortSignal>,
     ) -> Result<Vec<String>, FsError> {
-        Self::aborted(signal)?;
+        let logical = self.resolved(path);
+        Self::aborted(signal, &logical)?;
         if max_lines.is_some_and(|limit| limit <= 0) {
             return Ok(Vec::new());
         }
-        let file = tokio::fs::File::open(self.resolved(path))
+        let os = native(&logical);
+        let file = tokio::fs::File::open(&os)
             .await
-            .map_err(map_fs_error)?;
+            .map_err(|e| native_error(e, &os))?;
         let mut reader = BufReader::new(file);
         let mut result = Vec::new();
         loop {
             let mut line = Vec::new();
-            let count = abortable_io(signal, reader.read_until(b'\n', &mut line)).await?;
+            let count = abortable_io(signal, reader.read_until(b'\n', &mut line))
+                .await
+                .map_err(|e| io_origin(e, &logical, &os, true))?;
             if count == 0 {
                 break;
             }
-            Self::aborted(signal)?;
+            Self::aborted(signal, &logical)?;
             if line.last() == Some(&b'\n') {
                 line.pop();
                 if line.last() == Some(&b'\r') {
@@ -405,140 +402,149 @@ impl FileSystem for LocalFileSystem {
                 break;
             }
         }
-        Self::aborted(signal)?;
+        Self::aborted(signal, &logical)?;
         Ok(result)
     }
-
     async fn read_binary_file(
         &self,
-        path: &str,
+        path: &FsPath,
         signal: Option<&dyn AbortSignal>,
     ) -> Result<Vec<u8>, FsError> {
-        Self::aborted(signal)?;
-        abortable_io(signal, tokio::fs::read(self.resolved(path))).await
+        let logical = self.resolved(path);
+        Self::aborted(signal, &logical)?;
+        let os = native(&logical);
+        abortable_io(signal, tokio::fs::read(&os))
+            .await
+            .map_err(|e| io_origin(e, &logical, &os, true))
     }
-
     async fn write_file(
         &self,
-        path: &str,
+        path: &FsPath,
         content: &[u8],
         signal: Option<&dyn AbortSignal>,
     ) -> Result<(), FsError> {
-        Self::aborted(signal)?;
-        let path = self.resolved(path);
-        if let Some(parent) = path.parent() {
-            tokio::fs::create_dir_all(parent)
-                .await
-                .map_err(map_fs_error)?;
+        let logical = self.resolved(path);
+        Self::aborted(signal, &logical)?;
+        let os = native(&logical);
+        if let Some(parent) = os.parent() {
+            node_mkdirp(parent).await?;
         }
-        Self::aborted(signal)?;
-        abortable_io(signal, tokio::fs::write(path, content)).await
+        Self::aborted(signal, &logical)?;
+        abortable_io(signal, tokio::fs::write(&os, content))
+            .await
+            .map_err(|e| io_origin(e, &logical, &os, false))
     }
-
     async fn append_file(
         &self,
-        path: &str,
+        path: &FsPath,
         content: &[u8],
         _signal: Option<&dyn AbortSignal>,
     ) -> Result<(), FsError> {
-        let path = self.resolved(path);
-        if let Some(parent) = path.parent() {
-            tokio::fs::create_dir_all(parent)
-                .await
-                .map_err(map_fs_error)?;
+        let logical = self.resolved(path);
+        let os = native(&logical);
+        if let Some(parent) = os.parent() {
+            node_mkdirp(parent).await?;
         }
         let mut file = tokio::fs::OpenOptions::new()
             .create(true)
             .append(true)
-            .open(path)
+            .open(&os)
             .await
-            .map_err(map_fs_error)?;
-        file.write_all(content).await.map_err(map_fs_error)?;
-        // Tokio write_all can finish after scheduling its blocking write. Join it
-        // before exposing successful append completion (and its actual I/O result).
-        file.flush().await.map_err(map_fs_error)
+            .map_err(|e| append_origin(e, &logical, &os))?;
+        file.write_all(content)
+            .await
+            .map_err(|e| append_origin(e, &logical, &os))?;
+        // Join Tokio's pending blocking write before exposing append completion.
+        file.flush()
+            .await
+            .map_err(|e| append_origin(e, &logical, &os))
     }
-
     async fn rename_file(
         &self,
-        source: &str,
-        destination: &str,
+        source: &FsPath,
+        destination: &FsPath,
         signal: Option<&dyn AbortSignal>,
     ) -> Result<(), FsError> {
-        Self::aborted(signal)?;
-        let source = self.resolved(source);
-        let destination = self.resolved(destination);
+        let logical = self.resolved(source);
+        // Pi's pre-call abort uses the destination; caught OS errors use source.
+        let logical_destination = self.resolved(destination);
+        Self::aborted(signal, &logical_destination)?;
+        let source = native(&logical);
+        let destination = native(&logical_destination);
         match tokio::fs::rename(&source, &destination).await {
             Ok(()) => Ok(()),
             #[cfg(windows)]
             Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
-                remove_addressed(&destination, true, true).await?;
-                tokio::fs::rename(source, destination)
+                remove_addressed(&destination, true, true)
                     .await
-                    .map_err(map_fs_error)
+                    .map_err(|e| e.with_path(from_native(&source)))?;
+                tokio::fs::rename(&source, &destination)
+                    .await
+                    .map_err(|e| native_error(e, &source))
             }
-            Err(error) => Err(map_fs_error(error)),
+            Err(error) => Err(native_error(error, &source)),
         }
     }
-
     async fn file_info(
         &self,
-        path: &str,
+        path: &FsPath,
         _signal: Option<&dyn AbortSignal>,
     ) -> Result<FileInfo, FsError> {
-        self.info_for(self.resolved(path)).await
+        self.info_for(&self.resolved(path)).await
     }
-
     async fn list_dir(
         &self,
-        path: &str,
+        path: &FsPath,
         signal: Option<&dyn AbortSignal>,
     ) -> Result<Vec<FileInfo>, FsError> {
-        Self::aborted(signal)?;
-        let mut directory = tokio::fs::read_dir(self.resolved(path))
+        let logical = self.resolved(path);
+        Self::aborted(signal, &logical)?;
+        let os = native(&logical);
+        let names = self
+            .directory_probe_operations
+            .read_dir_names(&os)
             .await
-            .map_err(map_fs_error)?;
+            .map_err(|e| native_error(e, &os))?;
         let mut entries = Vec::new();
-        loop {
-            let Some(entry) = directory.next_entry().await.map_err(map_fs_error)? else {
-                break;
-            };
-            Self::aborted(signal)?;
-            entries.push(self.info_for(entry.path()).await?);
+        for name in names {
+            Self::aborted(signal, &logical)?;
+            let entry_path = join(&[&logical, &name.into()]);
+            entries.push(self.info_for(&entry_path).await?);
         }
         Ok(entries)
     }
-
     async fn list_dir_raw(
         &self,
-        path: &str,
+        path: &FsPath,
         signal: Option<&dyn AbortSignal>,
     ) -> Result<Vec<String>, FsError> {
-        Self::aborted(signal)?;
+        let logical = self.resolved(path);
+        Self::aborted(signal, &logical)?;
+        let os = native(&logical);
         self.directory_probe_operations
-            .read_dir_names(&self.resolved(path))
+            .read_dir_names(&os)
             .await
-            .map_err(map_fs_error)
+            .map_err(|e| native_error(e, &os))
     }
-
     async fn probe_dir_entry(
         &self,
-        path: &str,
+        path: &FsPath,
         _signal: Option<&dyn AbortSignal>,
     ) -> Result<DirEntryProbe, FsError> {
-        let path = self.resolved(path);
+        let logical = self.resolved(path);
+        let os = native(&logical);
         let addressed = self
             .directory_probe_operations
-            .symlink_metadata(&path)
+            .symlink_metadata(&os)
             .await
-            .map_err(map_fs_error)?;
+            .map_err(|e| native_error(e, &os))?;
         let file_type = addressed.file_type();
         let kind = if file_type.is_symlink() {
             let target = self
                 .directory_probe_operations
-                .metadata(&path)
+                .metadata(&os)
                 .await
-                .map_err(map_fs_error)?;
+                .map_err(|e| native_error(e, &os))?;
             if target.is_file() {
                 DirEntryProbeKind::SymlinkToFile
             } else if target.is_dir() {
@@ -554,89 +560,103 @@ impl FileSystem for LocalFileSystem {
             DirEntryProbeKind::Other
         };
         Ok(DirEntryProbe {
-            name: path
-                .file_name()
-                .map_or_else(String::new, |name| name.to_string_lossy().into_owned()),
-            path: path.to_string_lossy().into_owned(),
+            name: basename(&logical),
+            path: logical,
             kind,
         })
     }
-
     async fn check_readable(
         &self,
-        path: &str,
+        path: &FsPath,
         _signal: Option<&dyn AbortSignal>,
     ) -> Result<(), FsError> {
-        let path = self.resolved(path);
-        tokio::task::spawn_blocking(move || check_local_readable(&path))
+        let logical = self.resolved(path);
+        let os = native(&logical);
+        let worker_path = os.clone();
+        tokio::task::spawn_blocking(move || check_local_readable(&worker_path))
             .await
-            .map_err(|error| FsError::new(FsErrorCode::Unknown, error.to_string()))?
+            .map_err(|e| FsError::new(FsErrorCode::Unknown, e.to_string()).with_path(&logical))?
+            .map_err(|e| e.with_path(from_native(&os)))
     }
-
     async fn check_read_write(
         &self,
-        path: &str,
+        path: &FsPath,
         _signal: Option<&dyn AbortSignal>,
     ) -> Result<(), FsError> {
-        let path = self.resolved(path);
-        tokio::task::spawn_blocking(move || check_local_read_write(&path))
+        let logical = self.resolved(path);
+        let os = native(&logical);
+        let worker_path = os.clone();
+        tokio::task::spawn_blocking(move || check_local_read_write(&worker_path))
             .await
-            .map_err(|error| FsError::new(FsErrorCode::Unknown, error.to_string()))?
+            .map_err(|e| FsError::new(FsErrorCode::Unknown, e.to_string()).with_path(&logical))?
+            .map_err(|e| e.with_path(from_native(&os)))
     }
-
     async fn canonical_path(
         &self,
-        path: &str,
+        path: &FsPath,
         _signal: Option<&dyn AbortSignal>,
-    ) -> Result<String, FsError> {
-        tokio::fs::canonicalize(self.resolved(path))
+    ) -> Result<FsPath, FsError> {
+        let os = native(&self.resolved(path));
+        tokio::fs::canonicalize(&os)
             .await
-            .map(|path| path.to_string_lossy().into_owned())
-            .map_err(map_fs_error)
+            .map(|p| from_native(&p))
+            .map_err(|e| native_error(e, &os))
     }
-
-    async fn exists(&self, path: &str, _signal: Option<&dyn AbortSignal>) -> Result<bool, FsError> {
-        match self.info_for(self.resolved(path)).await {
+    async fn exists(
+        &self,
+        path: &FsPath,
+        _signal: Option<&dyn AbortSignal>,
+    ) -> Result<bool, FsError> {
+        match self.info_for(&self.resolved(path)).await {
             Ok(_) => Ok(true),
-            Err(error) if error.code == FsErrorCode::NotFound => Ok(false),
-            Err(error) => Err(error),
+            Err(e) if e.code == FsErrorCode::NotFound => Ok(false),
+            Err(e) => Err(e),
         }
     }
-
     async fn create_dir(
         &self,
-        path: &str,
+        path: &FsPath,
         recursive: bool,
         _signal: Option<&dyn AbortSignal>,
     ) -> Result<(), FsError> {
-        let path = self.resolved(path);
+        let os = native(&self.resolved(path));
         if recursive {
-            tokio::fs::create_dir_all(path).await.map_err(map_fs_error)
+            node_mkdirp(&os).await
         } else {
-            tokio::fs::create_dir(path).await.map_err(map_fs_error)
+            tokio::fs::create_dir(&os)
+                .await
+                .map_err(|e| native_error(e, &os))
         }
     }
-
     async fn remove(
         &self,
-        path: &str,
+        path: &FsPath,
         recursive: bool,
         force: bool,
         _signal: Option<&dyn AbortSignal>,
     ) -> Result<(), FsError> {
-        remove_addressed(&self.resolved(path), recursive, force).await
+        let logical = self.resolved(path);
+        remove_addressed(&native(&logical), recursive, force)
+            .await
+            .map_err(|e| {
+                if e.path.is_none() {
+                    e.with_path(logical)
+                } else {
+                    e
+                }
+            })
     }
-
     async fn create_temp_dir(
         &self,
         prefix: &str,
         _signal: Option<&dyn AbortSignal>,
     ) -> Result<String, FsError> {
         let path = env::temp_dir().join(format!("{prefix}{}", Uuid::new_v4()));
-        tokio::fs::create_dir(&path).await.map_err(map_fs_error)?;
+        tokio::fs::create_dir(&path)
+            .await
+            .map_err(|e| native_error(e, &path))?;
         Ok(path.to_string_lossy().into_owned())
     }
-
     async fn create_temp_file(
         &self,
         prefix: &str,
@@ -646,70 +666,325 @@ impl FileSystem for LocalFileSystem {
         let directory = env::temp_dir().join(format!("tmp-{}", Uuid::new_v4()));
         tokio::fs::create_dir(&directory)
             .await
-            .map_err(map_fs_error)?;
+            .map_err(|e| native_error(e, &directory))?;
         let path = directory.join(format!("{prefix}{}{suffix}", Uuid::new_v4()));
-        tokio::fs::File::create(&path).await.map_err(map_fs_error)?;
+        tokio::fs::File::create(&path)
+            .await
+            .map_err(|e| native_error(e, &path))?;
         Ok(path.to_string_lossy().into_owned())
     }
-
     async fn resolve(
         &self,
-        path: &str,
+        path: &FsPath,
         signal: Option<&dyn AbortSignal>,
     ) -> Result<FsTarget, FsError> {
-        let absolute_path = self.absolute_path(path, signal).await?;
-        let target_key = match self.canonical_path(path, signal).await {
+        let absolute = self.resolved(path);
+        let key = match <Self as FileSystem>::canonical_path(self, path, signal).await {
             Ok(canonical) => canonical,
-            Err(error)
-                if matches!(
-                    error.code,
-                    FsErrorCode::NotFound | FsErrorCode::NotSupported
-                ) =>
-            {
-                absolute_path
+            Err(e) if matches!(e.code, FsErrorCode::NotFound | FsErrorCode::NotSupported) => {
+                absolute
             }
-            Err(error) => return Err(error),
+            Err(e) => return Err(e),
         };
         Ok(FsTarget {
             provider_id: self.provider_id,
-            target_key: TargetKey(Arc::from(target_key.clone())),
-            process_path: Arc::from(target_key),
+            target_key: TargetKey(Arc::new(key.clone())),
+            process_path: Arc::new(key),
         })
     }
-
-    async fn process_path(&self, target: &FsTarget) -> Result<String, FsError> {
+    async fn process_path(&self, target: &FsTarget) -> Result<FsPath, FsError> {
         if target.provider_id != self.provider_id {
             return Err(FsError::new(
                 FsErrorCode::Invalid,
                 "filesystem target belongs to a different provider",
             ));
         }
-        Ok(target.process_path.to_string())
+        Ok((*target.process_path).clone())
     }
-
     async fn cleanup(&self) {}
 }
 
-async fn remove_addressed(path: &Path, recursive: bool, force: bool) -> Result<(), FsError> {
-    let metadata = match tokio::fs::symlink_metadata(path).await {
-        Ok(metadata) => metadata,
-        Err(error) if force && error.kind() == io::ErrorKind::NotFound => return Ok(()),
-        Err(error) => return Err(map_fs_error(error)),
-    };
-    let result = if metadata.is_dir() && !metadata.file_type().is_symlink() {
-        if recursive {
-            tokio::fs::remove_dir_all(path).await
-        } else {
-            tokio::fs::remove_dir(path).await
-        }
-    } else {
-        tokio::fs::remove_file(path).await
-    };
-    match result {
-        Ok(()) => Ok(()),
-        Err(error) if force && error.kind() == io::ErrorKind::NotFound => Ok(()),
-        Err(error) => Err(map_fs_error(error)),
+// Scalar callers are ergonomic conversions into the same lossless trait seam.
+impl LocalFileSystem {
+    pub async fn absolute_path(
+        &self,
+        path: impl Into<FsPath>,
+        signal: Option<&dyn AbortSignal>,
+    ) -> Result<FsPath, FsError> {
+        <Self as FileSystem>::absolute_path(self, &path.into(), signal).await
     }
+    pub async fn read_text_file(
+        &self,
+        path: impl Into<FsPath>,
+        signal: Option<&dyn AbortSignal>,
+    ) -> Result<String, FsError> {
+        <Self as FileSystem>::read_text_file(self, &path.into(), signal).await
+    }
+    pub async fn read_binary_file(
+        &self,
+        path: impl Into<FsPath>,
+        signal: Option<&dyn AbortSignal>,
+    ) -> Result<Vec<u8>, FsError> {
+        <Self as FileSystem>::read_binary_file(self, &path.into(), signal).await
+    }
+    pub async fn file_info(
+        &self,
+        path: impl Into<FsPath>,
+        signal: Option<&dyn AbortSignal>,
+    ) -> Result<FileInfo, FsError> {
+        <Self as FileSystem>::file_info(self, &path.into(), signal).await
+    }
+    pub async fn list_dir(
+        &self,
+        path: impl Into<FsPath>,
+        signal: Option<&dyn AbortSignal>,
+    ) -> Result<Vec<FileInfo>, FsError> {
+        <Self as FileSystem>::list_dir(self, &path.into(), signal).await
+    }
+    pub async fn list_dir_raw(
+        &self,
+        path: impl Into<FsPath>,
+        signal: Option<&dyn AbortSignal>,
+    ) -> Result<Vec<String>, FsError> {
+        <Self as FileSystem>::list_dir_raw(self, &path.into(), signal).await
+    }
+    pub async fn probe_dir_entry(
+        &self,
+        path: impl Into<FsPath>,
+        signal: Option<&dyn AbortSignal>,
+    ) -> Result<DirEntryProbe, FsError> {
+        <Self as FileSystem>::probe_dir_entry(self, &path.into(), signal).await
+    }
+    pub async fn check_readable(
+        &self,
+        path: impl Into<FsPath>,
+        signal: Option<&dyn AbortSignal>,
+    ) -> Result<(), FsError> {
+        <Self as FileSystem>::check_readable(self, &path.into(), signal).await
+    }
+    pub async fn check_read_write(
+        &self,
+        path: impl Into<FsPath>,
+        signal: Option<&dyn AbortSignal>,
+    ) -> Result<(), FsError> {
+        <Self as FileSystem>::check_read_write(self, &path.into(), signal).await
+    }
+    pub async fn canonical_path(
+        &self,
+        path: impl Into<FsPath>,
+        signal: Option<&dyn AbortSignal>,
+    ) -> Result<FsPath, FsError> {
+        <Self as FileSystem>::canonical_path(self, &path.into(), signal).await
+    }
+    pub async fn exists(
+        &self,
+        path: impl Into<FsPath>,
+        signal: Option<&dyn AbortSignal>,
+    ) -> Result<bool, FsError> {
+        <Self as FileSystem>::exists(self, &path.into(), signal).await
+    }
+    pub async fn resolve(
+        &self,
+        path: impl Into<FsPath>,
+        signal: Option<&dyn AbortSignal>,
+    ) -> Result<FsTarget, FsError> {
+        <Self as FileSystem>::resolve(self, &path.into(), signal).await
+    }
+    pub async fn read_text_lines(
+        &self,
+        path: impl Into<FsPath>,
+        max_lines: Option<isize>,
+        signal: Option<&dyn AbortSignal>,
+    ) -> Result<Vec<String>, FsError> {
+        <Self as FileSystem>::read_text_lines(self, &path.into(), max_lines, signal).await
+    }
+    pub async fn write_file(
+        &self,
+        path: impl Into<FsPath>,
+        content: &[u8],
+        signal: Option<&dyn AbortSignal>,
+    ) -> Result<(), FsError> {
+        <Self as FileSystem>::write_file(self, &path.into(), content, signal).await
+    }
+    pub async fn append_file(
+        &self,
+        path: impl Into<FsPath>,
+        content: &[u8],
+        signal: Option<&dyn AbortSignal>,
+    ) -> Result<(), FsError> {
+        <Self as FileSystem>::append_file(self, &path.into(), content, signal).await
+    }
+    pub async fn create_dir(
+        &self,
+        path: impl Into<FsPath>,
+        recursive: bool,
+        signal: Option<&dyn AbortSignal>,
+    ) -> Result<(), FsError> {
+        <Self as FileSystem>::create_dir(self, &path.into(), recursive, signal).await
+    }
+    pub async fn remove(
+        &self,
+        path: impl Into<FsPath>,
+        recursive: bool,
+        force: bool,
+        signal: Option<&dyn AbortSignal>,
+    ) -> Result<(), FsError> {
+        <Self as FileSystem>::remove(self, &path.into(), recursive, force, signal).await
+    }
+    pub async fn rename_file(
+        &self,
+        source: impl Into<FsPath>,
+        destination: impl Into<FsPath>,
+        signal: Option<&dyn AbortSignal>,
+    ) -> Result<(), FsError> {
+        <Self as FileSystem>::rename_file(self, &source.into(), &destination.into(), signal).await
+    }
+    pub async fn join_path<P: Clone + Into<FsPath>>(
+        &self,
+        parts: &[P],
+        signal: Option<&dyn AbortSignal>,
+    ) -> Result<FsPath, FsError> {
+        let parts: Vec<FsPath> = parts.iter().cloned().map(Into::into).collect();
+        let refs: Vec<&FsPath> = parts.iter().collect();
+        <Self as FileSystem>::join_path(self, &refs, signal).await
+    }
+}
+
+fn native_error(error: io::Error, path: &Path) -> FsError {
+    map_fs_error(error).with_path(from_native(path))
+}
+
+fn io_origin(error: FsError, logical: &FsPath, os: &Path, directory_read: bool) -> FsError {
+    if error.code == FsErrorCode::Aborted
+        || (directory_read && error.code == FsErrorCode::IsDirectory)
+    {
+        error.with_path(logical)
+    } else {
+        error.with_path(from_native(os))
+    }
+}
+
+fn append_origin(error: io::Error, logical: &FsPath, os: &Path) -> FsError {
+    let error = map_fs_error(error);
+    if cfg!(windows) && error.code == FsErrorCode::IsDirectory {
+        error.with_path(logical)
+    } else {
+        error.with_path(from_native(os))
+    }
+}
+
+/// Node v22.15.1 MKDirpAsync's explicit walk, including its failed-stat ENOTDIR branch.
+#[async_trait]
+trait MkdirOperations: Send + Sync {
+    async fn mkdir(&self, path: &Path) -> io::Result<()>;
+    async fn stat(&self, path: &Path) -> io::Result<std::fs::Metadata>;
+}
+struct TokioMkdirOperations;
+#[async_trait]
+impl MkdirOperations for TokioMkdirOperations {
+    async fn mkdir(&self, path: &Path) -> io::Result<()> {
+        tokio::fs::create_dir(path).await
+    }
+    async fn stat(&self, path: &Path) -> io::Result<std::fs::Metadata> {
+        tokio::fs::metadata(path).await
+    }
+}
+async fn node_mkdirp(path: &Path) -> Result<(), FsError> {
+    node_mkdirp_with(path, &TokioMkdirOperations).await
+}
+async fn node_mkdirp_with(path: &Path, operations: &dyn MkdirOperations) -> Result<(), FsError> {
+    let mut stack = vec![path.to_path_buf()];
+    while let Some(current) = stack.pop() {
+        match operations.mkdir(&current).await {
+            Ok(()) => {}
+            Err(e) if e.kind() == io::ErrorKind::NotFound => {
+                let parent = current.parent().filter(|p| *p != current);
+                let Some(parent) = parent else {
+                    return Err(native_error(e, &current));
+                };
+                stack.push(current.clone());
+                stack.push(parent.to_path_buf());
+            }
+            Err(e)
+                if matches!(
+                    e.kind(),
+                    io::ErrorKind::PermissionDenied | io::ErrorKind::NotADirectory
+                ) =>
+            {
+                return Err(native_error(e, &current));
+            }
+            Err(e) => {
+                let original_exists = e.kind() == io::ErrorKind::AlreadyExists;
+                match operations.stat(&current).await {
+                    Ok(meta) if meta.is_dir() => {
+                        if !original_exists || stack.is_empty() {
+                            return Ok(());
+                        }
+                    }
+                    _ if original_exists && !stack.is_empty() => {
+                        return Err(FsError::new(FsErrorCode::NotDirectory, "not a directory")
+                            .with_path(from_native(&current)));
+                    }
+                    Err(stat_error) => return Err(native_error(stat_error, &current)),
+                    Ok(_) => {
+                        return Err(native_error(
+                            io::Error::from(io::ErrorKind::AlreadyExists),
+                            &current,
+                        ));
+                    }
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Carry each actual failing call's origin. Multiple-failure settlement selection (#127)
+/// and Windows EPERM retry (#126) remain explicitly outside this delta.
+fn remove_addressed(
+    path: &Path,
+    recursive: bool,
+    force: bool,
+) -> std::pin::Pin<Box<dyn Future<Output = Result<(), FsError>> + Send + '_>> {
+    Box::pin(async move {
+        let metadata = match tokio::fs::symlink_metadata(path).await {
+            Ok(metadata) => metadata,
+            Err(e) if force && e.kind() == io::ErrorKind::NotFound => return Ok(()),
+            Err(e) => return Err(native_error(e, path)),
+        };
+        let result = if metadata.is_dir() && !metadata.file_type().is_symlink() {
+            if recursive {
+                // Node rimraf attempts rmdir first; it enumerates only a nonempty directory.
+                match tokio::fs::remove_dir(path).await {
+                    Ok(()) => return Ok(()),
+                    Err(e) if e.kind() == io::ErrorKind::DirectoryNotEmpty => {}
+                    Err(e) if force && e.kind() == io::ErrorKind::NotFound => return Ok(()),
+                    Err(e) => return Err(native_error(e, path)),
+                }
+                let mut directory = tokio::fs::read_dir(path)
+                    .await
+                    .map_err(|e| native_error(e, path))?;
+                while let Some(entry) = directory
+                    .next_entry()
+                    .await
+                    .map_err(|e| native_error(e, path))?
+                {
+                    remove_addressed(&entry.path(), true, force).await?;
+                }
+            }
+            tokio::fs::remove_dir(path).await
+        } else {
+            tokio::fs::remove_file(path).await
+        };
+        match result {
+            Ok(()) => Ok(()),
+            Err(e) if force && e.kind() == io::ErrorKind::NotFound => Ok(()),
+            // Preserve the excluded #125 code/outcome behavior, but use Pi's
+            // logical no-path carrier for a non-recursive directory refusal.
+            Err(e) if metadata.is_dir() && !recursive => Err(map_fs_error(e)),
+            Err(e) => Err(native_error(e, path)),
+        }
+    })
 }
 
 pub(crate) fn resolve_local_path(cwd: &Path, raw: &str) -> PathBuf {
@@ -1021,6 +1296,75 @@ mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     use super::*;
+
+    #[derive(Debug)]
+    struct VanishingEntry;
+    #[async_trait]
+    impl DirectoryProbeOperations for VanishingEntry {
+        async fn read_dir_names(&self, path: &Path) -> io::Result<Vec<String>> {
+            let names = TokioDirectoryProbeOperations.read_dir_names(path).await?;
+            tokio::fs::remove_file(path.join("entry")).await?;
+            Ok(names)
+        }
+        async fn symlink_metadata(&self, path: &Path) -> io::Result<std::fs::Metadata> {
+            TokioDirectoryProbeOperations.symlink_metadata(path).await
+        }
+        async fn metadata(&self, path: &Path) -> io::Result<std::fs::Metadata> {
+            TokioDirectoryProbeOperations.metadata(path).await
+        }
+    }
+    #[tokio::test]
+    async fn list_dir_failure_names_the_vanished_native_entry_not_the_directory() {
+        let root = env::temp_dir().join(format!("minion-list-origin-{}", Uuid::new_v4()));
+        std::fs::create_dir(&root).unwrap();
+        let mut fs = LocalFileSystem::new(&root);
+        let logical = FsPath::from_code_units(vec![100, 0xd800]);
+        fs.write_file(
+            FsPath::from_code_units(vec![100, 0xd800, 47, 101, 110, 116, 114, 121]),
+            b"x",
+            None,
+        )
+        .await
+        .unwrap();
+        fs.directory_probe_operations = Arc::new(VanishingEntry);
+        let error = fs.list_dir(&logical, None).await.unwrap_err();
+        assert_eq!(error.code, FsErrorCode::NotFound);
+        assert_eq!(
+            error.path,
+            Some(from_native(&root.join("d\u{fffd}").join("entry")))
+        );
+        assert!(!error.path.unwrap().code_units().contains(&0xd800));
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    struct FailedStatWalk;
+    #[async_trait]
+    impl MkdirOperations for FailedStatWalk {
+        async fn mkdir(&self, path: &Path) -> io::Result<()> {
+            Err(io::Error::from(if path.file_name().unwrap() == "leaf" {
+                io::ErrorKind::NotFound
+            } else {
+                io::ErrorKind::AlreadyExists
+            }))
+        }
+        async fn stat(&self, _path: &Path) -> io::Result<std::fs::Metadata> {
+            Err(io::Error::from(io::ErrorKind::NotFound))
+        }
+    }
+    #[tokio::test]
+    async fn mkdir_walk_failed_stat_is_enotdir_only_with_pending_children() {
+        let root = env::temp_dir().join("minion-mkdir-origin");
+        let error = node_mkdirp_with(&root.join("parent").join("leaf"), &FailedStatWalk)
+            .await
+            .unwrap_err();
+        assert_eq!(error.code, FsErrorCode::NotDirectory);
+        assert_eq!(error.path, Some(from_native(&root.join("parent"))));
+        let direct = node_mkdirp_with(&root.join("parent"), &FailedStatWalk)
+            .await
+            .unwrap_err();
+        assert_eq!(direct.code, FsErrorCode::NotFound);
+        assert_eq!(direct.path, Some(from_native(&root.join("parent"))));
+    }
 
     #[test]
     fn host_readability_errors_never_report_missing_provider_capability() {

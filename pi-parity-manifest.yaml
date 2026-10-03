@@ -6842,6 +6842,31 @@ rows:
     (upper_unicode16)
   rust: NOT_IMPLEMENTED
   disposition: adopted
+- id: EXEC-011
+  phase: 4
+  pi: packages/coding-agent/src/utils/shell.ts::findBashOnPath (spawnSync timeout/maxBuffer interruption); Node
+    v22.15.1 src/spawn_sync.cc::Kill (uv_process_kill(SIGTERM), once, only if not exited); libuv 1.49.2
+    unix/win process.c (kill(pid, SIGTERM); TerminateProcess(handle, 1) recording exit_signal)
+  surface: Layer 12 additive extension WP-12.E5 -- direct-child termination (Process.terminate_child), consumed by the
+    WP-13.3 bash lookup interruption
+  rule: 'CONTRACT_DRAFT (WP-12.E5, minion-agent#141; Owner decision CE-WP133-02-C001 Option 1, minion-agent#50
+    issuecomment-5973189849; MINION_EXTENSION). terminate_child(): a termination REQUEST to the directly spawned
+    process only. POSIX: one SIGTERM to the direct PID -- never SIGKILL, never the process group, never descendants.
+    Windows: TerminateProcess of the direct process -- no tree, no job. No-op when the process has already exited,
+    when already called (single delivery, as spawn_sync Kill()), or after terminate(). wait() reports the child''s own
+    final outcome (a handled SIGTERM exit 0 is 0; a delayed exit is not completed by the request); an effective
+    Windows termination reports exit_code None, as Node reports signal SIGTERM. Not a cause claim: section 6
+    first-claim classification unchanged. terminate() unchanged. Full rules: spec/execution.md section 16.'
+  tests:
+  - tests/execution/test_terminate_child.py (POSIX default/handled 0 and 7/delayed/SIG_IGN, direct child only with an
+    in-group descendant versus terminate(), acknowledged single delivery, not a cause claim, a later terminate() still hard-kills; Windows effective termination None,
+    descendant survives, terminate() keeps its code, exited-unobserved not effective; no-op after exit and after
+    terminate)
+  - scripts/e5_negative_controls.py (as-terminate, POSIX SIGKILL, killpg, handled exit as no status, delayed exit
+    completed at request, resend on repeat, cause claim; Windows synthesized 1, tree kill)
+  python: minion_agent/execution/subprocess.py (Process.terminate_child, wait mapping)
+  rust: NOT_IMPLEMENTED
+  disposition: adopted
 - id: TOOL-025
   phase: 6
   pi: 'packages/coding-agent/src/core/tools/read.ts (schema lines 21-25; execute lines 223-334);

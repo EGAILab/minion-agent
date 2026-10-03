@@ -256,6 +256,8 @@ class Process:
         "_proc",
         "_spawn_signal",
         "_terminate_called",
+        "_terminate_child_called",
+        "_terminated_by_child_request",
         "_wait_lock",
         "_wait_result",
         "_watcher_task",
@@ -282,6 +284,11 @@ class Process:
         self._wait_result: Result[ExitStatus, SubprocessError] | None = None
         self._wait_lock = asyncio.Lock()
         self._terminate_called = False
+        self._terminate_child_called = False
+        self._terminated_by_child_request = False
+        """`EXEC-011` (WP-12.E5), Windows only: an effective `terminate_child()` -- the direct
+        `TerminateProcess` found the process still running. `wait()` then reports no exit code,
+        as Node does (`exit_signal = SIGTERM`), not the OS-synthesized `1`."""
         self._kill_cause: _KillCause = None
         """Recorded ONCE, at the true moment of causation (`L12-PY-R004`) -- never re-derived
         reactively from the signal's CURRENT state at `wait()` time, which would misclassify a
@@ -375,7 +382,14 @@ class Process:
                 # that Windows-reported code IS the real code and is correctly preserved, not
                 # a bug -- `exit_code: None` after terminate() is a POSIX-specific observable
                 # outcome, not a cross-platform guarantee.
-                exit_code = returncode if returncode >= 0 else None
+                #
+                # `EXEC-011` (WP-12.E5): an effective Windows `terminate_child()` is reported
+                # without a code, as Node reports it (`status: null, signal: SIGTERM`).
+                exit_code = (
+                    returncode
+                    if returncode >= 0 and not self._terminated_by_child_request
+                    else None
+                )
                 result = Ok(ExitStatus(exit_code=exit_code))
             self._wait_result = result
             return result
@@ -394,6 +408,45 @@ class Process:
             self._kill_cause = "explicit"
         helper = await _issue_kill(self.pid)
         await _confirm_kill(helper)
+
+    async def terminate_child(self) -> None:
+        """`EXEC-011` (WP-12.E5, `spec/execution.md` section 16). A termination REQUEST to the
+        directly spawned process only -- Node's `uv_process_kill(process, SIGTERM)`, which pinned
+        Pi's `spawnSync` lookup interruption sends. Best-effort, MUST NOT raise, idempotent.
+
+        POSIX: one `SIGTERM` to the direct PID -- never `SIGKILL`, never the process group (the
+        child leads its own session, so its descendants share the group and are left alone).
+        `os.kill` is used directly: `Popen.send_signal` would `poll()`, which can reap the child
+        behind asyncio's own child watcher. Windows: `TerminateProcess(handle, 1)` on the direct
+        process (the transport's `Popen.terminate`); no tree, no job.
+
+        A no-op when the process has already exited, when this was already called (Node's
+        `spawn_sync` `Kill()` sends once), or after `terminate()`. Not a cause claim: section 6's
+        first-claim classification is untouched, so a later signal abort is still `aborted`.
+        `wait()` reports the child's own final outcome -- a handled `SIGTERM` exit 0 is `0`."""
+        if (
+            self._terminate_child_called
+            or self._terminate_called
+            or self._proc.returncode is not None
+        ):
+            return
+        self._terminate_child_called = True
+        if os.name == "nt":
+            popen = self._proc._transport.get_extra_info("subprocess")  # type: ignore[attr-defined]
+            if popen is None or popen.returncode is not None:
+                return
+            try:
+                popen.terminate()
+            except OSError:
+                return
+            # `Popen.terminate` maps the `ERROR_ACCESS_DENIED` of an already-exited process to its
+            # real code (`returncode` set); an effective termination leaves `returncode` unset --
+            # libuv's `UV_ESRCH` versus `exit_signal = SIGTERM`.
+            self._terminated_by_child_request = popen.returncode is None
+            return
+        # POSIX-only: unreachable on Windows (the branch above always returns first).
+        with suppress(OSError):  # pragma: no cover
+            os.kill(self.pid, _os_signal.SIGTERM)
 
     async def __aenter__(self) -> Process:
         return self

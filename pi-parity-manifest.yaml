@@ -7359,3 +7359,32 @@ rows:
     full Windows workspace gate limitations are disclosed in assurance/layers/l0506-d002-rust-implementation.md.
     No WP-13.2 edit-gate or raw/schema-domain certification claim.'
   disposition: adopted
+- id: TOOL-042
+  phase: 4
+  pi: packages/coding-agent/src/core/tools/tool-definition-wrapper.ts::wrapToolDefinition (ctx ?? ctxFactory?.(), called
+    once per execute); packages/coding-agent/src/core/extensions/wrapper.ts::wrapRegisteredTool (ctxFactory =
+    runner.createContext); packages/coding-agent/src/core/agent-session.ts (built-in and extension tools wrapped with the
+    runner); packages/coding-agent/src/core/extensions/runner.ts::createContext (sessionManager/model/thinkingLevel
+    getters); packages/agent/src/agent-loop.ts::executePreparedToolCall (core loop passes no context)
+  surface: Layer 05/06 delta L0506-D004 -- per-call read-only tool execution context
+  rule: 'CONTRACT_DRAFT (L0506-D004, minion-agent#131; Owner decision WP133-F3 Option A, minion-agent#50
+    issuecomment-5951046523; MINION_ARCHITECTURAL_MAPPING of Pi''s ExtensionContext delivery). A tool that opts in
+    receives, per call, an immutable ToolExecutionContext snapshot of the EXECUTING agent''s authoritative state --
+    session_id, session_file (absent today: no persisted form), provider and model (AgentInstance.model), and
+    reasoning_level (the thinking level verbatim, "off" a present value) -- taken when the pipeline invokes execute,
+    after preflight, preparation, validation and the before-hooks. Delivery is explicit: the agent loop supplies a
+    per-call provider; a pipeline call without one delivers the context absent. Python: ToolDefinition.wants_context
+    with keyword-only context=, never counted for the positional signal/update dispatch; Rust: an optional typed
+    request field. Hooks receive nothing new; existing tools are unchanged. Full rules: spec/tools.md Layer 06,
+    ''Per-call tool execution context (TOOL-042, cross-layer delta L0506-D004)''.'
+  tests:
+  - tests/agent_loop/test_tool_execution_context.py (agent-run snapshot, off present, later-call change with an earlier
+    snapshot frozen, two agents sharing one registration; control -- registration-time capture)
+  - tests/tools/test_tool_execution_context_dispatch.py (context-only and every signal/update combination with context,
+    absent without a provider, snapshot after the before-hooks, a blocked call never asks, non-opt-in tools unchanged;
+    control -- counting context as positional)
+  python: minion_agent/tools/definition.py (ToolExecutionContext, ToolContextProvider, ToolDefinition.wants_context);
+    tools/execute.py (_arity excludes the opted-in context keyword; provider called as execute is invoked); tools/batch.py;
+    agent_loop/driver.py (AgentLoop._tool_execution_context)
+  rust: NOT_IMPLEMENTED
+  disposition: adopted

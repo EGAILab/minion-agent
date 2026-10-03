@@ -141,6 +141,11 @@ class ToolDefinition:
     True           4       (tool_call_id, arguments, signal, update)     -- both
     ```
     """
+    wants_context: bool = False
+    """Whether `execute` receives the call's `ToolExecutionContext` (`L0506-D004`, `TOOL-042`).
+    When `True`, `execute` is additionally called with the KEYWORD argument `context=`
+    (`ToolExecutionContext | None`); a `context` parameter is never counted for the positional
+    `signal`/`update` dispatch above, which is unchanged for every combination."""
 
     def __post_init__(self) -> None:
         """Reject `None`/non-mapping `parameters` at construction, not only via typing
@@ -174,3 +179,26 @@ class ToolDefinition:
             parameters=parameters,
             constrained_sampling=self.constrained_sampling,
         )
+
+
+@dataclass(frozen=True, slots=True)
+class ToolExecutionContext:
+    """`L0506-D004` (`TOOL-042`, Owner `WP133-F3` = A): the executing agent's state, as one
+    immutable snapshot taken when the pipeline invokes `execute` for this call (pinned Pi's
+    `wrapToolDefinition` calls its context factory once per `execute`). A projection, not an
+    agent reference: no setter, no way back to the `AgentInstance`. A field is `None` only where the
+    owning layer has no value; `reasoning_level` keeps the thinking level verbatim, `"off"`
+    included."""
+
+    session_id: str
+    session_file: str | None = None
+    """Absent today: no persisted session form exists (Owner F3 section 21)."""
+    provider: str | None = None
+    model: str | None = None
+    reasoning_level: str | None = None
+
+
+ToolContextProvider = Callable[[], ToolExecutionContext | None]
+"""Supplies one call's `ToolExecutionContext`, called once immediately before that call's
+`execute` (`L0506-D004`). Bound to the executing agent by the agent loop; a pipeline call made
+without one delivers the context as absent (`None`)."""

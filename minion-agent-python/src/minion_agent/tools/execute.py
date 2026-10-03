@@ -68,7 +68,7 @@ from ..llm import ToolCallBlock
 from ..llm.js_object import JsArray, JsObject, adopt, order_in_place, order_raw
 from ..runtime import Context, RunSignal, Scope, ScopeKey
 from .decisions import AfterToolCallOverride, Block, PreExecuteDecision, Proceed
-from .definition import ToolDefinition
+from .definition import ToolContextProvider, ToolDefinition
 from .events import (
     TOOLS_EXECUTION_END,
     TOOLS_EXECUTION_START,
@@ -353,11 +353,15 @@ def _reject_declared_non_finite(model: type[BaseModel], delivered: dict[str, Any
             raise ArgumentValidationError(str(error)) from error
 
 
-def _arity(execute: Any) -> int:
+def _arity(execute: Any, *, wants_context: bool = False) -> int:
+    """The positional slots `execute` declares. `L0506-D004`: a tool that opted into
+    `wants_context` receives `context` by KEYWORD, so that parameter is never counted -- counting
+    it would invent an `update` (or `signal`) slot and break the certified dispatch."""
     try:
-        return len(inspect.signature(execute).parameters)
+        parameters = inspect.signature(execute).parameters
     except (TypeError, ValueError):  # pragma: no cover - builtins are not tools
         return 0
+    return sum(1 for name in parameters if not (wants_context and name == "context"))
 
 
 def _wants_signal(definition: ToolDefinition) -> bool:
@@ -369,7 +373,10 @@ def _wants_signal(definition: ToolDefinition) -> bool:
     slot for it must actually exist); `wants_signal=True` with only 2 declared parameters is
     simply never satisfied, matching a tool that declared the capability but supplied no
     parameter for it."""
-    return definition.wants_signal and _arity(definition.execute) >= 3
+    return (
+        definition.wants_signal
+        and _arity(definition.execute, wants_context=definition.wants_context) >= 3
+    )
 
 
 def _wants_update(definition: ToolDefinition) -> bool:
@@ -379,7 +386,7 @@ def _wants_update(definition: ToolDefinition) -> bool:
     `update`, exactly as before this layer existed. When it HAS declared `wants_signal`, the
     third parameter is `signal` instead (see `_wants_signal`), so `update` needs a FOURTH."""
     required_arity = 4 if definition.wants_signal else 3
-    return _arity(definition.execute) >= required_arity
+    return _arity(definition.execute, wants_context=definition.wants_context) >= required_arity
 
 
 def _merge_override(current: ToolResult, override: AfterToolCallOverride | None) -> ToolResult:
@@ -731,6 +738,7 @@ async def _execute_and_finalize(
     on_execution_end: OnExecutionEnd | None = None,
     on_execution_update: OnExecutionUpdate | None = None,
     signal: RunSignal | None = None,
+    context_provider: ToolContextProvider | None = None,
 ) -> ToolResult:
     """Run `execute()` (+ live updates) and the after-hook for a call that survived preflight --
     pinned Pi's `executePreparedToolCall` + `finalizeExecutedToolCall`. Always ends by emitting
@@ -816,14 +824,21 @@ async def _execute_and_finalize(
 
     order_in_place(arguments)  # `L0206-D001`: execute is an observer too
     try:
+        # `L0506-D004`: the context is snapshotted now, as `execute` is invoked, and only for a
+        # tool that asked for it -- INSIDE the execution failure boundary (`L0506-D004-I001`):
+        # pinned Pi's `wrapToolDefinition` calls its factory within the wrapped `execute`, so a
+        # failing factory is an ordinary per-call execution failure, not a pipeline exception.
+        extra: dict[str, Any] = {}
+        if definition.wants_context:
+            extra["context"] = context_provider() if context_provider is not None else None
         if _wants_signal(definition) and _wants_update(definition):
-            outcome = definition.execute(call.id, arguments, signal, update)
+            outcome = definition.execute(call.id, arguments, signal, update, **extra)
         elif _wants_signal(definition):
-            outcome = definition.execute(call.id, arguments, signal)
+            outcome = definition.execute(call.id, arguments, signal, **extra)
         elif _wants_update(definition):
-            outcome = definition.execute(call.id, arguments, update)
+            outcome = definition.execute(call.id, arguments, update, **extra)
         else:
-            outcome = definition.execute(call.id, arguments)
+            outcome = definition.execute(call.id, arguments, **extra)
         value = await outcome if inspect.isawaitable(outcome) else outcome
     except Exception as error:  # surfaced to the model, not raised
         accepting_updates = False
@@ -878,6 +893,7 @@ async def execute_call(
     on_execution_end: OnExecutionEnd | None = None,
     on_execution_update: OnExecutionUpdate | None = None,
     signal: RunSignal | None = None,
+    context_provider: ToolContextProvider | None = None,
 ) -> ToolResult:
     """Run `call` and return its result, whatever happens.
 
@@ -909,4 +925,5 @@ async def execute_call(
         on_execution_end=on_execution_end,
         on_execution_update=on_execution_update,
         signal=signal,
+        context_provider=context_provider,
     )

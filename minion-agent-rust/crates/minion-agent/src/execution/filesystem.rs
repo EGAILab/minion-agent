@@ -306,7 +306,7 @@ impl LocalFileSystem {
             .directory_probe_operations
             .symlink_metadata(&path)
             .await
-            .map_err(|e| native_error(e, &path))?;
+            .map_err(|e| call_error(e, &path, logical))?;
         let file_type = metadata.file_type();
         let kind = if file_type.is_symlink() {
             FileKind::Symlink
@@ -379,7 +379,7 @@ impl FileSystem for LocalFileSystem {
         let os = native(&logical);
         let file = tokio::fs::File::open(&os)
             .await
-            .map_err(|e| native_error(e, &os))?;
+            .map_err(|e| call_error(e, &os, &logical))?;
         let mut reader = BufReader::new(file);
         let mut result = Vec::new();
         loop {
@@ -427,7 +427,9 @@ impl FileSystem for LocalFileSystem {
         Self::aborted(signal, &logical)?;
         let os = native(&logical);
         if let Some(parent) = os.parent() {
-            node_mkdirp(parent).await?;
+            node_mkdirp(parent)
+                .await
+                .map_err(|e| logical_fallback(e, &logical))?;
         }
         Self::aborted(signal, &logical)?;
         abortable_io(signal, tokio::fs::write(&os, content))
@@ -443,7 +445,9 @@ impl FileSystem for LocalFileSystem {
         let logical = self.resolved(path);
         let os = native(&logical);
         if let Some(parent) = os.parent() {
-            node_mkdirp(parent).await?;
+            node_mkdirp(parent)
+                .await
+                .map_err(|e| logical_fallback(e, &logical))?;
         }
         let mut file = tokio::fs::OpenOptions::new()
             .create(true)
@@ -482,7 +486,13 @@ impl FileSystem for LocalFileSystem {
                     .await
                     .map_err(|e| native_error(e, &source))
             }
-            Err(error) => Err(native_error(error, &source)),
+            Err(error) => {
+                if nul_binding_error(&error, &source) || nul_binding_error(&error, &destination) {
+                    Err(map_fs_error(error).with_path(&logical))
+                } else {
+                    Err(native_error(error, &source))
+                }
+            }
         }
     }
     async fn file_info(
@@ -504,7 +514,7 @@ impl FileSystem for LocalFileSystem {
             .directory_probe_operations
             .read_dir_names(&os)
             .await
-            .map_err(|e| native_error(e, &os))?;
+            .map_err(|e| call_error(e, &os, &logical))?;
         let mut entries = Vec::new();
         for name in names {
             Self::aborted(signal, &logical)?;
@@ -524,7 +534,7 @@ impl FileSystem for LocalFileSystem {
         self.directory_probe_operations
             .read_dir_names(&os)
             .await
-            .map_err(|e| native_error(e, &os))
+            .map_err(|e| call_error(e, &os, &logical))
     }
     async fn probe_dir_entry(
         &self,
@@ -537,14 +547,14 @@ impl FileSystem for LocalFileSystem {
             .directory_probe_operations
             .symlink_metadata(&os)
             .await
-            .map_err(|e| native_error(e, &os))?;
+            .map_err(|e| call_error(e, &os, &logical))?;
         let file_type = addressed.file_type();
         let kind = if file_type.is_symlink() {
             let target = self
                 .directory_probe_operations
                 .metadata(&os)
                 .await
-                .map_err(|e| native_error(e, &os))?;
+                .map_err(|e| call_error(e, &os, &logical))?;
             if target.is_file() {
                 DirEntryProbeKind::SymlinkToFile
             } else if target.is_dir() {
@@ -576,7 +586,7 @@ impl FileSystem for LocalFileSystem {
         tokio::task::spawn_blocking(move || check_local_readable(&worker_path))
             .await
             .map_err(|e| FsError::new(FsErrorCode::Unknown, e.to_string()).with_path(&logical))?
-            .map_err(|e| e.with_path(from_native(&os)))
+            .map_err(|e| access_origin(e, &logical, &os))
     }
     async fn check_read_write(
         &self,
@@ -589,18 +599,19 @@ impl FileSystem for LocalFileSystem {
         tokio::task::spawn_blocking(move || check_local_read_write(&worker_path))
             .await
             .map_err(|e| FsError::new(FsErrorCode::Unknown, e.to_string()).with_path(&logical))?
-            .map_err(|e| e.with_path(from_native(&os)))
+            .map_err(|e| access_origin(e, &logical, &os))
     }
     async fn canonical_path(
         &self,
         path: &FsPath,
         _signal: Option<&dyn AbortSignal>,
     ) -> Result<FsPath, FsError> {
-        let os = native(&self.resolved(path));
+        let logical = self.resolved(path);
+        let os = native(&logical);
         tokio::fs::canonicalize(&os)
             .await
             .map(|p| from_native(&p))
-            .map_err(|e| native_error(e, &os))
+            .map_err(|e| call_error(e, &os, &logical))
     }
     async fn exists(
         &self,
@@ -619,13 +630,16 @@ impl FileSystem for LocalFileSystem {
         recursive: bool,
         _signal: Option<&dyn AbortSignal>,
     ) -> Result<(), FsError> {
-        let os = native(&self.resolved(path));
+        let logical = self.resolved(path);
+        let os = native(&logical);
         if recursive {
-            node_mkdirp(&os).await
+            node_mkdirp(&os)
+                .await
+                .map_err(|e| logical_fallback(e, &logical))
         } else {
             tokio::fs::create_dir(&os)
                 .await
-                .map_err(|e| native_error(e, &os))
+                .map_err(|e| call_error(e, &os, &logical))
         }
     }
     async fn remove(
@@ -851,12 +865,45 @@ impl LocalFileSystem {
 }
 
 fn native_error(error: io::Error, path: &Path) -> FsError {
-    map_fs_error(error).with_path(from_native(path))
+    if nul_binding_error(&error, path) {
+        // Node's argument-validation failure has no err.path. Keep the existing
+        // Rust code/message mapper, leaving the enclosing logical fallback intact.
+        map_fs_error(error)
+    } else {
+        map_fs_error(error).with_path(from_native(path))
+    }
+}
+
+fn nul_binding_error(error: &io::Error, path: &Path) -> bool {
+    error.raw_os_error().is_none()
+        && error.kind() == io::ErrorKind::InvalidInput
+        && path.to_string_lossy().contains('\0')
+}
+
+fn logical_fallback(error: FsError, logical: &FsPath) -> FsError {
+    if error.path.is_none() {
+        error.with_path(logical)
+    } else {
+        error
+    }
+}
+
+fn call_error(error: io::Error, os: &Path, logical: &FsPath) -> FsError {
+    logical_fallback(native_error(error, os), logical)
+}
+
+fn access_origin(error: FsError, logical: &FsPath, os: &Path) -> FsError {
+    if os.to_string_lossy().contains('\0') {
+        error.with_path(logical)
+    } else {
+        error.with_path(from_native(os))
+    }
 }
 
 fn io_origin(error: FsError, logical: &FsPath, os: &Path, directory_read: bool) -> FsError {
     if error.code == FsErrorCode::Aborted
         || (directory_read && error.code == FsErrorCode::IsDirectory)
+        || (error.code == FsErrorCode::Invalid && os.to_string_lossy().contains('\0'))
     {
         error.with_path(logical)
     } else {
@@ -865,8 +912,9 @@ fn io_origin(error: FsError, logical: &FsPath, os: &Path, directory_read: bool) 
 }
 
 fn append_origin(error: io::Error, logical: &FsPath, os: &Path) -> FsError {
+    let no_path = nul_binding_error(&error, os);
     let error = map_fs_error(error);
-    if cfg!(windows) && error.code == FsErrorCode::IsDirectory {
+    if no_path || (cfg!(windows) && error.code == FsErrorCode::IsDirectory) {
         error.with_path(logical)
     } else {
         error.with_path(from_native(os))

@@ -141,6 +141,64 @@ async fn rename_error_always_names_the_native_source_not_the_destination() {
     std::fs::remove_dir_all(root).unwrap();
 }
 
+#[tokio::test]
+async fn nul_binding_refusals_keep_the_logical_no_path_fallback() {
+    let root = root();
+    let fs = LocalFileSystem::new(&root);
+    let p = path(&[100, 0xd800, 47, 102, 0]);
+    let logical = fs.absolute_path(&p, None).await.unwrap();
+    let errors = [
+        fs.write_file(&p, b"x", None).await.unwrap_err(),
+        fs.append_file(&p, b"x", None).await.unwrap_err(),
+        fs.read_binary_file(&p, None).await.unwrap_err(),
+        fs.read_text_lines(&p, None, None).await.unwrap_err(),
+        fs.file_info(&p, None).await.unwrap_err(),
+        fs.list_dir(&p, None).await.unwrap_err(),
+        fs.list_dir_raw(&p, None).await.unwrap_err(),
+        fs.probe_dir_entry(&p, None).await.unwrap_err(),
+        fs.check_readable(&p, None).await.unwrap_err(),
+        fs.check_read_write(&p, None).await.unwrap_err(),
+        fs.canonical_path(&p, None).await.unwrap_err(),
+        fs.create_dir(&p, true, None).await.unwrap_err(),
+        fs.remove(&p, true, false, None).await.unwrap_err(),
+    ];
+    for (operation, error) in errors.into_iter().enumerate() {
+        assert_eq!(
+            error.code,
+            if matches!(operation, 8 | 9) {
+                FsErrorCode::Unknown
+            } else {
+                FsErrorCode::Invalid
+            },
+            "preserve the existing binding mapper at {operation}"
+        );
+        assert_eq!(
+            error.path,
+            Some(logical.clone()),
+            "operation {operation}, code {:?}",
+            error.code
+        );
+    }
+    assert!(
+        root.join("d\u{fffd}").is_dir(),
+        "write/append still create the parent before the invalid leaf call"
+    );
+    let parent_nul = path(&[100, 0xd800, 0, 47, 102]);
+    let error = fs.write_file(&parent_nul, b"x", None).await.unwrap_err();
+    assert_eq!(
+        error.path,
+        Some(fs.absolute_path(&parent_nul, None).await.unwrap())
+    );
+    let source = path(&[115, 0xd800]);
+    fs.write_file(&source, b"x", None).await.unwrap();
+    let error = fs.rename_file(&source, &p, None).await.unwrap_err();
+    assert_eq!(
+        error.path,
+        Some(fs.absolute_path(&source, None).await.unwrap())
+    );
+    std::fs::remove_dir_all(root).unwrap();
+}
+
 #[cfg(unix)]
 #[tokio::test]
 #[ignore = "real POSIX permission witness: run explicitly as a non-root user"]

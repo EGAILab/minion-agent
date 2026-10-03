@@ -24,6 +24,7 @@ from enum import StrEnum
 from typing import Literal, Protocol
 
 from ..runtime.signal import RunSignal
+from .environment import EnvSnapshot, Platform, host_platform, local_baseline
 from .errors import SubprocessError, SubprocessErrorCode
 from .filesystem import resolve_local_path
 from .result import Err, Ok, Result
@@ -72,7 +73,9 @@ def _effective_env(env: dict[str, str] | None, inherit_env: bool) -> dict[str, s
     `inherit_env=False` is EXACTLY the call's own `env` and nothing else."""
     if not inherit_env:
         return dict(env) if env else {}
-    base = dict(os.environ)
+    # `WP12E4-C002` = B: the baseline is `base_env()`'s own source, read now -- the live native
+    # environment on Windows, `os.environ` on POSIX (spec/execution.md section 15.4).
+    base = dict(local_baseline())
     if env:
         base.update(env)
     return base
@@ -320,9 +323,7 @@ class Process:
                 if self._kill_cause is None:
                     self._kill_cause = "signal"
                 kill_task = asyncio.ensure_future(_issue_and_confirm_kill(self.pid))
-                kill_task.add_done_callback(
-                    lambda t: t.exception() if not t.cancelled() else None
-                )
+                kill_task.add_done_callback(lambda t: t.exception() if not t.cancelled() else None)
                 return
             await asyncio.sleep(_SIGNAL_POLL_INTERVAL_S)
 
@@ -413,6 +414,15 @@ class Subprocess(Protocol):
     cwd: str
     execution_world: ExecutionWorldIdentity
 
+    # `WP-12.E4` (`EXEC-010`): the execution world's family, provider-declared and constant for
+    # the provider's lifetime -- read-only (`WP12E4-I004`).
+    @property
+    def platform(self) -> Platform: ...
+
+    # `WP-12.E4`: a read-only snapshot of exactly what an `inherit_env=True` spawn would inherit
+    # now, before any overlay (spec/execution.md section 15.3).
+    def base_env(self) -> EnvSnapshot: ...
+
     async def spawn(
         self, argv: Sequence[str], options: SpawnOptions | None = None
     ) -> Result[Process, SubprocessError]: ...
@@ -425,7 +435,7 @@ class LocalSubprocess:
 
     __service_name__: str = "subprocess"
 
-    __slots__ = ("cwd", "execution_world")
+    __slots__ = ("_platform", "cwd", "execution_world")
 
     def __init__(
         self, cwd: str | None = None, execution_world: ExecutionWorldIdentity | None = None
@@ -434,6 +444,17 @@ class LocalSubprocess:
         self.execution_world = (
             execution_world if execution_world is not None else ExecutionWorldIdentity.local()
         )
+        # `WP-12.E4`: a local provider declares its host's family.
+        self._platform = host_platform()
+
+    def base_env(self) -> EnvSnapshot:
+        """`WP-12.E4`: read now from the same source `inherit_env=True` uses (C002)."""
+        return EnvSnapshot(local_baseline(), self._platform)
+
+    @property
+    def platform(self) -> Platform:
+        """Read-only: a local provider declares its host's family once (`WP12E4-I004`)."""
+        return self._platform
 
     async def spawn(
         self, argv: Sequence[str], options: SpawnOptions | None = None

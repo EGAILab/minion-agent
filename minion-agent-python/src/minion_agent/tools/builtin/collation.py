@@ -236,13 +236,25 @@ class Collation:
         # WP-13.2 TOOL-031: the same verified ICU also supplies `fuzzy_normalize`'s NFKC, filtered
         # to Unicode 16.0 (pinned Node 22.15.1 / ICU 76.1): a code point unassigned in 16.0 passes
         # through unchanged (spec/tools.md WP-13.2 "Unicode authority").
-        self._nfkc16 = icu.FilteredNormalizer2(
-            icu.Normalizer2.getNFKCInstance(), icu.UnicodeSet("[:age=16.0:]")
-        )
+        self._age16 = icu.UnicodeSet("[:age=16.0:]")
+        self._nfkc16 = icu.FilteredNormalizer2(icu.Normalizer2.getNFKCInstance(), self._age16)
 
     def nfkc_unicode16(self, text: str) -> str:
         """NFKC at Unicode 16.0 of a string without unpaired surrogates."""
         return str(self._nfkc16.normalize(text))
+
+    def upper_unicode16(self, text: str) -> str:
+        """ECMAScript `String.prototype.toUpperCase` at Unicode 16.0 (pinned Node 22.15.1 / ICU
+        76.1; `WP-12.E4` section 15.5): ICU root-locale FULL uppercase (U+00DF -> `SS`, U+0131 ->
+        `I`), applied to each code point assigned in Unicode 16.0; a code point unassigned there
+        is kept, as the pinned runtime keeps it. Root-locale uppercasing has no context-sensitive
+        rule, so mapping each code point alone equals mapping the string. For a string without
+        unpaired surrogates."""
+        assigned = self._age16
+        root = self._root
+        return "".join(
+            str(self._unicode_string(c).toUpper(root)) if assigned.contains(c) else c for c in text
+        )
 
     def key(self, name: str) -> str:
         return str(self._unicode_string(name).toLower(self._root))

@@ -221,7 +221,9 @@ def _posix_terminate_child(pid: int) -> None:  # pragma: no cover
                 pid,
                 os.WEXITED | os.WNOHANG | os.WNOWAIT,  # type: ignore[attr-defined]
             )
-        except ChildProcessError:
+        except OSError:
+            # `ChildProcessError`: already reaped. Any other failure (`WP12E5-I002`, e.g. EPERM
+            # from a syscall policy) leaves the identity unproven: never signal, never raise.
             return
         if exited is not None:
             return

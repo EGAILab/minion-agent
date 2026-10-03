@@ -234,6 +234,27 @@ async def test_posix_exited_unreaped_child_is_not_signalled(
 
 
 @POSIX
+async def test_posix_inconclusive_identity_check_neither_raises_nor_signals(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`WP12E5-I002`: an ordinary `waitid` failure (here EPERM, as a syscall policy would give)
+    leaves the child's identity unproven -- the best-effort request returns without raising and
+    without signalling, and the lifecycle is untouched."""
+    process = await _spawn_ready(_READY + _HANG)
+    sent = _record_signals(monkeypatch)
+
+    def refused(*args: object) -> None:
+        raise PermissionError(1, "Operation not permitted")
+
+    monkeypatch.setattr(os, "waitid", refused)
+    await process.terminate_child()
+    monkeypatch.undo()
+    assert sent == []
+    await process.terminate()
+    assert await _exit_code(process) is None
+
+
+@POSIX
 async def test_posix_later_terminate_still_tree_kills() -> None:
     """A later explicit `terminate()` after a request still claims `EXPLICIT` and hard-kills: the
     child ignores the `SIGTERM`, then `SIGKILL` ends it with no exit code (section 16.3)."""

@@ -18,8 +18,8 @@ use tokio::{
 };
 
 use super::{
-    AbortSignal, ExecutionWorldIdentity, SubprocessError, SubprocessErrorCode,
-    filesystem::resolve_local_path,
+    AbortSignal, EnvSnapshot, ExecutionWorldIdentity, Platform, SubprocessError,
+    SubprocessErrorCode, filesystem::resolve_local_path,
 };
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -85,6 +85,10 @@ pub trait Process: Send + Sync {
 pub trait Subprocess: Send + Sync {
     fn cwd(&self) -> &Path;
     fn execution_world(&self) -> &ExecutionWorldIdentity;
+    /// Read-only declaration, constant for this provider's lifetime (EXEC-010).
+    fn platform(&self) -> Platform;
+    /// Isolated snapshot of this provider's configured inheritance baseline.
+    fn base_env(&self) -> EnvSnapshot;
     async fn spawn(
         &self,
         argv: &[String],
@@ -93,6 +97,18 @@ pub trait Subprocess: Send + Sync {
 }
 
 #[derive(Clone, Debug)]
+/// The local platform declaration cannot be retagged through the public API.
+/// ```compile_fail
+/// use minion_agent::execution::{LocalSubprocess, Platform};
+/// let mut provider = LocalSubprocess::new(".");
+/// provider.platform = Platform::Posix;
+/// assert_eq!(provider.platform, Platform::Posix);
+/// ```
+/// ```
+/// use minion_agent::execution::{LocalSubprocess, Platform, Subprocess};
+/// let provider = LocalSubprocess::new(".");
+/// assert_eq!(provider.platform(), Platform::local());
+/// ```
 pub struct LocalSubprocess {
     cwd: PathBuf,
     base_env: BTreeMap<String, String>,
@@ -127,6 +143,14 @@ impl LocalSubprocess {
 
 #[async_trait]
 impl Subprocess for LocalSubprocess {
+    fn platform(&self) -> Platform {
+        Platform::local()
+    }
+
+    fn base_env(&self) -> EnvSnapshot {
+        EnvSnapshot::configured(self.platform(), &self.base_env)
+    }
+
     fn cwd(&self) -> &Path {
         &self.cwd
     }

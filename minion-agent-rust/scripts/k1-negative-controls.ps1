@@ -33,7 +33,8 @@ function InsertionOnly {
 $mutants = [ordered]@{
     'insertion-without-index-first' = { InsertionOnly }
     'sorted-map' = {
-        InsertionOnly
+        # As before, keep the numeric index prefix correct and incorrectly sort
+        # ordinary properties. Do not introduce a second index-order defect.
         Change 'argument_object.rs' '            self.ordinary.insert(key, value)' "            let previous = self.ordinary.insert(key, value);`n            self.ordinary.sort_by(|a, _, b, _| a.code_units().cmp(b.code_units()));`n            previous"
     }
     'noncanonical-leading-zero' = { Change 'argument_object.rs' ' || (units.len() > 1 && units[0] == 48)' '' }

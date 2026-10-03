@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/minion-agent", "crates/minion-agent-pinned-icu", "xtask"]
+members = ["crates/minion-agent", "crates/minion-agent-pinned-icu", "crates/minion-agent-native-env", "xtask"]
 resolver = "3"
 
 [workspace.package]

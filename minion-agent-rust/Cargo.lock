@@ -1269,6 +1269,7 @@ dependencies = [
  "getrandom 0.4.3",
  "indexmap",
  "jsonschema",
+ "minion-agent-native-env",
  "minion-agent-pinned-icu",
  "nix",
  "parking_lot",
@@ -1287,6 +1288,10 @@ dependencies = [
  "wasmtime",
  "windows-sys 0.61.2",
 ]
+
+[[package]]
+name = "minion-agent-native-env"
+version = "0.1.0"
 
 [[package]]
 name = "minion-agent-pinned-icu"

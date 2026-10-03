@@ -204,6 +204,54 @@ fn root_lower(input: &str) -> Result<String, String> {
     String::from_utf16(&output[..len as usize]).map_err(|error| failed(error.to_string()))
 }
 
+/// EXEC-010: ECMAScript full uppercase at Unicode 16.0 over the verified ICU build.
+pub fn upper_unicode16(input: &str) -> Result<String, String> {
+    upper_unicode16_batch(&[input]).map(|mut outputs| outputs.remove(0))
+}
+
+/// Verify artifact identity once for one environment-composition transaction.
+pub fn upper_unicode16_batch(inputs: &[&str]) -> Result<Vec<String>, String> {
+    // Reuse the existing full loaded-library inventory and identity/runtime verification.
+    sort_names(Vec::new())?;
+    inputs
+        .iter()
+        .map(|input| root_upper_unicode16(input))
+        .collect()
+}
+
+fn root_upper_unicode16(input: &str) -> Result<String, String> {
+    let mut output = String::new();
+    for c in input.chars() {
+        let mut age = [0u8; 4];
+        unsafe { sys::versioned_function!(u_charAge)(c as i32, age.as_mut_ptr()) };
+        if age[0] == 0 || age[0] > 16 {
+            output.push(c);
+            continue;
+        }
+        let mut source = [0u16; 2];
+        let source = c.encode_utf16(&mut source);
+        let mut mapped = [0u16; 16];
+        let mut status = sys::UErrorCode::U_ZERO_ERROR;
+        let length = unsafe {
+            sys::versioned_function!(u_strToUpper)(
+                mapped.as_mut_ptr(),
+                mapped.len() as i32,
+                source.as_ptr(),
+                source.len() as i32,
+                c"".as_ptr(),
+                &mut status,
+            )
+        };
+        if status as i32 > 0 || length < 0 || length as usize > mapped.len() {
+            return Err(failed("root uppercase failed"));
+        }
+        output.push_str(
+            &String::from_utf16(&mapped[..length as usize]).map_err(|e| failed(e.to_string()))?,
+        );
+    }
+    Ok(output)
+}
+
 /// TOOL-031's Node-22.15.1 Unicode-16 NFKC view over the certified ICU4C build.
 /// Filtering by assignment age also preserves multi-code-point composition, unlike
 /// normalizing each scalar independently or post-hoc undoing Unicode-17 mappings.

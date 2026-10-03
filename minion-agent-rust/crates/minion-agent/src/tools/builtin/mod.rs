@@ -9,6 +9,7 @@ mod edit_apply;
 mod edit_diff;
 mod edit_prepare;
 mod edit_text;
+pub mod environment;
 mod image;
 mod ls;
 mod mime;

@@ -1,3 +1,4 @@
+mod environment;
 mod error;
 mod filesystem;
 pub(crate) mod path;
@@ -7,6 +8,7 @@ mod signal;
 mod subprocess;
 mod world;
 
+pub use environment::{EnvEntries, EnvSnapshot, EnvValue, Platform, pinned_windows_uppercase};
 pub use error::{
     FsError, FsErrorCode, ShellError, ShellErrorCode, SubprocessError, SubprocessErrorCode,
 };

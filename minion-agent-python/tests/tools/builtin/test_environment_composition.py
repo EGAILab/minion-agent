@@ -199,3 +199,52 @@ def _assert_arbitration(
     arbitrate: Any, pairs: list[tuple[str, str]], expected: dict[str, str]
 ) -> None:
     assert arbitrate(dict(pairs)) == expected
+
+
+# --- CE-WP12E4-01 (WP12E4-I002): an explicit valid pair IS its astral character --------------
+
+
+def test_i002_an_explicit_pair_equals_its_astral_character_in_names_and_values() -> None:
+    pair = chr(0xD83D) + chr(0xDE00)  # two surrogate code points, NOT the astral character
+    explicit = EnvSnapshot([("N" + pair, "v" + pair)], Platform.WINDOWS)
+    scalar = EnvSnapshot([("N\U0001f600", "v\U0001f600")], Platform.WINDOWS)
+    assert (
+        node_environment_view(explicit)
+        == node_environment_view(scalar)
+        == {"N\U0001f600": "v\U0001f600"}
+    )
+
+
+@pytest.mark.parametrize("lone", ["\ud83d", "\ude00"])
+def test_i002_a_genuinely_unpaired_unit_still_gives_three_replacements(lone: str) -> None:
+    assert node_environment_view(EnvSnapshot([("V", "a" + lone + "b")], Platform.WINDOWS)) == {
+        "V": "a" + FFFD * 3 + "b"
+    }
+    assert node_environment_view(EnvSnapshot([("N" + lone, "x")], Platform.WINDOWS)) == {}
+
+
+def test_control_encoding_without_combining_pairs_fails_i002(monkeypatch: Any) -> None:
+    monkeypatch.setattr(
+        composition,
+        "_native_bytes",
+        lambda text, platform: text.encode(
+            "utf-8", "surrogateescape" if platform is Platform.POSIX else "surrogatepass"
+        ),
+    )
+    _fails(test_i002_an_explicit_pair_equals_its_astral_character_in_names_and_values)
+
+
+def test_control_case_insensitive_removal_of_every_minion_spelling_fails() -> None:
+    """Owner C002 section 13: removal is by EXACT spelling; a case variant must survive."""
+    snapshot = EnvSnapshot([("Minion_Session_Id", "stale")], Platform.WINDOWS)
+
+    def casefold_remove() -> None:
+        env = node_environment_view(snapshot)
+        for name in [n for n in env if n.upper() == "MINION_SESSION_ID"]:
+            del env[name]
+        assert env == {"Minion_Session_Id": "stale"}
+
+    _fails(casefold_remove)
+    assert compose_spawn_environment(snapshot, remove=["MINION_SESSION_ID"]) == {
+        "Minion_Session_Id": "stale"
+    }

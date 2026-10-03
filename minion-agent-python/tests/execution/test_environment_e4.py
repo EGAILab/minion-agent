@@ -23,11 +23,17 @@ _CHILD = r"""
 import ctypes, json
 k = ctypes.windll.kernel32
 k.GetEnvironmentStringsW.restype = ctypes.c_void_p
-p = k.GetEnvironmentStringsW(); out, i = [], 0
-while True:
-    s = ctypes.wstring_at(p + i * 2)
-    if not s: break
-    out.append(s); i += len(s) + 1
+p = k.GetEnvironmentStringsW()
+u = ctypes.cast(p, ctypes.POINTER(ctypes.c_uint16))
+out, i = [], 0
+while True:  # walk in UTF-16 UNITS (WP12E4-I001): a pair must not shorten the step
+    j = i
+    while u[j]:
+        j += 1
+    if j == i:
+        break
+    out.append(ctypes.string_at(p + i * 2, (j - i) * 2).decode("utf-16-le", "surrogatepass"))
+    i = j + 1
 print(json.dumps(sorted(e.partition("=")[::2] for e in out if not e.startswith("="))))
 """
 
@@ -163,10 +169,110 @@ def test_control_a_construction_time_cache_fails_isolation(monkeypatch: Any) -> 
         test_a_snapshot_is_isolated_from_a_later_baseline_change()
 
 
-def test_a_fake_windows_world_on_a_posix_host_folds_ascii_names(monkeypatch: Any) -> None:
-    """With no OS to ask (a POSIX host), Windows lookup folds ASCII only -- which agrees with the
-    native comparison on every name the consumers look up, and keeps non-ASCII names distinct."""
-    monkeypatch.setattr(environment_module.sys, "platform", "linux")
-    world = EnvSnapshot([("PROGRAMFILES", "D:/PF"), ("Q\u00df", "sharp")], Platform.WINDOWS)
-    assert world["ProgramFiles"] == "D:/PF"
-    assert world.get("QSS") is None and world["Q\u00df"] == "sharp"
+# --- CE-WP12E4-01: UTF-16 units (I001), host-independent native comparison (I003) ------------
+
+
+@windows_only
+async def test_i001_an_entry_after_an_astral_entry_survives_traversal() -> None:
+    provider = LocalSubprocess()
+    os.putenv("WpE4_AstralProbe", "\U0001f600")
+    os.putenv("ZzWpE4_AfterAstral", "must-survive")
+    try:
+        snapshot = provider.base_env()
+        assert snapshot.get("ZzWpE4_AfterAstral") == "must-survive"
+        assert snapshot.get("WpE4_AstralProbe") == "\U0001f600"
+        inherited = dict(await _child_env(provider, SpawnOptions(inherit_env=True)))
+        assert inherited.get("ZzWpE4_AfterAstral") == "must-survive"
+    finally:
+        os.unsetenv("WpE4_AstralProbe")
+        os.unsetenv("ZzWpE4_AfterAstral")
+
+
+def test_i003_windows_lookup_is_the_native_unit_uppercase_on_any_host(monkeypatch: Any) -> None:
+    """A declared WINDOWS world compares names by the OS uppercase table, whatever the host:
+    `Q<U+00E9>` finds `Q<U+00C9>`; U+00DF, U+0131 and astral differences stay distinct."""
+    for host in ("win32", "linux"):
+        monkeypatch.setattr(environment_module.sys, "platform", host)
+        world = EnvSnapshot(
+            [("PROGRAMFILES", "D:/PF"), ("Q\u00e9", "acute"), ("Q\U0001f600a", "astral")],
+            Platform.WINDOWS,
+        )
+        assert world["ProgramFiles"] == "D:/PF"
+        assert world["Q\u00c9"] == "acute"
+        assert world.get("Q\U0001f600b") is None and world["Q\U0001f600a"] == "astral"
+        assert world.get("Q\u00df".replace("\u00df", "ss")) is None
+
+
+@windows_only
+def test_i003_the_pinned_table_is_this_hosts_live_table() -> None:
+    """Every UTF-16 unit: the committed table equals `ntdll!RtlUpcaseUnicodeChar` here, and the
+    OS's own environment lookup agrees with it on a non-ASCII name."""
+    table = environment_module._pinned_upcase()
+    assert all(environment_module._live_upcase(u) == table.get(u, u) for u in range(0x10000))
+    os.putenv("WpE4_Q\u00e9", "acute")
+    try:
+        buffer = ctypes.create_unicode_buffer(64)
+        assert ctypes.windll.kernel32.GetEnvironmentVariableW("WPE4_Q\u00c9", buffer, 64) > 0
+        assert buffer.value == "acute"
+    finally:
+        os.unsetenv("WpE4_Q\u00e9")
+
+
+def test_control_an_ascii_only_fallback_fails_the_non_ascii_lookup(monkeypatch: Any) -> None:
+    def ascii_only(name: str) -> tuple[int, ...]:
+        return tuple(ord(c) - 32 if "a" <= c <= "z" else ord(c) for c in name)
+
+    monkeypatch.setattr(environment_module, "_windows_key", ascii_only)
+    with pytest.raises((AssertionError, KeyError)):
+        test_i003_windows_lookup_is_the_native_unit_uppercase_on_any_host(monkeypatch)
+
+
+# --- the Owner's remaining C002 section 13 controls, each explicit ------------------------------
+
+
+@windows_only
+def test_control_upper_casing_every_key_fails_witness_a(monkeypatch: Any) -> None:
+    real = environment_module.native_windows_environment
+    upper = lambda: [(n.upper(), v) for n, v in real()]  # noqa: E731
+    monkeypatch.setattr(environment_module, "local_baseline", upper)
+    monkeypatch.setattr(subprocess_module, "local_baseline", upper)
+    with pytest.raises(AssertionError):
+        test_c002_a_b_an_original_case_native_only_variable_is_in_the_snapshot(monkeypatch)
+
+
+@windows_only
+def test_control_omitting_native_only_variables_fails_witness_b(monkeypatch: Any) -> None:
+    real = environment_module.native_windows_environment
+    only_environ = lambda: [(n, v) for n, v in real() if n.upper() in os.environ]  # noqa: E731
+    monkeypatch.setattr(environment_module, "local_baseline", only_environ)
+    monkeypatch.setattr(subprocess_module, "local_baseline", only_environ)
+    with pytest.raises(AssertionError):
+        test_c002_a_b_an_original_case_native_only_variable_is_in_the_snapshot(monkeypatch)
+
+
+@windows_only
+async def test_control_a_snapshot_from_another_source_fails_equivalence(monkeypatch: Any) -> None:
+    """The reverse of the inherit-source control: spawn native, `base_env()` from `os.environ`."""
+    monkeypatch.setattr(environment_module, "local_baseline", lambda: list(os.environ.items()))
+    monkeypatch.setattr(
+        LocalSubprocess,
+        "base_env",
+        lambda self: EnvSnapshot(list(os.environ.items()), self.platform),
+    )
+    with pytest.raises(AssertionError):
+        await test_c002_the_inherit_baseline_and_the_snapshot_agree_a_b_c_d()
+
+
+@windows_only
+async def test_inherit_env_false_is_exactly_the_callers_environment() -> None:
+    env = {"SystemRoot": os.environ["SYSTEMROOT"], "WpE4_Only": "1"}
+    child = await _child_env(LocalSubprocess(), SpawnOptions(inherit_env=False, env=env))
+    assert dict(child) == env
+
+
+@windows_only
+async def test_control_changing_inherit_env_false_fails(monkeypatch: Any) -> None:
+    real = subprocess_module._effective_env
+    monkeypatch.setattr(subprocess_module, "_effective_env", lambda env, inherit: real(env, True))
+    with pytest.raises(AssertionError):
+        await test_inherit_env_false_is_exactly_the_callers_environment()

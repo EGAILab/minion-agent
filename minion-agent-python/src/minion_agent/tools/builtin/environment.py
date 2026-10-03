@@ -23,7 +23,11 @@ def _native_bytes(text: str, platform: Platform) -> bytes:
     3-byte sequence, `ED A0 80` for U+D800)."""
     if platform is Platform.POSIX:
         return text.encode("utf-8", "surrogateescape")
-    return text.encode("utf-8", "surrogatepass")
+    # `WP12E4-I002`: re-read the UTF-16 units first, so an explicit high/low pair held as two
+    # surrogate code points becomes its astral character (4 UTF-8 bytes); only a genuinely unpaired
+    # unit remains a surrogate and becomes its 3-byte sequence.
+    units = text.encode("utf-16-le", "surrogatepass").decode("utf-16-le", "surrogatepass")
+    return units.encode("utf-8", "surrogatepass")
 
 
 def node_environment_view(snapshot: EnvSnapshot) -> dict[str, str]:

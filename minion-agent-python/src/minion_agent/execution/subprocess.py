@@ -413,8 +413,11 @@ class Subprocess(Protocol):
 
     cwd: str
     execution_world: ExecutionWorldIdentity
-    platform: Platform
-    """`WP-12.E4` (`EXEC-010`): the execution world's family, provider-declared."""
+
+    # `WP-12.E4` (`EXEC-010`): the execution world's family, provider-declared and constant for
+    # the provider's lifetime -- read-only (`WP12E4-I004`).
+    @property
+    def platform(self) -> Platform: ...
 
     # `WP-12.E4`: a read-only snapshot of exactly what an `inherit_env=True` spawn would inherit
     # now, before any overlay (spec/execution.md section 15.3).
@@ -432,7 +435,7 @@ class LocalSubprocess:
 
     __service_name__: str = "subprocess"
 
-    __slots__ = ("cwd", "execution_world", "platform")
+    __slots__ = ("_platform", "cwd", "execution_world")
 
     def __init__(
         self, cwd: str | None = None, execution_world: ExecutionWorldIdentity | None = None
@@ -442,11 +445,16 @@ class LocalSubprocess:
             execution_world if execution_world is not None else ExecutionWorldIdentity.local()
         )
         # `WP-12.E4`: a local provider declares its host's family.
-        self.platform = host_platform()
+        self._platform = host_platform()
 
     def base_env(self) -> EnvSnapshot:
         """`WP-12.E4`: read now from the same source `inherit_env=True` uses (C002)."""
-        return EnvSnapshot(local_baseline(), self.platform)
+        return EnvSnapshot(local_baseline(), self._platform)
+
+    @property
+    def platform(self) -> Platform:
+        """Read-only: a local provider declares its host's family once (`WP12E4-I004`)."""
+        return self._platform
 
     async def spawn(
         self, argv: Sequence[str], options: SpawnOptions | None = None

@@ -290,3 +290,16 @@ async def test_control_changing_inherit_env_false_fails(monkeypatch: Any) -> Non
     monkeypatch.setattr(subprocess_module, "_effective_env", lambda env, inherit: real(env, True))
     with pytest.raises(AssertionError):
         await test_inherit_env_false_is_exactly_the_callers_environment()
+
+
+def test_i004_a_local_providers_platform_cannot_be_retagged() -> None:
+    """`WP12E4-I004`: the declaration is constant for the provider's lifetime; assigning it is
+    refused, and later snapshots keep the original family and its lookup."""
+    provider = LocalSubprocess()
+    declared = provider.platform
+    with pytest.raises(AttributeError):
+        provider.platform = (  # type: ignore[misc]
+            Platform.POSIX if declared is Platform.WINDOWS else Platform.WINDOWS
+        )
+    assert provider.platform is declared
+    assert provider.base_env().platform is declared

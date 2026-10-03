@@ -38,8 +38,8 @@ impl NumericCarrier {
                 PreparedValue::Number(PreparedNumber::Finite(n)) => {
                     used.insert(n.as_f64().unwrap().to_bits());
                 }
-                PreparedValue::Array(a) => a.iter().for_each(|v| collect_runtime(v, used)),
-                PreparedValue::Object(o) => o.values().for_each(|v| collect_runtime(v, used)),
+                PreparedValue::Array(a) => a.iter().for_each(|v| collect_runtime(&v, used)),
+                PreparedValue::Object(o) => o.values().for_each(|v| collect_runtime(&v, used)),
                 _ => {}
             }
         }
@@ -73,11 +73,13 @@ impl NumericCarrier {
             }
             match value {
                 PreparedValue::String(s) => string(s, used, special),
-                PreparedValue::Array(a) => a.iter().for_each(|v| runtime_strings(v, used, special)),
+                PreparedValue::Array(a) => {
+                    a.iter().for_each(|v| runtime_strings(&v, used, special))
+                }
                 PreparedValue::Object(o) => {
                     for (k, v) in o {
-                        string(k, used, special);
-                        runtime_strings(v, used, special);
+                        string(&k, used, special);
+                        runtime_strings(&v, used, special);
                     }
                 }
                 _ => {}
@@ -102,11 +104,11 @@ impl NumericCarrier {
                     }
                 }
                 PreparedValue::Array(a) => {
-                    a.iter().for_each(|v| reference_segments(v, used, special))
+                    a.iter().for_each(|v| reference_segments(&v, used, special))
                 }
                 PreparedValue::Object(o) => o
                     .values()
-                    .for_each(|v| reference_segments(v, used, special)),
+                    .for_each(|v| reference_segments(&v, used, special)),
                 _ => {}
             }
         }
@@ -185,10 +187,10 @@ impl NumericCarrier {
                 PreparedNumber::NegativeInfinity => self.tags[1].clone(),
                 PreparedNumber::NaN => self.tags[2].clone(),
             }),
-            PreparedValue::Array(a) => Value::Array(a.iter().map(|v| self.encode(v)).collect()),
+            PreparedValue::Array(a) => Value::Array(a.iter().map(|v| self.encode(&v)).collect()),
             PreparedValue::Object(o) => Value::Object(
                 o.iter()
-                    .map(|(k, v)| (self.encode_string(k), self.encode(v)))
+                    .map(|(k, v)| (self.encode_string(&k), self.encode(&v)))
                     .collect(),
             ),
         }
@@ -199,13 +201,13 @@ impl NumericCarrier {
     fn encode_schema(&self, value: &PreparedValue) -> Value {
         match value {
             PreparedValue::Array(a) => {
-                Value::Array(a.iter().map(|v| self.encode_schema(v)).collect())
+                Value::Array(a.iter().map(|v| self.encode_schema(&v)).collect())
             }
             PreparedValue::Object(o) => Value::Object(
                 o.iter()
                     .map(|(k, v)| {
                         let encoded = if matches!(k.as_str(), Some("$ref" | "$dynamicRef"))
-                            && let PreparedValue::String(s) = v
+                            && let PreparedValue::String(s) = &v
                             && s.code_units().starts_with(&[35, 47])
                         {
                             let mut pointer = String::from("#");
@@ -226,13 +228,13 @@ impl NumericCarrier {
                                     | "definitions"
                                     | "dependentSchemas"
                             )
-                        ) && let PreparedValue::Object(entries) = v
+                        ) && let PreparedValue::Object(entries) = &v
                         {
                             Value::Object(
                                 entries
                                     .iter()
                                     .map(|(name, subschema)| {
-                                        (self.encode_string(name), self.encode_schema(subschema))
+                                        (self.encode_string(&name), self.encode_schema(&subschema))
                                     })
                                     .collect(),
                             )
@@ -240,11 +242,11 @@ impl NumericCarrier {
                             k.as_str(),
                             Some("const" | "enum" | "default" | "examples")
                         ) {
-                            self.encode(v)
+                            self.encode(&v)
                         } else {
-                            self.encode_schema(v)
+                            self.encode_schema(&v)
                         };
-                        (self.encode_string(k), encoded)
+                        (self.encode_string(&k), encoded)
                     })
                     .collect(),
             ),
@@ -671,8 +673,11 @@ mod tests {
     }
 
     fn utf16_object(units: Vec<u16>) -> PreparedValue {
-        let mut value = PreparedValue::from(json!({"text":"raw"}));
-        value["text"] = PreparedValue::String(PreparedString::from_code_units(units));
+        let value = PreparedValue::from(json!({"text":"raw"}));
+        value.set(
+            "text",
+            PreparedValue::String(PreparedString::from_code_units(units)),
+        );
         value
     }
 
@@ -718,7 +723,7 @@ mod tests {
     #[test]
     fn runtime_keys_use_real_unicode_patterns_and_nested_reference_validation() {
         let key = PreparedString::from_code_units(vec![65, 0xd800]);
-        let object = PreparedValue::Object(crate::argument_object::ArgumentObject::from([(
+        let object = PreparedValue::Object(crate::argument_graph::ArgumentObjectRef::from([(
             key,
             PreparedValue::Bool(true),
         )]));
@@ -738,13 +743,19 @@ mod tests {
 
     #[test]
     fn private_string_tags_cannot_collide_with_schema_or_runtime_literals() {
-        let mut value = utf16_object(vec![0xd800]);
-        value["ordinary"] = PreparedValue::from(json!("__minion_private_utf16_0__"));
+        let value = utf16_object(vec![0xd800]);
+        value.set(
+            "ordinary",
+            PreparedValue::from(json!("__minion_private_utf16_0__")),
+        );
         let schema = json!({"properties":{"text":{"const":"__minion_private_utf16_1__"},"ordinary":{"const":"__minion_private_utf16_0__"}}});
         assert!(validate_prepared(&schema, &value).is_err());
-        assert_eq!(value["ordinary"], json!("__minion_private_utf16_0__"));
         assert_eq!(
-            match &value["text"] {
+            value.get("ordinary").unwrap(),
+            json!("__minion_private_utf16_0__")
+        );
+        assert_eq!(
+            match &value.get("text").unwrap() {
                 PreparedValue::String(s) => s.code_units(),
                 _ => panic!(),
             },
@@ -775,8 +786,8 @@ mod tests {
     }
 
     fn special_object(number: f64) -> PreparedValue {
-        let mut value = PreparedValue::from(json!({"n": 0}));
-        value["n"] = PreparedValue::number(number);
+        let value = PreparedValue::from(json!({"n": 0}));
+        value.set("n", PreparedValue::number(number));
         value
     }
 
@@ -815,7 +826,7 @@ mod tests {
             )
             .is_err()
         );
-        let array = PreparedValue::Array(vec![PreparedValue::number(f64::NAN)]);
+        let array = PreparedValue::Array(vec![PreparedValue::number(f64::NAN)].into());
         assert!(validate_prepared(&json!({"items":{"type":"number"}}), &array).is_err());
         assert!(
             validate_prepared(
@@ -845,30 +856,34 @@ mod tests {
     #[test]
     fn tags_do_not_collide_with_real_values_or_schema_constants() {
         let next = f64::from_bits(f64::MAX.to_bits() - 1);
-        let mut value = PreparedValue::from(json!({"n":f64::MAX,"next":next}));
-        value["extra"] = PreparedValue::number(f64::INFINITY);
+        let value = PreparedValue::from(json!({"n":f64::MAX,"next":next}));
+        value.set("extra", PreparedValue::number(f64::INFINITY));
         assert!(validate_prepared(&json!({"properties":{"n":{"const":f64::MAX},"next":{"type":"number","maximum":next}}}), &value).is_ok());
         assert!(
             validate_prepared(&json!({"properties":{"extra":{"const":f64::MAX}}}), &value).is_err()
         );
-        assert!(value["extra"].as_f64().unwrap().is_infinite());
-        assert_eq!(value["n"].as_f64(), Some(f64::MAX));
+        assert!(value.get("extra").unwrap().as_f64().unwrap().is_infinite());
+        assert_eq!(value.get("n").unwrap().as_f64(), Some(f64::MAX));
     }
 
     #[test]
     fn unique_items_preserves_distinct_categories_and_duplicate_detection() {
         let schema = json!({"uniqueItems":true});
-        let distinct = PreparedValue::Array(vec![
-            PreparedValue::Null,
-            PreparedValue::number(0.0),
-            PreparedValue::number(f64::INFINITY),
-            PreparedValue::number(f64::NEG_INFINITY),
-            PreparedValue::number(f64::NAN),
-        ]);
+        let distinct = PreparedValue::Array(
+            vec![
+                PreparedValue::Null,
+                PreparedValue::number(0.0),
+                PreparedValue::number(f64::INFINITY),
+                PreparedValue::number(f64::NEG_INFINITY),
+                PreparedValue::number(f64::NAN),
+            ]
+            .into(),
+        );
         assert!(validate_prepared(&schema, &distinct).is_ok());
         for n in [f64::INFINITY, f64::NEG_INFINITY, f64::NAN] {
-            let duplicate =
-                PreparedValue::Array(vec![PreparedValue::number(n), PreparedValue::number(n)]);
+            let duplicate = PreparedValue::Array(
+                vec![PreparedValue::number(n), PreparedValue::number(n)].into(),
+            );
             assert!(validate_prepared(&schema, &duplicate).is_err());
         }
         assert!(
@@ -897,8 +912,8 @@ mod tests {
             }
             assert!(validate_prepared(&schema, &PreparedValue::number(rejected_finite)).is_err());
             // Exercise the extended engine too, not just the JSON-only fast path.
-            let mut value = special_object(rejected_finite);
-            value["extra"] = PreparedValue::number(f64::NAN);
+            let value = special_object(rejected_finite);
+            value.set("extra", PreparedValue::number(f64::NAN));
             assert!(validate_prepared(&json!({"properties":{"n":schema}}), &value).is_err());
         }
     }
@@ -929,7 +944,7 @@ mod tests {
             assert!(
                 validate_prepared(
                     &json!({"items":{"maximum":0}}),
-                    &PreparedValue::Array(vec![value])
+                    &PreparedValue::Array(vec![value].into())
                 )
                 .is_ok()
             );
@@ -938,14 +953,14 @@ mod tests {
 
     #[test]
     fn older_draft_bound_modifiers_and_finite_siblings_keep_their_rules() {
-        let mut value = special_object(0.0);
-        value["extra"] = PreparedValue::number(f64::INFINITY);
+        let value = special_object(0.0);
+        value.set("extra", PreparedValue::number(f64::INFINITY));
         let schema = json!({"$schema":"http://json-schema.org/draft-04/schema#", "properties":{"n":{"minimum":0,"exclusiveMinimum":true}}});
         let baseline = jsonschema::validator_for(&schema).unwrap();
         assert!(!baseline.is_valid(&json!({"n":0})));
         assert!(baseline.is_valid(&json!({"n":1})));
         assert!(validate_prepared(&schema, &value).is_err());
-        value["n"] = PreparedValue::number(1.0);
+        value.set("n", PreparedValue::number(1.0));
         let outcome = validate_prepared(&schema, &value);
         assert!(outcome.is_ok(), "{outcome:?}");
         let schema = json!({"$schema":"http://json-schema.org/draft-04/schema#", "const":null});

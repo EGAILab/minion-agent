@@ -108,7 +108,7 @@ pub(super) fn preprocess_path(path: impl Into<FsPath>) -> Result<FsPath, ToolCap
     Ok(working)
 }
 
-pub(super) fn argument_path(value: &PreparedValue) -> Option<FsPath> {
+pub(super) fn argument_path(value: PreparedValue) -> Option<FsPath> {
     match value {
         PreparedValue::String(path) => Some(FsPath::from_code_units(path.code_units().to_vec())),
         _ => None,

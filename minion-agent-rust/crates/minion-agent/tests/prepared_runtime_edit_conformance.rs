@@ -72,10 +72,10 @@ async fn gate_wp132_real_edit_preserves_prepared_numeric_domain_at_the_hook() {
         let value = observation.lock().clone().unwrap();
         for pointer in case["observe"].as_array().unwrap() {
             let pointer = pointer.as_str().unwrap();
-            let mut at = &value;
+            let mut at = value.clone();
             for key in pointer.strip_prefix('/').unwrap().split('/') {
-                at = if let PreparedValue::Array(a) = at {
-                    &a[key.parse::<usize>().unwrap()]
+                at = if let PreparedValue::Array(a) = &at {
+                    a.get(key.parse::<usize>().unwrap()).unwrap()
                 } else {
                     at.get(key).unwrap()
                 };

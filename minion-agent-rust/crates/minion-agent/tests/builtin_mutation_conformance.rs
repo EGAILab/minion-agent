@@ -371,7 +371,7 @@ async fn complete_builtin_mutation_case_corpus_including_unpaired_arguments() {
             let signal = Signal::default();
             if case
                 .get("signal")
-                .is_some_and(|s| s == &minion_agent::llm::RawValue::from(json!("pre_aborted")))
+                .is_some_and(|s| s == json!("pre_aborted"))
             {
                 signal.abort();
             }
@@ -408,13 +408,13 @@ async fn complete_builtin_mutation_case_corpus_including_unpaired_arguments() {
             let expected = case.get("expect").unwrap();
             assert_eq!(
                 minion_agent::llm::ResultValue::Bool(message.is_error),
-                lossless::result(expected.get("is_error").unwrap()),
+                lossless::result(&expected.get("is_error").unwrap()),
                 "{:?}: {:?}",
                 case.get("id"),
                 message.content
             );
             if expected.get("argument_validation_failure")
-                != Some(&minion_agent::llm::RawValue::Bool(true))
+                != Some(minion_agent::llm::RawValue::Bool(true))
             {
                 let minion_agent::llm::ToolResultContentBlock::Text(text) = &message.content[0]
                 else {
@@ -423,7 +423,7 @@ async fn complete_builtin_mutation_case_corpus_including_unpaired_arguments() {
                 if let Some(expected) = expected.get("text") {
                     assert_eq!(
                         minion_agent::llm::ResultValue::String(text.text.clone()),
-                        lossless::result(expected),
+                        lossless::result(&expected),
                         "{:?}",
                         case.get("id")
                     );
@@ -431,7 +431,7 @@ async fn complete_builtin_mutation_case_corpus_including_unpaired_arguments() {
                 if let Some(expected) = expected.get("details") {
                     assert_eq!(
                         message.details.as_ref().unwrap(),
-                        &lossless::result(expected),
+                        &lossless::result(&expected),
                         "{:?}",
                         case.get("id")
                     );
@@ -445,7 +445,7 @@ async fn complete_builtin_mutation_case_corpus_including_unpaired_arguments() {
             }
             cases += 1;
             if case.get("unpaired_surrogate_arguments")
-                == Some(&minion_agent::llm::RawValue::Bool(true))
+                == Some(minion_agent::llm::RawValue::Bool(true))
             {
                 unpaired += 1;
             }

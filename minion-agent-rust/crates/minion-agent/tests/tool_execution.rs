@@ -89,15 +89,15 @@ fn before_hook_plugin(executed: Arc<parking_lot::Mutex<Option<Value>>>) -> DynPl
                     )
                     .map_err(|error| PluginInitError::new(error.to_string()))?;
                 register_before_tool_call_hook(&context, |current| async move {
-                    let mut arguments = current.arguments;
-                    arguments["stage"] = json!(1).into();
+                    let arguments = current.arguments;
+                    arguments.set("stage", json!(1).into());
                     Ok(BeforeToolCallAction::Proceed(Some(arguments)))
                 })
                 .map_err(|error| PluginInitError::new(error.to_string()))?;
                 register_before_tool_call_hook(&context, |current| async move {
-                    assert_eq!(current.arguments["stage"], 1);
-                    let mut arguments = current.arguments;
-                    arguments["stage"] = json!(2).into();
+                    assert_eq!(current.arguments.get("stage").unwrap(), 1);
+                    let arguments = current.arguments;
+                    arguments.set("stage", json!(2).into());
                     Ok(BeforeToolCallAction::Proceed(Some(arguments)))
                 })
                 .map_err(|error| PluginInitError::new(error.to_string()))?;

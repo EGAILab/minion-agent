@@ -104,13 +104,13 @@ pub fn result(value: &RawValue) -> ResultValue {
             ResultValue::String(ResultString::from_code_units(s.code_units().to_vec()))
         }
         RawValue::Number(n) => ResultValue::number(n.as_f64()),
-        RawValue::Array(a) => ResultValue::Array(a.iter().map(result).collect()),
+        RawValue::Array(a) => ResultValue::Array(a.iter().map(|v| result(&v)).collect()),
         RawValue::Object(o) => ResultValue::Object(
             o.iter()
                 .map(|(k, v)| {
                     (
                         ResultString::from_code_units(k.code_units().to_vec()),
-                        result(v),
+                        result(&v),
                     )
                 })
                 .collect(),

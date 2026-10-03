@@ -161,7 +161,6 @@ pub fn create_ls_tool(fs: Arc<dyn FileSystem>) -> ToolDefinition {
                     .params
                     .get("limit")
                     .filter(|value| !value.is_null())
-                    .cloned()
                     .unwrap_or_else(|| json!(500).into());
                 let limit = limit_value.as_f64().unwrap_or(500.0);
                 let signal = request.signal;

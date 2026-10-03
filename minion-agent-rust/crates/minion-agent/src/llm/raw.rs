@@ -1,11 +1,11 @@
 //! Live raw tool arguments: UTF-16 strings/keys and binary64 numbers.
 //! JSON projection is explicit and fallible, never the live log.
-use crate::argument_object::ArgumentObject;
+use crate::argument_graph::{ArgumentArray, ArgumentObjectRef};
 pub use crate::javascript::JsString as RawString;
 use crate::javascript::{JsJsonValue, js_json_loads};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::{collections::BTreeMap, ops::Index};
+use std::collections::BTreeMap;
 use thiserror::Error;
 
 #[derive(Clone, Debug, PartialEq)]
@@ -14,8 +14,8 @@ pub enum RawValue {
     Bool(bool),
     Number(RawNumber),
     String(RawString),
-    Array(Vec<Self>),
-    Object(ArgumentObject<RawString, Self>),
+    Array(ArgumentArray<Self>),
+    Object(ArgumentObjectRef<RawString, Self>),
 }
 
 /// Binary64, including signed zero and infinities, but not NaN.
@@ -106,18 +106,11 @@ impl RawValue {
             ),
         })
     }
-    pub fn get(&self, key: &str) -> Option<&Self> {
+    pub fn get(&self, key: &str) -> Option<Self> {
         let Self::Object(values) = self else {
             return None;
         };
-        values.iter().find_map(|(candidate, value)| {
-            candidate
-                .code_units()
-                .iter()
-                .copied()
-                .eq(key.encode_utf16())
-                .then_some(value)
-        })
+        values.get(&RawString::from_code_units(key.encode_utf16().collect()))
     }
     pub fn as_f64(&self) -> Option<f64> {
         match self {
@@ -159,7 +152,7 @@ impl RawValue {
             Self::Array(values) => Value::Array(
                 values
                     .iter()
-                    .map(Self::try_to_json)
+                    .map(|value| value.try_to_json())
                     .collect::<Result<_, _>>()?,
             ),
             Self::Object(values) => Value::Object(
@@ -207,12 +200,6 @@ impl From<Value> for RawValue {
 impl From<BTreeMap<String, Value>> for RawValue {
     fn from(values: BTreeMap<String, Value>) -> Self {
         Self::from(Value::Object(values.into_iter().collect()))
-    }
-}
-impl Index<&str> for RawValue {
-    type Output = Self;
-    fn index(&self, key: &str) -> &Self {
-        self.get(key).unwrap_or(&Self::Null)
     }
 }
 impl PartialEq<Value> for RawValue {

@@ -30,7 +30,7 @@ fn decode(value: &Value) -> PreparedValue {
             PreparedValue::String(PreparedString::from_code_units(units(&o["utf16"])))
         }
         Value::Object(o) if o.contains_key("$key") => {
-            PreparedValue::Object(minion_agent::argument_object::ArgumentObject::from([(
+            PreparedValue::Object(minion_agent::argument_graph::ArgumentObjectRef::from([(
                 PreparedString::from_code_units(units(&o["$key"])),
                 decode(&o["value"]),
             )]))
@@ -44,17 +44,17 @@ fn decode(value: &Value) -> PreparedValue {
         _ => PreparedValue::from(value.clone()),
     }
 }
-fn set(mut value: PreparedValue, replacements: &Value) -> PreparedValue {
+fn set(value: PreparedValue, replacements: &Value) -> PreparedValue {
     for (pointer, replacement) in replacements.as_object().unwrap() {
-        value[pointer.strip_prefix('/').unwrap()] = decode(replacement);
+        value.set(pointer.strip_prefix('/').unwrap(), decode(replacement));
     }
     value
 }
-fn at<'a>(value: &'a PreparedValue, pointer: &str) -> Option<&'a PreparedValue> {
-    let mut node = value;
+fn at(value: &PreparedValue, pointer: &str) -> Option<PreparedValue> {
+    let mut node = value.clone();
     for key in pointer.strip_prefix('/')?.split('/') {
         let key = key.replace("~1", "/").replace("~0", "~");
-        node = match node {
+        node = match &node {
             PreparedValue::Array(a) => a.get(key.parse::<usize>().ok()?)?,
             _ => node.get(&key)?,
         };
@@ -80,7 +80,7 @@ fn observe(value: &PreparedValue, pointers: &Value, keys: &Value) -> Option<Valu
                     at(value, p)?
                         .as_object()?
                         .keys()
-                        .map(PreparedString::code_units)
+                        .map(|key| key.code_units().to_vec())
                         .collect::<Vec<_>>()
                 ),
             );
@@ -146,7 +146,7 @@ fn mutate(value: PreparedValue, mutation: Mutation) -> Result<PreparedValue, Too
             .into_iter()
             .map(|v| mutate(v, mutation))
             .collect::<Result<Vec<_>, _>>()
-            .map(PreparedValue::Array),
+            .map(|values| PreparedValue::Array(values.into())),
         PreparedValue::Object(o) => o
             .into_iter()
             .map(|(k, v)| {
@@ -159,7 +159,7 @@ fn mutate(value: PreparedValue, mutation: Mutation) -> Result<PreparedValue, Too
                     mutate(v, mutation)?,
                 ))
             })
-            .collect::<Result<minion_agent::argument_object::ArgumentObject<_, _>, _>>()
+            .collect::<Result<minion_agent::argument_graph::ArgumentObjectRef<_, _>, _>>()
             .map(PreparedValue::Object),
         _ => Ok(value),
     }

@@ -17,24 +17,27 @@ fn raw_decode_and_serialization_keep_the_same_order_recursively() {
     let text = r#"{"z":{"b":1,"2":2,"1":3},"2":2,"1":1,"a":0}"#;
     let raw = RawValue::decode(text).unwrap();
     assert_eq!(keys(&raw), ["1", "2", "z", "a"]);
-    assert_eq!(keys(&raw["z"]), ["1", "2", "b"]);
+    assert_eq!(keys(&raw.get("z").unwrap()), ["1", "2", "b"]);
     let serialized = serde_json::to_string(&raw).unwrap();
     assert_eq!(serialized, r#"{"1":1,"2":2,"z":{"1":3,"2":2,"b":1},"a":0}"#);
     let replay: RawValue = serde_json::from_str(&serialized).unwrap();
     assert_eq!(keys(&replay), keys(&raw));
-    assert_eq!(keys(&replay["z"]), keys(&raw["z"]));
+    assert_eq!(
+        keys(&replay.get("z").unwrap()),
+        keys(&raw.get("z").unwrap())
+    );
 }
 
 #[test]
 fn prepared_and_replacement_values_do_not_impose_sorted_key_order() {
     let raw = RawValue::decode(r#"{"z":1,"a":2,"1":3}"#).unwrap();
-    let mut prepared = PreparedValue::from(raw);
-    prepared["0"] = PreparedValue::Bool(true);
+    let prepared = PreparedValue::from(raw);
+    prepared.set("0", PreparedValue::Bool(true));
     let object = prepared.as_object().unwrap();
     assert_eq!(
         object
             .keys()
-            .map(|key| key.as_str().unwrap())
+            .map(|key| key.as_str().unwrap().to_owned())
             .collect::<Vec<_>>(),
         ["0", "1", "z", "a"]
     );
@@ -48,7 +51,7 @@ fn prepared_and_replacement_values_do_not_impose_sorted_key_order() {
 fn duplicate_properties_keep_first_position_and_last_value() {
     let raw = RawValue::decode(r#"{"z":1,"a":2,"z":3,"__proto__":4}"#).unwrap();
     assert_eq!(keys(&raw), ["z", "a", "__proto__"]);
-    assert_eq!(raw["z"].as_f64(), Some(3.0));
+    assert_eq!(raw.get("z").unwrap().as_f64(), Some(3.0));
 }
 
 #[test]

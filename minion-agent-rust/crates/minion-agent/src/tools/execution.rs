@@ -825,8 +825,11 @@ async fn preflight_one(
     } else {
         PreparedValue::from(raw)
     };
+    // Pi isolates the shim's own objects with structuredClone, while keeping
+    // aliases inside that graph. Hooks and execute subsequently share it.
+    let params = params.structured_clone();
     if let Err(error) =
-        super::prepared_validation::validate_runtime_schema(tool.parameters().as_value(), &params)
+        super::prepared_validation::validate_runtime_schema(&tool.parameters().as_value(), &params)
     {
         let message = match error {
             PreparedValidationError::Schema(error) => format!(

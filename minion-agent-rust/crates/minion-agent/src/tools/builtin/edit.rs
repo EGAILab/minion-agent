@@ -110,7 +110,7 @@ pub fn create_edit_tool(fs: Arc<dyn FileSystem>) -> ToolDefinition {
     ToolDefinition::new("edit", "Edit a single file using exact text replacement. Every edits[].oldText must match a unique, non-overlapping region of the original file. If two changes affect the same block or nearby lines, merge them into one edit instead of emitting overlapping edits. Do not include large unchanged regions just to connect distant changes.", parameters, "edit", move |request: ToolExecutionRequest| {
         let fs = fs.clone();
         Box::pin(async move {
-            let values = request.params.get("edits").and_then(PreparedValue::as_array).filter(|v| !v.is_empty()).ok_or_else(|| ToolCapabilityError::new("Edit tool input is invalid. edits must contain at least one replacement."))?;
+            let values = request.params.get("edits").and_then(|v| v.as_array()).filter(|v| !v.is_empty()).ok_or_else(|| ToolCapabilityError::new("Edit tool input is invalid. edits must contain at least one replacement."))?;
             let edits = values.iter().map(|v| match (v.get("oldText"), v.get("newText")) {
                 (Some(PreparedValue::String(old)), Some(PreparedValue::String(new))) => Ok(Edit::new(old.clone(), new.clone())),
                 _ => Err(ToolCapabilityError::new("oldText and newText are required")),

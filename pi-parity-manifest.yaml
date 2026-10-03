@@ -6811,6 +6811,37 @@ rows:
     provider-capability regression in tests/execution_filesystem.rs. Merged at main
     8a2a39481f3613d3caea7d23048b518e05931bc0 (minion-agent#83) after exact-SHA independent review.'
   disposition: intentional divergence
+- id: EXEC-010
+  phase: 4
+  pi: packages/coding-agent/src/utils/shell.ts::getShellConfig/getShellEnv (process.platform, process.env);
+    packages/coding-agent/src/core/tools/bash.ts::resolveSpawnContext (copy of process.env, exact-spelling delete,
+    explicit spawn env); Node v22.15.1 lib/child_process.js::normalizeSpawnArguments (Windows duplicate arbitration)
+  surface: Layer 12 additive extension WP-12.E4 -- execution-world platform family and environment snapshot on the
+    ctx.subprocess provider; the consumer composition that reproduces Pi's spawn environment
+  rule: 'CONTRACT_DRAFT (WP-12.E4, minion-agent#130; Owner decisions WP133-F1/F2 Option A, minion-agent#50
+    issuecomment-5951046523, and WP12E4-C002 Option B, minion-agent#130 issuecomment-5966459749; MINION_EXTENSION).
+    platform: WINDOWS | POSIX, provider-declared (a fake or remote world declares its own). base_env(): a READ-ONLY,
+    isolated snapshot of exactly what an inherit_env=true spawn of that provider would inherit now, before overlay;
+    lossless (POSIX bytes, Windows UTF-16 units). Windows lookup is the native OS comparison; no deduplication.
+    C002: the Python Windows local baseline is the live native process environment, for base_env() and
+    inherit_env=true alike (per-drive =X: records excluded, as os.environ and Node omit them); POSIX and Rust
+    unchanged. Consumer composition (spec section 15.5): Node''s view (WHATWG decode, invalid names dropped, BOM
+    kept), exact-spelling removal, injection, then on Windows the ECMAScript toUpperCase (Unicode 16.0) arbitration
+    keeping the UTF-16-first name. Full rules: spec/execution.md section 15.'
+  tests:
+  - tests/execution/test_environment_e4.py (platform, read-only snapshot and consumer copy, native lookup, C002 A-D
+    with snapshot/inherit/rebuilt-child equivalence, isolation, per-drive records; controls -- dict(os.environ)
+    baseline, a different inherit source, a construction-time cache)
+  - tests/tools/builtin/test_environment_composition.py (pinned-Node rows for POSIX values and names, Windows lone
+    surrogates, toUpperCase/UTF-16-first arbitration both orders, compose with C003, a fake Windows world; controls --
+    per-surrogate replacement, BOM stripping, keeping an invalid name, lowercase/casefold/ASCII-only equivalence,
+    last-inserted arbitration, reading the host environment)
+  python: minion_agent/execution/environment.py (Platform, EnvSnapshot, native_windows_environment, local_baseline);
+    execution/subprocess.py (Subprocess.platform/base_env, LocalSubprocess, _effective_env); tools/builtin/environment.py
+    (node_environment_view, windows_spawn_environment, compose_spawn_environment); tools/builtin/collation.py
+    (upper_unicode16)
+  rust: NOT_IMPLEMENTED
+  disposition: adopted
 - id: TOOL-025
   phase: 6
   pi: 'packages/coding-agent/src/core/tools/read.ts (schema lines 21-25; execute lines 223-334);

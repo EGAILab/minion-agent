@@ -5,6 +5,7 @@ and `pi-parity-manifest.yaml` rows `EXEC-001` through `EXEC-006` for the full no
 
 from __future__ import annotations
 
+from .environment import EnvSnapshot, Platform
 from .errors import (
     FsError,
     FsErrorCode,
@@ -44,6 +45,7 @@ from .world import (
 )
 
 __all__ = [
+    "EnvSnapshot",
     "Err",
     "ExecutionWorldError",
     "ExecutionWorldIdentity",
@@ -59,6 +61,7 @@ __all__ = [
     "LocalShell",
     "LocalSubprocess",
     "Ok",
+    "Platform",
     "Process",
     "ReadableStream",
     "Result",

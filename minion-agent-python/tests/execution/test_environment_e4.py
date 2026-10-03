@@ -188,19 +188,33 @@ async def test_i001_an_entry_after_an_astral_entry_survives_traversal() -> None:
         os.unsetenv("ZzWpE4_AfterAstral")
 
 
-def test_i003_windows_lookup_is_the_native_unit_uppercase_on_any_host(monkeypatch: Any) -> None:
-    """A declared WINDOWS world compares names by the OS uppercase table, whatever the host:
-    `Q<U+00E9>` finds `Q<U+00C9>`; U+00DF, U+0131 and astral differences stay distinct."""
-    for host in ("win32", "linux"):
-        monkeypatch.setattr(environment_module.sys, "platform", host)
-        world = EnvSnapshot(
-            [("PROGRAMFILES", "D:/PF"), ("Q\u00e9", "acute"), ("Q\U0001f600a", "astral")],
-            Platform.WINDOWS,
-        )
-        assert world["ProgramFiles"] == "D:/PF"
-        assert world["Q\u00c9"] == "acute"
-        assert world.get("Q\U0001f600b") is None and world["Q\U0001f600a"] == "astral"
-        assert world.get("Q\u00df".replace("\u00df", "ss")) is None
+def _assert_native_windows_lookup() -> None:
+    """`Q<U+00E9>` finds `Q<U+00C9>`; U+00DF, U+0131 and astral differences stay distinct."""
+    world = EnvSnapshot(
+        [("PROGRAMFILES", "D:/PF"), ("Q\u00e9", "acute"), ("Q\U0001f600a", "astral")],
+        Platform.WINDOWS,
+    )
+    assert world["ProgramFiles"] == "D:/PF"
+    assert world["Q\u00c9"] == "acute"
+    assert world.get("Q\U0001f600b") is None and world["Q\U0001f600a"] == "astral"
+    assert world.get("Qss") is None
+
+
+def _no_windows_api(unit: int) -> int:
+    raise AssertionError("a non-Windows host must not reach the live Windows uppercase API")
+
+
+def test_i003_a_windows_world_on_a_non_windows_host_uses_the_pinned_table(monkeypatch: Any) -> None:
+    """`CE-WP12E4-01-C001`: runs on EVERY host. The host is non-Windows and the live Windows API
+    is unavailable, so the comparison must come from the committed table alone."""
+    monkeypatch.setattr(environment_module.sys, "platform", "linux")
+    monkeypatch.setattr(environment_module, "_live_upcase", _no_windows_api)
+    _assert_native_windows_lookup()
+
+
+@windows_only
+def test_i003_a_windows_world_on_a_windows_host_uses_the_live_table() -> None:
+    _assert_native_windows_lookup()
 
 
 @windows_only
@@ -224,7 +238,7 @@ def test_control_an_ascii_only_fallback_fails_the_non_ascii_lookup(monkeypatch: 
 
     monkeypatch.setattr(environment_module, "_windows_key", ascii_only)
     with pytest.raises((AssertionError, KeyError)):
-        test_i003_windows_lookup_is_the_native_unit_uppercase_on_any_host(monkeypatch)
+        test_i003_a_windows_world_on_a_non_windows_host_uses_the_pinned_table(monkeypatch)
 
 
 # --- the Owner's remaining C002 section 13 controls, each explicit ------------------------------

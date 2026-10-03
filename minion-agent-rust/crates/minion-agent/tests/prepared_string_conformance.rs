@@ -11,12 +11,7 @@ use minion_agent::{
 };
 use parking_lot::Mutex;
 use serde_json::{Value, json};
-use std::{
-    collections::{BTreeMap, BTreeSet},
-    fs,
-    path::PathBuf,
-    sync::Arc,
-};
+use std::{collections::BTreeSet, fs, path::PathBuf, sync::Arc};
 
 fn root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../..")
@@ -34,10 +29,12 @@ fn decode(value: &Value) -> PreparedValue {
         Value::Object(o) if o.contains_key("utf16") => {
             PreparedValue::String(PreparedString::from_code_units(units(&o["utf16"])))
         }
-        Value::Object(o) if o.contains_key("$key") => PreparedValue::Object(BTreeMap::from([(
-            PreparedString::from_code_units(units(&o["$key"])),
-            decode(&o["value"]),
-        )])),
+        Value::Object(o) if o.contains_key("$key") => {
+            PreparedValue::Object(minion_agent::argument_object::ArgumentObject::from([(
+                PreparedString::from_code_units(units(&o["$key"])),
+                decode(&o["value"]),
+            )]))
+        }
         Value::Object(o) => PreparedValue::Object(
             o.iter()
                 .map(|(k, v)| (k.as_str().into(), decode(v)))
@@ -162,7 +159,7 @@ fn mutate(value: PreparedValue, mutation: Mutation) -> Result<PreparedValue, Too
                     mutate(v, mutation)?,
                 ))
             })
-            .collect::<Result<BTreeMap<_, _>, _>>()
+            .collect::<Result<minion_agent::argument_object::ArgumentObject<_, _>, _>>()
             .map(PreparedValue::Object),
         _ => Ok(value),
     }

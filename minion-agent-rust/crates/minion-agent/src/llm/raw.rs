@@ -1,8 +1,8 @@
 //! Live raw tool arguments: UTF-16 strings/keys and binary64 numbers.
 //! JSON projection is explicit and fallible, never the live log.
+use crate::argument_object::ArgumentObject;
 pub use crate::javascript::JsString as RawString;
 use crate::javascript::{JsJsonValue, js_json_loads};
-use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{collections::BTreeMap, ops::Index};
@@ -15,7 +15,7 @@ pub enum RawValue {
     Number(RawNumber),
     String(RawString),
     Array(Vec<Self>),
-    Object(IndexMap<RawString, Self>),
+    Object(ArgumentObject<RawString, Self>),
 }
 
 /// Binary64, including signed zero and infinities, but not NaN.

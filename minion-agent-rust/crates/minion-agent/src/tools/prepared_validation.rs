@@ -718,7 +718,10 @@ mod tests {
     #[test]
     fn runtime_keys_use_real_unicode_patterns_and_nested_reference_validation() {
         let key = PreparedString::from_code_units(vec![65, 0xd800]);
-        let object = PreparedValue::Object(BTreeMap::from([(key, PreparedValue::Bool(true))]));
+        let object = PreparedValue::Object(crate::argument_object::ArgumentObject::from([(
+            key,
+            PreparedValue::Bool(true),
+        )]));
         assert!(validate_prepared(&json!({"patternProperties":{"^A.$":{"type":"boolean"}},"additionalProperties":false}),&object).is_ok());
         assert!(
             validate_prepared(

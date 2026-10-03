@@ -5,7 +5,7 @@
 //! strings, or clamped values. This vocabulary deliberately does not implement
 //! `Serialize`: any future serialization boundary must specify its projection.
 
-use std::collections::BTreeMap;
+use crate::argument_object::ArgumentObject;
 
 use serde_json::{Number, Value};
 use thiserror::Error;
@@ -14,7 +14,7 @@ use thiserror::Error;
 ///
 /// Scalar text is available only when conversion is lossless. The UTF-16
 /// sequence remains authoritative; replacement is an explicit later boundary.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct PreparedString {
     units: Vec<u16>,
     scalar: Option<String>,
@@ -120,7 +120,7 @@ pub enum PreparedValue {
     Number(PreparedNumber),
     String(PreparedString),
     Array(Vec<Self>),
-    Object(BTreeMap<PreparedString, Self>),
+    Object(ArgumentObject<PreparedString, Self>),
 }
 
 impl PreparedValue {
@@ -145,14 +145,14 @@ impl PreparedValue {
         }
     }
 
-    pub fn as_object(&self) -> Option<&BTreeMap<PreparedString, Self>> {
+    pub fn as_object(&self) -> Option<&ArgumentObject<PreparedString, Self>> {
         match self {
             Self::Object(object) => Some(object),
             _ => None,
         }
     }
 
-    pub fn as_object_mut(&mut self) -> Option<&mut BTreeMap<PreparedString, Self>> {
+    pub fn as_object_mut(&mut self) -> Option<&mut ArgumentObject<PreparedString, Self>> {
         match self {
             Self::Object(object) => Some(object),
             _ => None,
@@ -229,12 +229,11 @@ impl std::ops::Index<&str> for PreparedValue {
 impl std::ops::IndexMut<&str> for PreparedValue {
     fn index_mut(&mut self, key: &str) -> &mut Self {
         if self.is_null() {
-            *self = Self::Object(BTreeMap::new());
+            *self = Self::Object(ArgumentObject::new());
         }
         self.as_object_mut()
             .expect("prepared value is an object")
-            .entry(key.into())
-            .or_insert(Self::Null)
+            .entry_or_insert(key.into(), Self::Null)
     }
 }
 
@@ -345,7 +344,7 @@ mod string_tests {
     fn non_scalar_keys_are_addressable_and_json_conversion_never_normalizes() {
         let high = PreparedString::from_code_units(vec![0xd800]);
         let low = PreparedString::from_code_units(vec![0xdc00]);
-        let mut object = PreparedValue::Object(BTreeMap::from([
+        let mut object = PreparedValue::Object(ArgumentObject::from([
             (high.clone(), PreparedValue::Bool(true)),
             (low.clone(), PreparedValue::Bool(false)),
             ("�".into(), PreparedValue::Null),

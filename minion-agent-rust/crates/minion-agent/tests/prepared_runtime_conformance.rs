@@ -118,7 +118,7 @@ fn mutate(value: PreparedValue, mutation: Mutation) -> Result<PreparedValue, Too
         PreparedValue::Object(o) => o
             .into_iter()
             .map(|(k, v)| mutate(v, mutation).map(|v| (k, v)))
-            .collect::<Result<BTreeMap<_, _>, _>>()
+            .collect::<Result<minion_agent::argument_object::ArgumentObject<_, _>, _>>()
             .map(PreparedValue::Object),
         _ => Ok(value),
     }

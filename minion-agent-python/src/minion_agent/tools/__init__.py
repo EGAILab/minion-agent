@@ -7,7 +7,14 @@ reason about.
 
 from .batch import BatchOutcome, execute_batch, execute_length_stop_batch
 from .decisions import AfterToolCallOverride, Block, PreExecuteDecision, Proceed
-from .definition import ExecutionMode, ToolDefinition, ToolFn, ToolUpdate
+from .definition import (
+    ExecutionMode,
+    ToolContextProvider,
+    ToolDefinition,
+    ToolExecutionContext,
+    ToolFn,
+    ToolUpdate,
+)
 from .events import (
     TOOLS_EVENT_MODES,
     TOOLS_EXECUTION_END,
@@ -38,7 +45,9 @@ __all__ = [
     "ExecutionMode",
     "PreExecuteDecision",
     "Proceed",
+    "ToolContextProvider",
     "ToolDefinition",
+    "ToolExecutionContext",
     "ToolFn",
     "ToolRegistry",
     "ToolResult",

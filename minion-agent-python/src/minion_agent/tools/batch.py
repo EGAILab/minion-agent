@@ -18,7 +18,7 @@ from dataclasses import dataclass
 from ..llm import ToolCallBlock
 from ..llm.js_object import order_raw
 from ..runtime import Context, RunSignal, Scope, ScopeKey
-from .definition import ExecutionMode
+from .definition import ExecutionMode, ToolContextProvider
 from .events import TOOLS_EXECUTION_END, TOOLS_EXECUTION_START
 from .execute import (
     OnExecutionEnd,
@@ -89,6 +89,7 @@ async def execute_batch(
     on_execution_end: OnExecutionEnd | None = None,
     on_execution_update: OnExecutionUpdate | None = None,
     signal: RunSignal | None = None,
+    context_provider: ToolContextProvider | None = None,
 ) -> BatchOutcome:
     """Run every call in `calls`, returning results in source order.
 
@@ -155,6 +156,7 @@ async def execute_batch(
                 on_execution_end=on_execution_end,
                 on_execution_update=on_execution_update,
                 signal=signal,
+                context_provider=context_provider,
             )
             completion.append(result.tool_call_id)
             return result
@@ -195,6 +197,7 @@ async def execute_batch(
                 on_execution_end=on_execution_end,
                 on_execution_update=on_execution_update,
                 signal=signal,
+                context_provider=context_provider,
             )
             completion.append(result.tool_call_id)
             return result

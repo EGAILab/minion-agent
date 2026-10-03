@@ -148,7 +148,7 @@ from ..session import (
 )
 from ..telemetry import Span, SpanKind, TelemetryService
 from ..tools.batch import BatchOutcome, execute_batch, execute_length_stop_batch
-from ..tools.definition import ToolDefinition
+from ..tools.definition import ToolDefinition, ToolExecutionContext
 from ..tools.registry import ToolRegistry
 from ..tools.result import ToolPartialResult, ToolResult
 
@@ -204,6 +204,19 @@ class AgentLoop:
         self.telemetry = telemetry
         self.next_turn_policy = ClaimPolicy.ONE_AT_A_TIME
         self.next_step_policy = ClaimPolicy.ONE_AT_A_TIME
+
+    def _tool_execution_context(self) -> ToolExecutionContext:
+        """`L0506-D004`: this agent's authoritative current state, snapshotted for one call as
+        `execute` is invoked -- the instance's session, model and thinking level, never a
+        per-step `RunConfigUpdate` override nor the process environment (Owner F3 sections 17,
+        22). No persisted session file exists, so `session_file` is absent (F3 section 21)."""
+        instance = self.instance
+        return ToolExecutionContext(
+            session_id=instance.log.session_id,
+            provider=instance.model.provider,
+            model=instance.model.model,
+            reasoning_level=str(instance.thinking_level),
+        )
 
     async def prompt(
         self,
@@ -1264,6 +1277,7 @@ class AgentLoop:
                     on_execution_end=on_execution_end,
                     on_execution_update=on_execution_update,
                     signal=self.instance.signal,
+                    context_provider=self._tool_execution_context,
                 )
 
             results: list[Message] = []

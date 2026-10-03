@@ -33,7 +33,7 @@ async fn provider_gate_released_before_arrival_is_level_triggered() {
         fixture::Signal::default(),
         None,
     );
-    assert!(fs.absolute_path(".", None).await.is_ok());
+    assert!(fs.absolute_path(&".".into(), None).await.is_ok());
     assert_eq!(*fs.calls.lock(), vec!["absolute_path ."]);
 }
 

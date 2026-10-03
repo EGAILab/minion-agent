@@ -1,8 +1,8 @@
 //! Shared `read`/`ls` path argument pipeline and R010-B cause phrases.
 
 use crate::{
-    execution::{FsErrorCode, file_url_to_path},
-    tools::ToolCapabilityError,
+    execution::{FsErrorCode, FsPath, file_url_to_js_path},
+    tools::{PreparedValue, ToolCapabilityError},
 };
 
 pub(super) const OPERATION_ABORTED: &str = "Operation aborted";
@@ -28,6 +28,7 @@ fn normalized_space(ch: char) -> char {
     }
 }
 
+#[cfg(test)]
 fn windows_shell_path(path: &str) -> Option<String> {
     if !path.starts_with('/') || path.starts_with("//") || path.contains('\\') {
         return None;
@@ -56,25 +57,74 @@ fn windows_shell_path(path: &str) -> Option<String> {
 }
 
 /// TOOL-026 steps 1-4. A malformed `file://` fails here, before any `ctx.fs` call.
-pub(super) fn preprocess_path(path: &str) -> Result<String, ToolCapabilityError> {
-    let mut working: String = path.chars().map(normalized_space).collect();
-    if let Some(stripped) = working.strip_prefix('@') {
-        working = stripped.to_owned();
+pub(super) fn preprocess_path(path: impl Into<FsPath>) -> Result<FsPath, ToolCapabilityError> {
+    let path = path.into();
+    let mut units: Vec<u16> = path
+        .code_units()
+        .iter()
+        .map(|unit| {
+            char::from_u32(u32::from(*unit)).map_or(*unit, |ch| normalized_space(ch) as u16)
+        })
+        .collect();
+    if units.first() == Some(&64) {
+        units.remove(0);
     }
     if cfg!(windows)
-        && let Some(native) = windows_shell_path(&working)
+        && units.first() == Some(&47)
+        && !units.starts_with(&[47, 47])
+        && !units.contains(&92)
     {
-        working = native;
+        let prefix = if units.starts_with(&"/mnt/".encode_utf16().collect::<Vec<_>>()) {
+            5
+        } else if units.starts_with(&"/cygdrive/".encode_utf16().collect::<Vec<_>>()) {
+            10
+        } else {
+            1
+        };
+        let rest = &units[prefix..];
+        if let Some(drive @ (65..=90 | 97..=122)) = rest.first().copied()
+            && (rest.len() == 1 || rest[1] == 47)
+            && !rest.iter().any(|u| matches!(u, 10 | 13 | 0x2028 | 0x2029))
+        {
+            let mut native = vec![if drive >= 97 { drive - 32 } else { drive }, 58, 92];
+            native.extend(
+                rest.get(2..)
+                    .unwrap_or_default()
+                    .iter()
+                    .map(|u| if *u == 47 { 92 } else { *u }),
+            );
+            units = native;
+        }
     }
-    if working.starts_with("file://") {
-        return file_url_to_path(&working, cfg!(windows)).ok_or_else(|| {
-            ToolCapabilityError::new(format!(
-                "Cannot access {working}: {}",
-                cause(FsErrorCode::Invalid)
-            ))
+    let working = FsPath::from_code_units(units);
+    if working
+        .code_units()
+        .starts_with(&"file://".encode_utf16().collect::<Vec<_>>())
+    {
+        return file_url_to_js_path(&working, cfg!(windows)).ok_or_else(|| {
+            ToolCapabilityError::new(path_message("Cannot access {path}: invalid path", &working))
         });
     }
     Ok(working)
+}
+
+pub(super) fn argument_path(value: &PreparedValue) -> Option<FsPath> {
+    match value {
+        PreparedValue::String(path) => Some(FsPath::from_code_units(path.code_units().to_vec())),
+        _ => None,
+    }
+}
+
+/// Interpolate a logical path without going through Unicode Display/JSON.
+pub(super) fn path_message(template: &str, path: &FsPath) -> FsPath {
+    let mut units = Vec::new();
+    for (i, part) in template.split("{path}").enumerate() {
+        if i > 0 {
+            units.extend_from_slice(path.code_units());
+        }
+        units.extend(part.encode_utf16());
+    }
+    FsPath::from_code_units(units)
 }
 
 #[cfg(test)]

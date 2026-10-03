@@ -42,7 +42,35 @@ pub enum FsErrorCode {
     Unknown,
 }
 
-execution_error!(FsError, FsErrorCode);
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct FsError {
+    pub code: FsErrorCode,
+    pub message: String,
+    /// Actual failing OS-call path, or the logical operation fallback.
+    pub path: Option<super::FsPath>,
+}
+
+impl FsError {
+    pub fn new(code: FsErrorCode, message: impl Into<String>) -> Self {
+        Self {
+            code,
+            message: message.into(),
+            path: None,
+        }
+    }
+
+    pub fn with_path(mut self, path: impl Into<super::FsPath>) -> Self {
+        self.path = Some(path.into());
+        self
+    }
+}
+
+impl fmt::Display for FsError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(formatter, "{}", self.message)
+    }
+}
+impl std::error::Error for FsError {}
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]

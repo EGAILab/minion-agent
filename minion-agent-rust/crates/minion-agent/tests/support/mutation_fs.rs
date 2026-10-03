@@ -116,14 +116,14 @@ impl FixtureFs {
     async fn begin(
         &self,
         op: &str,
-        path: &str,
+        path: &minion_agent::execution::FsPath,
         signal: Option<&dyn AbortSignal>,
     ) -> (String, Option<FsErrorCode>) {
         assert!(
             signal.is_none(),
             "mutation tools must not forward cancellation to ctx.fs"
         );
-        let path = self.relative(path);
+        let path = self.relative(path.as_str().expect("scalar fixture path"));
         self.calls.lock().push(format!("{op} {path}"));
         let count = {
             let mut counts = self.counts.lock();
@@ -200,9 +200,9 @@ impl FileSystem for FixtureFs {
     }
     async fn absolute_path(
         &self,
-        path: &str,
+        path: &minion_agent::execution::FsPath,
         s: Option<&dyn AbortSignal>,
-    ) -> Result<String, FsError> {
+    ) -> Result<minion_agent::execution::FsPath, FsError> {
         let (p, e) = self.begin("absolute_path", path, s).await;
         let r = if let Some(e) = e {
             Err(Self::error(e))
@@ -213,9 +213,9 @@ impl FileSystem for FixtureFs {
     }
     async fn canonical_path(
         &self,
-        path: &str,
+        path: &minion_agent::execution::FsPath,
         s: Option<&dyn AbortSignal>,
-    ) -> Result<String, FsError> {
+    ) -> Result<minion_agent::execution::FsPath, FsError> {
         let (p, e) = self.begin("canonical_path", path, s).await;
         let r = if let Some(e) = e {
             Err(Self::error(e))
@@ -226,7 +226,7 @@ impl FileSystem for FixtureFs {
     }
     async fn check_read_write(
         &self,
-        path: &str,
+        path: &minion_agent::execution::FsPath,
         s: Option<&dyn AbortSignal>,
     ) -> Result<(), FsError> {
         let (p, e) = self.begin("check_read_write", path, s).await;
@@ -237,7 +237,11 @@ impl FileSystem for FixtureFs {
         };
         self.finish("check_read_write", p, r)
     }
-    async fn check_readable(&self, path: &str, s: Option<&dyn AbortSignal>) -> Result<(), FsError> {
+    async fn check_readable(
+        &self,
+        path: &minion_agent::execution::FsPath,
+        s: Option<&dyn AbortSignal>,
+    ) -> Result<(), FsError> {
         let (p, e) = self.begin("check_readable", path, s).await;
         let r = if let Some(e) = e {
             Err(Self::error(e))
@@ -248,7 +252,7 @@ impl FileSystem for FixtureFs {
     }
     async fn read_binary_file(
         &self,
-        path: &str,
+        path: &minion_agent::execution::FsPath,
         s: Option<&dyn AbortSignal>,
     ) -> Result<Vec<u8>, FsError> {
         let (p, e) = self.begin("read_binary_file", path, s).await;
@@ -261,7 +265,7 @@ impl FileSystem for FixtureFs {
     }
     async fn write_file(
         &self,
-        path: &str,
+        path: &minion_agent::execution::FsPath,
         data: &[u8],
         s: Option<&dyn AbortSignal>,
     ) -> Result<(), FsError> {
@@ -275,7 +279,7 @@ impl FileSystem for FixtureFs {
     }
     async fn create_dir(
         &self,
-        path: &str,
+        path: &minion_agent::execution::FsPath,
         recursive: bool,
         s: Option<&dyn AbortSignal>,
     ) -> Result<(), FsError> {
@@ -287,19 +291,23 @@ impl FileSystem for FixtureFs {
         };
         self.finish("create_dir", p, r)
     }
-    async fn join_path(&self, _: &[&str], _: Option<&dyn AbortSignal>) -> Result<String, FsError> {
+    async fn join_path(
+        &self,
+        _: &[&minion_agent::execution::FsPath],
+        _: Option<&dyn AbortSignal>,
+    ) -> Result<minion_agent::execution::FsPath, FsError> {
         panic!("unexpected join_path")
     }
     async fn read_text_file(
         &self,
-        _: &str,
+        _: &minion_agent::execution::FsPath,
         _: Option<&dyn AbortSignal>,
     ) -> Result<String, FsError> {
         panic!("unexpected read_text_file")
     }
     async fn read_text_lines(
         &self,
-        _: &str,
+        _: &minion_agent::execution::FsPath,
         _: Option<isize>,
         _: Option<&dyn AbortSignal>,
     ) -> Result<Vec<String>, FsError> {
@@ -307,7 +315,7 @@ impl FileSystem for FixtureFs {
     }
     async fn append_file(
         &self,
-        _: &str,
+        _: &minion_agent::execution::FsPath,
         _: &[u8],
         _: Option<&dyn AbortSignal>,
     ) -> Result<(), FsError> {
@@ -315,28 +323,36 @@ impl FileSystem for FixtureFs {
     }
     async fn rename_file(
         &self,
-        _: &str,
-        _: &str,
+        _: &minion_agent::execution::FsPath,
+        _: &minion_agent::execution::FsPath,
         _: Option<&dyn AbortSignal>,
     ) -> Result<(), FsError> {
         panic!("unexpected rename_file")
     }
-    async fn file_info(&self, _: &str, _: Option<&dyn AbortSignal>) -> Result<FileInfo, FsError> {
+    async fn file_info(
+        &self,
+        _: &minion_agent::execution::FsPath,
+        _: Option<&dyn AbortSignal>,
+    ) -> Result<FileInfo, FsError> {
         panic!("unexpected file_info")
     }
     async fn list_dir(
         &self,
-        _: &str,
+        _: &minion_agent::execution::FsPath,
         _: Option<&dyn AbortSignal>,
     ) -> Result<Vec<FileInfo>, FsError> {
         panic!("unexpected list_dir")
     }
-    async fn exists(&self, _: &str, _: Option<&dyn AbortSignal>) -> Result<bool, FsError> {
+    async fn exists(
+        &self,
+        _: &minion_agent::execution::FsPath,
+        _: Option<&dyn AbortSignal>,
+    ) -> Result<bool, FsError> {
         panic!("unexpected exists")
     }
     async fn remove(
         &self,
-        _: &str,
+        _: &minion_agent::execution::FsPath,
         _: bool,
         _: bool,
         _: Option<&dyn AbortSignal>,
@@ -358,10 +374,14 @@ impl FileSystem for FixtureFs {
     ) -> Result<String, FsError> {
         panic!("unexpected create_temp_file")
     }
-    async fn resolve(&self, _: &str, _: Option<&dyn AbortSignal>) -> Result<FsTarget, FsError> {
+    async fn resolve(
+        &self,
+        _: &minion_agent::execution::FsPath,
+        _: Option<&dyn AbortSignal>,
+    ) -> Result<FsTarget, FsError> {
         panic!("unexpected resolve")
     }
-    async fn process_path(&self, _: &FsTarget) -> Result<String, FsError> {
+    async fn process_path(&self, _: &FsTarget) -> Result<minion_agent::execution::FsPath, FsError> {
         panic!("unexpected process_path")
     }
     async fn cleanup(&self) {}

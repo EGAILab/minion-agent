@@ -5,11 +5,11 @@ use super::{
     edit_diff::generate_edit_details_units,
     edit_prepare::prepare_edit_arguments,
     mutation_queue::Registration,
-    paths::{cause, preprocess_path},
+    paths::{argument_path, cause, path_message, preprocess_path},
     write::{check_abort, text_result},
 };
 use crate::{
-    execution::{FileSystem, FsErrorCode},
+    execution::{FileSystem, FsErrorCode, FsPath},
     tools::{
         AgentToolResult, PreparedValue, ToolCapabilityError, ToolDefinition, ToolExecutionRequest,
         ToolExecutionSignal,
@@ -21,13 +21,16 @@ use std::sync::Arc;
 async fn edit(
     fs: Arc<dyn FileSystem>,
     registration: Registration,
-    working: String,
-    path: String,
+    working: FsPath,
+    path: FsPath,
     edits: Vec<Edit>,
     signal: Option<Arc<dyn ToolExecutionSignal>>,
 ) -> Result<AgentToolResult, ToolCapabilityError> {
     let _entry = registration.acquire().await.map_err(|e| {
-        ToolCapabilityError::new(format!("Cannot resolve {path}: {}", cause(e.code)))
+        ToolCapabilityError::new(path_message(
+            &format!("Cannot resolve {{path}}: {}", cause(e.code)),
+            &path,
+        ))
     })?;
     check_abort(signal.as_ref())?;
     let mut access = fs.check_read_write(&working, None).await;
@@ -45,16 +48,18 @@ async fn edit(
     }
     if let Err(e) = access {
         check_abort(signal.as_ref())?;
-        return Err(ToolCapabilityError::new(format!(
-            "Could not edit file: {path}. {}.",
-            cause(e.code)
+        return Err(ToolCapabilityError::new(path_message(
+            &format!("Could not edit file: {{path}}. {}.", cause(e.code)),
+            &path,
         )));
     }
     check_abort(signal.as_ref())?;
-    let bytes = fs
-        .read_binary_file(&working, None)
-        .await
-        .map_err(|e| ToolCapabilityError::new(format!("Cannot read {path}: {}", cause(e.code))))?;
+    let bytes = fs.read_binary_file(&working, None).await.map_err(|e| {
+        ToolCapabilityError::new(path_message(
+            &format!("Cannot read {{path}}: {}", cause(e.code)),
+            &path,
+        ))
+    })?;
     let raw = String::from_utf8_lossy(&bytes);
     check_abort(signal.as_ref())?;
     let (bom, content) = raw
@@ -77,10 +82,21 @@ async fn edit(
     let final_content = String::from_utf16_lossy(&final_units);
     fs.write_file(&working, final_content.as_bytes(), None)
         .await
-        .map_err(|e| ToolCapabilityError::new(format!("Cannot write {path}: {}", cause(e.code))))?;
+        .map_err(|e| {
+            ToolCapabilityError::new(path_message(
+                &format!("Cannot write {{path}}: {}", cause(e.code)),
+                &path,
+            ))
+        })?;
     check_abort(signal.as_ref())?;
     Ok(text_result(
-        format!("Successfully replaced {} block(s) in {path}.", edits.len()),
+        path_message(
+            &format!(
+                "Successfully replaced {} block(s) in {{path}}.",
+                edits.len()
+            ),
+            &path,
+        ),
         generate_edit_details_units(&path, &base, &new),
     ))
 }
@@ -99,7 +115,7 @@ pub fn create_edit_tool(fs: Arc<dyn FileSystem>) -> ToolDefinition {
                 (Some(PreparedValue::String(old)), Some(PreparedValue::String(new))) => Ok(Edit::new(old.clone(), new.clone())),
                 _ => Err(ToolCapabilityError::new("oldText and newText are required")),
             }).collect::<Result<Vec<_>, ToolCapabilityError>>()?;
-            let path = request.params.get("path").and_then(PreparedValue::as_str).ok_or_else(|| ToolCapabilityError::new("path is required"))?.to_owned();
+            let path = request.params.get("path").and_then(argument_path).ok_or_else(|| ToolCapabilityError::new("path is required"))?;
             let working = preprocess_path(&path)?;
             let registration = Registration::new(fs.clone(), working.clone());
             tokio::spawn(edit(fs, registration, working, path, edits, request.signal)).await.map_err(|e| ToolCapabilityError::new(e.to_string()))?

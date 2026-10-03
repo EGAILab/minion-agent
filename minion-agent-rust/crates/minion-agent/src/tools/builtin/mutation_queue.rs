@@ -3,7 +3,7 @@
 //! Only registration holds the global completion-chain gate across provider key lookup:
 //! that serialization is required by TOOL-032. No map lock spans any external call.
 
-use crate::execution::{FileSystem, FsError, FsErrorCode};
+use crate::execution::{FileSystem, FsError, FsErrorCode, FsPath};
 use parking_lot::Mutex;
 use std::{
     collections::HashMap,
@@ -14,7 +14,7 @@ use std::{
 };
 use tokio::sync::Notify;
 
-type Key = (usize, String);
+type Key = (usize, FsPath);
 
 #[derive(Default)]
 struct Completion {
@@ -64,13 +64,13 @@ pub(super) struct Entry {
 /// scheduling/key-resolution order therefore cannot change registration call order.
 pub(super) struct Registration {
     fs: Arc<dyn FileSystem>,
-    path: String,
+    path: FsPath,
     current: Arc<Completion>,
     previous: Option<Arc<Completion>>,
 }
 
 impl Registration {
-    pub(super) fn new(fs: Arc<dyn FileSystem>, path: String) -> Self {
+    pub(super) fn new(fs: Arc<dyn FileSystem>, path: FsPath) -> Self {
         let current = Arc::new(Completion::default());
         let previous = queues().registration.lock().replace(current.clone());
         Self {

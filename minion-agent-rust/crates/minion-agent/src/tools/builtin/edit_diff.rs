@@ -2,6 +2,7 @@
 //! Source: kpdecker/jsdiff tag 8.0.4 src/diff/{base,line}.ts and patch/create.ts;
 //! display projection: pinned Pi edit-diff.ts. No third-party approximation is used.
 
+use crate::execution::FsPath;
 use crate::llm::{ResultString, ResultValue};
 use std::collections::BTreeMap;
 
@@ -206,15 +207,15 @@ fn display(parts: &[Part], old: &[u16], new: &[u16]) -> (Vec<u16>, Option<usize>
     (join(&output), first)
 }
 
-fn patch(parts: &[Part], path: &str) -> Vec<u16> {
+fn patch(parts: &[Part], path: &FsPath) -> Vec<u16> {
     let mut old_line = 1;
     let mut new_line = 1;
     let mut start = None;
     let mut range: Vec<Vec<u16>> = Vec::new();
     let mut previous: Vec<&[u16]> = Vec::new();
     let mut output = vec![
-        prefixed(&format!("--- {path}"), &[]),
-        prefixed(&format!("+++ {path}"), &[]),
+        prefixed("--- ", path.code_units()),
+        prefixed("+++ ", path.code_units()),
     ];
     // The empty final common component closes a last change exactly like structuredPatch.
     for i in 0..=parts.len() {
@@ -288,13 +289,13 @@ fn patch(parts: &[Part], path: &str) -> Vec<u16> {
 
 pub fn generate_edit_details(path: &str, base: &str, new: &str) -> ResultValue {
     generate_edit_details_units(
-        path,
+        &path.into(),
         &base.encode_utf16().collect::<Vec<_>>(),
         &new.encode_utf16().collect::<Vec<_>>(),
     )
 }
 
-pub(super) fn generate_edit_details_units(path: &str, base: &[u16], new: &[u16]) -> ResultValue {
+pub(super) fn generate_edit_details_units(path: &FsPath, base: &[u16], new: &[u16]) -> ResultValue {
     let parts = diff_lines(base, new);
     let (diff, first) = display(&parts, base, new);
     let mut details = BTreeMap::from([

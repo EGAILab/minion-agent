@@ -7,7 +7,7 @@ use std::{
     time::Duration,
 };
 
-use minion_agent::execution::{CancellationController, FileSystem, LocalFileSystem};
+use minion_agent::execution::{CancellationController, LocalFileSystem};
 use uuid::Uuid;
 
 struct Notify(mpsc::Sender<()>);

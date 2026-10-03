@@ -77,12 +77,20 @@ impl FixtureFs {
     }
 
     fn relative(&self, path: &str) -> String {
+        // Rust canonicalize uses a verbatim Windows prefix; Node-compatible
+        // canonical paths do not. This is fixture addressing, not provider policy.
+        let fixture_root = self.root.to_string_lossy();
+        let fixture_root = Path::new(
+            fixture_root
+                .strip_prefix("\\\\?\\")
+                .unwrap_or(&fixture_root),
+        );
         let absolute = if Path::new(path).is_absolute() {
             PathBuf::from(path)
         } else {
-            self.root.join(path)
+            fixture_root.join(path)
         };
-        let path = absolute.strip_prefix(&self.root).map_or_else(
+        let path = absolute.strip_prefix(fixture_root).map_or_else(
             |_| path.to_owned(),
             |relative| relative.to_string_lossy().into_owned(),
         );
@@ -93,13 +101,15 @@ impl FixtureFs {
         }
     }
 
-    fn log(&self, operation: &str, path: &str) {
+    fn log(&self, operation: &str, path: &minion_agent::execution::FsPath) {
+        let path = path.as_str().expect("scalar fixture path");
         self.calls
             .lock()
             .push(format!("{operation} {}", self.relative(path)));
     }
 
-    fn scripted(&self, operation: &str, path: &str) -> Option<&Value> {
+    fn scripted(&self, operation: &str, path: &minion_agent::execution::FsPath) -> Option<&Value> {
+        let path = path.as_str().expect("scalar fixture path");
         let relative = self.relative(path);
         self.provider
             .get(operation)?
@@ -112,7 +122,11 @@ impl FixtureFs {
         serde_json::from_value(value.clone()).expect("schema validates filesystem error code")
     }
 
-    fn scripted_error(&self, operation: &str, path: &str) -> Option<FsError> {
+    fn scripted_error(
+        &self,
+        operation: &str,
+        path: &minion_agent::execution::FsPath,
+    ) -> Option<FsError> {
         self.scripted(operation, path)
             .and_then(|entry| entry.get("error"))
             .map(|code| FsError::new(Self::code(code), "scripted"))
@@ -137,23 +151,23 @@ impl FileSystem for FixtureFs {
 
     async fn absolute_path(
         &self,
-        path: &str,
+        path: &minion_agent::execution::FsPath,
         signal: Option<&dyn AbortSignal>,
-    ) -> Result<String, FsError> {
+    ) -> Result<minion_agent::execution::FsPath, FsError> {
         self.log("absolute_path", path);
         self.local.absolute_path(path, signal).await
     }
     async fn join_path(
         &self,
-        parts: &[&str],
+        parts: &[&minion_agent::execution::FsPath],
         signal: Option<&dyn AbortSignal>,
-    ) -> Result<String, FsError> {
+    ) -> Result<minion_agent::execution::FsPath, FsError> {
         self.calls.lock().push("join_path *".into());
         self.local.join_path(parts, signal).await
     }
     async fn read_binary_file(
         &self,
-        path: &str,
+        path: &minion_agent::execution::FsPath,
         signal: Option<&dyn AbortSignal>,
     ) -> Result<Vec<u8>, FsError> {
         self.log("read_binary_file", path);
@@ -168,7 +182,7 @@ impl FileSystem for FixtureFs {
     }
     async fn check_readable(
         &self,
-        path: &str,
+        path: &minion_agent::execution::FsPath,
         signal: Option<&dyn AbortSignal>,
     ) -> Result<(), FsError> {
         self.log("check_readable", path);
@@ -186,7 +200,7 @@ impl FileSystem for FixtureFs {
     }
     async fn list_dir_raw(
         &self,
-        path: &str,
+        path: &minion_agent::execution::FsPath,
         signal: Option<&dyn AbortSignal>,
     ) -> Result<Vec<String>, FsError> {
         self.log("list_dir_raw", path);
@@ -208,7 +222,7 @@ impl FileSystem for FixtureFs {
     }
     async fn probe_dir_entry(
         &self,
-        path: &str,
+        path: &minion_agent::execution::FsPath,
         signal: Option<&dyn AbortSignal>,
     ) -> Result<DirEntryProbe, FsError> {
         self.log("probe_dir_entry", path);
@@ -222,11 +236,12 @@ impl FileSystem for FixtureFs {
             let kind: DirEntryProbeKind =
                 serde_json::from_value(entry["kind"].clone()).expect("schema kind");
             return Ok(DirEntryProbe {
-                name: Path::new(path)
+                name: Path::new(path.as_str().unwrap())
                     .file_name()
                     .unwrap()
                     .to_string_lossy()
-                    .into_owned(),
+                    .into_owned()
+                    .into(),
                 path: path.to_owned(),
                 kind,
             });
@@ -235,9 +250,9 @@ impl FileSystem for FixtureFs {
     }
     async fn canonical_path(
         &self,
-        path: &str,
+        path: &minion_agent::execution::FsPath,
         signal: Option<&dyn AbortSignal>,
-    ) -> Result<String, FsError> {
+    ) -> Result<minion_agent::execution::FsPath, FsError> {
         self.log("canonical_path", path);
         if let Some(error) = self.scripted_error("canonical_path", path) {
             return Err(error);
@@ -246,7 +261,7 @@ impl FileSystem for FixtureFs {
     }
     async fn file_info(
         &self,
-        path: &str,
+        path: &minion_agent::execution::FsPath,
         signal: Option<&dyn AbortSignal>,
     ) -> Result<FileInfo, FsError> {
         self.log("file_info", path);
@@ -258,14 +273,14 @@ impl FileSystem for FixtureFs {
 
     async fn read_text_file(
         &self,
-        _: &str,
+        _: &minion_agent::execution::FsPath,
         _: Option<&dyn AbortSignal>,
     ) -> Result<String, FsError> {
         Err(Self::not_supported("unexpected read_text_file"))
     }
     async fn read_text_lines(
         &self,
-        _: &str,
+        _: &minion_agent::execution::FsPath,
         _: Option<isize>,
         _: Option<&dyn AbortSignal>,
     ) -> Result<Vec<String>, FsError> {
@@ -273,7 +288,7 @@ impl FileSystem for FixtureFs {
     }
     async fn write_file(
         &self,
-        _: &str,
+        _: &minion_agent::execution::FsPath,
         _: &[u8],
         _: Option<&dyn AbortSignal>,
     ) -> Result<(), FsError> {
@@ -281,7 +296,7 @@ impl FileSystem for FixtureFs {
     }
     async fn append_file(
         &self,
-        _: &str,
+        _: &minion_agent::execution::FsPath,
         _: &[u8],
         _: Option<&dyn AbortSignal>,
     ) -> Result<(), FsError> {
@@ -289,25 +304,29 @@ impl FileSystem for FixtureFs {
     }
     async fn rename_file(
         &self,
-        _: &str,
-        _: &str,
+        _: &minion_agent::execution::FsPath,
+        _: &minion_agent::execution::FsPath,
         _: Option<&dyn AbortSignal>,
     ) -> Result<(), FsError> {
         Err(Self::not_supported("unexpected rename_file"))
     }
     async fn list_dir(
         &self,
-        _: &str,
+        _: &minion_agent::execution::FsPath,
         _: Option<&dyn AbortSignal>,
     ) -> Result<Vec<FileInfo>, FsError> {
         Err(Self::not_supported("unexpected list_dir"))
     }
-    async fn exists(&self, _: &str, _: Option<&dyn AbortSignal>) -> Result<bool, FsError> {
+    async fn exists(
+        &self,
+        _: &minion_agent::execution::FsPath,
+        _: Option<&dyn AbortSignal>,
+    ) -> Result<bool, FsError> {
         Err(Self::not_supported("unexpected exists"))
     }
     async fn create_dir(
         &self,
-        _: &str,
+        _: &minion_agent::execution::FsPath,
         _: bool,
         _: Option<&dyn AbortSignal>,
     ) -> Result<(), FsError> {
@@ -315,7 +334,7 @@ impl FileSystem for FixtureFs {
     }
     async fn remove(
         &self,
-        _: &str,
+        _: &minion_agent::execution::FsPath,
         _: bool,
         _: bool,
         _: Option<&dyn AbortSignal>,
@@ -337,10 +356,14 @@ impl FileSystem for FixtureFs {
     ) -> Result<String, FsError> {
         Err(Self::not_supported("unexpected create_temp_file"))
     }
-    async fn resolve(&self, _: &str, _: Option<&dyn AbortSignal>) -> Result<FsTarget, FsError> {
+    async fn resolve(
+        &self,
+        _: &minion_agent::execution::FsPath,
+        _: Option<&dyn AbortSignal>,
+    ) -> Result<FsTarget, FsError> {
         Err(Self::not_supported("unexpected resolve"))
     }
-    async fn process_path(&self, _: &FsTarget) -> Result<String, FsError> {
+    async fn process_path(&self, _: &FsTarget) -> Result<minion_agent::execution::FsPath, FsError> {
         Err(Self::not_supported("unexpected process_path"))
     }
     async fn cleanup(&self) {}
@@ -427,7 +450,7 @@ async fn expand_abs(mut text: String, local: &LocalFileSystem) -> String {
         let end = tail.find('}').expect("absolute token closes");
         let path = &tail[..end];
         let absolute = local.absolute_path(path, None).await.unwrap();
-        text.replace_range(start..start + 5 + end + 1, &absolute);
+        text.replace_range(start..start + 5 + end + 1, absolute.as_str().unwrap());
     }
     text
 }

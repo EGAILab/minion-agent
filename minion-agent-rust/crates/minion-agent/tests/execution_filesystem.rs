@@ -45,23 +45,23 @@ impl FileSystem for UnsupportedExtensionProvider {
 
     async fn absolute_path(
         &self,
-        _path: &str,
+        _path: &minion_agent::execution::FsPath,
         _signal: Option<&dyn AbortSignal>,
-    ) -> Result<String, FsError> {
+    ) -> Result<minion_agent::execution::FsPath, FsError> {
         unreachable!()
     }
 
     async fn join_path(
         &self,
-        _parts: &[&str],
+        _parts: &[&minion_agent::execution::FsPath],
         _signal: Option<&dyn AbortSignal>,
-    ) -> Result<String, FsError> {
+    ) -> Result<minion_agent::execution::FsPath, FsError> {
         unreachable!()
     }
 
     async fn read_text_file(
         &self,
-        _path: &str,
+        _path: &minion_agent::execution::FsPath,
         _signal: Option<&dyn AbortSignal>,
     ) -> Result<String, FsError> {
         unreachable!()
@@ -69,7 +69,7 @@ impl FileSystem for UnsupportedExtensionProvider {
 
     async fn read_text_lines(
         &self,
-        _path: &str,
+        _path: &minion_agent::execution::FsPath,
         _max_lines: Option<isize>,
         _signal: Option<&dyn AbortSignal>,
     ) -> Result<Vec<String>, FsError> {
@@ -78,7 +78,7 @@ impl FileSystem for UnsupportedExtensionProvider {
 
     async fn read_binary_file(
         &self,
-        _path: &str,
+        _path: &minion_agent::execution::FsPath,
         _signal: Option<&dyn AbortSignal>,
     ) -> Result<Vec<u8>, FsError> {
         unreachable!()
@@ -86,7 +86,7 @@ impl FileSystem for UnsupportedExtensionProvider {
 
     async fn write_file(
         &self,
-        _path: &str,
+        _path: &minion_agent::execution::FsPath,
         _content: &[u8],
         _signal: Option<&dyn AbortSignal>,
     ) -> Result<(), FsError> {
@@ -95,7 +95,7 @@ impl FileSystem for UnsupportedExtensionProvider {
 
     async fn append_file(
         &self,
-        _path: &str,
+        _path: &minion_agent::execution::FsPath,
         _content: &[u8],
         _signal: Option<&dyn AbortSignal>,
     ) -> Result<(), FsError> {
@@ -104,8 +104,8 @@ impl FileSystem for UnsupportedExtensionProvider {
 
     async fn rename_file(
         &self,
-        _source: &str,
-        _destination: &str,
+        _source: &minion_agent::execution::FsPath,
+        _destination: &minion_agent::execution::FsPath,
         _signal: Option<&dyn AbortSignal>,
     ) -> Result<(), FsError> {
         unreachable!()
@@ -113,7 +113,7 @@ impl FileSystem for UnsupportedExtensionProvider {
 
     async fn file_info(
         &self,
-        _path: &str,
+        _path: &minion_agent::execution::FsPath,
         _signal: Option<&dyn AbortSignal>,
     ) -> Result<FileInfo, FsError> {
         unreachable!()
@@ -121,7 +121,7 @@ impl FileSystem for UnsupportedExtensionProvider {
 
     async fn list_dir(
         &self,
-        _path: &str,
+        _path: &minion_agent::execution::FsPath,
         _signal: Option<&dyn AbortSignal>,
     ) -> Result<Vec<FileInfo>, FsError> {
         unreachable!()
@@ -129,15 +129,15 @@ impl FileSystem for UnsupportedExtensionProvider {
 
     async fn canonical_path(
         &self,
-        _path: &str,
+        _path: &minion_agent::execution::FsPath,
         _signal: Option<&dyn AbortSignal>,
-    ) -> Result<String, FsError> {
+    ) -> Result<minion_agent::execution::FsPath, FsError> {
         unreachable!()
     }
 
     async fn exists(
         &self,
-        _path: &str,
+        _path: &minion_agent::execution::FsPath,
         _signal: Option<&dyn AbortSignal>,
     ) -> Result<bool, FsError> {
         unreachable!()
@@ -145,7 +145,7 @@ impl FileSystem for UnsupportedExtensionProvider {
 
     async fn create_dir(
         &self,
-        _path: &str,
+        _path: &minion_agent::execution::FsPath,
         _recursive: bool,
         _signal: Option<&dyn AbortSignal>,
     ) -> Result<(), FsError> {
@@ -154,7 +154,7 @@ impl FileSystem for UnsupportedExtensionProvider {
 
     async fn remove(
         &self,
-        _path: &str,
+        _path: &minion_agent::execution::FsPath,
         _recursive: bool,
         _force: bool,
         _signal: Option<&dyn AbortSignal>,
@@ -181,13 +181,16 @@ impl FileSystem for UnsupportedExtensionProvider {
 
     async fn resolve(
         &self,
-        _path: &str,
+        _path: &minion_agent::execution::FsPath,
         _signal: Option<&dyn AbortSignal>,
     ) -> Result<FsTarget, FsError> {
         unreachable!()
     }
 
-    async fn process_path(&self, _target: &FsTarget) -> Result<String, FsError> {
+    async fn process_path(
+        &self,
+        _target: &FsTarget,
+    ) -> Result<minion_agent::execution::FsPath, FsError> {
         unreachable!()
     }
 
@@ -267,9 +270,15 @@ async fn lexical_join_and_utf8_decoding_match_the_pi_surface() {
     std::fs::create_dir_all(&root).unwrap();
     std::fs::write(root.join("invalid.txt"), [b'a', 0xff, b'\n']).unwrap();
     let fs = LocalFileSystem::new(&root);
-    assert_eq!(fs.join_path(&[], None).await.unwrap(), ".");
+    assert_eq!(fs.join_path::<&str>(&[], None).await.unwrap(), ".");
     assert_eq!(
-        PathBuf::from(fs.join_path(&["a", "/b"], None).await.unwrap()),
+        PathBuf::from(
+            fs.join_path(&["a", "/b"], None)
+                .await
+                .unwrap()
+                .as_str()
+                .unwrap()
+        ),
         PathBuf::from("a").join("b")
     );
     assert_eq!(
@@ -353,11 +362,11 @@ async fn fs_target_is_location_based_provider_scoped_and_live() {
     let distinct = fs.resolve("b.txt", None).await.unwrap();
     assert_eq!(first.target_key(), second.target_key());
     assert_ne!(first.target_key(), distinct.target_key());
+    let canonical = std::fs::canonicalize(root.join("a.txt")).unwrap();
+    let canonical = canonical.to_string_lossy();
     assert_eq!(
         fs.process_path(&first).await.unwrap(),
-        std::fs::canonicalize(root.join("a.txt"))
-            .unwrap()
-            .to_string_lossy()
+        canonical.strip_prefix("\\\\?\\").unwrap_or(&canonical)
     );
     assert_eq!(
         other.process_path(&first).await.unwrap_err().code,
@@ -369,7 +378,7 @@ async fn fs_target_is_location_based_provider_scoped_and_live() {
     assert_eq!(missing.target_key(), missing_again.target_key());
     assert_eq!(
         fs.process_path(&missing).await.unwrap(),
-        root.join("future.txt").to_string_lossy()
+        root.join("future.txt").to_string_lossy().into_owned()
     );
     std::fs::remove_dir_all(root).unwrap();
 }
@@ -496,12 +505,15 @@ async fn entry_probe_classifies_plain_and_symlinked_files_and_directories() {
     let file_link: DirEntryProbe = fs.probe_dir_entry("file-link", None).await.unwrap();
     assert_eq!(file_link.kind, DirEntryProbeKind::SymlinkToFile);
     assert_eq!(file_link.name, "file-link");
-    assert_eq!(PathBuf::from(&file_link.path), root.join("file-link"));
+    assert_eq!(
+        PathBuf::from(file_link.path.as_str().unwrap()),
+        root.join("file-link")
+    );
     let directory_link = fs.probe_dir_entry("directory-link", None).await.unwrap();
     assert_eq!(directory_link.kind, DirEntryProbeKind::SymlinkToDirectory);
     assert_eq!(directory_link.name, "directory-link");
     assert_eq!(
-        PathBuf::from(&directory_link.path),
+        PathBuf::from(directory_link.path.as_str().unwrap()),
         root.join("directory-link")
     );
     std::fs::remove_dir_all(root).unwrap();
@@ -570,7 +582,10 @@ async fn probe_identity_uses_the_resolved_addressed_path_not_raw_input_or_target
     let probe = fs.probe_dir_entry("sub/item", None).await.unwrap();
     let info = fs.file_info("sub/item", None).await.unwrap();
     assert_eq!(probe.name, "item");
-    assert_eq!(PathBuf::from(&probe.path), root.join("sub").join("item"));
+    assert_eq!(
+        PathBuf::from(probe.path.as_str().unwrap()),
+        root.join("sub").join("item")
+    );
     assert_ne!(probe.path, "sub/item");
     assert_eq!(probe.path, info.path);
     std::fs::remove_dir_all(root).unwrap();
@@ -611,12 +626,8 @@ async fn providers_without_the_extension_report_not_supported() {
     };
 
     assert_eq!(
-        provider.list_dir_raw(".", None).await.unwrap_err().code,
-        FsErrorCode::NotSupported
-    );
-    assert_eq!(
         provider
-            .probe_dir_entry("entry", None)
+            .list_dir_raw(&".".into(), None)
             .await
             .unwrap_err()
             .code,
@@ -624,7 +635,15 @@ async fn providers_without_the_extension_report_not_supported() {
     );
     assert_eq!(
         provider
-            .check_readable("entry", None)
+            .probe_dir_entry(&"entry".into(), None)
+            .await
+            .unwrap_err()
+            .code,
+        FsErrorCode::NotSupported
+    );
+    assert_eq!(
+        provider
+            .check_readable(&"entry".into(), None)
             .await
             .unwrap_err()
             .code,
@@ -633,7 +652,7 @@ async fn providers_without_the_extension_report_not_supported() {
     for path in ["entry", "missing", "a\0b"] {
         assert_eq!(
             provider
-                .check_read_write(path, None)
+                .check_read_write(&path.into(), None)
                 .await
                 .unwrap_err()
                 .code,

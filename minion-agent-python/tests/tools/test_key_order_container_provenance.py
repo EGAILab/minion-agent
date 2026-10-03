@@ -220,3 +220,84 @@ async def test_control_ordering_the_shim_graph_without_adopting_fails_the_prepar
     seen = await _prepared()
     assert seen["order"] != ORDERED
     assert seen["blocked"]
+
+
+# --- R4-C001: references that cross the adopted-native / retained-graph frontier -----------------
+
+
+async def _crossing(retained_first: bool) -> dict[str, Any]:
+    """A native child reachable through a retained graph container is ALSO returned by the shim
+    through a new native parent. Pinned Pi keeps one object (structuredClone keeps aliasing), so a
+    hook's change through one path shows through the other."""
+    native: list[Any] = []
+    retained = JsObject()
+    retained["a"] = native  # attached through a seam: stays native (Owner Q2)
+    seen: dict[str, Any] = {}
+    registry = ToolRegistry()
+
+    def prepare(args: Any) -> dict[str, Any]:
+        old = dict.__getitem__(args, "old")
+        same = {"inner": dict.__getitem__(old, "a")}  # a NEW native parent of the retained child
+        return {"old": old, "same": same} if retained_first else {"same": same, "old": old}
+
+    registry.register(
+        ToolDefinition(
+            name="t",
+            label="t",
+            description="t",
+            parameters={"type": "object"},
+            prepare_arguments=prepare,
+            execute=lambda tool_call_id, args: "ok",
+        )
+    )
+    ctx = Context()
+    declare_tools_events(ctx.events)
+
+    async def hook(call: Any, definition: Any, args: Any, signal: Any, next_: Any) -> Any:
+        via_old = dict.__getitem__(dict.__getitem__(args, "old"), "a")
+        via_same = dict.__getitem__(dict.__getitem__(args, "same"), "inner")
+        seen["equal"] = via_old is via_same
+        seen["kept"] = via_old is native
+        list.append(via_same, "changed")
+        seen["through_old"] = list(via_old)
+        return await next_()
+
+    ctx.events.on(TOOLS_PRE_EXECUTE, hook)
+    call = ToolCallBlock(id="c", name="t", arguments={})
+    call.arguments["old"] = retained
+    await execute_call(call, registry=registry, ctx=ctx)
+    return seen
+
+
+@pytest.mark.parametrize("retained_first", [True, False])
+async def test_a_reference_crossing_the_frontier_stays_one_object(retained_first: bool) -> None:
+    seen = await _crossing(retained_first)
+    assert seen == {"equal": True, "kept": True, "through_old": ["changed"]}
+
+
+def _single_pass_adopt(value: Any, memo: dict[int, Any] | None = None) -> Any:
+    """Revision-4 `adopt`: memoized over the native frontier, blind to retained-graph contents."""
+    memo = {} if memo is None else memo
+    if isinstance(value, (JsObject, JsArray)) or not isinstance(value, (dict, list)):
+        return value
+    if id(value) in memo:
+        return memo[id(value)]
+    if isinstance(value, dict):
+        js_object = JsObject()
+        memo[id(value)] = js_object
+        for key, item in dict.items(value):
+            dict.__setitem__(js_object, key, _single_pass_adopt(item, memo))
+        return order_in_place(js_object)
+    array = JsArray()
+    memo[id(value)] = array
+    list.extend(array, [_single_pass_adopt(item, memo) for item in value])
+    return array
+
+
+async def test_control_a_frontier_blind_adopt_splits_the_crossing_reference(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(execute_module, "adopt", _single_pass_adopt)
+    seen = await _crossing(retained_first=False)
+    assert seen["equal"] is False
+    assert seen["through_old"] == []

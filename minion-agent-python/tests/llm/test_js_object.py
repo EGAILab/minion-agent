@@ -219,3 +219,17 @@ def test_adopt_keeps_graph_containers_and_what_was_attached_to_them() -> None:
     holder = adopt({"g": graph})
     assert dict.__getitem__(holder, "g") is graph
     assert adopt(5) == 5
+
+
+def test_adopt_keeps_a_cycle_through_the_retained_graph_and_its_native_contents() -> None:
+    """`R4-C001`: a new native container that points into the graph, where the graph points back
+    to it through native contents, keeps every crossing reference as one object."""
+    graph = JsObject()
+    fresh: dict[str, Any] = {"g": graph}
+    holder: list[Any] = [fresh]
+    dict.__setitem__(graph, "back", holder)  # native contents of a graph container
+    adopted = adopt({"top": fresh, "g": graph})
+    assert dict.__getitem__(adopted, "g") is graph
+    assert dict.__getitem__(graph, "back") is holder
+    assert list.__getitem__(holder, 0) is fresh  # reachable through the graph: kept, not copied
+    assert dict.__getitem__(adopted, "top") is fresh

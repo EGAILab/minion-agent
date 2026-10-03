@@ -190,29 +190,63 @@ def order_raw(arguments: Any) -> Any:
     return order_in_place(arguments)
 
 
-def adopt(value: Any, _adopted: dict[int, Any] | None = None) -> Any:
+def _children(container: Any) -> list[Any]:
+    return list(dict.values(container)) if isinstance(container, dict) else list(container)
+
+
+def _graph_reachable(value: Any) -> dict[int, Any]:
+    """Every container at or below an existing `JsObject`/`JsArray` anywhere in `value`, by id."""
+    seen: set[int] = set()
+    roots: list[Any] = []
+    pending = [value]
+    while pending:
+        item = pending.pop()
+        if not isinstance(item, (dict, list)) or id(item) in seen:
+            continue
+        seen.add(id(item))
+        if isinstance(item, (JsObject, JsArray)):
+            roots.append(item)
+        pending.extend(_children(item))
+    kept: dict[int, Any] = {}
+    pending = roots
+    while pending:
+        item = pending.pop()
+        if not isinstance(item, (dict, list)) or id(item) in kept:
+            continue
+        kept[id(item)] = item
+        pending.extend(_children(item))
+    return kept
+
+
+def adopt(value: Any) -> Any:
     """`CE-L0206-D001-01`: make every object and array in a value the pipeline is about to OWN a
     `JsObject` / `JsArray`, recursively, so the graph's own seams hold the rule from then on. The
     pipeline owns a call's raw arguments as a provider decoded them (construction) and the graph a
     `prepare_arguments` shim hands it (`L0206-D001-R007`).
 
-    Only the native frontier is adopted: a plain `dict`/`list` and its plain descendants. An
-    existing `JsObject`/`JsArray` is kept as is, contents included, so adoption never replaces an
-    object a hook or caller already shares with the graph, nor a native container attached into the
-    graph later (no copy, `R002`; Owner Q2: it stays native). A plain container reached twice
-    becomes one adopted container, so aliasing and cycles inside the adopted value survive."""
-    if isinstance(value, (JsObject, JsArray)) or not isinstance(value, (dict, list)):
-        return value
-    adopted = {} if _adopted is None else _adopted
-    if id(value) in adopted:
-        return adopted[id(value)]
-    if isinstance(value, dict):
-        js_object = JsObject()
-        adopted[id(value)] = js_object
-        for key, item in dict.items(value):
-            dict.__setitem__(js_object, key, adopt(item, adopted))
-        return order_in_place(js_object)
-    array = JsArray()
-    adopted[id(value)] = array
-    list.extend(array, [adopt(item, adopted) for item in value])
-    return array
+    Only the native frontier is adopted: a plain `dict`/`list` that no existing graph container
+    reaches, and its plain descendants. Everything at or below an existing `JsObject`/`JsArray` is
+    kept as is, wherever else the value also places it, so adoption never replaces an object a hook
+    or caller already shares with the graph, nor a native container attached into the graph later
+    (no copy, `R002`; Owner Q2: it stays native), and never splits a reference the value holds twice
+    across that frontier (`R4-C001`). A plain container reached twice becomes one adopted container,
+    so aliasing and cycles inside the adopted value survive."""
+    memo = _graph_reachable(value)
+
+    def convert(item: Any) -> Any:
+        if not isinstance(item, (dict, list)):
+            return item
+        if id(item) in memo:
+            return memo[id(item)]
+        if isinstance(item, dict):
+            js_object = JsObject()
+            memo[id(item)] = js_object
+            for key, child in dict.items(item):
+                dict.__setitem__(js_object, key, convert(child))
+            return order_in_place(js_object)
+        array = JsArray()
+        memo[id(item)] = array
+        list.extend(array, [convert(child) for child in item])
+        return array
+
+    return convert(value)

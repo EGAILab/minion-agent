@@ -112,22 +112,40 @@ def _close_owned_transport(owner: object | None) -> None:
     never this function's own failure to propagate, matching every other best-effort cleanup
     path in this module.
 
-    Takes ONE owner at a time (refined at `L12-PY-R007`, second review): an
-    earlier revision closed `proc`, `proc.stdin`, `proc.stdout`, AND `proc.stderr` all together,
-    unconditionally, inside `wait()` -- empirically confirmed each stdio `StreamReader` owns its
-    OWN separate pipe transport, NOT transitively closed by `proc`'s own transport, so closing
-    stdout/stderr THERE broke the contracted "wait() settles on exit alone; the caller may keep
-    calling `read_chunk()` until EOF afterward" guarantee (spec section 6): any buffered-but-
-    unread output became inaccessible the instant `wait()` returned. `wait()` now closes ONLY
-    `proc`'s own transport (confirmed empirically NOT to affect the separate stdio transports);
-    each `ReadableStream` closes its OWN transport once it reaches EOF NATURALLY (below);
-    `terminate()` additionally closes any STILL-OPEN stdio transports as a final best-effort
-    sweep, covering the original scenario (a forcibly-killed process whose caller never drains
-    its streams at all) without breaking the read-after-wait contract for the ordinary case."""
+    Takes ONE owner at a time (`L12-PY-R007`). Closing `proc`'s own transport also closes its
+    pipe protocols (`BaseSubprocessTransport.close`), so it is never closed while the caller may
+    still read (`L12-D002`): `wait()` closes nothing; each `ReadableStream` closes its OWN
+    transport at EOF; asyncio's protocol closes `proc`'s transport once the process has exited
+    and every pipe has closed; and `terminate()` on an already-exited process closes whatever
+    is still open (a descendant still holding a pipe) as its disposal step."""
     transport = getattr(owner, "_transport", None)
     if transport is not None:
         with suppress(Exception):
             transport.close()
+
+
+def _observe_exit(proc: asyncio.subprocess.Process, exited: asyncio.Future[None]) -> None:
+    """`L12-D002`: complete `exited` when asyncio learns the process has exited, independently of
+    its pipes. Wraps the protocol's own `process_exited` callback, which the transport calls the
+    moment it records the return code and BEFORE it waits for pipe disconnection. `_protocol` is a
+    private `asyncio` attribute (no public API reports exit alone)."""
+
+    def mark() -> None:
+        if not exited.done():
+            exited.set_result(None)
+
+    protocol = proc._protocol  # type: ignore[attr-defined]
+    original = protocol.process_exited
+
+    def process_exited() -> None:
+        try:
+            original()
+        finally:
+            mark()
+
+    protocol.process_exited = process_exited
+    if proc.returncode is not None:  # exited before the hook was installed
+        mark()
 
 
 async def _issue_kill(pid: int) -> _subprocess.Popen[bytes] | None:
@@ -221,18 +239,25 @@ class ReadableStream:
     """`EXEC-005`. `read_chunk()` returns `Ok(None)` for EOF, never raising for an ordinary
     stream-ended condition."""
 
-    __slots__ = ("_reader",)
+    __slots__ = ("_closed", "_reader")
 
     _CHUNK_SIZE = 65536
 
     def __init__(self, reader: asyncio.StreamReader) -> None:
         self._reader = reader
+        self._closed = False
 
     async def read_chunk(self) -> Result[bytes | None, SubprocessError]:
+        if self._closed:
+            return Ok(None)
         try:
             chunk = await self._reader.read(self._CHUNK_SIZE)
         except OSError as exc:
+            if self._closed:
+                return Ok(None)  # the caller's own close(), not a pipe failure
             return Err(SubprocessError(SubprocessErrorCode.PIPE_ERROR, str(exc), exc))
+        if self._closed:
+            return Ok(None)  # closed while this read was pending: EOF, unread output abandoned
         if not chunk:
             # `L12-PY-R007`: close THIS stream's own transport once it reaches EOF naturally --
             # a fully-drained stream's resources are cleaned up promptly at the point its own
@@ -243,15 +268,31 @@ class ReadableStream:
             return Ok(None)
         return Ok(chunk)
 
+    async def close(self) -> None:
+        """`EXEC-012` (`L12-D002`, spec/execution.md section 16.2): releases this stream's local
+        read end only. Best-effort, idempotent, never raises; never signals the process and never
+        touches a sibling stream. A pending `read_chunk()` settles as EOF (closing the transport
+        feeds the reader its EOF) and every later one returns `Ok(None)`; output not yet consumed
+        is abandoned. A descendant still holding the pipe meets a closed reader on its next write
+        -- Pi's `stream.destroy()` at settlement."""
+        if self._closed:
+            return
+        self._closed = True
+        _close_owned_transport(self._reader)
+
 
 class Process:
-    """`EXEC-005`. Owns its own stdio handles and underlying OS process handle. Calling `wait()`
-    or `terminate()` is the ONLY guaranteed-safe disposal path -- a caller obligation, not an
-    implicit-cleanup guarantee (`CE-L12-01-01`). `async with` is offered as an ergonomic
-    convenience whose `__aexit__` calls `terminate()`; the underlying contract does not depend
-    on it."""
+    """`EXEC-005`. Owns its own stdio handles and underlying OS process handle. Disposal is
+    complete only when the process has settled (`wait()` or `terminate()`) AND every owned piped
+    handle has been released: a readable stream by its EOF, by `ReadableStream.close()`
+    (`EXEC-012`), or by `terminate()` after the process settled; stdin by its own `close()`. A
+    caller obligation, not an implicit-cleanup guarantee (spec/execution.md sections 6 and 16.3,
+    `L12-D002`); `wait()` alone is not a complete disposal while a descendant holds a pipe.
+    `async with` is offered as an ergonomic convenience whose `__aexit__` calls `terminate()`; the
+    underlying contract does not depend on it."""
 
     __slots__ = (
+        "_exited",
         "_kill_cause",
         "_proc",
         "_spawn_signal",
@@ -295,6 +336,13 @@ class Process:
         """Stored solely to keep a strong reference alive for the task's own lifetime (asyncio
         only weakly tracks a fire-and-forget task otherwise) -- `wait()` deliberately never reads
         or awaits this (`L12-PY-R004`, refined a sixth time); see its own docstring."""
+        self._exited: asyncio.Future[None] = asyncio.get_running_loop().create_future()
+        """`L12-D002`: completed by asyncio's own `process_exited` protocol callback -- the
+        process's exit ALONE. asyncio's `Process.wait()` resolves only once every stdio pipe has
+        ALSO disconnected (`BaseSubprocessTransport._call_connection_lost`), so on Windows a
+        descendant holding an inherited pipe kept `wait()` pending until it let go (spec
+        section 6: `wait()` settles on the process's own exit, independent of stdio state)."""
+        _observe_exit(proc, self._exited)
         if spawn_signal is not None:
             self._watcher_task = asyncio.ensure_future(self._watch_signal(spawn_signal))
 
@@ -328,37 +376,44 @@ class Process:
             await asyncio.sleep(_SIGNAL_POLL_INTERVAL_S)
 
     async def wait(self) -> Result[ExitStatus, SubprocessError]:
-        """Settles on the PROCESS's own exit alone -- independent of stdio state, AND
-        independent of any signal-triggered kill's own confirmation (`L12-PY-R004`): this awaits
-        ONLY `self._proc.wait()`, never `_watch_signal`'s own task or `_confirm_kill`'s own
+        """Settles on the PROCESS's own exit alone -- independent of stdio state, AND independent of
+        any signal-triggered kill's own confirmation (`L12-PY-R004`): this awaits ONLY the process's
+        own exit (`_exited`, `L12-D002` -- never asyncio's `_proc.wait()`, which also waits for
+        every pipe to disconnect), never `_watch_signal`'s own task or `_confirm_kill`'s own
         completion, so a slow (or permanently stuck) kill-confirmation helper can never delay
         settlement past the target process's own already-observed exit -- the targeted closure
-        review's own exact reproduction of an earlier revision that awaited the watcher task
-        here. `Err(aborted)` when `_kill_cause` was recorded (`"signal"`, set the instant
-        `_watch_signal` OBSERVED the signal fired while the process was still running -- see
-        `_watch_signal`'s own docstring; not re-derived from the signal's current state, which
-        would misclassify an unrelated later abort); otherwise `Ok(ExitStatus{...})`, whether the
-        process exited on its own or was killed via an explicit `terminate()` (`L12-R020`'s
-        conditional exit-code preservation)."""
+        review's own exact reproduction of an earlier revision that awaited the watcher task here.
+        `Err(aborted)` when `_kill_cause` was recorded (`"signal"`, set the instant `_watch_signal`
+        OBSERVED the signal fired while the process was still running -- see `_watch_signal`'s own
+        docstring; not re-derived from the signal's current state, which would misclassify an
+        unrelated later abort); otherwise `Ok(ExitStatus{...})`, whether the process exited on its
+        own or was killed via an explicit `terminate()` (`L12-R020`'s conditional exit-code
+        preservation)."""
         if self._wait_result is not None:
             return self._wait_result
         async with self._wait_lock:
             if self._wait_result is not None:
                 return self._wait_result
-            returncode = await self._proc.wait()
+            # `L12-D002-I001`: shielded -- cancelling THIS waiter (or a caller's timeout) must not
+            # cancel the shared exit notification every later `wait()` depends on.
+            await asyncio.shield(self._exited)
+            returncode = self._proc.returncode
+            assert returncode is not None
             # `L12-PY-R004` (refined a sixth time): deliberately does NOT touch
             # `self._watcher_task` here -- no cancel, no await. `_watch_signal`'s own loop
             # condition (`while self._proc.returncode is None`) exits naturally, on its own,
             # within one poll tick of the process exiting (whether the signal ever fired or
             # not), and its actual kill dispatch is itself a fire-and-forget background task
             # this method never depends on -- see both docstrings above.
-            # `L12-PY-R007` (refined, second review): close ONLY the process's own transport
-            # here -- confirmed empirically NOT to affect the separate stdio stream transports
-            # (each owns its own). Closing stdout/stderr HERE, unconditionally, would break the
-            # contracted "read_chunk() still works after wait()" guarantee; each stream instead
-            # closes its own transport when IT naturally reaches EOF (`ReadableStream.read_chunk`
-            # above), and `terminate()` sweeps any still-open ones as a final best-effort step.
-            _close_owned_transport(self._proc)
+            # `L12-PY-R007`, `L12-D002`: the process's own transport is closed by asyncio's
+            # protocol once the process has exited AND every pipe has closed
+            # (`SubprocessStreamProtocol._maybe_close_transport`). It is NOT closed here: now that
+            # `wait()` settles at exit, a pipe can still be open (a descendant holding it, or
+            # output not yet read), and closing the transport closes its pipes -- that would break
+            # the contracted "read_chunk() still works after wait()" guarantee. Each stream closes
+            # its own transport at EOF (`ReadableStream.read_chunk`); when a pipe is still held
+            # after the process has exited (a descendant), `terminate()` closes the remaining
+            # transports (`_dispose_transports`, `L12-D002-I002`).
             result: Result[ExitStatus, SubprocessError]
             if self._kill_cause == "signal":
                 result = Err(SubprocessError(SubprocessErrorCode.ABORTED, "aborted"))
@@ -390,10 +445,27 @@ class Process:
         if self._terminate_called:
             return
         self._terminate_called = True
+        already_exited = self._proc.returncode is not None
         if self._kill_cause is None:
             self._kill_cause = "explicit"
         helper = await _issue_kill(self.pid)
         await _confirm_kill(helper)
+        if already_exited:
+            # `L12-D002-I002`: the process exited before this call, so this is disposal. A pipe a
+            # surviving descendant still holds (the tree kill cannot reach it on Windows once the
+            # parent is gone) would otherwise outlive the event loop. A live process is not swept:
+            # its tree dies, its pipes reach EOF, and its final output stays readable.
+            self._dispose_transports()
+
+    def _dispose_transports(self) -> None:
+        """Closes every still-open stdio transport, then the process's own transport. Buffered
+        output already received stays readable (`StreamReader` keeps it until EOF)."""
+        for stream in (self.stdout, self.stderr):
+            if stream is not None:
+                _close_owned_transport(stream._reader)
+        if self.stdin is not None:
+            _close_owned_transport(self.stdin._writer)
+        _close_owned_transport(self._proc)
 
     async def __aenter__(self) -> Process:
         return self

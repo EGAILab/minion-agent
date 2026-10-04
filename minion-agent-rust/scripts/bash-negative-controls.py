@@ -47,6 +47,7 @@ CONTROLS = {
     "inject-none-for-absent-file": (B, 'if let Some(file) = context.session_file() {', 'if let Some(file) = Some(context.session_file().unwrap_or("none")) {', "bash_context_env_is_explicit_clean_and_provider_snapshot_is_per_call"),
     "legacy-shell-uses-argv": (S, 'let stdin = bytes.len() > 2', 'let stdin = false && bytes.len() > 2', "bash_legacy_stdin_does_not_block_timeout_and_command_uses_usv_projection"),
     "spawn-error-raw-text": (B, 'format!("Failed to start the shell {}", shell.shell)', 'format!("spawn failure {}", shell.shell)', "bash_spawn_failure_has_own_text_and_zero_updates"),
+    "late-pre-spawn-abort-is-spawn-error": (B, 'if error.code == SubprocessErrorCode::Aborted {', 'if false && error.code == SubprocessErrorCode::Aborted {', "bash_abort_arriving_during_discovery_is_not_a_spawn_failure"),
     "file-error-does-not-terminate": (B, 'process.terminate().await;', '', "bash_file_failure_kills_before_own_error_and_discards_output"),
     "unexpected-partial-update": (B, 'let formatted = output.snapshot(path.as_deref(), empty);', 'let formatted = output.snapshot(path.as_deref(), empty);\n if let Some(update) = &request.on_update { update(text_result("partial", serde_json::json!({}))); }', "bash_spawn_failure_has_own_text_and_zero_updates"),
     "command-lone-surrogate-dropped": (B, 'Some(PreparedValue::String(s)) => s.to_utf8_lossy(),', 'Some(PreparedValue::String(s)) => String::from_utf16(s.code_units()).unwrap_or_default(),', "bash_command_projection_argv_and_stdin_preserves_pairs_replaces_lone_units"),

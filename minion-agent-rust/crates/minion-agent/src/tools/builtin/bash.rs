@@ -9,7 +9,7 @@ use super::{
 use crate::{
     execution::{
         AbortSignal, ExecutionWorldError, FileSystem, FsPath, SpawnOptions, StdioMode, Subprocess,
-        validate_execution_worlds,
+        SubprocessErrorCode, validate_execution_worlds,
     },
     tools::{
         AgentToolResult, PreparedValue, ToolCapabilityError, ToolDefinition, ToolExecutionRequest,
@@ -163,8 +163,12 @@ async fn execute(
             },
         )
         .await
-        .map_err(|_| {
-            ToolCapabilityError::new(format!("Failed to start the shell {}", shell.shell))
+        .map_err(|error| {
+            if error.code == SubprocessErrorCode::Aborted {
+                ToolCapabilityError::new("Command aborted")
+            } else {
+                ToolCapabilityError::new(format!("Failed to start the shell {}", shell.shell))
+            }
         })?;
     let stdin = async {
         if shell.stdin

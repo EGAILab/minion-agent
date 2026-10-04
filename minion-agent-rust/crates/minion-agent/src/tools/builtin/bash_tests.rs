@@ -186,7 +186,17 @@ impl Subprocess for Spawns {
         argv: &[String],
         options: SpawnOptions,
     ) -> Result<Arc<dyn Process>, SubprocessError> {
+        let aborted = options
+            .signal
+            .as_ref()
+            .is_some_and(|signal| signal.aborted());
         self.calls.lock().push((argv.into(), options));
+        if aborted {
+            return Err(SubprocessError::new(
+                SubprocessErrorCode::Aborted,
+                "aborted",
+            ));
+        }
         self.queue
             .lock()
             .pop_front()
@@ -206,6 +216,7 @@ struct Fs {
     file_error: Option<FsErrorCode>,
     append_error: Option<FsErrorCode>,
     unsupported: bool,
+    abort_on_probe: Option<Arc<TestSignal>>,
     live: AtomicUsize,
 }
 impl Fs {
@@ -222,6 +233,7 @@ impl Fs {
             file_error: None,
             append_error: None,
             unsupported: false,
+            abort_on_probe: None,
             live: AtomicUsize::new(0),
         }
     }
@@ -355,6 +367,9 @@ impl FileSystem for Fs {
         path: &FsPath,
         _: Option<&dyn AbortSignal>,
     ) -> Result<DirEntryProbe, FsError> {
+        if let Some(signal) = &self.abort_on_probe {
+            signal.0.store(true, Ordering::SeqCst);
+        }
         let name = String::from_utf16_lossy(path.code_units());
         if self.unsupported {
             return Err(FsError::new(FsErrorCode::NotSupported, "unsupported"));
@@ -521,6 +536,40 @@ async fn bash_persistence_join_freezes_timeout_and_abort_and_preserves_raw_bytes
     assert_eq!(*fs.data.lock(), raw);
     assert_eq!(fs.live.load(Ordering::SeqCst), 0);
 }
+#[tokio::test]
+async fn bash_abort_arriving_during_discovery_is_not_a_spawn_failure() {
+    let dir = tempfile::tempdir().unwrap();
+    let signal = Arc::new(TestSignal(AtomicBool::new(false)));
+    let mut fs = Fs::new(dir.path());
+    fs.abort_on_probe = Some(signal.clone());
+    let fs = Arc::new(fs);
+    let process = Proc::new(vec![], vec![], Some(Some(0)));
+    let subprocess = Spawns::new(dir.path(), Platform::Posix, vec![process.clone()]);
+    let mut req = request(None);
+    req.signal = Some(signal);
+    let error = execute(
+        fs.clone(),
+        subprocess.clone(),
+        BashToolOptions::default(),
+        req,
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(error.message().as_str(), Some("Command aborted"));
+    assert_eq!(
+        fs.calls.lock().len(),
+        2,
+        "shell and cwd checks were reached"
+    );
+    assert_eq!(
+        subprocess.calls.lock().len(),
+        1,
+        "provider observes the late abort"
+    );
+    assert_eq!(subprocess.queue.lock().len(), 1, "no command was created");
+    assert_eq!(process.kills.load(Ordering::SeqCst), 0);
+}
+
 struct TestSignal(AtomicBool);
 impl ToolExecutionSignal for TestSignal {
     fn is_cancelled(&self) -> bool {

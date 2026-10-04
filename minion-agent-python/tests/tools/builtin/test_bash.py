@@ -508,14 +508,22 @@ async def test_a_background_job_survives_settlement_and_meets_released_pipes(
 
 
 async def test_output_written_shortly_after_exit_is_kept(tmp_path: Path) -> None:
-    """Settlement waits for the grace, not `wait()` alone: a descendant writing 50 ms after the
-    parent exits is included."""
+    """Settlement waits for the grace, not `wait()` alone: a descendant writing shortly after the
+    parent exits is included. Event-driven: the parent exits only once the descendant runs, and
+    the descendant writes 30 ms later -- inside the 100 ms grace whatever its startup time."""
+    started = tmp_path / "descendant-started"
+    descendant = (
+        "import pathlib, sys, time\n"
+        f"pathlib.Path({str(started)!r}).write_text('x')\n"
+        "time.sleep(0.03); sys.stdout.write('late'); sys.stdout.flush()\n"
+    )
     code = (
-        "import os, subprocess, sys\n"
-        "subprocess.Popen([sys.executable, '-c', \"import sys, time; time.sleep(0.05);"
-        " sys.stdout.write('late'); sys.stdout.flush()\"],"
-        " stdin=subprocess.DEVNULL, stdout=sys.stdout.fileno(), stderr=sys.stderr.fileno(),"
+        "import os, pathlib, subprocess, sys, time\n"
+        f"subprocess.Popen([sys.executable, '-c', {descendant!r}], stdin=subprocess.DEVNULL,"
+        " stdout=sys.stdout.fileno(), stderr=sys.stderr.fileno(),"
         " start_new_session=(os.name != 'nt'))\n"
+        f"while not pathlib.Path({str(started)!r}).exists():\n"
+        "    time.sleep(0.005)\n"
         "os._exit(0)\n"
     )
     tool, _, _ = _tool(tmp_path, code)

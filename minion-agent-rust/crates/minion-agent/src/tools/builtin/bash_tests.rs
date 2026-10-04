@@ -501,6 +501,10 @@ async fn bash_persistence_join_freezes_timeout_and_abort_and_preserves_raw_bytes
     assert!(futures::poll!(&mut work).is_pending());
     tokio::time::advance(Duration::from_secs(1)).await;
     signal.0.store(true, Ordering::SeqCst);
+    assert!(
+        futures::poll!(&mut work).is_pending(),
+        "settled success must await persistence without running its expired timer"
+    );
     fs.append_gate.release();
     let result = tokio::time::timeout(Duration::from_secs(2), work).await;
     assert!(

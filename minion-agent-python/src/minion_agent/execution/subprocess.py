@@ -239,18 +239,25 @@ class ReadableStream:
     """`EXEC-005`. `read_chunk()` returns `Ok(None)` for EOF, never raising for an ordinary
     stream-ended condition."""
 
-    __slots__ = ("_reader",)
+    __slots__ = ("_closed", "_reader")
 
     _CHUNK_SIZE = 65536
 
     def __init__(self, reader: asyncio.StreamReader) -> None:
         self._reader = reader
+        self._closed = False
 
     async def read_chunk(self) -> Result[bytes | None, SubprocessError]:
+        if self._closed:
+            return Ok(None)
         try:
             chunk = await self._reader.read(self._CHUNK_SIZE)
         except OSError as exc:
+            if self._closed:
+                return Ok(None)  # the caller's own close(), not a pipe failure
             return Err(SubprocessError(SubprocessErrorCode.PIPE_ERROR, str(exc), exc))
+        if self._closed:
+            return Ok(None)  # closed while this read was pending: EOF, unread output abandoned
         if not chunk:
             # `L12-PY-R007`: close THIS stream's own transport once it reaches EOF naturally --
             # a fully-drained stream's resources are cleaned up promptly at the point its own
@@ -260,6 +267,18 @@ class ReadableStream:
             _close_owned_transport(self._reader)
             return Ok(None)
         return Ok(chunk)
+
+    async def close(self) -> None:
+        """`EXEC-012` (`L12-D002`, spec/execution.md section 16.2): releases this stream's local
+        read end only. Best-effort, idempotent, never raises; never signals the process and never
+        touches a sibling stream. A pending `read_chunk()` settles as EOF (closing the transport
+        feeds the reader its EOF) and every later one returns `Ok(None)`; output not yet consumed
+        is abandoned. A descendant still holding the pipe meets a closed reader on its next write
+        -- Pi's `stream.destroy()` at settlement."""
+        if self._closed:
+            return
+        self._closed = True
+        _close_owned_transport(self._reader)
 
 
 class Process:

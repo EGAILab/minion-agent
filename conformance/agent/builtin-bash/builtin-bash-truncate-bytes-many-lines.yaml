@@ -1,0 +1,251 @@
+name: builtin-bash-truncate-bytes-many-lines
+family: agent
+authority: minion-agent-docs spec/tools.md WP-13.3 (master a805f6ed); pinned-Pi bash_probe outputs
+pi_revision: b7bb00b936dbe21b8e160b3e89efdec361846699
+requirements:
+- TOOL-035
+witnesses:
+- bash_truncate_bytes_many_lines
+builtin_bash:
+  command: yes abcdefghij | head -n 5000
+  expect:
+    win32:
+      is_error: false
+      text_length: 22062
+      text_head: 'abcdefghij
+
+        abcdefghij
+
+        abcdefghij
+
+        abcdefghij
+
+        abcdefghij
+
+        abcdefghij
+
+        abcdefghij
+
+        abcdefghij
+
+        abcdefghij
+
+        abcdefghij
+
+        abcdefghij
+
+        abcdefghij
+
+        abcdefghij
+
+        abcdefghij
+
+        abcdefghij
+
+        abcdefghij
+
+        abcdefghij
+
+        abcdefghij
+
+        ab'
+      text_tail: 'defghij
+
+        abcdefghij
+
+        abcdefghij
+
+        abcdefghij
+
+        abcdefghij
+
+        abcdefghij
+
+        abcdefghij
+
+        abcdefghij
+
+        abcdefghij
+
+        abcdefghij
+
+        abcdefghij
+
+        abcdefghij
+
+        abcdefghij
+
+        abcdefghij
+
+        abcdefghij
+
+        abcdefghij
+
+        abcdefghij
+
+        abcdefghij
+
+        abcdefghij
+
+        abcdefghij
+
+        abcdefghij
+
+        abcdefghij
+
+        abcdefghij
+
+        abcdefghij
+
+        abcdefghij
+
+        abcdefghij
+
+        abcdefghij
+
+        abcdefghij
+
+        abcdefghij
+
+        abcdefghij
+
+        abcdefghij
+
+
+        [Showing lines 3001-5000 of 5000. Full output: <FULL_OUTPUT>]'
+      details:
+        truncation:
+          truncated: true
+          truncatedBy: lines
+          totalLines: 5000
+          totalBytes: 55000
+          outputLines: 2000
+          outputBytes: 21999
+          lastLinePartial: false
+          firstLineExceedsLimit: false
+          maxLines: 2000
+          maxBytes: 51200
+        fullOutputPath: <FULL_OUTPUT>
+      full_output:
+        size: 55000
+        sha256: 485de11b6207646608fd758fa24acead2cf700d68e1ba907e1a1139469950fe2
+    linux:
+      is_error: false
+      text_length: 22062
+      text_head: 'abcdefghij
+
+        abcdefghij
+
+        abcdefghij
+
+        abcdefghij
+
+        abcdefghij
+
+        abcdefghij
+
+        abcdefghij
+
+        abcdefghij
+
+        abcdefghij
+
+        abcdefghij
+
+        abcdefghij
+
+        abcdefghij
+
+        abcdefghij
+
+        abcdefghij
+
+        abcdefghij
+
+        abcdefghij
+
+        abcdefghij
+
+        abcdefghij
+
+        ab'
+      text_tail: 'defghij
+
+        abcdefghij
+
+        abcdefghij
+
+        abcdefghij
+
+        abcdefghij
+
+        abcdefghij
+
+        abcdefghij
+
+        abcdefghij
+
+        abcdefghij
+
+        abcdefghij
+
+        abcdefghij
+
+        abcdefghij
+
+        abcdefghij
+
+        abcdefghij
+
+        abcdefghij
+
+        abcdefghij
+
+        abcdefghij
+
+        abcdefghij
+
+        abcdefghij
+
+        abcdefghij
+
+        abcdefghij
+
+        abcdefghij
+
+        abcdefghij
+
+        abcdefghij
+
+        abcdefghij
+
+        abcdefghij
+
+        abcdefghij
+
+        abcdefghij
+
+        abcdefghij
+
+        abcdefghij
+
+        abcdefghij
+
+
+        [Showing lines 3001-5000 of 5000. Full output: <FULL_OUTPUT>]'
+      details:
+        truncation:
+          truncated: true
+          truncatedBy: lines
+          totalLines: 5000
+          totalBytes: 55000
+          outputLines: 2000
+          outputBytes: 21999
+          lastLinePartial: false
+          firstLineExceedsLimit: false
+          maxLines: 2000
+          maxBytes: 51200
+        fullOutputPath: <FULL_OUTPUT>
+      full_output:
+        size: 55000
+        sha256: 485de11b6207646608fd758fa24acead2cf700d68e1ba907e1a1139469950fe2

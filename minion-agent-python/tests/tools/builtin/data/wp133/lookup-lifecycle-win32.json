@@ -1,0 +1,145 @@
+{
+ "node": "v22.15.1",
+ "platform": "win32",
+ "budget": 1048576,
+ "limitMs": 5000,
+ "rows": {
+  "parentPathExit0": {
+   "status": 0,
+   "signal": null,
+   "error": null,
+   "selected": "C:/valid/bash.exe",
+   "minionExpected": "C:/valid/bash.exe"
+  },
+  "parentPathExit1": {
+   "status": 1,
+   "signal": null,
+   "error": null,
+   "selected": null,
+   "minionExpected": null
+  },
+  "descendantPathAfterExit": {
+   "status": 0,
+   "signal": null,
+   "error": null,
+   "selected": "C:/valid/bash.exe",
+   "minionExpected": "C:/valid/bash.exe"
+  },
+  "descendantPathAfterExitParentExit1": {
+   "status": 1,
+   "signal": null,
+   "error": null,
+   "selected": null,
+   "minionExpected": null
+  },
+  "overflowWhileAlive": {
+   "status": null,
+   "signal": "SIGTERM",
+   "error": "ENOBUFS",
+   "selected": null,
+   "minionExpected": null
+  },
+  "overflowAfterExit": {
+   "status": 0,
+   "signal": null,
+   "error": "ENOBUFS",
+   "selected": "C:/valid/bash.exe",
+   "minionExpected": "C:/valid/bash.exe"
+  },
+  "overflowAfterExitParentExit1": {
+   "status": 1,
+   "signal": null,
+   "error": "ENOBUFS",
+   "selected": null,
+   "minionExpected": null
+  },
+  "timeoutWhileAlive": {
+   "status": null,
+   "signal": "SIGTERM",
+   "error": "ETIMEDOUT",
+   "selected": null,
+   "minionExpected": null
+  },
+  "timeoutAfterExit": {
+   "status": 0,
+   "signal": null,
+   "error": "ETIMEDOUT",
+   "selected": "C:/valid/bash.exe",
+   "minionExpected": "C:/valid/bash.exe"
+  },
+  "descendantPathAfterTimeout": {
+   "status": 0,
+   "signal": null,
+   "error": "ETIMEDOUT",
+   "selected": null,
+   "minionExpected": null
+  },
+  "descendantPathThenOverflow": {
+   "status": 0,
+   "signal": null,
+   "error": "ENOBUFS",
+   "selected": "C:/valid/bash.exe",
+   "minionExpected": "C:/valid/bash.exe"
+  },
+  "trapExit0OverflowWhileAlive": {
+   "status": null,
+   "signal": "SIGTERM",
+   "error": "ENOBUFS",
+   "selected": null,
+   "minionExpected": null
+  },
+  "trapExit0TimeoutWhileAlive": {
+   "status": null,
+   "signal": "SIGTERM",
+   "error": "ETIMEDOUT",
+   "selected": null,
+   "minionExpected": null
+  },
+  "trapExit7TimeoutWhileAlive": {
+   "status": null,
+   "signal": "SIGTERM",
+   "error": "ETIMEDOUT",
+   "selected": null,
+   "minionExpected": null
+  },
+  "trapDelayedExit0TimeoutWhileAlive": {
+   "status": null,
+   "signal": "SIGTERM",
+   "error": "ETIMEDOUT",
+   "selected": null,
+   "minionExpected": null
+  }
+ },
+ "controls": {
+  "exitOnly": {
+   "killedBy": [
+    "descendantPathAfterExit",
+    "descendantPathThenOverflow"
+   ]
+  },
+  "idleGrace": {
+   "killedBy": [
+    "descendantPathAfterExit",
+    "descendantPathThenOverflow"
+   ]
+  },
+  "unconditional": {
+   "killedBy": [
+    "overflowAfterExit",
+    "timeoutAfterExit",
+    "descendantPathThenOverflow"
+   ]
+  }
+ },
+ "minion": {
+  "agreesWithItsExpectationOnAllRows": true,
+  "unexpected": [],
+  "differsFromPi": [],
+  "differencesAreExactlyDiv001": true
+ },
+ "div001": [],
+ "piDirectSigterm": {
+  "agreesWithPiOnAllRows": true,
+  "differsFromPi": []
+ }
+}

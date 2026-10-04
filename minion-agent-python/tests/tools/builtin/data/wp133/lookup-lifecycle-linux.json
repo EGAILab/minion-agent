@@ -1,0 +1,165 @@
+{
+ "node": "v22.15.1",
+ "platform": "linux",
+ "budget": 1048576,
+ "limitMs": 5000,
+ "rows": {
+  "parentPathExit0": {
+   "status": 0,
+   "signal": null,
+   "error": null,
+   "selected": "/valid/bash",
+   "minionExpected": "/valid/bash"
+  },
+  "parentPathExit1": {
+   "status": 1,
+   "signal": null,
+   "error": null,
+   "selected": null,
+   "minionExpected": null
+  },
+  "descendantPathAfterExit": {
+   "status": 0,
+   "signal": null,
+   "error": null,
+   "selected": "/valid/bash",
+   "minionExpected": "/valid/bash"
+  },
+  "descendantPathAfterExitParentExit1": {
+   "status": 1,
+   "signal": null,
+   "error": null,
+   "selected": null,
+   "minionExpected": null
+  },
+  "overflowWhileAlive": {
+   "status": null,
+   "signal": "SIGTERM",
+   "error": "ENOBUFS",
+   "selected": null,
+   "minionExpected": null
+  },
+  "overflowAfterExit": {
+   "status": 0,
+   "signal": null,
+   "error": "ENOBUFS",
+   "selected": "/valid/bash",
+   "minionExpected": "/valid/bash"
+  },
+  "overflowAfterExitParentExit1": {
+   "status": 1,
+   "signal": null,
+   "error": "ENOBUFS",
+   "selected": null,
+   "minionExpected": null
+  },
+  "timeoutWhileAlive": {
+   "status": null,
+   "signal": "SIGTERM",
+   "error": "ETIMEDOUT",
+   "selected": null,
+   "minionExpected": null
+  },
+  "timeoutAfterExit": {
+   "status": 0,
+   "signal": null,
+   "error": "ETIMEDOUT",
+   "selected": "/valid/bash",
+   "minionExpected": "/valid/bash"
+  },
+  "descendantPathAfterTimeout": {
+   "status": 0,
+   "signal": null,
+   "error": "ETIMEDOUT",
+   "selected": null,
+   "minionExpected": null
+  },
+  "descendantPathThenOverflow": {
+   "status": 0,
+   "signal": null,
+   "error": "ENOBUFS",
+   "selected": "/valid/bash",
+   "minionExpected": "/valid/bash"
+  },
+  "trapExit0OverflowWhileAlive": {
+   "status": 0,
+   "signal": null,
+   "error": "ENOBUFS",
+   "selected": "/valid/bash",
+   "minionExpected": null
+  },
+  "trapExit0TimeoutWhileAlive": {
+   "status": 0,
+   "signal": null,
+   "error": "ETIMEDOUT",
+   "selected": "/valid/bash",
+   "minionExpected": null
+  },
+  "trapExit7TimeoutWhileAlive": {
+   "status": 7,
+   "signal": null,
+   "error": "ETIMEDOUT",
+   "selected": null,
+   "minionExpected": null
+  },
+  "trapDelayedExit0TimeoutWhileAlive": {
+   "status": 0,
+   "signal": null,
+   "error": "ETIMEDOUT",
+   "selected": "/valid/bash",
+   "minionExpected": null
+  }
+ },
+ "controls": {
+  "exitOnly": {
+   "killedBy": [
+    "descendantPathAfterExit",
+    "descendantPathThenOverflow"
+   ]
+  },
+  "idleGrace": {
+   "killedBy": [
+    "descendantPathAfterExit",
+    "descendantPathThenOverflow"
+   ]
+  },
+  "unconditional": {
+   "killedBy": [
+    "overflowAfterExit",
+    "timeoutAfterExit",
+    "descendantPathThenOverflow"
+   ]
+  }
+ },
+ "minion": {
+  "agreesWithItsExpectationOnAllRows": true,
+  "unexpected": [],
+  "differsFromPi": [
+   "trapExit0OverflowWhileAlive",
+   "trapExit0TimeoutWhileAlive",
+   "trapDelayedExit0TimeoutWhileAlive"
+  ],
+  "differencesAreExactlyDiv001": true
+ },
+ "div001": [
+  {
+   "row": "trapExit0OverflowWhileAlive",
+   "pi": "/valid/bash",
+   "minion": null
+  },
+  {
+   "row": "trapExit0TimeoutWhileAlive",
+   "pi": "/valid/bash",
+   "minion": null
+  },
+  {
+   "row": "trapDelayedExit0TimeoutWhileAlive",
+   "pi": "/valid/bash",
+   "minion": null
+  }
+ ],
+ "piDirectSigterm": {
+  "agreesWithPiOnAllRows": true,
+  "differsFromPi": []
+ }
+}

@@ -1,0 +1,90 @@
+{
+ "node": "v22.15.1",
+ "platform": "win32",
+ "budget": 1048576,
+ "pathBytes": 18,
+ "rows": {
+  "stdoutAtBudget": {
+   "stdoutBytes": 1048576,
+   "stderrBytes": 0,
+   "combinedBytes": 1048576,
+   "status": 0,
+   "error": null,
+   "selected": "0043 003A 002F 0076 0061 006C 0069 0064 002F 0062 0061 0073 0068 002E 0065 0078 0065"
+  },
+  "stdoutOverBudget": {
+   "stdoutBytes": 1048577,
+   "stderrBytes": 0,
+   "combinedBytes": 1048577,
+   "status": null,
+   "error": "ENOBUFS",
+   "selected": null
+  },
+  "stderrAtBudget": {
+   "stdoutBytes": 18,
+   "stderrBytes": 1048558,
+   "combinedBytes": 1048576,
+   "status": 0,
+   "error": null,
+   "selected": "0043 003A 002F 0076 0061 006C 0069 0064 002F 0062 0061 0073 0068 002E 0065 0078 0065"
+  },
+  "stderrOverBudget": {
+   "stdoutBytes": 18,
+   "stderrBytes": 1048559,
+   "combinedBytes": 1048577,
+   "status": null,
+   "error": "ENOBUFS",
+   "selected": null
+  },
+  "combinedAtBudget": {
+   "stdoutBytes": 524288,
+   "stderrBytes": 524288,
+   "combinedBytes": 1048576,
+   "status": 0,
+   "error": null,
+   "selected": "0043 003A 002F 0076 0061 006C 0069 0064 002F 0062 0061 0073 0068 002E 0065 0078 0065"
+  },
+  "combinedOverBudget": {
+   "stdoutBytes": 524289,
+   "stderrBytes": 524288,
+   "combinedBytes": 1048577,
+   "status": null,
+   "error": "ENOBUFS",
+   "selected": null
+  },
+  "bomThenPath": {
+   "stdoutBytes": 21,
+   "stderrBytes": 0,
+   "combinedBytes": 21,
+   "status": 0,
+   "error": null,
+   "selected": "0043 003A 002F 0076 0061 006C 0069 0064 002F 0062 0061 0073 0068 002E 0065 0078 0065"
+  },
+  "invalidByteInPath": {
+   "stdoutBytes": 19,
+   "stderrBytes": 0,
+   "combinedBytes": 19,
+   "status": 0,
+   "error": null,
+   "selected": "0043 003A 002F FFFD 0076 0061 006C 0069 0064 002F 0062 0061 0073 0068 002E 0065 0078 0065"
+  }
+ },
+ "controls": {
+  "unbounded": {
+   "killedBy": [
+    "stdoutOverBudget",
+    "stderrOverBudget",
+    "combinedOverBudget"
+   ]
+  },
+  "perStream": {
+   "killedBy": [
+    "stderrOverBudget",
+    "combinedOverBudget"
+   ]
+  }
+ },
+ "piOptions": [
+  "{\"encoding\":\"utf-8\",\"timeout\":5000,\"windowsHide\":true}"
+ ]
+}

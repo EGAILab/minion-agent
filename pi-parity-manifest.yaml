@@ -6422,11 +6422,17 @@ rows:
     not affected by, `stdout`/`stderr`/`stdin`; a caller wanting both "process exited" and "output
     drained" does both explicitly. `ctx.shell`''s own idle-grace completion heuristic (`EXEC-004`)
     is a SEPARATE, higher-level concern layered on top of these primitives, not part of this
-    contract. Disposal: `wait()` or `terminate()` is the ONLY guaranteed-safe disposal path, in
-    EITHER language equally -- a CALLER obligation, not an implicit-cleanup guarantee. Dropping a
-    `Process` without calling either first is UNDEFINED behavior (a caller bug), not a scenario
-    this API promises to handle safely -- removing the unconditional "MUST NOT leak" claim
-    implicit disposal cannot actually satisfy in idiomatic Rust. Python MAY additionally offer an
+    contract. Disposal (amended at `L12-D002`, Owner decision Option A; spec §6 and §16.3,
+    `EXEC-012`): disposal is complete only when the process has SETTLED (`wait()` or
+    `terminate()`) AND every owned piped handle has been RELEASED -- a readable stream by its
+    natural EOF, by `ReadableStream.close()`, or by `terminate()` called on an already-settled
+    process; stdin by its existing `WritableStream.close()`/lifecycle rules. A CALLER obligation in
+    EITHER language equally, not an implicit-cleanup guarantee; `wait()` alone is NOT a complete
+    disposal (a descendant can hold an inherited pipe past the exit). Dropping a `Process` without
+    completing disposal is UNDEFINED behavior (a caller bug), not a scenario this API promises to
+    handle safely -- removing the unconditional "MUST NOT leak" claim implicit disposal cannot
+    actually satisfy in idiomatic Rust. (Superseded wording, kept for history: "`wait()` or
+    `terminate()` is the ONLY guaranteed-safe disposal path", `CE-L12-01-01`.) Python MAY additionally offer an
     async context-manager form whose `__aexit__` calls `terminate()` as an ergonomic convenience,
     but the contract does not depend on it.
 
@@ -6858,7 +6864,13 @@ rows:
     return EOF, never pipe_error; unread output is abandoned. Disposal is complete when the process
     has settled AND every owned piped handle is released (readable: EOF, close(), or terminate() on
     an already-settled process; stdin: its existing close/lifecycle rules). Full rules:
-    spec/execution.md sections 6 and 16.'
+    spec/execution.md sections 6 and 16.
+
+    Disposition: `intentional divergence` -- the generic subprocess seam is an Owner-authorized
+    MINION_EXTENSION with no direct Pi counterpart (same classification as `EXEC-005`, `L12-R008`;
+    precedent `MINION-001`). This classifies the SEAM only: it is not a practical-parity behavioral
+    divergence (none is approved for this surface), and the bash consumer''s use reproduces Pi''s
+    settlement/lookup stream release (`TOOL-034`/`TOOL-035`, spec/tools.md WP-13.3).'
   tests:
   - tests/execution/test_subprocess_wait_exit.py (wait settles at exit while a descendant holds the
     pipe; read after wait until EOF; exit observed before the hook; a cancelled waiter; wait+terminate
@@ -6872,7 +6884,7 @@ rows:
   python: minion_agent/execution/subprocess.py (Process._exited and _observe_exit, wait, terminate and
     _dispose_transports, ReadableStream.close)
   rust: NOT_IMPLEMENTED
-  disposition: adopted
+  disposition: intentional divergence
 - id: TOOL-025
   phase: 6
   pi: 'packages/coding-agent/src/core/tools/read.ts (schema lines 21-25; execute lines 223-334);

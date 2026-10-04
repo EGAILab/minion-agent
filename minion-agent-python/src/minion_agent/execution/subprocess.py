@@ -282,11 +282,14 @@ class ReadableStream:
 
 
 class Process:
-    """`EXEC-005`. Owns its own stdio handles and underlying OS process handle. Calling `wait()`
-    or `terminate()` is the ONLY guaranteed-safe disposal path -- a caller obligation, not an
-    implicit-cleanup guarantee (`CE-L12-01-01`). `async with` is offered as an ergonomic
-    convenience whose `__aexit__` calls `terminate()`; the underlying contract does not depend
-    on it."""
+    """`EXEC-005`. Owns its own stdio handles and underlying OS process handle. Disposal is
+    complete only when the process has settled (`wait()` or `terminate()`) AND every owned piped
+    handle has been released: a readable stream by its EOF, by `ReadableStream.close()`
+    (`EXEC-012`), or by `terminate()` after the process settled; stdin by its own `close()`. A
+    caller obligation, not an implicit-cleanup guarantee (spec/execution.md sections 6 and 16.3,
+    `L12-D002`); `wait()` alone is not a complete disposal while a descendant holds a pipe.
+    `async with` is offered as an ergonomic convenience whose `__aexit__` calls `terminate()`; the
+    underlying contract does not depend on it."""
 
     __slots__ = (
         "_exited",

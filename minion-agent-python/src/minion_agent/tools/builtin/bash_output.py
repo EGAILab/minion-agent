@@ -14,6 +14,8 @@ from typing import Any, Literal
 
 from .truncate import DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, utf8_len
 
+_BOM = chr(0xFEFF)
+
 
 def _split_lines_for_counting(content: str) -> list[str]:
     if not content:
@@ -107,8 +109,11 @@ class OutputAccumulator:
 
     - Decoding: ONE streaming decoder over the merged chunks -- WHATWG UTF-8 with replacement,
       stripping exactly one leading BOM of the whole stream, even when split across chunks
-      (`WP133-AUD-R002`). CPython's incremental `utf-8-sig` decoder with `errors="replace"` does
-      both: it buffers a partial BOM and replaces each maximal invalid subpart.
+      (`WP133-AUD-R002`). CPython's incremental `utf-8` decoder with `errors="replace"` replaces
+      each maximal invalid subpart; the BOM is stripped only when the stream's FIRST decoded
+      character is U+FEFF, which only a complete `EF BB BF` at the start produces. An incomplete
+      prefix at EOF (`EF`, `EF BB`) therefore flushes as U+FFFD, as Pi's `TextDecoder` does
+      (`WP133-I001`; CPython's `utf-8-sig` would silently drop it).
     - Rolling tail: trimmed to its last `2 * max_bytes` bytes once over `4 * max_bytes`, with the
       line-boundary flag; a snapshot drops a partial first line only when the tail holds a newline
       (`WP133-CON-R002`).
@@ -118,7 +123,8 @@ class OutputAccumulator:
         self.max_lines = max_lines
         self.max_bytes = max_bytes
         self._max_rolling_bytes = max(max_bytes * 2, 1)
-        self._decoder = codecs.getincrementaldecoder("utf-8-sig")(errors="replace")
+        self._decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
+        self._at_stream_start = True
         self._tail_text = ""
         self._tail_bytes = 0
         self._tail_starts_at_line_boundary = True
@@ -135,14 +141,22 @@ class OutputAccumulator:
         if self._finished:
             raise RuntimeError("Cannot append to a finished output accumulator")
         self.total_raw_bytes += len(data)
-        self._append_decoded(self._decoder.decode(data))
+        self._append_decoded(self._decode(data, final=False))
 
     def finish(self) -> None:
         """Flush the decoder: incomplete trailing bytes become U+FFFD."""
         if self._finished:
             return
         self._finished = True
-        self._append_decoded(self._decoder.decode(b"", final=True))
+        self._append_decoded(self._decode(b"", final=True))
+
+    def _decode(self, data: bytes, *, final: bool) -> str:
+        text = self._decoder.decode(data, final)
+        if self._at_stream_start and text:
+            self._at_stream_start = False
+            if text[0] == _BOM:
+                return text[1:]  # exactly one leading BOM of the whole stream
+        return text
 
     @property
     def should_use_temp_file(self) -> bool:

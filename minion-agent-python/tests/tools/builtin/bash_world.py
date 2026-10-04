@@ -9,6 +9,7 @@ runs on either host. Neither performs bash behaviour.
 
 from __future__ import annotations
 
+import asyncio
 import sys
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
@@ -47,6 +48,7 @@ class WorldFs:
         file_info_error: FsErrorCode | None = None,
         create_temp_error: FsErrorCode | None = None,
         append_error: FsErrorCode | None = None,
+        append_gate: asyncio.Event | None = None,
         world: ExecutionWorldIdentity | None = None,
     ) -> None:
         self._local = LocalFileSystem(root)
@@ -57,6 +59,9 @@ class WorldFs:
         self.file_info_error = file_info_error
         self.create_temp_error = create_temp_error
         self.append_error = append_error
+        self.append_gate = append_gate
+        """When set, every `append_file` blocks until the event is set (a slow, conforming fs)."""
+        self.append_started = asyncio.Event()
         self.calls: list[str] = []
 
     def _scripted(self, path: str, error: FsErrorCode | None) -> Any:
@@ -85,6 +90,9 @@ class WorldFs:
         return await self._local.create_temp_file(prefix, suffix)
 
     async def append_file(self, path: str, content: Any, signal: Any = None) -> Any:
+        self.append_started.set()
+        if self.append_gate is not None:
+            await self.append_gate.wait()
         if self.append_error is not None:
             return Err(FsError(self.append_error, "scripted"))
         return await self._local.append_file(path, content)

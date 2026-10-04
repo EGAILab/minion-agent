@@ -584,6 +584,53 @@ async def test_full_output_file_holds_the_raw_bytes(tmp_path: Path) -> None:
     Path(path).unlink()
 
 
+_51201_X = "import sys; sys.stdout.write('x' * 51201)"
+
+
+async def test_settlement_joins_an_accepted_full_output_write(tmp_path: Path) -> None:
+    """`WP133-I002`: a slow but conforming `ctx.fs.append_file` that is still in flight when the
+    100 ms grace expires is JOINED, never cancelled -- every accepted raw byte reaches the file
+    before the result returns (Pi: `finishOutput()` awaits `closeTempFile()`)."""
+    gate = asyncio.Event()
+    tool, _, fs = _tool(tmp_path, _51201_X, fs={"append_gate": gate})
+    run = asyncio.ensure_future(_run(tool, {"command": "x"}))
+    await asyncio.wait_for(fs.append_started.wait(), 10)
+    await asyncio.sleep(0.5)  # far past exit + the 100 ms grace
+    assert not run.done(), "settled while an accepted write was still in flight"
+    gate.set()
+    failed, text, details = await asyncio.wait_for(run, 10)
+    assert not failed
+    path = details["fullOutputPath"]
+    assert path in text
+    assert Path(path).read_bytes() == b"x" * 51201
+    Path(path).unlink()
+
+
+async def test_a_delayed_full_output_write_error_is_still_reported(tmp_path: Path) -> None:
+    """`WP133-I002`: the joined write's own failure keeps the file-error classification."""
+    gate = asyncio.Event()
+    tool, _, fs = _tool(
+        tmp_path, _51201_X, fs={"append_gate": gate, "append_error": FsErrorCode.PERMISSION_DENIED}
+    )
+    run = asyncio.ensure_future(_run(tool, {"command": "x"}))
+    await asyncio.wait_for(fs.append_started.wait(), 10)
+    await asyncio.sleep(0.5)
+    assert not run.done()
+    gate.set()
+    failed, text, _ = await asyncio.wait_for(run, 10)
+    assert failed and text == "Cannot write the full-output file: permission denied"
+
+
+@pytest.mark.parametrize("prefix", [[0xEF], [0xEF, 0xBB]])
+async def test_an_incomplete_leading_bom_reaches_the_result(
+    tmp_path: Path, prefix: list[int]
+) -> None:
+    """`WP133-I001` through the public tool (`printf '\\357'`): U+FFFD, not "(no output)"."""
+    tool, _, _ = _tool(tmp_path, f"import sys; sys.stdout.buffer.write(bytes({prefix!r}))")
+    failed, text, _ = await _run(tool, {"command": "x"})
+    assert (failed, text) == (False, chr(0xFFFD))
+
+
 async def test_pipe_failure_ends_that_stream(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

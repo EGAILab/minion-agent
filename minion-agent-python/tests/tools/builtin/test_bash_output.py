@@ -85,6 +85,25 @@ def test_one_leading_bom_of_the_merged_stream_is_stripped(row: str) -> None:
     assert truncation["outputBytes"] == expected["outputBytes"]
 
 
+@pytest.mark.parametrize(
+    ("chunks", "text"),
+    [
+        ([b"\xef"], chr(0xFFFD)),
+        ([b"\xef\xbb"], chr(0xFFFD)),
+        ([b"\xef", b"\xbb"], chr(0xFFFD)),
+        ([b"\xef\xbb\xbf"], ""),
+        ([b"\xef", b"\xbb", b"\xbf"], ""),
+        ([b"\xe2"], chr(0xFFFD)),
+    ],
+)
+def test_an_incomplete_leading_bom_at_eof_is_replaced(chunks: list[bytes], text: str) -> None:
+    """`WP133-I001`: Pi's `TextDecoder` flush replaces an incomplete initial BOM prefix (`EF`,
+    `EF BB`) with one U+FFFD (3 decoded bytes); only a COMPLETE leading BOM is stripped."""
+    accumulator = _accumulate(chunks)
+    assert accumulator.snapshot()["content"] == text
+    assert accumulator.total_decoded_bytes == len(text.encode("utf-8"))
+
+
 def test_raw_bytes_count_the_stripped_bom() -> None:
     accumulator = _accumulate([b"\xef\xbb\xbfa"])
     assert accumulator.total_raw_bytes == 4

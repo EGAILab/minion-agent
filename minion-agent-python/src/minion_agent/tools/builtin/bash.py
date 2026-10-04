@@ -159,7 +159,12 @@ async def _check_cwd(fs: FileSystem, platform: Platform, cwd: str) -> None:
 
 class _Run:
     """One command's run: output intake into the accumulator and the full-output file, the
-    timeout timer, and settlement (spec "Run and settlement")."""
+    timeout timer, and settlement (spec "Run and settlement").
+
+    Intake and persistence are separate (`WP133-I002`): a pump only reads, accumulates and
+    enqueues each chunk -- all synchronous after the read -- so cancelling the pumps at settlement
+    cancels a pending READ only. One writer persists the accepted chunks in order, and settlement
+    JOINS it before returning (Pi: `finishOutput()` awaits `closeTempFile()`)."""
 
     def __init__(self, fs: FileSystem, process: Process) -> None:
         self.fs = fs
@@ -169,7 +174,7 @@ class _Run:
         self.full_output_path: str | None = None
         self.file_error: FsErrorCode | None = None
         self.timed_out = False
-        self._intake = asyncio.Lock()
+        self._accepted: asyncio.Queue[bytes | None] = asyncio.Queue()
         self._data_after_exit = asyncio.Event()
         self._exited = False
 
@@ -198,16 +203,22 @@ class _Run:
             if isinstance(written, Err):
                 self.file_error = written.error.code
 
-    async def accept(self, chunk: bytes) -> None:
-        async with self._intake:
-            self.output.append(chunk)
-            await self._persist(chunk)
-            if self.file_error is not None:
-                # Minion-defined: the run cannot keep its full output -- end it (Pi: an unhandled
-                # stream error).
-                await self.process.terminate()
+    def accept(self, chunk: bytes) -> None:
+        self.output.append(chunk)
+        self._accepted.put_nowait(chunk)
         if self._exited:
             self._data_after_exit.set()
+
+    async def write_accepted(self) -> None:
+        """The ordered writer: persists every accepted chunk until the end marker."""
+        terminated = False
+        while (chunk := await self._accepted.get()) is not None:
+            await self._persist(chunk)
+            if self.file_error is not None and not terminated:
+                # Minion-defined: the run cannot keep its full output -- end it (Pi: an unhandled
+                # stream error).
+                terminated = True
+                await self.process.terminate()
 
     async def pump(self, stream: ReadableStream | None) -> None:
         if stream is None:  # pragma: no cover - both pipes are requested
@@ -216,11 +227,12 @@ class _Run:
             chunk = await stream.read_chunk()
             if isinstance(chunk, Err) or chunk.value is None:
                 return  # EOF, or a pipe failure ending this stream's intake
-            await self.accept(chunk.value)
+            self.accept(chunk.value)
 
     async def settle(self) -> int | None:
         """Waits for exit, then for both streams' EOF or 100 ms without further data (re-armed by
         each chunk); never on `wait()` alone. Returns the exit code (`None` if killed)."""
+        writer = asyncio.ensure_future(self.write_accepted())
         pumps = asyncio.ensure_future(
             asyncio.gather(self.pump(self.process.stdout), self.pump(self.process.stderr))
         )
@@ -245,9 +257,14 @@ class _Run:
             # execution.md section 16.4): release the read ends, never `terminate()` -- a
             # background job survives and its next write meets a closed reader.
             await _close_streams(self.process)
-        async with self._intake:
-            self.output.finish()
-            await self._persist(None)
+            self._accepted.put_nowait(None)
+            try:
+                await writer  # joins every accepted write; never cancels one (WP133-I002)
+            except asyncio.CancelledError:
+                writer.cancel()
+                raise
+        self.output.finish()
+        await self._persist(None)
         if isinstance(status, Err):
             return None
         return status.value.exit_code

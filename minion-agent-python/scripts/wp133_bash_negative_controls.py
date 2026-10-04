@@ -49,7 +49,11 @@ _CLASSIFY = (
     "            raise _TimedOutWith(run)\n"
 )
 _NONZERO = '            raise BuiltinToolError(_with_status(text, f"Command exited with code {exit_code}"))\n'
-_DECODER = '        self._decoder = codecs.getincrementaldecoder("utf-8-sig")(errors="replace")\n'
+_DECODER = '        self._decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")\n'
+_DECODE = "        self._append_decoded(self._decode(data, final=False))\n"
+_JOIN = (
+    "                await writer  # joins every accepted write; never cancels one (WP133-I002)\n"
+)
 _LOOKUP_KILL = (
     "            # Interrupted while the lookup is still running: the certified hard kill (DIV-001).\n"
     "            await process.terminate()\n"
@@ -88,37 +92,41 @@ FAULTS: dict[str, list[tuple[Path, str, str]]] = {
         ),
         (
             OUTPUT,
-            "        self._append_decoded(self._decoder.decode(data))\n",
+            _DECODE,
             "        decoders = self.__dict__.setdefault('_per_stream', {})\n"
             "        decoder = decoders.setdefault(\n"
-            "            stream, codecs.getincrementaldecoder('utf-8-sig')(errors='replace')\n"
+            "            stream, codecs.getincrementaldecoder('utf-8')(errors='replace')\n"
             "        )\n"
             "        self._append_decoded(decoder.decode(data))\n",
         ),
         (
             BASH,
-            "    async def accept(self, chunk: bytes) -> None:\n",
-            "    async def accept(self, chunk: bytes, stream: int = 0) -> None:\n",
+            "    def accept(self, chunk: bytes) -> None:\n",
+            "    def accept(self, chunk: bytes, stream: int = 0) -> None:\n",
         ),
         (
             BASH,
-            "            self.output.append(chunk)\n",
-            "            self.output.append(chunk, stream)\n",
+            "        self.output.append(chunk)\n",
+            "        self.output.append(chunk, stream)\n",
         ),
         (
             BASH,
-            "            await self.accept(chunk.value)\n",
-            "            await self.accept(chunk.value, id(stream))\n",
+            "            self.accept(chunk.value)\n",
+            "            self.accept(chunk.value, id(stream))\n",
         ),
     ],
-    "decoder-reset-per-chunk": [
+    "decoder-reset-per-chunk": [(OUTPUT, _DECODE, _DECODE + _DECODER)],
+    "per-chunk-bom-strip": [(OUTPUT, _DECODE, _DECODE + "        self._at_stream_start = True\n")],
+    "no-bom-strip": [
         (
             OUTPUT,
-            "        self._append_decoded(self._decoder.decode(data))\n",
-            "        self._append_decoded(self._decoder.decode(data))\n" + _DECODER,
+            "            if text[0] == _BOM:\n"
+            "                return text[1:]  # exactly one leading BOM of the whole stream\n",
+            "",
         )
     ],
-    "no-bom-strip": [(OUTPUT, _DECODER, _DECODER.replace("utf-8-sig", "utf-8"))],
+    # WP133-I001: CPython's utf-8-sig drops an incomplete leading BOM prefix at EOF
+    "bom-prefix-dropped-at-eof": [(OUTPUT, _DECODER, _DECODER.replace('"utf-8"', '"utf-8-sig"'))],
     # ---- the full-output file ----
     "decoded-text-to-full-output-file": [
         (
@@ -135,6 +143,16 @@ FAULTS: dict[str, list[tuple[Path, str, str]]] = {
             OUTPUT,
             "        truncated = self.total_lines > self.max_lines or self.total_decoded_bytes > self.max_bytes\n",
             "        truncated = tail['truncated']\n",
+        )
+    ],
+    # WP133-I002: settlement must join accepted persistence, never cancel it
+    "settlement-cancels-persistence": [(BASH, _JOIN, "                writer.cancel()\n")],
+    "persist-inline-in-pump": [
+        (
+            BASH,
+            "            self.accept(chunk.value)\n",
+            "            self.accept(chunk.value)\n"
+            "            await self._persist(self._accepted.get_nowait())\n",
         )
     ],
     "status-before-truncation-notice": [
@@ -293,8 +311,6 @@ FAULTS: dict[str, list[tuple[Path, str, str]]] = {
 }
 
 STRUCTURAL = {
-    "per-chunk-bom-strip": "the decoder is the only BOM handler; 'decoder-reset-per-chunk' strips a BOM "
-    "at every chunk start and is the injected form of this control",
     "partial-updates-emitted": "the bash ToolDefinition takes no update callback (Q2: live partial "
     "updates are not certified); witness test_zero_partial_updates_with_the_final_result",
 }

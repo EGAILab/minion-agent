@@ -1,8 +1,8 @@
-"""Runner for the WP-13.3 `bash` canonical scenarios (`conformance/schema/builtin-bash-scenario.schema.
-json`). It builds the real `bash` tool over the real local `ctx.fs` and `ctx.subprocess` in a fresh
-working directory and runs each case through the REAL Layer 06 `execute_call` pipeline. It never
-performs tool behaviour: it only normalizes the full-output path and the working directory, and reads
-the full-output file's raw bytes back.
+"""Runner for the WP-13.3 `bash` canonical scenarios
+(`conformance/schema/builtin-bash-scenario.schema.json`). It builds the real `bash` tool over the
+real local `ctx.fs` and `ctx.subprocess` in a fresh working directory and runs each case through the
+REAL Layer 06 `execute_call` pipeline. It never performs tool behaviour: it only normalizes the
+full-output path and the working directory, and reads the full-output file's raw bytes back.
 """
 
 from __future__ import annotations
@@ -98,7 +98,9 @@ async def run_builtin_bash_scenario(document: dict[str, Any]) -> dict[str, Any] 
         if "truncation" in details:
             truncation = dict(details["truncation"])
             shown = truncation.pop("content")
-            content_matches = text.startswith(shown) and (shown == "" or text[len(shown) :].startswith("\n\n[Showing"))
+            content_matches = text.startswith(shown) and (
+                shown == "" or text[len(shown) :].startswith("\n\n[Showing")
+            )
             details = {"truncation": truncation, "fullOutputPath": "<FULL_OUTPUT>"}
         observed = {
             "is_error": result.is_error,

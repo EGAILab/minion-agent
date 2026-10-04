@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from typing import Any, Literal
 
 from ...execution import Err, FileSystem, Platform
-from ...execution.subprocess import ReadableStream, SpawnOptions, Subprocess
+from ...execution.subprocess import Process, ReadableStream, SpawnOptions, Subprocess
 
 LOOKUP_TIMEOUT_S = 5.0
 LOOKUP_OUTPUT_BUDGET = 1024 * 1024
@@ -64,6 +64,14 @@ async def _exists(fs: FileSystem, path: str) -> bool:
     """`existsSync(path)` -> `ctx.fs.probe_dir_entry(path)` is Ok (`CE-WP133-01`); any error is
     "not found"."""
     return not isinstance(await fs.probe_dir_entry(path), Err)
+
+
+async def close_streams(process: Process) -> None:
+    """Releases both read ends (`ReadableStream.close()`, spec/execution.md section 16) -- Pi's
+    `stream.destroy()` / `CloseStdioPipes()`. Never signals the process."""
+    for stream in (process.stdout, process.stderr):
+        if stream is not None:
+            await stream.close()
 
 
 async def lookup(subprocess: Subprocess, argv: list[str]) -> str | None:
@@ -117,6 +125,7 @@ async def lookup(subprocess: Subprocess, argv: list[str]) -> str | None:
             task.cancel()
             with contextlib.suppress(asyncio.CancelledError, Exception):
                 await task
+        await close_streams(process)  # collection finished or interrupted (section 16.4)
     if isinstance(status, Err) or status.value.exit_code != 0:
         return None
     stdout = b"".join(stdout_chunks).decode("utf-8", "replace")  # `Buffer#toString`: BOM kept

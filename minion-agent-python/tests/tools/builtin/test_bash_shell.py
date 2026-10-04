@@ -1,5 +1,5 @@
-"""`TOOL-034` shell selection and the `where`/`which` lookup (spec/tools.md WP-13.3 "Shell selection"
-and "The lookup"; `WP133-CON-R005`/`R006`, `CE-WP133-02`, `DIV-001`).
+"""`TOOL-034` shell selection and the `where`/`which` lookup (spec/tools.md WP-13.3 "Shell
+selection" and "The lookup"; `WP133-CON-R005`/`R006`, `CE-WP133-02`, `DIV-001`).
 
 Expectations come from the pinned-Pi authority rows in `data/wp133/` (Minion's expectation for the
 lifecycle rows, `minionExpected`). The lookup programs are Python children reproducing the probe's
@@ -112,7 +112,9 @@ async def test_lookup_budget_is_combined_not_per_stream(tmp_path: Path) -> None:
 LIFECYCLE_PATH = "C:/valid/bash.exe" if HOST == "win32" else "/valid/bash"
 
 
-def _program(parent: list[tuple[float, str]], descendant: list[tuple[float, str]] | None) -> list[str]:
+def _program(
+    parent: list[tuple[float, str]], descendant: list[tuple[float, str]] | None
+) -> list[str]:
     """Python equivalents of lookup_lifecycle_probe.mjs's step lists; times scaled to LIMIT."""
 
     def steps(items: list[tuple[float, str]]) -> str:
@@ -132,7 +134,8 @@ def _program(parent: list[tuple[float, str]], descendant: list[tuple[float, str]
                 _, code, delay_ms = action.split(":")
                 out.append(
                     "if hasattr(signal, 'SIGTERM') and os.name != 'nt':\n"
-                    f"    signal.signal(signal.SIGTERM, lambda *a: (time.sleep({int(delay_ms) / 1000}), os._exit({code})))"
+                    "    signal.signal(signal.SIGTERM, lambda *a:"
+                    f" (time.sleep({int(delay_ms) / 1000}), os._exit({code})))"
                 )
             elif action == "end":
                 out.append("os._exit(0)")
@@ -170,8 +173,12 @@ LIFECYCLE: dict[str, list[str]] = {
     "trapExit0OverflowWhileAlive": _program(
         [(0, "trap:0:0"), (0, "path"), (0, "flood"), (LIMIT + 1, "exit:3")], None
     ),
-    "trapExit0TimeoutWhileAlive": _program([(0, "trap:0:0"), (0, "path"), (LIMIT + 1, "exit:3")], None),
-    "trapExit7TimeoutWhileAlive": _program([(0, "trap:7:0"), (0, "path"), (LIMIT + 1, "exit:3")], None),
+    "trapExit0TimeoutWhileAlive": _program(
+        [(0, "trap:0:0"), (0, "path"), (LIMIT + 1, "exit:3")], None
+    ),
+    "trapExit7TimeoutWhileAlive": _program(
+        [(0, "trap:7:0"), (0, "path"), (LIMIT + 1, "exit:3")], None
+    ),
     "trapDelayedExit0TimeoutWhileAlive": _program(
         [(0, "trap:0:300"), (0, "path"), (LIMIT + 1, "exit:3")], None
     ),
@@ -214,10 +221,10 @@ async def test_c002_natural_exit_racing_the_kill_keeps_its_code(
     )
 
     async def natural_exit_first(process: Any) -> None:
-        await process._proc.stdin.drain() if process._proc.stdin else None  # noqa: SLF001
-        if process._proc.stdin is not None:  # noqa: SLF001
-            process._proc.stdin.write(b"x")  # noqa: SLF001
-        await process._proc.wait()  # noqa: SLF001
+        await process._proc.stdin.drain() if process._proc.stdin else None
+        if process._proc.stdin is not None:
+            process._proc.stdin.write(b"x")
+        await process._proc.wait()
 
     world.on_terminate = natural_exit_first
     from minion_agent.execution.subprocess import SpawnOptions, StdioMode
@@ -226,7 +233,9 @@ async def test_c002_natural_exit_racing_the_kill_keeps_its_code(
 
     async def spawn_with_stdin(argv: Any, options: SpawnOptions | None = None) -> Any:
         opts = options or SpawnOptions()
-        return await original(argv, SpawnOptions(inherit_env=opts.inherit_env, stdin=StdioMode.PIPED))
+        return await original(
+            argv, SpawnOptions(inherit_env=opts.inherit_env, stdin=StdioMode.PIPED)
+        )
 
     world.spawn = spawn_with_stdin  # type: ignore[method-assign]
     config = await select_shell(WorldFs(str(tmp_path), existing=set()), world, None)
@@ -241,7 +250,7 @@ async def test_custom_shell_path(tmp_path: Path) -> None:
     fs = WorldFs(str(tmp_path), existing={"/opt/bash"})
     world = WorldSubprocess(str(tmp_path))
     assert await select_shell(fs, world, "/opt/bash") == ShellConfig("/opt/bash", ("-c",), "argv")
-    with pytest.raises(ShellNotFoundError, match="^Custom shell path not found: /missing$"):
+    with pytest.raises(ShellNotFoundError, match=r"^Custom shell path not found: /missing$"):
         await select_shell(fs, world, "/missing")
 
 
@@ -311,7 +320,9 @@ async def test_posix_which_is_trusted_and_sh_is_the_silent_fallback(tmp_path: Pa
         str(tmp_path), lookup_program=child("import sys; sys.stdout.write('/nowhere/bash\\n')")
     )
     assert (await select_shell(fs, trusted, None)).shell == "/nowhere/bash"
-    blank = WorldSubprocess(str(tmp_path), lookup_program=child("import sys; sys.stdout.write(' \\n')"))
+    blank = WorldSubprocess(
+        str(tmp_path), lookup_program=child("import sys; sys.stdout.write(' \\n')")
+    )
     assert await select_shell(fs, blank, None) == ShellConfig("sh", ("-c",), "argv")
     failed = WorldSubprocess(str(tmp_path), lookup_program=child("import sys; sys.exit(1)"))
     assert (await select_shell(fs, failed, None)).shell == "sh"

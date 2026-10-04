@@ -31,6 +31,7 @@ from ..result import ToolResult
 from ._js import number_to_string
 from .bash_output import OutputAccumulator
 from .bash_shell import ShellConfig, ShellNotFoundError, select_shell
+from .bash_shell import close_streams as _close_streams
 from .environment import compose_spawn_environment
 from .paths import BuiltinToolError, cause
 from .truncate import DEFAULT_MAX_BYTES, format_size
@@ -240,6 +241,10 @@ class _Run:
             pumps.cancel()  # pending reads are cancelled; later chunks are dropped
             with contextlib.suppress(asyncio.CancelledError, Exception):
                 await pumps
+            # Pi's `child.stdout?.destroy(); child.stderr?.destroy()` at settlement (spec
+            # execution.md section 16.4): release the read ends, never `terminate()` -- a
+            # background job survives and its next write meets a closed reader.
+            await _close_streams(self.process)
         async with self._intake:
             self.output.finish()
             await self._persist(None)

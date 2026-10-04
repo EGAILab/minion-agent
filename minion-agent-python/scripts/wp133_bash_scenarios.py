@@ -1,5 +1,5 @@
-"""Generate the WP-13.3 `bash` canonical scenarios (`conformance/agent/builtin-bash-*.yaml`) from the
-pinned-Pi authority outputs -- no expectation is hand-written.
+"""Generate the WP-13.3 `bash` canonical scenarios (`conformance/agent/builtin-bash-*.yaml`) from
+the pinned-Pi authority outputs -- no expectation is hand-written.
 
     python scripts/wp133_bash_scenarios.py <minion-agent-docs>/assurance/layers/data/13-wp133/out
 
@@ -8,9 +8,9 @@ Inputs are `pi-win32.json` (Windows 11, Git Bash) and `pi-linux.json` (`node:22.
 becomes one scenario with one expectation per platform.
 
 Two deliberate mappings, both stated in each scenario's notes:
-- `abort/before-spawn`: the probe called `execute` with an aborted signal (`Command aborted`); through
-  the real Layer 06 pipeline a pre-aborted call never reaches `execute` and is answered `Operation
-  aborted` (spec WP-13.3 step 3, `L13-WP132-R004`).
+- `abort/before-spawn`: the probe called `execute` with an aborted signal (`Command aborted`);
+  through the real Layer 06 pipeline a pre-aborted call never reaches `execute` and is answered
+  `Operation aborted` (spec WP-13.3 step 3, `L13-WP132-R004`).
 - `updates/two-chunks`: only the final result is certified (Owner Q2: no partial updates).
 """
 
@@ -26,7 +26,9 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
 OUT_DIR = ROOT / "conformance" / "agent"
-AUTHORITY = "minion-agent-docs spec/tools.md WP-13.3 (master a805f6ed); pinned-Pi bash_probe outputs"
+AUTHORITY = (
+    "minion-agent-docs spec/tools.md WP-13.3 (master a805f6ed); pinned-Pi bash_probe outputs"
+)
 PI_REVISION = "b7bb00b936dbe21b8e160b3e89efdec361846699"
 TOOL_034_PREFIXES = ("exit/", "timeout/", "abort/", "cwd/", "kill/")
 
@@ -37,8 +39,8 @@ CASE_OPTIONS: dict[str, dict[str, Any]] = {
 }
 NOTES: dict[str, str] = {
     "abort/before-spawn": (
-        "The pinned probe called execute directly with an aborted signal (Command aborted). Through the"
-        " real Layer 06 pipeline a pre-aborted call never reaches execute: preflight answers"
+        "The pinned probe called execute directly with an aborted signal (Command aborted). Through"
+        " the real Layer 06 pipeline a pre-aborted call never reaches execute: preflight answers"
         " 'Operation aborted' (spec WP-13.3 step 3, L13-WP132-R004)."
     ),
     "updates/two-chunks": "Final result only: no partial updates are certified (Owner Q2).",
@@ -92,7 +94,10 @@ def _expectation(case_id: str, result: dict[str, Any]) -> dict[str, Any]:
 
 def main(out_dir: Path) -> int:
     platforms = {
-        name: {r["id"]: r for r in json.loads((out_dir / f"pi-{name}.json").read_text("utf-8"))["results"]}
+        name: {
+            r["id"]: r
+            for r in json.loads((out_dir / f"pi-{name}.json").read_text("utf-8"))["results"]
+        }
         for name in ("win32", "linux")
     }
     written = 0

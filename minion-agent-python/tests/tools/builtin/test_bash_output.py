@@ -129,7 +129,7 @@ def test_trim_tail_short_buffer_resets_its_byte_count() -> None:
     """Pi's `trimTail` early return: a buffer already within the rolling bound only refreshes
     `tailBytes` (reachable when the running count overshoots the encoded length)."""
     accumulator = OutputAccumulator(max_bytes=4)
-    accumulator._tail_text = "ab"  # noqa: SLF001
-    accumulator._tail_bytes = 99  # noqa: SLF001
-    accumulator._trim_tail()  # noqa: SLF001
-    assert accumulator._tail_bytes == 2  # noqa: SLF001
+    accumulator._tail_text = "ab"
+    accumulator._tail_bytes = 99
+    accumulator._trim_tail()
+    assert accumulator._tail_bytes == 2

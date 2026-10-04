@@ -7235,6 +7235,83 @@ rows:
   python: 'minion_agent/tools/builtin/write.py check_abort and the edit/write checkpoints (no abort listener; no ctx.fs call receives the signal). Implementation candidate (WP-13.2, minion-agent#49), pending independent review.'
   rust: 'minion-agent-rust crates/minion-agent/src/tools/builtin/{write,edit}.rs (detached worker owns queue entry across filesystem awaits; cooperative checkpoints only); tests/builtin_mutation_conformance.rs (real Layer-06 pipeline, cancellation cases and early-result timer controls at 10 ms/500 ms/10 s). WP-13.2 Rust certification candidate; independent closure pending.'
   disposition: adopted
+- id: TOOL-034
+  phase: 6
+  pi: packages/coding-agent/src/core/tools/bash.ts (createBashToolDefinition, resolveTimeoutMs, exec order,
+    formatOutput); packages/coding-agent/src/utils/shell.ts (getShellConfig, findBashOnPath, getBashShellConfig,
+    isLegacyWslBashPath); packages/coding-agent/src/utils/child-process.ts (waitForChildProcess); Node v22.15.1
+    timers (Timeout clamp, insert trunc) and spawnSync (maxBuffer, timeout, Kill/CloseStdioPipes)
+  surface: Layer 13, WP-13.3 -- the bash tool definition, argument schema, absence of a default timeout, the
+    exec precheck order, shell selection over the execution world, the where/which lookup, command transport,
+    the run and settlement, classification and the session environment
+  rule: 'CONTRACT MERGED (WP-13.3, minion-agent#50; minion-agent-docs#229 -> a805f6ed; DIRECT_PI_PARITY except
+    the rows marked as mappings and DIV-001). Schema {command, timeout?}, no default timeout; timeout validated
+    finite > 0 and <= 2147483.647 s, scheduled as max(1, trunc(ms)) (WP133-CON-R003); precheck order: timeout,
+    abort, shell, cwd; shell selection via ctx.fs existence (probe_dir_entry, CE-WP133-01) and ctx.subprocess
+    platform/baseline, legacy WSL bash via stdin (-s); lookup: one 1 MiB budget over both pipes, 5000 ms timer,
+    exit plus EOF without idle grace, selected only on a final exit status 0 (WP133-CON-R005/R006, C002), an
+    unexited lookup interrupted by terminate() (DIV-001, row TOOL-034-DIV-001); settlement at exit plus EOF or
+    100 ms without further output, then both read ends released (ReadableStream.close(), never terminate(),
+    spec/execution.md section 16.4); classification: signal, then timeout, then exit code; Owner Q1 session
+    environment removed by exact spelling and re-injected from the call context. Full rules: spec/tools.md,
+    WP-13.3.'
+  tests:
+  - conformance/agent/builtin-bash-*.yaml (36 canonical scenarios, pinned-Pi expectations per platform; win32 and linux)
+  - minion-agent-python/tests/tools/builtin/test_bash.py (definition, factory, precheck order, timer normalization,
+    classification, settlement and grace, background job surviving settlement with released pipes, session
+    environment, lifecycle delegation, zero partial updates, world validation)
+  - minion-agent-python/tests/tools/builtin/test_bash_shell.py (shell selection matrix, js_trim set, legacy WSL,
+    lookup constants, budget and decoding rows, combined budget, lookup_lifecycle_probe rows,
+    test_div001_interruption_is_terminate_not_sigterm, test_c002_natural_exit_racing_the_kill_keeps_its_code)
+  - minion-agent-python/scripts/wp133_bash_negative_controls.py (precheck order, classification, settlement,
+    lookup, existence, cwd, environment, projection and pipe-release faults)
+  python: 'minion_agent/tools/builtin/bash.py and bash_shell.py. Implementation candidate (WP-13.3, minion-agent#50; contract minion-agent-docs#229 -> a805f6ed; pipe release per L12-D002 / EXEC-012, minion-agent#144), pending independent review.'
+  rust: NOT_IMPLEMENTED
+  disposition: adopted
+- id: TOOL-034-DIV-001
+  phase: 6
+  pi: packages/coding-agent/src/utils/shell.ts findBashOnPath (spawnSync where/which); Node v22.15.1
+    src/spawn_sync.cc Kill (a direct-child SIGTERM on timeout or maxBuffer)
+  surface: Layer 13, WP-13.3 -- interruption of an unexited where/which lookup
+  rule: 'DIV-001 (assurance/pi-divergences.md; Owner practical-parity decision 2026-10-04, minion-agent#141 /
+    #50 / #75). Minion interrupts an unexited lookup with the certified tree terminate() instead of Pi''s
+    catchable direct-child SIGTERM. Consequence: on POSIX a lookup alive at the interruption that traps SIGTERM
+    and exits 0 is selected by Pi and not by Minion; Minion may also end descendants Pi would leave running.
+    Agreement elsewhere: every lookup_lifecycle_probe row except exactly the three Linux trapped-SIGTERM-exit-0
+    rows; all 15 rows on Windows. An exited lookup keeps its status and is never terminated (C002).'
+  tests:
+  - minion-agent-python/tests/tools/builtin/test_bash_shell.py test_div001_interruption_is_terminate_not_sigterm (a
+    live lookup that would trap SIGTERM and exit 0 is interrupted through terminate(), recorded by the provider,
+    and not selected) and test_lookup_lifecycle_rows (the lookup_lifecycle_probe minion column)
+  - minion-agent-python/scripts/wp133_bash_negative_controls.py (lookup-direct-sigterm)
+  python: 'minion_agent/tools/builtin/bash_shell.py lookup. Implementation candidate (WP-13.3, minion-agent#50; contract minion-agent-docs#229 -> a805f6ed; pipe release per L12-D002 / EXEC-012, minion-agent#144), pending independent review.'
+  rust: NOT_IMPLEMENTED
+  disposition: intentional divergence
+- id: TOOL-035
+  phase: 6
+  pi: packages/coding-agent/src/core/tools/output-accumulator.ts (OutputAccumulator) and truncate.ts
+    (truncateTail, truncateStringToBytesFromEnd); bash.ts temp-file rule and formatOutput notices
+  surface: Layer 13, WP-13.3 -- bash output accumulation, decoding, tail truncation, the truncation notice and the
+    full-output file
+  rule: 'CONTRACT MERGED (WP-13.3, minion-agent#50; DIRECT_PI_PARITY; the full-output file through ctx.fs is a
+    MINION_ARCHITECTURAL_MAPPING, Owner Q3). One streaming WHATWG UTF-8 decoder over the merged chunks of both
+    pipes, replacement for invalid input, exactly one leading BOM stripped even across chunks (WP133-AUD-R002);
+    rolling tail trimmed to 2 x max_bytes once over 4 x max_bytes; a partial first line dropped only when the
+    tail holds a newline (WP133-CON-R002); truncated/truncatedBy/totals from the whole stream; Pi''s closed
+    TruncationResult key set; the full-output file holds the RAW bytes, opened when the stream first needs it
+    and back-filled; notice after the content, status after the notice; "(no output)" as the empty text,
+    including a non-zero exit (WP133-CON-R001). Full rules: spec/tools.md, WP-13.3, Output (TOOL-035).'
+  tests:
+  - conformance/agent/builtin-bash-*.yaml (truncation, notice, BOM and full-output rows)
+  - minion-agent-python/tests/tools/builtin/test_bash_output.py (rolling tail against the pinned boundary rows,
+    one leading BOM of the merged stream against the pinned BOM rows, one decoder across streams and chunks,
+    temp-file trigger and counters, truncate_tail partial line and line limit)
+  - minion-agent-python/tests/tools/builtin/test_bash.py (raw bytes in the full-output file, full-output file
+    failures)
+  - minion-agent-python/scripts/wp133_bash_negative_controls.py (decoder, BOM, truncation, notice and file faults)
+  python: 'minion_agent/tools/builtin/bash_output.py and the bash.py _Run persistence. Implementation candidate (WP-13.3, minion-agent#50; contract minion-agent-docs#229 -> a805f6ed; pipe release per L12-D002 / EXEC-012, minion-agent#144), pending independent review.'
+  rust: NOT_IMPLEMENTED
+  disposition: adopted
 - id: TOOL-039
   phase: 6
   pi: 'no single Pi-authored template for this vocabulary itself -- pinned Pi''s own error TEXT at each

@@ -9,6 +9,7 @@ Node programs; the 5000 ms limit is patched down (timings scaled with it) to kee
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import sys
@@ -205,6 +206,42 @@ async def test_div001_interruption_is_terminate_not_sigterm(
     config = await select_shell(WorldFs(str(tmp_path), existing=set()), world, None)
     assert world.terminates == ["which"]
     assert config.shell == "sh"
+
+
+async def test_lookup_releases_its_pipes_when_collection_ends(
+    tmp_path: Path, short_limit: None
+) -> None:
+    """spec/execution.md section 16.4: the lookup closes its streams when collection ends. The
+    lookup exits 0 at once but a descendant holds its stdout, so collection ends at the timer; the
+    exited lookup is selected and never terminated, and the descendant's later write meets a
+    closed reader (the world keeps the process referenced, so only `close()` can release it)."""
+    outcome = tmp_path / "outcome"
+    descendant = (
+        "import pathlib, sys, time\n"
+        f"time.sleep({LIMIT + 0.8})\n"
+        "try:\n"
+        "    sys.stdout.write('late\\n'); sys.stdout.flush(); result = 'wrote'\n"
+        "except OSError:\n"
+        "    result = 'closed'\n"
+        f"pathlib.Path({str(outcome)!r}).write_text(result)\n"
+    )
+    world = WorldSubprocess(
+        str(tmp_path),
+        lookup_program=child(
+            "import os, subprocess, sys\n"
+            f"subprocess.Popen([sys.executable, '-c', {descendant!r}], stdin=subprocess.DEVNULL,"
+            " stdout=sys.stdout.fileno(), stderr=sys.stderr.fileno(),"
+            " start_new_session=(os.name != 'nt'))\n"
+            "sys.stdout.write('/valid/bash\\n'); sys.stdout.flush(); os._exit(0)\n"
+        ),
+    )
+    config = await select_shell(WorldFs(str(tmp_path), existing=set()), world, None)
+    assert config.shell == "/valid/bash"
+    assert world.terminates == []
+    deadline = asyncio.get_running_loop().time() + 10
+    while not outcome.exists() and asyncio.get_running_loop().time() < deadline:
+        await asyncio.sleep(0.05)
+    assert outcome.read_text() == "closed"
 
 
 async def test_c002_natural_exit_racing_the_kill_keeps_its_code(

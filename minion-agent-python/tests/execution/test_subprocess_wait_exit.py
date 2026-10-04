@@ -8,8 +8,12 @@ witness below), while Linux settled at exit."""
 from __future__ import annotations
 
 import asyncio
+import contextlib
+import gc
 import sys
 import time
+
+import pytest
 
 from minion_agent.execution.result import Ok
 from minion_agent.execution.subprocess import LocalSubprocess, SpawnOptions
@@ -77,3 +81,67 @@ async def test_exit_observed_before_the_hook_is_installed() -> None:
     process = module.Process(proc, None, None, None, None)
     status = await asyncio.wait_for(process.wait(), 5)
     assert isinstance(status, Ok) and status.value.exit_code == 0
+
+
+async def test_a_cancelled_waiter_does_not_poison_later_waits() -> None:
+    """`L12-D002-I001` (Codex's reproducer): cancelling a task suspended in `wait()` cancels that
+    caller only; a later `wait()` still returns the real exit code."""
+    from minion_agent.execution.subprocess import StdioMode
+
+    result = await LocalSubprocess().spawn(
+        [PY, "-c", "import sys; print('ready', flush=True); sys.stdin.buffer.read(1)"],
+        SpawnOptions(stdin=StdioMode.PIPED),
+    )
+    assert isinstance(result, Ok)
+    process = result.value
+    assert process.stdout is not None and process.stdin is not None
+    ready = await process.stdout.read_chunk()
+    assert isinstance(ready, Ok) and ready.value is not None
+    waiter = asyncio.create_task(process.wait())
+    await asyncio.sleep(0)
+    waiter.cancel()
+    with contextlib.suppress(asyncio.CancelledError):
+        await waiter
+    await process.stdin.write(b"x")
+    await process.stdin.close()
+    status = await asyncio.wait_for(process.wait(), 10)
+    assert isinstance(status, Ok) and status.value.exit_code == 0
+    await _read_all(process)
+
+
+async def test_wait_then_terminate_disposes_pipes_a_descendant_still_holds() -> None:
+    """`L12-D002-I002` (Codex's reproducer): after the parent's exit, `wait()` then `terminate()`
+    is a guaranteed-safe disposal even while a descendant still holds stdout/stderr -- the next
+    test forces collection after this test's loop has closed, with destructor warnings as
+    errors (`L12-PY-R007`)."""
+    result = await LocalSubprocess().spawn(
+        [
+            PY,
+            "-c",
+            "import os, subprocess, sys\n"
+            "subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(2)'],"
+            " stdin=subprocess.DEVNULL, stdout=sys.stdout.fileno(), stderr=sys.stderr.fileno())\n"
+            "os._exit(0)\n",
+        ],
+        SpawnOptions(),
+    )
+    assert isinstance(result, Ok)
+    process = result.value
+    assert isinstance(await process.wait(), Ok)
+    await process.terminate()
+
+
+@pytest.mark.filterwarnings("error::pytest.PytestUnraisableExceptionWarning")
+def test_collect_after_the_disposal_loop_has_closed() -> None:
+    gc.collect()
+
+
+async def test_terminate_after_exit_also_disposes_a_piped_stdin() -> None:
+    from minion_agent.execution.subprocess import StdioMode
+
+    result = await LocalSubprocess().spawn([PY, "-c", "pass"], SpawnOptions(stdin=StdioMode.PIPED))
+    assert isinstance(result, Ok)
+    process = result.value
+    assert isinstance(await process.wait(), Ok)
+    await process.terminate()
+    assert process.stdin is not None

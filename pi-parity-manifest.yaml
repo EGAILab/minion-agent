@@ -6883,7 +6883,13 @@ rows:
     sibling, close kills the process, close reports pipe_error)
   python: minion_agent/execution/subprocess.py (Process._exited and _observe_exit, wait, terminate and
     _dispose_transports, ReadableStream.close)
-  rust: NOT_IMPLEMENTED
+  rust: minion-agent-rust/crates/minion-agent/src/execution/subprocess.rs (ReadableStream.close,
+    LocalReadableStream close notification and owned-reader disposal, LocalProcess.terminate
+    settled-handle release); minion-agent-rust/crates/minion-agent/tests/execution_stream_close.rs
+    (exit/stdio independence, read-after-wait, EOF, pending/later reads, sibling isolation,
+    child/descendant survival, owned-handle release and waiter cancellation);
+    minion-agent-rust/scripts/l12-d002-negative-controls.py (nine disposable-source controls).
+    Implementation candidate; independent closure review required (L12-D002-I002 remains reserved).
   disposition: intentional divergence
 - id: TOOL-025
   phase: 6

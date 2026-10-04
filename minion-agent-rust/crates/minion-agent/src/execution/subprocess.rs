@@ -2,6 +2,7 @@ use std::{
     collections::BTreeMap,
     io,
     path::{Path, PathBuf},
+    pin::Pin,
     process::Stdio,
     sync::{
         Arc,
@@ -12,7 +13,7 @@ use std::{
 
 use async_trait::async_trait;
 use tokio::{
-    io::{AsyncReadExt, AsyncWriteExt},
+    io::{AsyncRead, AsyncWriteExt, ReadBuf},
     process::{Child, ChildStderr, ChildStdin, ChildStdout, Command},
     sync::{Mutex, Notify, watch},
 };
@@ -69,6 +70,9 @@ pub trait WritableStream: Send + Sync {
 #[async_trait]
 pub trait ReadableStream: Send + Sync {
     async fn read_chunk(&self) -> Result<Option<Vec<u8>>, SubprocessError>;
+    /// Release only this local read end, abandoning unread output. Pending and
+    /// later reads become EOF; this never signals a process or closes a sibling.
+    async fn close(&self);
 }
 
 #[async_trait]
@@ -303,6 +307,10 @@ impl Process for LocalProcess {
     }
 
     async fn terminate(&self) {
+        // EXEC-012: after settlement this operation also releases handles that
+        // surviving descendants may still hold open. Never hold the outcome
+        // channel's borrow across a stream operation.
+        let settled = self.outcome.borrow().is_some();
         if self
             .cause
             .compare_exchange(
@@ -314,6 +322,17 @@ impl Process for LocalProcess {
             .is_ok()
         {
             self.terminate.notify_one();
+        }
+        if settled {
+            if let Some(stdout) = &self.stdout {
+                stdout.close().await;
+            }
+            if let Some(stderr) = &self.stderr {
+                stderr.close().await;
+            }
+            if let Some(stdin) = &self.stdin {
+                stdin.close().await;
+            }
         }
     }
 }
@@ -357,19 +376,26 @@ enum ChildReader {
 }
 
 struct LocalReadableStream {
-    inner: Mutex<ChildReader>,
+    inner: std::sync::Mutex<Option<ChildReader>>,
+    read_lock: Mutex<()>,
+    closed: watch::Sender<bool>,
 }
 
 impl LocalReadableStream {
     fn stdout(stdout: ChildStdout) -> Self {
-        Self {
-            inner: Mutex::new(ChildReader::Stdout(stdout)),
-        }
+        Self::new(ChildReader::Stdout(stdout))
     }
 
     fn stderr(stderr: ChildStderr) -> Self {
+        Self::new(ChildReader::Stderr(stderr))
+    }
+
+    fn new(reader: ChildReader) -> Self {
+        let (closed, _) = watch::channel(false);
         Self {
-            inner: Mutex::new(ChildReader::Stderr(stderr)),
+            inner: std::sync::Mutex::new(Some(reader)),
+            read_lock: Mutex::new(()),
+            closed,
         }
     }
 }
@@ -377,19 +403,73 @@ impl LocalReadableStream {
 #[async_trait]
 impl ReadableStream for LocalReadableStream {
     async fn read_chunk(&self) -> Result<Option<Vec<u8>>, SubprocessError> {
-        let mut guard = self.inner.lock().await;
-        let mut buffer = vec![0; 8192];
-        let count = match &mut *guard {
-            ChildReader::Stdout(stream) => stream.read(&mut buffer).await,
-            ChildReader::Stderr(stream) => stream.read(&mut buffer).await,
+        let mut closed = self.closed.subscribe();
+        if *closed.borrow() {
+            return Ok(None);
         }
-        .map_err(map_pipe_error)?;
+        // Serialize consumers, but never require this permit to close the pipe:
+        // a caller may park a Pending read future without polling it again.
+        let _permit = tokio::select! {
+            biased;
+            _ = closed.changed() => return Ok(None),
+            guard = self.read_lock.lock() => guard,
+        };
+        let mut buffer = vec![0; 8192];
+        let read = std::future::poll_fn(|cx| {
+            // Only a single nonblocking I/O poll holds the reader lock. No lock
+            // guarding the OS handle survives a Pending return.
+            let mut guard = self.inner.lock().unwrap_or_else(|error| error.into_inner());
+            if *self.closed.borrow() {
+                guard.take();
+                return std::task::Poll::Ready(Ok(0));
+            }
+            let Some(reader) = guard.as_mut() else {
+                return std::task::Poll::Ready(Ok(0));
+            };
+            let mut destination = ReadBuf::new(&mut buffer);
+            let result = match reader {
+                ChildReader::Stdout(stream) => Pin::new(stream).poll_read(cx, &mut destination),
+                ChildReader::Stderr(stream) => Pin::new(stream).poll_read(cx, &mut destination),
+            };
+            match result {
+                std::task::Poll::Ready(Ok(())) => {
+                    let count = destination.filled().len();
+                    if count == 0 {
+                        guard.take(); // natural EOF releases this OS handle
+                    }
+                    std::task::Poll::Ready(Ok(count))
+                }
+                std::task::Poll::Ready(Err(error)) => std::task::Poll::Ready(Err(error)),
+                std::task::Poll::Pending => std::task::Poll::Pending,
+            }
+        });
+        let result = tokio::select! {
+            biased;
+            _ = closed.changed() => None,
+            result = read => Some(result),
+        };
+        if *closed.borrow() || result.is_none() {
+            return Ok(None);
+        }
+        let count = result
+            .expect("read branch returned a result")
+            .map_err(map_pipe_error)?;
         if count == 0 {
             Ok(None)
         } else {
             buffer.truncate(count);
             Ok(Some(buffer))
         }
+    }
+
+    async fn close(&self) {
+        self.closed.send_replace(true);
+        // This never waits for a read future's serialization permit. Taking the
+        // reader drops exactly this OS handle, even with retained public Arcs.
+        self.inner
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .take();
     }
 }
 

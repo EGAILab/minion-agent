@@ -12,6 +12,7 @@ import contextlib
 import gc
 import sys
 import time
+from typing import Any
 
 import pytest
 
@@ -145,3 +146,114 @@ async def test_terminate_after_exit_also_disposes_a_piped_stdin() -> None:
     assert isinstance(await process.wait(), Ok)
     await process.terminate()
     assert process.stdin is not None
+
+
+# ---- ReadableStream.close() (EXEC-012, spec section 16.2) ----
+
+_HOLD = "import sys, time; sys.stdout.write('ready\\n'); sys.stdout.flush(); time.sleep(30)"
+
+
+async def _spawn(code: str) -> object:
+    result = await LocalSubprocess().spawn([PY, "-c", code], SpawnOptions())
+    assert isinstance(result, Ok)
+    return result.value
+
+
+async def test_close_settles_a_pending_read_as_eof_and_later_reads_too() -> None:
+    process: Any = await _spawn(_HOLD)
+    ready = await process.stdout.read_chunk()
+    assert isinstance(ready, Ok) and ready.value is not None
+    pending = asyncio.create_task(process.stdout.read_chunk())
+    await asyncio.sleep(0.05)
+    assert not pending.done()
+    await process.stdout.close()
+    settled = await asyncio.wait_for(pending, 5)
+    assert isinstance(settled, Ok) and settled.value is None
+    later = await process.stdout.read_chunk()
+    assert isinstance(later, Ok) and later.value is None
+    await process.stdout.close()  # repeated close is harmless
+    await process.terminate()
+    await process.wait()
+
+
+async def test_close_abandons_output_already_buffered() -> None:
+    """`close()` abandons output not yet consumed: data already buffered when it is called is
+    not delivered -- the next read is EOF."""
+    code = "import sys, time; sys.stdout.write('buffered'); sys.stdout.flush(); time.sleep(30)"
+    process: Any = await _spawn(code)
+    await asyncio.sleep(0.5)  # the output has arrived in the stream's buffer
+    await process.stdout.close()
+    after = await process.stdout.read_chunk()
+    assert isinstance(after, Ok) and after.value is None
+    await process.terminate()
+    await process.wait()
+
+
+async def test_close_never_terminates_the_child_and_leaves_the_sibling_open() -> None:
+    code = (
+        "import sys, time; sys.stdout.write('ready\\n'); sys.stdout.flush(); time.sleep(0.5);"
+        " sys.stderr.write('still here\\n'); sys.stderr.flush(); time.sleep(0.2)"
+    )
+    process: Any = await _spawn(code)
+    await process.stdout.read_chunk()
+    await process.stdout.close()
+    with pytest.raises(TimeoutError):
+        await asyncio.wait_for(asyncio.shield(process.wait()), 0.2)  # still running
+    data = b""
+    while True:
+        chunk = await asyncio.wait_for(process.stderr.read_chunk(), 5)
+        assert isinstance(chunk, Ok)
+        if chunk.value is None:
+            break
+        data += chunk.value
+    assert data.replace(b"\r\n", b"\n") == b"still here\n"
+    status = await process.wait()
+    assert isinstance(status, Ok) and status.value.exit_code == 0
+
+
+async def test_a_background_writer_meets_a_closed_reader_after_close(tmp_path: Any) -> None:
+    """The ordinary OS consequence (Pi's `stream.destroy()` at settlement): after `close()`, a
+    descendant's next write fails, so the step after it never runs."""
+    marker = tmp_path / "survived-write"
+    descendant = (
+        "import sys, time, pathlib\ntime.sleep(0.6)\n"
+        "try:\n    sys.stdout.write('late\\n' * 1000); sys.stdout.flush()\n"
+        f"    pathlib.Path({str(marker)!r}).write_text('x')\nexcept OSError:\n    pass\n"
+    )
+    process: Any = await _spawn(_PARENT.format(descendant=descendant))
+    assert isinstance(await process.wait(), Ok)
+    await process.stdout.close()
+    await process.stderr.close()
+    await asyncio.sleep(1.5)
+    assert not marker.exists()
+
+
+async def test_wait_then_close_disposes_pipes_a_descendant_still_holds() -> None:
+    """Disposal under the amended model: the process settled (`wait()`) and every owned piped
+    handle released (`close()`) -- no `terminate()`; the next test collects after the loop
+    closed."""
+    process: Any = await _spawn(_PARENT.format(descendant="import time; time.sleep(2)"))
+    assert isinstance(await process.wait(), Ok)
+    await process.stdout.close()
+    await process.stderr.close()
+
+
+@pytest.mark.filterwarnings("error::pytest.PytestUnraisableExceptionWarning")
+def test_collect_after_the_close_disposal_loop_has_closed() -> None:
+    gc.collect()
+
+
+async def test_read_error_after_close_is_eof(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A read that fails because the caller closed the stream is EOF, never `pipe_error`."""
+    from minion_agent.execution.subprocess import ReadableStream
+
+    class _Failing:
+        _transport = None
+
+        async def read(self, n: int) -> bytes:
+            stream._closed = True
+            raise OSError("closed underneath")
+
+    stream = ReadableStream(_Failing())  # type: ignore[arg-type]
+    result = await stream.read_chunk()
+    assert isinstance(result, Ok) and result.value is None

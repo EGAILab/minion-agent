@@ -43,9 +43,9 @@ _SELECT = (
     "            raise BuiltinToolError(str(error)) from error\n"
 )
 _CLASSIFY = (
-    "        if signal is not None and signal.aborted:\n"
+    "        if aborted:\n"
     "            raise _AbortedWith(run)\n"
-    "        if run.timed_out:\n"
+    "        if timed_out:\n"
     "            raise _TimedOutWith(run)\n"
 )
 _NONZERO = '            raise BuiltinToolError(_with_status(text, f"Command exited with code {exit_code}"))\n'
@@ -66,8 +66,8 @@ FAULTS: dict[str, list[tuple[Path, str, str]]] = {
         (
             BASH,
             _CLASSIFY,
-            "        if run.timed_out:\n            raise _TimedOutWith(run)\n"
-            "        if signal is not None and signal.aborted:\n            raise _AbortedWith(run)\n",
+            "        if timed_out:\n            raise _TimedOutWith(run)\n"
+            "        if aborted:\n            raise _AbortedWith(run)\n",
         )
     ],
     # ---- settlement ----

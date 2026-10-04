@@ -3,6 +3,9 @@
 //! These compose the certified Layer-12 filesystem and Layer-06 tool result seams. Neither
 //! message history nor filesystem registration is duplicated here.
 
+mod bash;
+mod bash_output;
+mod bash_shell;
 mod collation;
 mod edit;
 mod edit_apply;
@@ -22,6 +25,7 @@ mod text;
 mod truncate;
 mod write;
 
+pub use bash::{BashToolOptions, create_bash_tool};
 pub use edit::create_edit_tool;
 pub use edit_apply::{Edit, apply_edits};
 pub use edit_diff::generate_edit_details;

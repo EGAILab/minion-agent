@@ -716,7 +716,7 @@ async fn bash_context_env_is_explicit_clean_and_provider_snapshot_is_per_call() 
     assert_eq!(env["MINION_MODEL"], "m");
     assert_eq!(env["MINION_REASONING_LEVEL"], "off");
     assert!(!env.contains_key("MINION_SESSION_FILE"));
-    assert_eq!(env["minion_model"], "keep");
+    assert_eq!(env.get("minion_model").map(String::as_str), Some("keep"));
     assert_eq!(env["UNRELATED"], "value");
     assert!(!calls[1].1.env.contains_key("MINION_MODEL"));
     assert_eq!(subprocess.captures.load(Ordering::SeqCst), 2);
@@ -952,6 +952,12 @@ async fn bash_empty_override_falls_through_custom_missing_fails_and_windows_look
     let fs = Arc::new(fs) as Arc<dyn FileSystem>;
     let subprocess = Spawns::new(dir.path(), Platform::Posix, vec![]);
     let s = subprocess.clone() as Arc<dyn Subprocess>;
+    let virtual_shell = bash_shell::select(&fs, &s, &subprocess.base_env(), Some("virtual")).await;
+    assert!(
+        virtual_shell.is_ok(),
+        "provider probe success must not be replaced with canonical-path/exists semantics"
+    );
+    assert_eq!(virtual_shell.unwrap().shell, "virtual");
     assert_eq!(
         bash_shell::select(&fs, &s, &subprocess.base_env(), Some(""))
             .await

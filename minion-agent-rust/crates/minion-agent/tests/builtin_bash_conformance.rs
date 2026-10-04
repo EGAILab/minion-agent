@@ -30,16 +30,61 @@ impl ToolExecutionSignal for Signal {
 
 #[tokio::test]
 async fn real_detached_descendant_inherits_pipes_but_is_not_killed_by_settlement() {
-    assert_eq!(String::from_utf8(std::process::Command::new("node").arg("--version").output().unwrap().stdout).unwrap().trim(),"v22.15.1");
-    let dir=tempfile::tempdir().unwrap();std::fs::write(dir.path().join("parent.cjs"),include_bytes!("data/bash-descendant.cjs")).unwrap();
-    let tool=create_bash_tool(Arc::new(LocalFileSystem::new(dir.path())),Arc::new(LocalSubprocess::new(dir.path())),BashToolOptions::default()).unwrap();
-    let result=tokio::time::timeout(std::time::Duration::from_secs(10),(tool.execute())(minion_agent::tools::ToolExecutionRequest{tool_call_id:"descendant".into(),params:json!({"command":"node parent.cjs"}).into(),signal:None,on_update:None,context:None})).await;
-    let pid=std::fs::read_to_string(dir.path().join("descendant.pid")).unwrap();
-    let alive=std::process::Command::new("node").args(["-e",&format!("process.kill({pid},0)")]).status().unwrap().success();
+    assert_eq!(
+        String::from_utf8(
+            std::process::Command::new("node")
+                .arg("--version")
+                .output()
+                .unwrap()
+                .stdout
+        )
+        .unwrap()
+        .trim(),
+        "v22.15.1"
+    );
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("parent.cjs"),
+        include_bytes!("data/bash-descendant.cjs"),
+    )
+    .unwrap();
+    let tool = create_bash_tool(
+        Arc::new(LocalFileSystem::new(dir.path())),
+        Arc::new(LocalSubprocess::new(dir.path())),
+        BashToolOptions::default(),
+    )
+    .unwrap();
+    let result = tokio::time::timeout(
+        std::time::Duration::from_secs(10),
+        (tool.execute())(minion_agent::tools::ToolExecutionRequest {
+            tool_call_id: "descendant".into(),
+            params: json!({"command":"node parent.cjs"}).into(),
+            signal: None,
+            on_update: None,
+            context: None,
+        }),
+    )
+    .await;
+    let pid = std::fs::read_to_string(dir.path().join("descendant.pid")).unwrap();
+    let alive = std::process::Command::new("node")
+        .args(["-e", &format!("process.kill({pid},0)")])
+        .status()
+        .unwrap()
+        .success();
     // Harness cleanup, NOT tool settlement. Always performed before assertions.
-    let _=std::process::Command::new("node").args(["-e",&format!("try {{process.kill({pid},'SIGKILL')}} catch {{}}")]).status();
-    assert!(result.is_ok(),"own exit must settle despite descendant-held pipes");assert!(alive,"pipe disposal must not kill descendants");
-    let result=serde_json::to_value(result.unwrap().unwrap().content).unwrap();assert_eq!(result[0]["text"],"descendant-ready\n");
+    let _ = std::process::Command::new("node")
+        .args([
+            "-e",
+            &format!("try {{process.kill({pid},'SIGKILL')}} catch {{}}"),
+        ])
+        .status();
+    assert!(
+        result.is_ok(),
+        "own exit must settle despite descendant-held pipes"
+    );
+    assert!(alive, "pipe disposal must not kill descendants");
+    let result = serde_json::to_value(result.unwrap().unwrap().content).unwrap();
+    assert_eq!(result[0]["text"], "descendant-ready\n");
 }
 
 #[tokio::test]
@@ -175,5 +220,8 @@ async fn canonical_bash_real_capabilities_and_layer_six() {
         count += 1;
     }
     assert!(count > 0, "canonical corpus must not pass vacuously");
-    eprintln!("builtin bash: {count} canonical documents on {}", if cfg!(windows) { "win32" } else { "linux" });
+    eprintln!(
+        "builtin bash: {count} canonical documents on {}",
+        if cfg!(windows) { "win32" } else { "linux" }
+    );
 }

@@ -7286,7 +7286,7 @@ rows:
   - minion-agent-python/scripts/wp133_bash_negative_controls.py (precheck order, classification, settlement,
     lookup, existence, cwd, environment, projection and pipe-release faults)
   python: 'minion_agent/tools/builtin/bash.py and bash_shell.py. Implementation candidate (WP-13.3, minion-agent#50; contract minion-agent-docs#229 -> a805f6ed; pipe release per L12-D002 / EXEC-012, minion-agent#144), pending independent review.'
-  rust: NOT_IMPLEMENTED
+  rust: 'Rust implementation candidate, independent closure pending: minion-agent-rust/crates/minion-agent/src/tools/builtin/{bash,bash_shell}.rs; tests/builtin_bash_conformance.rs (36 real-provider scenarios and event-driven descendant-pipe witness); bash_tests.rs (controlled settlement, lookup, environment, projection and errors); scripts/bash-negative-controls.py. Assurance: assurance/layers/13-wp133-rust-implementation.md.'
   disposition: adopted
 - id: TOOL-034-DIV-001
   phase: 6
@@ -7305,7 +7305,7 @@ rows:
     and not selected) and test_lookup_lifecycle_rows (the lookup_lifecycle_probe minion column)
   - minion-agent-python/scripts/wp133_bash_negative_controls.py (lookup-direct-sigterm)
   python: 'minion_agent/tools/builtin/bash_shell.py lookup. Implementation candidate (WP-13.3, minion-agent#50; contract minion-agent-docs#229 -> a805f6ed; pipe release per L12-D002 / EXEC-012, minion-agent#144), pending independent review.'
-  rust: NOT_IMPLEMENTED
+  rust: 'Rust implementation candidate, independent closure pending: minion-agent-rust/crates/minion-agent/src/tools/builtin/bash_shell.rs lookup calls certified Process::terminate only for an unexited interrupted lookup and preserves the final real status. bash_tests.rs combined-budget, exited-status, timeout and crossing-chunk witnesses; scripts/bash-negative-controls.py lookup controls. No direct-child termination capability is introduced.'
   disposition: intentional divergence
 - id: TOOL-035
   phase: 6
@@ -7330,7 +7330,7 @@ rows:
     failures)
   - minion-agent-python/scripts/wp133_bash_negative_controls.py (decoder, BOM, truncation, notice and file faults)
   python: 'minion_agent/tools/builtin/bash_output.py and the bash.py _Run persistence. Implementation candidate (WP-13.3, minion-agent#50; contract minion-agent-docs#229 -> a805f6ed; pipe release per L12-D002 / EXEC-012, minion-agent#144), pending independent review.'
-  rust: NOT_IMPLEMENTED
+  rust: 'Rust implementation candidate, independent closure pending: minion-agent-rust/crates/minion-agent/src/tools/builtin/bash_output.rs and bash.rs ordered persistence; tests/data/bash-boundary.json (pinned-Pi boundary replay); bash_tests.rs slow/gated persistence, cancellation, merged decoder and status witnesses; tests/builtin_bash_conformance.rs raw-file hashes and truncated observations; scripts/bash-negative-controls.py. Assurance: assurance/layers/13-wp133-rust-implementation.md.'
   disposition: adopted
 - id: TOOL-039
   phase: 6

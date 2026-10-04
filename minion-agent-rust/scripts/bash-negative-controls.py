@@ -37,7 +37,7 @@ CONTROLS = {
     "timer-rounded-ms": (B, '(seconds * 1000.0).trunc().max(1.0)', '(seconds * 1000.0).round().max(1.0)', "bash_timer_is_whole_ms_minimum_one_and_abort_wins_during_grace"),
     "timer-no-one-ms-minimum": (B, '(seconds * 1000.0).trunc().max(1.0)', '(seconds * 1000.0).trunc()', "bash_timer_is_whole_ms_minimum_one_and_abort_wins_during_grace"),
     "lookup-unbounded": (S, 'total > 1048576', 'false && total > 1048576', "bash_lookup_combined_budget_keeps_exited_status_and_kills_only_unexited"),
-    "lookup-per-stream-budget": (S, 'total > 1048576', 'total > 2097152', "bash_lookup_combined_budget_keeps_exited_status_and_kills_only_unexited"),
+    "lookup-per-stream-budget": (S, 'total > 1048576', 'stdout_total > 1048576 || stderr_total > 1048576', "bash_lookup_combined_budget_keeps_exited_status_and_kills_only_unexited"),
     "lookup-settles-at-exit": (S, 'if exited && stdout_ended && stderr_ended {', 'if exited {', "bash_lookup_waits_for_exit_and_both_eof_not_command_grace"),
     "lookup-command-idle-grace": (S, 'Duration::from_millis(5000)', 'Duration::from_millis(100)', "bash_lookup_waits_for_exit_and_both_eof_not_command_grace"),
     "lookup-fails-on-interruption": (S, 'if interrupted {', 'if interrupted { code = None;', "bash_lookup_combined_budget_keeps_exited_status_and_kills_only_unexited"),
@@ -53,7 +53,7 @@ CONTROLS = {
     "raw-threshold-ignored": (O, 'self.raw_bytes > MAX_BYTES || self.decoded_bytes > MAX_BYTES || self.lines() > MAX_LINES', 'self.decoded_bytes > MAX_BYTES || self.lines() > MAX_LINES', "raw_threshold_opens_a_log_even_when_bom_stripping_avoids_truncation"),
     "timer-raw-fractional-ms": (B, 'Duration::from_millis((seconds * 1000.0).trunc().max(1.0) as u64)', 'Duration::from_secs_f64(seconds.max(0.001))', "bash_timer_is_whole_ms_minimum_one_and_abort_wins_during_grace"),
     "disabled-context-still-injected": (B, 'if options.expose_session_environment', 'if true', "bash_disabled_context_is_removed_signal_delegated_and_worlds_checked"),
-    "signal-not-delegated": (B, 'Arc::new(Signal(s.clone())) as Arc<dyn AbortSignal>', 'Arc::new(Signal(Arc::new(tests::TestSignal(std::sync::atomic::AtomicBool::new(false))))) as Arc<dyn AbortSignal>', "bash_disabled_context_is_removed_signal_delegated_and_worlds_checked"),
+    "signal-not-delegated": (B, 'self.0.is_cancelled()', 'false', "bash_disabled_context_is_removed_signal_delegated_and_worlds_checked"),
     "pipe-release-kills-descendants": (B, 'bash_shell::close(&process).await;', 'process.terminate().await; bash_shell::close(&process).await;', "bash_settlement_waits_for_output_resets_grace_and_releases_both_pipes"),
     "lookup-crossing-chunk-discarded": (S, 'bytes.extend(chunk);', 'if total <= 1048576 { bytes.extend(chunk); }', "bash_lookup_retains_the_budget_crossing_stdout_chunk"),
     "unsupported-prerequisite-fabricated": (S, 'Err(error) if error.code == FsErrorCode::NotSupported', 'Err(error) if false && error.code == FsErrorCode::NotSupported', "bash_append_failure_uses_own_error_and_prerequisites_are_not_fabricated"),
@@ -85,6 +85,11 @@ def main():
         shutil.copyfile(workspace.parent / oracle, root / oracle)
         source = scratch / "crates/minion-agent/src/tools/builtin"
         originals = {name: (source / name).read_text(encoding="utf-8") for name in (B,S,O,E)}
+        # Remove any executable from another worktree once. Every following
+        # mutation rewrites tracked Rust source in this unique scratch tree;
+        # Cargo rebuilds it, and its compiler-artifact event identifies the
+        # exact executable to run. Keep incremental compilation between mutants.
+        subprocess.run(["cargo","clean","-p","minion-agent"],cwd=scratch,check=True,stdout=subprocess.DEVNULL)
         for name in selected:
             for file, original in originals.items():
                 (source / file).write_text(original,encoding="utf-8",newline="\n")
@@ -93,6 +98,12 @@ def main():
             if old not in original:
                 raise SystemExit(f"Missing source anchor: {name}: {old!r}")
             (source / file).write_text(original.replace(old,new),encoding="utf-8",newline="\n")
+            if name == "lookup-per-stream-budget":
+                content=(source/S).read_text(encoding="utf-8")
+                content=content.replace('let mut total = 0usize;', 'let mut total = 0usize; let mut stdout_total = 0usize; let mut stderr_total = 0usize;')
+                content=content.replace('total += chunk.len(); bytes.extend(chunk);', 'total += chunk.len(); stdout_total += chunk.len(); bytes.extend(chunk);')
+                content=content.replace('total += chunk.len(); } else { stderr_ended', 'total += chunk.len(); stderr_total += chunk.len(); } else { stderr_ended')
+                (source/S).write_text(content,encoding="utf-8",newline="\n")
             if name == "abort-classified-after-finalization":
                 content=(source/B).read_text(encoding="utf-8").replace('let suffix = if aborted {','let suffix = if request.signal.as_ref().is_some_and(|s| s.is_cancelled()) {')
                 (source/B).write_text(content,encoding="utf-8",newline="\n")
@@ -101,8 +112,6 @@ def main():
                 anchor='chunk = bash_shell::read(&stderr), if !stderr_done => {\n                if let Some(bytes) = chunk {\n                    let writes = output.append(bytes);'
                 assert anchor in content
                 (source/B).write_text(content.replace(anchor,anchor.replace('let writes = output.append(bytes);','output.pending.clear(); let writes = output.append(bytes);')),encoding="utf-8",newline="\n")
-            # Force rebuilding the tested crate; never accidentally run another worktree's exe.
-            subprocess.run(["cargo","clean","-p","minion-agent"],cwd=scratch,check=True,stdout=subprocess.DEVNULL)
             build = subprocess.run(["cargo","test","--locked","--offline","-p","minion-agent","--all-features","--lib","--no-run","--message-format=json"],cwd=scratch,text=True,capture_output=True)
             artifacts = [json.loads(line) for line in build.stdout.splitlines() if line.startswith('{')]
             executables = [event["executable"] for event in artifacts if event.get("reason")=="compiler-artifact" and event.get("executable") and event.get("profile",{}).get("test")]
@@ -112,8 +121,9 @@ def main():
             run = subprocess.run([executables[0],witness,"--nocapture"],cwd=scratch,text=True,capture_output=True,timeout=60)
             transcript = run.stdout + run.stderr
             # A test-level assertion at the intended witness is required.
-            killed = run.returncode!=0 and f"::{witness} ... FAILED" in transcript and ("assertion" in transcript or "not joined:" in transcript or "settled success must" in transcript or "settlement must" in transcript)
-            item={"control":name,"witness":witness,"killed":killed,"test_exit":run.returncode}
+            markers=("assertion", "not joined:", "settled success must", "settlement must", "total output requires truncation metadata", "provider probe success must", "released persistence must")
+            killed = run.returncode!=0 and f"::{witness} ... FAILED" in transcript and any(marker in transcript for marker in markers)
+            item={"control":name,"witness":witness,"killed":killed,"test_exit":run.returncode,"diagnostic":run.stderr.strip()[:3000]}
             result.append(item)
             print(json.dumps(item),flush=True)
             if not killed:

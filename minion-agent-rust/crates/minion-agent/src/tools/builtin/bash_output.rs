@@ -280,6 +280,10 @@ mod tests {
             output.finish();
             let mut truncation =
                 output.snapshot(Some("file"), "(no output)").details["truncation"].clone();
+            assert!(
+                truncation.is_object(),
+                "{name}: total output requires truncation metadata even when the rolling tail fits"
+            );
             let content = truncation
                 .as_object_mut()
                 .unwrap()

@@ -76,6 +76,10 @@ def _budget_program(row: dict[str, Any], path: bytes, name: str) -> list[str]:
         "sys.stdout.flush()\n"
         f"sys.stderr.buffer.write(b'y' * {row['stderrBytes']})\n"
         "sys.stderr.flush()\n"
+        # Pi's rows are live-process cases: the Node child is still running when the budget is
+        # crossed. Staying alive briefly reproduces that (a natural exit 0 that beats the kill
+        # keeps its code: C002).
+        "import time; time.sleep(1.5)\n"
     )
 
 
@@ -269,7 +273,10 @@ async def test_windows_baseline_lookup_is_the_native_comparison(tmp_path: Path) 
 
 
 async def test_windows_where_lookup_first_line_must_exist(tmp_path: Path) -> None:
-    lookup = child("import sys; sys.stdout.write('\\ufeff  D:\\\\b\\\\bash.exe\\r\\nE:\\\\other\\r\\n')")
+    lookup = child(
+        "import sys; sys.stdout.buffer.write("
+        "'\\ufeff  D:\\\\b\\\\bash.exe\\r\\nE:\\\\other\\r\\n'.encode('utf-8'))"
+    )
     world = WorldSubprocess(
         str(tmp_path), platform=Platform.WINDOWS, environment=WINDOWS_ENV, lookup_program=lookup
     )

@@ -606,6 +606,22 @@ async def test_settlement_joins_an_accepted_full_output_write(tmp_path: Path) ->
     Path(path).unlink()
 
 
+async def test_a_cancelled_call_cancels_its_pending_write(tmp_path: Path) -> None:
+    """Joining the writer never orphans it: cancelling the tool call while it waits on an
+    accepted write cancels that write too, so nothing is written after the call is gone."""
+    gate = asyncio.Event()
+    tool, _, fs = _tool(tmp_path, _51201_X, fs={"append_gate": gate})
+    run = asyncio.ensure_future(_run(tool, {"command": "x"}))
+    await asyncio.wait_for(fs.append_started.wait(), 10)
+    await asyncio.sleep(0.3)  # settlement is now joining the gated write
+    run.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await run
+    gate.set()
+    await asyncio.sleep(0.3)
+    assert fs.appends_completed == 0
+
+
 async def test_a_delayed_full_output_write_error_is_still_reported(tmp_path: Path) -> None:
     """`WP133-I002`: the joined write's own failure keeps the file-error classification."""
     gate = asyncio.Event()

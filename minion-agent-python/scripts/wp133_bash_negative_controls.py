@@ -51,9 +51,7 @@ _CLASSIFY = (
 _NONZERO = '            raise BuiltinToolError(_with_status(text, f"Command exited with code {exit_code}"))\n'
 _DECODER = '        self._decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")\n'
 _DECODE = "        self._append_decoded(self._decode(data, final=False))\n"
-_JOIN = (
-    "                await writer  # joins every accepted write; never cancels one (WP133-I002)\n"
-)
+_JOIN = "            await writer\n"
 _LOOKUP_KILL = (
     "            # Interrupted while the lookup is still running: the certified hard kill (DIV-001).\n"
     "            await process.terminate()\n"
@@ -146,7 +144,7 @@ FAULTS: dict[str, list[tuple[Path, str, str]]] = {
         )
     ],
     # WP133-I002: settlement must join accepted persistence, never cancel it
-    "settlement-cancels-persistence": [(BASH, _JOIN, "                writer.cancel()\n")],
+    "settlement-cancels-persistence": [(BASH, _JOIN, "            writer.cancel()\n")],
     "persist-inline-in-pump": [
         (
             BASH,
@@ -368,6 +366,10 @@ def run(name: str) -> dict[str, object]:
             return {"name": name, "killed": True, "summary": "hung (timeout)", "failed": []}
         lines = result.stdout.splitlines()
         failed = [line.split(" ")[1] for line in lines if line.startswith(("FAILED ", "ERROR "))]
+        if result.returncode != 0 and not any("::" in node for node in failed):
+            # A collection/import error (e.g. a fault that does not even compile) is not a kill.
+            return {"name": name, "error": "no test-level failure (collection or setup error)",
+                    "summary": lines[-1] if lines else "", "failed": failed}  # fmt: skip
         return {"name": name, "killed": result.returncode != 0,
                 "summary": lines[-1] if lines else "", "failed": failed}  # fmt: skip
 

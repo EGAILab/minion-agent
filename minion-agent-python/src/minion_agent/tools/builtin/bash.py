@@ -258,11 +258,9 @@ class _Run:
             # background job survives and its next write meets a closed reader.
             await _close_streams(self.process)
             self._accepted.put_nowait(None)
-            try:
-                await writer  # joins every accepted write; never cancels one (WP133-I002)
-            except asyncio.CancelledError:
-                writer.cancel()
-                raise
+            # Joins every accepted write; never cancels one (WP133-I002). Cancelling the call
+            # itself propagates into the awaited writer, so no write outlives the call.
+            await writer
         self.output.finish()
         await self._persist(None)
         if isinstance(status, Err):

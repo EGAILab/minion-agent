@@ -62,6 +62,7 @@ class WorldFs:
         self.append_gate = append_gate
         """When set, every `append_file` blocks until the event is set (a slow, conforming fs)."""
         self.append_started = asyncio.Event()
+        self.appends_completed = 0
         self.calls: list[str] = []
 
     def _scripted(self, path: str, error: FsErrorCode | None) -> Any:
@@ -95,7 +96,9 @@ class WorldFs:
             await self.append_gate.wait()
         if self.append_error is not None:
             return Err(FsError(self.append_error, "scripted"))
-        return await self._local.append_file(path, content)
+        result = await self._local.append_file(path, content)
+        self.appends_completed += 1
+        return result
 
 
 @dataclass

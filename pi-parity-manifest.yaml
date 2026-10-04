@@ -7264,7 +7264,7 @@ rows:
   surface: Layer 13, WP-13.3 -- the bash tool definition, argument schema, absence of a default timeout, the
     exec precheck order, shell selection over the execution world, the where/which lookup, command transport,
     the run and settlement, classification and the session environment
-  rule: 'CONTRACT MERGED (WP-13.3, minion-agent#50; minion-agent-docs#229 -> a805f6ed; DIRECT_PI_PARITY except
+  rule: 'CERTIFIED_CLOSED (WP-13.3 cross-language, minion-agent#50: contract docs #229 -> a805f6ed; Python #146 -> 649927a2 / docs #240 -> ce0aa9a2; Rust #150 -> 62f0c129 / docs #245 -> e6a52fd0; Python final review minion-agent#146 issuecomment-5977177480; Rust closure review minion-agent#150 issuecomment-5979787676). Contract history: CONTRACT MERGED (WP-13.3, minion-agent#50; minion-agent-docs#229 -> a805f6ed; DIRECT_PI_PARITY except
     the rows marked as mappings and DIV-001). Schema {command, timeout?}, no default timeout; timeout validated
     finite > 0 and <= 2147483.647 s, scheduled as max(1, trunc(ms)) (WP133-CON-R003); precheck order: timeout,
     abort, shell, cwd; shell selection via ctx.fs existence (probe_dir_entry, CE-WP133-01) and ctx.subprocess
@@ -7285,15 +7285,15 @@ rows:
     test_div001_interruption_is_terminate_not_sigterm, test_c002_natural_exit_racing_the_kill_keeps_its_code)
   - minion-agent-python/scripts/wp133_bash_negative_controls.py (precheck order, classification, settlement,
     lookup, existence, cwd, environment, projection and pipe-release faults)
-  python: 'minion_agent/tools/builtin/bash.py and bash_shell.py. Implementation candidate (WP-13.3, minion-agent#50; contract minion-agent-docs#229 -> a805f6ed; pipe release per L12-D002 / EXEC-012, minion-agent#144), pending independent review.'
-  rust: 'Rust implementation candidate, independent closure pending: minion-agent-rust/crates/minion-agent/src/tools/builtin/{bash,bash_shell}.rs; tests/builtin_bash_conformance.rs (36 real-provider scenarios and event-driven descendant-pipe witness); bash_tests.rs (controlled settlement, lookup, environment, projection and errors); scripts/bash-negative-controls.py. Assurance: assurance/layers/13-wp133-rust-implementation.md.'
+  python: 'minion_agent/tools/builtin/bash.py and bash_shell.py. Certified (WP-13.3; Python #146 -> 649927a2; final review minion-agent#146 issuecomment-5977177480).'
+  rust: 'Certified (WP-13.3; Rust #150 -> 62f0c129; closure review minion-agent#150 issuecomment-5979787676): minion-agent-rust/crates/minion-agent/src/tools/builtin/{bash,bash_shell}.rs; tests/builtin_bash_conformance.rs (36 real-provider scenarios and event-driven descendant-pipe witness); bash_tests.rs (controlled settlement, lookup, environment, projection and errors); scripts/bash-negative-controls.py. Assurance: assurance/layers/13-wp133-rust-implementation.md.'
   disposition: adopted
 - id: TOOL-034-DIV-001
   phase: 6
   pi: packages/coding-agent/src/utils/shell.ts findBashOnPath (spawnSync where/which); Node v22.15.1
     src/spawn_sync.cc Kill (a direct-child SIGTERM on timeout or maxBuffer)
   surface: Layer 13, WP-13.3 -- interruption of an unexited where/which lookup
-  rule: 'DIV-001 (assurance/pi-divergences.md; Owner practical-parity decision 2026-10-04, minion-agent#141 /
+  rule: 'CERTIFIED_CLOSED (WP-13.3 cross-language, minion-agent#50: contract docs #229 -> a805f6ed; Python #146 -> 649927a2 / docs #240 -> ce0aa9a2; Rust #150 -> 62f0c129 / docs #245 -> e6a52fd0; Python final review minion-agent#146 issuecomment-5977177480; Rust closure review minion-agent#150 issuecomment-5979787676). Contract history: DIV-001 (assurance/pi-divergences.md; Owner practical-parity decision 2026-10-04, minion-agent#141 /
     #50 / #75). Minion interrupts an unexited lookup with the certified tree terminate() instead of Pi''s
     catchable direct-child SIGTERM. Consequence: on POSIX a lookup alive at the interruption that traps SIGTERM
     and exits 0 is selected by Pi and not by Minion; Minion may also end descendants Pi would leave running.
@@ -7304,8 +7304,8 @@ rows:
     live lookup that would trap SIGTERM and exit 0 is interrupted through terminate(), recorded by the provider,
     and not selected) and test_lookup_lifecycle_rows (the lookup_lifecycle_probe minion column)
   - minion-agent-python/scripts/wp133_bash_negative_controls.py (lookup-direct-sigterm)
-  python: 'minion_agent/tools/builtin/bash_shell.py lookup. Implementation candidate (WP-13.3, minion-agent#50; contract minion-agent-docs#229 -> a805f6ed; pipe release per L12-D002 / EXEC-012, minion-agent#144), pending independent review.'
-  rust: 'Rust implementation candidate, independent closure pending: minion-agent-rust/crates/minion-agent/src/tools/builtin/bash_shell.rs lookup calls certified Process::terminate only for an unexited interrupted lookup and preserves the final real status. bash_tests.rs combined-budget, exited-status, timeout and crossing-chunk witnesses; scripts/bash-negative-controls.py lookup controls. No direct-child termination capability is introduced.'
+  python: 'minion_agent/tools/builtin/bash_shell.py lookup. Certified (WP-13.3; Python #146 -> 649927a2; final review minion-agent#146 issuecomment-5977177480).'
+  rust: 'Certified (WP-13.3; Rust #150 -> 62f0c129; closure review minion-agent#150 issuecomment-5979787676): minion-agent-rust/crates/minion-agent/src/tools/builtin/bash_shell.rs lookup calls certified Process::terminate only for an unexited interrupted lookup and preserves the final real status. bash_tests.rs combined-budget, exited-status, timeout and crossing-chunk witnesses; scripts/bash-negative-controls.py lookup controls. No direct-child termination capability is introduced.'
   disposition: intentional divergence
 - id: TOOL-035
   phase: 6
@@ -7313,7 +7313,7 @@ rows:
     (truncateTail, truncateStringToBytesFromEnd); bash.ts temp-file rule and formatOutput notices
   surface: Layer 13, WP-13.3 -- bash output accumulation, decoding, tail truncation, the truncation notice and the
     full-output file
-  rule: 'CONTRACT MERGED (WP-13.3, minion-agent#50; DIRECT_PI_PARITY; the full-output file through ctx.fs is a
+  rule: 'CERTIFIED_CLOSED (WP-13.3 cross-language, minion-agent#50: contract docs #229 -> a805f6ed; Python #146 -> 649927a2 / docs #240 -> ce0aa9a2; Rust #150 -> 62f0c129 / docs #245 -> e6a52fd0; Python final review minion-agent#146 issuecomment-5977177480; Rust closure review minion-agent#150 issuecomment-5979787676). Contract history: CONTRACT MERGED (WP-13.3, minion-agent#50; DIRECT_PI_PARITY; the full-output file through ctx.fs is a
     MINION_ARCHITECTURAL_MAPPING, Owner Q3). One streaming WHATWG UTF-8 decoder over the merged chunks of both
     pipes, replacement for invalid input, exactly one leading BOM stripped even across chunks (WP133-AUD-R002);
     rolling tail trimmed to 2 x max_bytes once over 4 x max_bytes; a partial first line dropped only when the
@@ -7329,8 +7329,8 @@ rows:
   - minion-agent-python/tests/tools/builtin/test_bash.py (raw bytes in the full-output file, full-output file
     failures)
   - minion-agent-python/scripts/wp133_bash_negative_controls.py (decoder, BOM, truncation, notice and file faults)
-  python: 'minion_agent/tools/builtin/bash_output.py and the bash.py _Run persistence. Implementation candidate (WP-13.3, minion-agent#50; contract minion-agent-docs#229 -> a805f6ed; pipe release per L12-D002 / EXEC-012, minion-agent#144), pending independent review.'
-  rust: 'Rust implementation candidate, independent closure pending: minion-agent-rust/crates/minion-agent/src/tools/builtin/bash_output.rs and bash.rs ordered persistence; tests/data/bash-boundary.json (pinned-Pi boundary replay); bash_tests.rs slow/gated persistence, cancellation, merged decoder and status witnesses; tests/builtin_bash_conformance.rs raw-file hashes and truncated observations; scripts/bash-negative-controls.py. Assurance: assurance/layers/13-wp133-rust-implementation.md.'
+  python: 'minion_agent/tools/builtin/bash_output.py and the bash.py _Run persistence. Certified (WP-13.3; Python #146 -> 649927a2; final review minion-agent#146 issuecomment-5977177480).'
+  rust: 'Certified (WP-13.3; Rust #150 -> 62f0c129; closure review minion-agent#150 issuecomment-5979787676): minion-agent-rust/crates/minion-agent/src/tools/builtin/bash_output.rs and bash.rs ordered persistence; tests/data/bash-boundary.json (pinned-Pi boundary replay); bash_tests.rs slow/gated persistence, cancellation, merged decoder and status witnesses; tests/builtin_bash_conformance.rs raw-file hashes and truncated observations; scripts/bash-negative-controls.py. Assurance: assurance/layers/13-wp133-rust-implementation.md.'
   disposition: adopted
 - id: TOOL-039
   phase: 6

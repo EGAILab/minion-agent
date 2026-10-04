@@ -163,8 +163,13 @@ class _Run:
 
     Intake and persistence are separate (`WP133-I002`): a pump only reads, accumulates and
     enqueues each chunk -- all synchronous after the read -- so cancelling the pumps at settlement
-    cancels a pending READ only. One writer persists the accepted chunks in order, and settlement
-    JOINS it before returning (Pi: `finishOutput()` awaits `closeTempFile()`)."""
+    cancels a pending READ only. One writer persists the accepted chunks in order.
+
+    Two phases, as Pi (`WP133-I003`): `settle()` ends the COMMAND (exit, grace, read ends released)
+    -- the caller then disposes of the timer and the abort decision, exactly where Pi's `exec`
+    `finally` does; only afterwards does `finish_output()` join the writer and flush (Pi's
+    `finishOutput()` awaiting `closeTempFile()`), so file finalization never extends the timeout
+    or the abort window."""
 
     def __init__(self, fs: FileSystem, process: Process) -> None:
         self.fs = fs
@@ -175,6 +180,7 @@ class _Run:
         self.file_error: FsErrorCode | None = None
         self.timed_out = False
         self._accepted: asyncio.Queue[bytes | None] = asyncio.Queue()
+        self._writer: asyncio.Future[None] | None = None
         self._data_after_exit = asyncio.Event()
         self._exited = False
 
@@ -231,8 +237,9 @@ class _Run:
 
     async def settle(self) -> int | None:
         """Waits for exit, then for both streams' EOF or 100 ms without further data (re-armed by
-        each chunk); never on `wait()` alone. Returns the exit code (`None` if killed)."""
-        writer = asyncio.ensure_future(self.write_accepted())
+        each chunk); never on `wait()` alone. Returns the exit code (`None` if killed). The writer
+        keeps running; `finish_output()` joins it."""
+        self._writer = asyncio.ensure_future(self.write_accepted())
         pumps = asyncio.ensure_future(
             asyncio.gather(self.pump(self.process.stdout), self.pump(self.process.stderr))
         )
@@ -257,15 +264,23 @@ class _Run:
             # execution.md section 16.4): release the read ends, never `terminate()` -- a
             # background job survives and its next write meets a closed reader.
             await _close_streams(self.process)
-            self._accepted.put_nowait(None)
-            # Joins every accepted write; never cancels one (WP133-I002). Cancelling the call
-            # itself propagates into the awaited writer, so no write outlives the call.
-            await writer
-        self.output.finish()
-        await self._persist(None)
+            self._accepted.put_nowait(None)  # nothing more is accepted
         if isinstance(status, Err):
             return None
         return status.value.exit_code
+
+    async def finish_output(self) -> None:
+        """Joins every accepted write -- never cancels one (`WP133-I002`) -- then flushes the
+        decoder and the file. Cancelling the call propagates into the awaited writer."""
+        if self._writer is not None:
+            await self._writer
+        self.output.finish()
+        await self._persist(None)
+
+    def discard(self) -> None:
+        """On an abandoned run (the call cancelled before `finish_output`), end the writer."""
+        if self._writer is not None and not self._writer.done():
+            self._writer.cancel()
 
 
 def _format_output(run: _Run, empty_text: str) -> tuple[str, dict[str, Any]]:
@@ -361,20 +376,28 @@ def create_bash_tool(
                 scheduled_delay_ms(timeout_ms) / 1000, fire
             )
         try:
-            exit_code = await run.settle()
+            try:
+                exit_code = await run.settle()
+            finally:
+                if timer is not None:
+                    timer.cancel()
+                for task in background:
+                    if not task.done():
+                        task.cancel()
+                    with contextlib.suppress(asyncio.CancelledError, Exception):
+                        await task
+            # Decided at settlement, as Pi's `exec` does before `finishOutput()`: a timeout or
+            # abort arriving while only the output file finishes changes nothing (WP133-I003).
+            aborted = signal is not None and signal.aborted
+            timed_out = run.timed_out
+            await run.finish_output()
         finally:
-            if timer is not None:
-                timer.cancel()
-            for task in background:
-                if not task.done():
-                    task.cancel()
-                with contextlib.suppress(asyncio.CancelledError, Exception):
-                    await task
+            run.discard()
         if run.file_error is not None:
             raise BuiltinToolError(f"Cannot write the full-output file: {cause(run.file_error)}")
-        if signal is not None and signal.aborted:
+        if aborted:
             raise _AbortedWith(run)
-        if run.timed_out:
+        if timed_out:
             raise _TimedOutWith(run)
         return run, exit_code
 

@@ -606,6 +606,59 @@ async def test_settlement_joins_an_accepted_full_output_write(tmp_path: Path) ->
     Path(path).unlink()
 
 
+async def test_the_timeout_ends_at_settlement_not_after_file_finalization(tmp_path: Path) -> None:
+    """`WP133-I003`: Pi clears the timer when the process settles (`exec`'s `finally`), BEFORE
+    `finishOutput()` awaits the temp file. A command that exits and reaches EOF before its
+    timeout succeeds even when the full-output write finishes after it; nothing is terminated."""
+    gate = asyncio.Event()
+    tool, world, fs = _tool(tmp_path, _51201_X, fs={"append_gate": gate})
+    run = asyncio.ensure_future(_run(tool, {"command": "x", "timeout": 0.3}))
+    await asyncio.wait_for(fs.append_started.wait(), 10)
+    await asyncio.sleep(0.8)  # exit + grace are done; the 0.3 s timeout has long passed
+    assert not run.done()
+    gate.set()
+    failed, text, details = await asyncio.wait_for(run, 10)
+    assert world.terminates == []
+    assert not failed and details["fullOutputPath"] in text
+    assert Path(details["fullOutputPath"]).read_bytes() == b"x" * 51201
+    Path(details["fullOutputPath"]).unlink()
+
+
+async def test_an_abort_during_file_finalization_does_not_reclassify(tmp_path: Path) -> None:
+    """Pi removes its abort listener at settlement and classifies there; an abort that arrives
+    while only the full-output file is finishing leaves the command's outcome unchanged."""
+    controller = RunAbortController()
+    gate = asyncio.Event()
+    tool, _, fs = _tool(tmp_path, _51201_X, fs={"append_gate": gate})
+    run = asyncio.ensure_future(_run(tool, {"command": "x"}, signal=controller.signal))
+    await asyncio.wait_for(fs.append_started.wait(), 10)
+    await asyncio.sleep(0.5)  # exit + grace are done; only the gated write remains
+    controller.abort()
+    gate.set()
+    failed, text, details = await asyncio.wait_for(run, 10)
+    assert not failed and details["fullOutputPath"] in text
+    Path(details["fullOutputPath"]).unlink()
+
+
+async def test_a_call_cancelled_while_running_leaves_no_writer_behind(tmp_path: Path) -> None:
+    """Cancelling the call before settlement, while an accepted write is in flight, also ends
+    the writer: nothing is written after the call is gone."""
+    gate = asyncio.Event()
+    tool, _, fs = _tool(
+        tmp_path,
+        "import sys, time; sys.stdout.write('x' * 51201); sys.stdout.flush(); time.sleep(30)",
+        fs={"append_gate": gate},
+    )
+    run = asyncio.ensure_future(_run(tool, {"command": "x"}))
+    await asyncio.wait_for(fs.append_started.wait(), 10)  # the command is still running
+    run.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await run
+    gate.set()
+    await asyncio.sleep(0.3)
+    assert fs.appends_completed == 0
+
+
 async def test_a_cancelled_call_cancels_its_pending_write(tmp_path: Path) -> None:
     """Joining the writer never orphans it: cancelling the tool call while it waits on an
     accepted write cancels that write too, so nothing is written after the call is gone."""

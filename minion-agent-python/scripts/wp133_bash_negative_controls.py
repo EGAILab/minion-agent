@@ -51,7 +51,7 @@ _CLASSIFY = (
 _NONZERO = '            raise BuiltinToolError(_with_status(text, f"Command exited with code {exit_code}"))\n'
 _DECODER = '        self._decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")\n'
 _DECODE = "        self._append_decoded(self._decode(data, final=False))\n"
-_JOIN = "            await writer\n"
+_JOIN = "            await self._writer\n"
 _LOOKUP_KILL = (
     "            # Interrupted while the lookup is still running: the certified hard kill (DIV-001).\n"
     "            await process.terminate()\n"
@@ -144,7 +144,21 @@ FAULTS: dict[str, list[tuple[Path, str, str]]] = {
         )
     ],
     # WP133-I002: settlement must join accepted persistence, never cancel it
-    "settlement-cancels-persistence": [(BASH, _JOIN, "            writer.cancel()\n")],
+    "settlement-cancels-persistence": [(BASH, _JOIN, "            self._writer.cancel()\n")],
+    # WP133-I003: the timer and the abort decision end at settlement, before file finalization
+    "timer-active-through-finalization": [
+        (
+            BASH,
+            "                exit_code = await run.settle()\n",
+            "                exit_code = await run.settle()\n                await run.finish_output()\n",
+        )
+    ],
+    "abort-classified-after-finalization": [
+        (BASH, "        if aborted:\n", "        if signal is not None and signal.aborted:\n")
+    ],
+    "writer-orphaned-on-cancel": [
+        (BASH, "            self._writer.cancel()\n", "            pass\n")
+    ],
     "persist-inline-in-pump": [
         (
             BASH,

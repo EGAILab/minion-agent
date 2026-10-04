@@ -420,22 +420,37 @@ async def test_abort_during_the_post_exit_grace_is_aborted(tmp_path: Path) -> No
     """Classification checks the signal FIRST: an abort after a clean exit, while the 100 ms grace
     is still waiting on a descendant, is "aborted"."""
     controller = RunAbortController()
-    # The descendant keeps writing every 50 ms, re-arming the grace, so the abort at 300 ms lands
-    # after the parent's clean exit and inside the grace.
+    started = tmp_path / "descendant-started"
+    # Event-driven, not timed: the parent writes 'a' and exits only once the descendant is running;
+    # the descendant then writes every 20 ms (well inside the 100 ms grace) for 2 s, so the abort
+    # issued after it started lands after the parent's clean exit and inside the grace.
     descendant = (
-        "import sys, time\nfor _ in range(12):\n"
-        "    time.sleep(0.05); sys.stdout.write('b'); sys.stdout.flush()\n"
+        "import pathlib, sys, time\n"
+        f"pathlib.Path({str(started)!r}).write_text('x')\n"
+        "for _ in range(100):\n"
+        "    time.sleep(0.02); sys.stdout.write('b'); sys.stdout.flush()\n"
     )
     code = (
-        "import os, subprocess, sys\n"
+        "import os, pathlib, subprocess, sys, time\n"
+        "sys.stdout.write('a'); sys.stdout.flush()\n"
         f"subprocess.Popen([sys.executable, '-c', {descendant!r}], stdin=subprocess.DEVNULL,"
         " stdout=sys.stdout.fileno(), stderr=sys.stderr.fileno(),"
         " start_new_session=(os.name != 'nt'))\n"
-        "sys.stdout.write('a'); sys.stdout.flush(); os._exit(0)\n"
+        f"while not pathlib.Path({str(started)!r}).exists():\n"
+        "    time.sleep(0.01)\n"
+        "os._exit(0)\n"
     )
     tool, _, _ = _tool(tmp_path, code)
-    asyncio.get_running_loop().call_later(0.3, controller.abort)
+
+    async def abort_once_the_descendant_runs() -> None:
+        while not started.exists():
+            await asyncio.sleep(0.01)
+        await asyncio.sleep(0.2)  # the parent has exited; the descendant keeps the grace armed
+        controller.abort()
+
+    trigger = asyncio.ensure_future(abort_once_the_descendant_runs())
     failed, text, _ = await _run(tool, {"command": "x"}, signal=controller.signal)
+    await trigger
     assert failed and text.startswith("ab") and text.endswith("\n\nCommand aborted")
 
 

@@ -548,7 +548,9 @@ async fn kill_process_tree(pid: u32) -> bool {
     {
         let group = format!("-{pid}");
         if Command::new("kill")
-            .args(["-KILL", &group])
+            // A negative process-group operand must not be parsed as an option
+            // by procps-ng kill. Without `--`, it can signal the caller's group.
+            .args(["-KILL", "--", &group])
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null())
@@ -595,6 +597,62 @@ fn map_pipe_error(error: io::Error) -> SubprocessError {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(target_os = "linux")]
+    #[tokio::test]
+    async fn group_kill_terminates_ready_parent_and_pipe_holding_descendant() {
+        use tokio::io::{AsyncBufReadExt, AsyncReadExt, BufReader};
+
+        // Readiness is emitted only after the descendant has been created in this
+        // isolated process group. No spawn/termination race or sleep-based assertion.
+        let mut child = Command::new("sh")
+            .args(["-c", "sleep 60 & printf '%s\\n' \"$!\"; wait"])
+            .process_group(0)
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let pid = child.id().unwrap();
+        let mut output = BufReader::new(child.stdout.take().unwrap());
+        let mut ready = String::new();
+        tokio::time::timeout(Duration::from_secs(5), output.read_line(&mut ready))
+            .await
+            .expect("descendant readiness")
+            .unwrap();
+        let descendant: u32 = ready.trim().parse().unwrap();
+        assert_ne!(descendant, pid);
+
+        let helper_succeeded = kill_process_tree(pid).await;
+        let settled = tokio::time::timeout(Duration::from_secs(3), child.wait()).await;
+        let mut remaining = Vec::new();
+        let eof =
+            tokio::time::timeout(Duration::from_secs(3), output.read_to_end(&mut remaining)).await;
+        // Also clean up the known-bad run before asserting: never leak the live
+        // group merely because the helper lied about success or addressed no PID.
+        if settled.is_err() || eof.is_err() {
+            let _ = Command::new("kill")
+                .args(["-KILL", "--", &format!("-{pid}")])
+                .status()
+                .await;
+            let _ = child.wait().await;
+        }
+        assert!(
+            helper_succeeded,
+            "the actual group helper must report success"
+        );
+        assert_eq!(
+            settled
+                .expect("the ready parent must be killed")
+                .unwrap()
+                .code(),
+            None
+        );
+        assert_eq!(
+            eof.expect("the descendant must release its inherited pipe")
+                .unwrap(),
+            0
+        );
+    }
 
     fn short_lived_child() -> Child {
         let mut command = if cfg!(windows) {

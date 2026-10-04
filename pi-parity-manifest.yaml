@@ -6855,7 +6855,9 @@ rows:
     at settlement) and Node v22.15.1 src/spawn_sync.cc::Kill (CloseStdioPipes)'
   surface: Layer 12 delta L12-D002 -- Process.wait() settles on the process's own exit independent of
     stdio (Windows conformance restored); ReadableStream.close(); the amended disposal model
-  rule: 'CONTRACT_DRAFT (L12-D002, minion-agent#144; Owner decision Option A, minion-agent#144
+  rule: 'CERTIFIED_CLOSED (L12-D002 cross-language, minion-agent#144: contract docs #239 -> ac5bd045; Python
+    #143 -> c06e1c7a; Rust #145 -> 62caa152 / docs #241 -> de60179e; closure review minion-agent#145
+    issuecomment-5976898729). Contract history: Owner decision Option A, minion-agent#144
     issuecomment-5975624637; MINION_EXTENSION). wait() settles when the directly spawned process
     settles, never waiting for stdio (a descendant holding a pipe included), and closes nothing;
     cancelling one waiter never cancels the shared exit notification. ReadableStream.close():
@@ -6889,7 +6891,7 @@ rows:
     (exit/stdio independence, read-after-wait, EOF, pending/later reads, sibling isolation,
     child/descendant survival, owned-handle release and waiter cancellation);
     minion-agent-rust/scripts/l12-d002-negative-controls.py (nine disposable-source controls).
-    Implementation candidate; independent closure review required (L12-D002-I002 remains reserved).
+    Certified (L12-D002 Rust closure review, minion-agent#145 issuecomment-5976898729).
   disposition: intentional divergence
 - id: TOOL-025
   phase: 6

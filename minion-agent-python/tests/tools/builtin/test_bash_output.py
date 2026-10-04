@@ -10,7 +10,11 @@ from typing import Any
 
 import pytest
 
-from minion_agent.tools.builtin.bash_output import OutputAccumulator, truncate_tail
+from minion_agent.tools.builtin.bash_output import (
+    OutputAccumulator,
+    _bytes_from_end,
+    truncate_tail,
+)
 
 DATA = Path(__file__).parent / "data" / "wp133"
 
@@ -133,3 +137,10 @@ def test_trim_tail_short_buffer_resets_its_byte_count() -> None:
     accumulator._tail_bytes = 99
     accumulator._trim_tail()
     assert accumulator._tail_bytes == 2
+
+
+def test_bytes_from_end_keeps_short_text_and_cuts_at_a_character_boundary() -> None:
+    """Pi's `truncateStringToBytesFromEnd`: text within the limit is returned unchanged; a cut never
+    starts inside a multi-byte character."""
+    assert _bytes_from_end("abc", 3) == "abc"
+    assert _bytes_from_end("aéb", 2) == "b"  # 'é' is 2 bytes: a cut at byte 2 skips its tail

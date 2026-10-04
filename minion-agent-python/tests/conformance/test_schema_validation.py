@@ -53,6 +53,9 @@ BUILTIN_MUTATION_SCHEMA = CONFORMANCE / "schema" / "builtin-mutation-scenario.sc
 # WP-13.2 (write/edit + mutation queue): its own directory and shape, so the WP-13.1 `builtin_tool`
 # runners (which glob conformance/agent/*.yaml) are unaffected.
 BUILTIN_MUTATION_DIR = CONFORMANCE / "agent" / "builtin-mutation"
+BUILTIN_BASH_SCHEMA = CONFORMANCE / "schema" / "builtin-bash-scenario.schema.json"
+# WP-13.3 (bash): its own directory and shape, as builtin-mutation above.
+BUILTIN_BASH_DIR = CONFORMANCE / "agent" / "builtin-bash"
 PREPARED_RUNTIME_SCHEMA = CONFORMANCE / "schema" / "prepared-runtime-scenario.schema.json"
 # Layer 05/06 delta L0506-D001 (TOOL-041): its own directory and shape.
 PREPARED_RUNTIME_DIR = CONFORMANCE / "agent" / "prepared-runtime"
@@ -151,6 +154,26 @@ def test_scenario_validates(family: str, scenario: Path) -> None:
 
 def test_builtin_mutation_scenarios_exist() -> None:
     assert sorted(BUILTIN_MUTATION_DIR.glob("*.yaml"))
+
+
+def test_builtin_bash_scenarios_exist() -> None:
+    assert len(sorted(BUILTIN_BASH_DIR.glob("*.yaml"))) == 36
+
+
+@pytest.mark.parametrize(
+    "scenario", sorted(BUILTIN_BASH_DIR.glob("*.yaml")), ids=lambda value: value.stem
+)
+def test_builtin_bash_scenario_validates(scenario: Path) -> None:
+    document = yaml.safe_load(scenario.read_text(encoding="utf-8"))
+    assert "builtin_bash" in document
+    schema = json.loads(BUILTIN_BASH_SCHEMA.read_text(encoding="utf-8"))
+    errors = sorted(
+        Draft202012Validator(schema).iter_errors(document),
+        key=lambda error: list(error.path),
+    )
+    assert not errors, "\n".join(
+        f"{'/'.join(str(part) for part in error.path)}: {error.message}" for error in errors
+    )
 
 
 @pytest.mark.parametrize(

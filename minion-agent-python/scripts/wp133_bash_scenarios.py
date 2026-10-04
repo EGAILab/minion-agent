@@ -1,4 +1,4 @@
-"""Generate the WP-13.3 `bash` canonical scenarios (`conformance/agent/builtin-bash-*.yaml`) from
+"""Generate the WP-13.3 `bash` canonical scenarios (`conformance/agent/builtin-bash/*.yaml`) from
 the pinned-Pi authority outputs -- no expectation is hand-written.
 
     python scripts/wp133_bash_scenarios.py <minion-agent-docs>/assurance/layers/data/13-wp133/out
@@ -25,7 +25,7 @@ from typing import Any
 import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
-OUT_DIR = ROOT / "conformance" / "agent"
+OUT_DIR = ROOT / "conformance" / "agent" / "builtin-bash"
 AUTHORITY = (
     "minion-agent-docs spec/tools.md WP-13.3 (master a805f6ed); pinned-Pi bash_probe outputs"
 )

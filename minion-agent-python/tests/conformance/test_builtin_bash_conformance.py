@@ -8,14 +8,15 @@ import yaml
 
 from .builtin_bash_runner import HOST_PLATFORM, run_builtin_bash_scenario
 
-AGENT_DIR = Path(__file__).resolve().parents[3] / "conformance" / "agent"
+# Own directory (as WP-13.2's builtin-mutation): the generic runners glob conformance/agent/*.yaml.
+BASH_DIR = Path(__file__).resolve().parents[3] / "conformance" / "agent" / "builtin-bash"
 
 
 def _load(path: Path) -> Any:
     return yaml.safe_load(path.read_text(encoding="utf-8"))
 
 
-SCENARIOS = sorted(p for p in AGENT_DIR.glob("builtin-bash-*.yaml") if "builtin_bash" in _load(p))
+SCENARIOS = sorted(p for p in BASH_DIR.glob("*.yaml") if "builtin_bash" in _load(p))
 
 
 def test_builtin_bash_scenarios_exist() -> None:

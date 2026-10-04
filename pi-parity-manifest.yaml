@@ -7268,7 +7268,7 @@ rows:
     environment removed by exact spelling and re-injected from the call context. Full rules: spec/tools.md,
     WP-13.3.'
   tests:
-  - conformance/agent/builtin-bash-*.yaml (36 canonical scenarios, pinned-Pi expectations per platform; win32 and linux)
+  - conformance/agent/builtin-bash/*.yaml (36 canonical scenarios, pinned-Pi expectations per platform; win32 and linux)
   - minion-agent-python/tests/tools/builtin/test_bash.py (definition, factory, precheck order, timer normalization,
     classification, settlement and grace, background job surviving settlement with released pipes, session
     environment, lifecycle delegation, zero partial updates, world validation)
@@ -7314,7 +7314,7 @@ rows:
     and back-filled; notice after the content, status after the notice; "(no output)" as the empty text,
     including a non-zero exit (WP133-CON-R001). Full rules: spec/tools.md, WP-13.3, Output (TOOL-035).'
   tests:
-  - conformance/agent/builtin-bash-*.yaml (truncation, notice, BOM and full-output rows)
+  - conformance/agent/builtin-bash/*.yaml (truncation, notice, BOM and full-output rows)
   - minion-agent-python/tests/tools/builtin/test_bash_output.py (rolling tail against the pinned boundary rows,
     one leading BOM of the merged stream against the pinned BOM rows, one decoder across streams and chunks,
     temp-file trigger and counters, truncate_tail partial line and line limit)

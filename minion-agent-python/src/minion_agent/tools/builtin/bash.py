@@ -210,7 +210,7 @@ class _Run:
             self._data_after_exit.set()
 
     async def pump(self, stream: ReadableStream | None) -> None:
-        if stream is None:
+        if stream is None:  # pragma: no cover - both pipes are requested
             return
         while True:
             chunk = await stream.read_chunk()

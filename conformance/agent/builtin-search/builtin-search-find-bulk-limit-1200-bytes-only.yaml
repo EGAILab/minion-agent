@@ -1,0 +1,54 @@
+name: builtin-search-find-bulk-limit-1200-bytes-only
+family: agent
+authority: minion-agent-docs spec/tools.md WP-13.4 (master f3ae3ced); pinned-Pi search_probe outputs
+pi_revision: b7bb00b936dbe21b8e160b3e89efdec361846699
+requirements:
+- TOOL-036
+witnesses:
+- builtin_search_find_bulk_limit_1200_bytes_only
+builtin_search:
+  tool: find
+  corpus: bulk
+  arguments:
+    pattern: '*.txt'
+    path: many
+    limit: 1200
+  expect:
+    win32:
+      is_error: false
+      mode: summary
+      lines: 867
+      body_bytes: 51152
+      notice: '[1200 results limit reached. Use limit=2400 for more, or refine pattern. 50.0KB limit reached]'
+      details:
+        resultLimitReached: 1200
+        truncation:
+          truncated: true
+          truncatedBy: bytes
+          totalLines: 1200
+          totalBytes: 70799
+          outputLines: 867
+          outputBytes: 51152
+          lastLinePartial: false
+          firstLineExceedsLimit: false
+          maxLines: 9007199254740991
+          maxBytes: 51200
+    linux:
+      is_error: false
+      mode: summary
+      lines: 867
+      body_bytes: 51152
+      notice: '[1200 results limit reached. Use limit=2400 for more, or refine pattern. 50.0KB limit reached]'
+      details:
+        resultLimitReached: 1200
+        truncation:
+          truncated: true
+          truncatedBy: bytes
+          totalLines: 1200
+          totalBytes: 70799
+          outputLines: 867
+          outputBytes: 51152
+          lastLinePartial: false
+          firstLineExceedsLimit: false
+          maxLines: 9007199254740991
+          maxBytes: 51200

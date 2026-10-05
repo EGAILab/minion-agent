@@ -56,6 +56,9 @@ BUILTIN_MUTATION_DIR = CONFORMANCE / "agent" / "builtin-mutation"
 BUILTIN_BASH_SCHEMA = CONFORMANCE / "schema" / "builtin-bash-scenario.schema.json"
 # WP-13.3 (bash): its own directory and shape, as builtin-mutation above.
 BUILTIN_BASH_DIR = CONFORMANCE / "agent" / "builtin-bash"
+BUILTIN_SEARCH_SCHEMA = CONFORMANCE / "schema" / "builtin-search-scenario.schema.json"
+# WP-13.4 (find/grep): its own directory and shape; corpus.json beside the scenarios is not one.
+BUILTIN_SEARCH_DIR = CONFORMANCE / "agent" / "builtin-search"
 PREPARED_RUNTIME_SCHEMA = CONFORMANCE / "schema" / "prepared-runtime-scenario.schema.json"
 # Layer 05/06 delta L0506-D001 (TOOL-041): its own directory and shape.
 PREPARED_RUNTIME_DIR = CONFORMANCE / "agent" / "prepared-runtime"
@@ -167,6 +170,26 @@ def test_builtin_bash_scenario_validates(scenario: Path) -> None:
     document = yaml.safe_load(scenario.read_text(encoding="utf-8"))
     assert "builtin_bash" in document
     schema = json.loads(BUILTIN_BASH_SCHEMA.read_text(encoding="utf-8"))
+    errors = sorted(
+        Draft202012Validator(schema).iter_errors(document),
+        key=lambda error: list(error.path),
+    )
+    assert not errors, "\n".join(
+        f"{'/'.join(str(part) for part in error.path)}: {error.message}" for error in errors
+    )
+
+
+def test_builtin_search_scenarios_exist() -> None:
+    assert len(sorted(BUILTIN_SEARCH_DIR.glob("*.yaml"))) == 191
+
+
+@pytest.mark.parametrize(
+    "scenario", sorted(BUILTIN_SEARCH_DIR.glob("*.yaml")), ids=lambda value: value.stem
+)
+def test_builtin_search_scenario_validates(scenario: Path) -> None:
+    document = yaml.safe_load(scenario.read_text(encoding="utf-8"))
+    assert "builtin_search" in document
+    schema = json.loads(BUILTIN_SEARCH_SCHEMA.read_text(encoding="utf-8"))
     errors = sorted(
         Draft202012Validator(schema).iter_errors(document),
         key=lambda error: list(error.path),

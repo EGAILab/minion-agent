@@ -1,0 +1,60 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$comment": "Layer 13 WP-13.4 `find`/`grep` canonical shape, discriminated by a top-level `builtin_search` key, in conformance/agent/builtin-search/. A runner builds the named corpus from conformance/agent/builtin-search/corpus.json in a fresh temporary directory that has no `.git` above it, constructs the real tool over the real local ctx.fs and ctx.subprocess with the CERTIFIED pinned engine store (TOOL-038), and runs the case through the real Layer 06 execute pipeline. Expectations are generated from the pinned-Pi search_probe outputs (minion-agent-docs assurance/layers/data/13-wp134/out/search-{win32,linux}.json), keyed by host platform; a host whose platform has no expectation skips the case. Normalization, never behaviour: the corpus root becomes `<ROOT>` in the result text and details. Cross-entry and cross-file order is unspecified (Owner Q2), so `mode` selects an order-insensitive comparison: `find_multiset` (formatted entries as a multiset), `find_subset` (a limited result: exactly `count` entries, a sub-multiset of `of`), `grep_by_file` (each file's lines exact, in order and contiguous; files in any order), `summary` (bulk: counts, bytes, notice and details without the order-dependent truncation content), `exact`.",
+  "type": "object",
+  "required": ["name", "family", "authority", "pi_revision", "requirements", "witnesses", "builtin_search"],
+  "additionalProperties": false,
+  "properties": {
+    "name": { "type": "string", "minLength": 1 },
+    "family": { "const": "agent" },
+    "authority": { "type": "string", "minLength": 1 },
+    "pi_revision": { "type": "string", "minLength": 1 },
+    "requirements": { "type": "array", "minItems": 1, "items": { "type": "string", "pattern": "^TOOL-0[0-9]{2}(-DIV-[0-9]{3})?$" } },
+    "witnesses": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
+    "notes": { "type": "string" },
+    "builtin_search": {
+      "type": "object",
+      "required": ["tool", "corpus", "arguments", "expect"],
+      "additionalProperties": false,
+      "properties": {
+        "tool": { "enum": ["find", "grep"] },
+        "corpus": { "enum": ["plain", "repo", "bulk", "junction", "duplicate"] },
+        "arguments": { "type": "object", "required": ["pattern"], "$comment": "a string value may contain <ROOT>, replaced by the corpus root" },
+        "signal": { "const": "pre_aborted" },
+        "expect": {
+          "type": "object",
+          "additionalProperties": false,
+          "minProperties": 1,
+          "properties": { "win32": { "$ref": "#/$defs/expectation" }, "linux": { "$ref": "#/$defs/expectation" } }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "expectation": {
+      "type": "object",
+      "required": ["is_error", "mode", "details"],
+      "additionalProperties": false,
+      "properties": {
+        "is_error": { "type": "boolean" },
+        "mode": { "enum": ["exact", "find_multiset", "find_subset", "grep_by_file", "summary"] },
+        "text": { "type": "string" },
+        "entries": { "type": "array", "items": { "type": "string" } },
+        "count": { "type": "integer", "minimum": 0 },
+        "of": { "type": "array", "items": { "type": "string" } },
+        "files": { "type": "object", "additionalProperties": { "type": "array", "items": { "type": "string" } } },
+        "lines": { "type": "integer", "minimum": 0 },
+        "body_bytes": { "type": "integer", "minimum": 0 },
+        "notice": { "type": ["string", "null"] },
+        "details": { "type": "object" }
+      },
+      "allOf": [
+        { "if": { "properties": { "mode": { "const": "exact" } } }, "then": { "required": ["text"] } },
+        { "if": { "properties": { "mode": { "const": "find_multiset" } } }, "then": { "required": ["entries", "notice"] } },
+        { "if": { "properties": { "mode": { "const": "find_subset" } } }, "then": { "required": ["count", "of", "notice"] } },
+        { "if": { "properties": { "mode": { "const": "grep_by_file" } } }, "then": { "required": ["files", "notice"] } },
+        { "if": { "properties": { "mode": { "const": "summary" } } }, "then": { "required": ["lines", "body_bytes", "notice"] } }
+      ]
+    }
+  }
+}

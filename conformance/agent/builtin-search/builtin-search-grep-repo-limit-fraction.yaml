@@ -1,0 +1,38 @@
+name: builtin-search-grep-repo-limit-fraction
+family: agent
+authority: minion-agent-docs spec/tools.md WP-13.4 (master f3ae3ced); pinned-Pi search_probe outputs
+pi_revision: b7bb00b936dbe21b8e160b3e89efdec361846699
+requirements:
+- TOOL-037
+witnesses:
+- builtin_search_grep_repo_limit_fraction
+builtin_search:
+  tool: grep
+  corpus: repo
+  arguments:
+    pattern: hit
+    path: text/many.txt
+    limit: 2.5
+  expect:
+    win32:
+      is_error: false
+      mode: grep_by_file
+      files:
+        many.txt:
+        - 'many.txt:1: hit 1'
+        - 'many.txt:2: hit 2'
+        - 'many.txt:3: hit 3'
+      notice: '[2.5 matches limit reached. Use limit=5 for more, or refine pattern]'
+      details:
+        matchLimitReached: 2.5
+    linux:
+      is_error: false
+      mode: grep_by_file
+      files:
+        many.txt:
+        - 'many.txt:1: hit 1'
+        - 'many.txt:2: hit 2'
+        - 'many.txt:3: hit 3'
+      notice: '[2.5 matches limit reached. Use limit=5 for more, or refine pattern]'
+      details:
+        matchLimitReached: 2.5

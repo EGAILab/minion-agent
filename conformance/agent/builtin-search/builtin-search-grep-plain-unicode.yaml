@@ -1,0 +1,36 @@
+name: builtin-search-grep-plain-unicode
+family: agent
+authority: minion-agent-docs spec/tools.md WP-13.4 (master f3ae3ced); pinned-Pi search_probe outputs
+pi_revision: b7bb00b936dbe21b8e160b3e89efdec361846699
+requirements:
+- TOOL-037
+witnesses:
+- builtin_search_grep_plain_unicode
+builtin_search:
+  tool: grep
+  corpus: plain
+  arguments:
+    pattern: naïve|日本語
+  expect:
+    win32:
+      is_error: false
+      mode: grep_by_file
+      files:
+        ünïcode/文件.ts:
+        - 'ünïcode/文件.ts:1: naïve 日本語 foo'
+        text/unicode.txt:
+        - 'text/unicode.txt:2: naïve match'
+        - 'text/unicode.txt:3: 日本語 match'
+      notice: null
+      details: {}
+    linux:
+      is_error: false
+      mode: grep_by_file
+      files:
+        ünïcode/文件.ts:
+        - 'ünïcode/文件.ts:1: naïve 日本語 foo'
+        text/unicode.txt:
+        - 'text/unicode.txt:2: naïve match'
+        - 'text/unicode.txt:3: 日本語 match'
+      notice: null
+      details: {}

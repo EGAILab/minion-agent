@@ -1,0 +1,44 @@
+name: builtin-search-grep-repo-context-fraction
+family: agent
+authority: minion-agent-docs spec/tools.md WP-13.4 (master f3ae3ced); pinned-Pi search_probe outputs
+pi_revision: b7bb00b936dbe21b8e160b3e89efdec361846699
+requirements:
+- TOOL-037
+witnesses:
+- builtin_search_grep_repo_context_fraction
+builtin_search:
+  tool: grep
+  corpus: repo
+  arguments:
+    pattern: MATCH
+    path: text/ctx.txt
+    context: 1.5
+  expect:
+    win32:
+      is_error: false
+      mode: grep_by_file
+      files:
+        ctx.txt:
+        - ctx.txt-1- L1
+        - 'ctx.txt:2: L2 MATCH'
+        - ctx.txt-3- L3 MATCH
+        - 'ctx.txt-1.5- '
+        - 'ctx.txt-2.5- '
+        - 'ctx.txt-3.5- '
+        - 'ctx.txt-4.5- '
+      notice: null
+      details: {}
+    linux:
+      is_error: false
+      mode: grep_by_file
+      files:
+        ctx.txt:
+        - ctx.txt-1- L1
+        - 'ctx.txt:2: L2 MATCH'
+        - ctx.txt-3- L3 MATCH
+        - 'ctx.txt-1.5- '
+        - 'ctx.txt-2.5- '
+        - 'ctx.txt-3.5- '
+        - 'ctx.txt-4.5- '
+      notice: null
+      details: {}

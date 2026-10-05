@@ -1,0 +1,49 @@
+name: builtin-search-grep-plain-path-dir
+family: agent
+authority: minion-agent-docs spec/tools.md WP-13.4 (master f3ae3ced); pinned-Pi search_probe outputs
+pi_revision: b7bb00b936dbe21b8e160b3e89efdec361846699
+requirements:
+- TOOL-037
+witnesses:
+- builtin_search_grep_plain_path_dir
+builtin_search:
+  tool: grep
+  corpus: plain
+  arguments:
+    pattern: foo
+    path: src
+  expect:
+    win32:
+      is_error: false
+      mode: grep_by_file
+      files:
+        .hidden.ts:
+        - '.hidden.ts:1: hidden foo'
+        a.ts:
+        - 'a.ts:3: foo bar'
+        - 'a.ts:4: foo.bar'
+        b.spec.ts:
+        - 'b.spec.ts:1: describe foo'
+        sub/c.ts:
+        - 'sub/c.ts:1: const foo = 1;'
+        sub/d.spec.ts:
+        - 'sub/d.spec.ts:1: it foo'
+      notice: null
+      details: {}
+    linux:
+      is_error: false
+      mode: grep_by_file
+      files:
+        a.ts:
+        - 'a.ts:3: foo bar'
+        - 'a.ts:4: foo.bar'
+        .hidden.ts:
+        - '.hidden.ts:1: hidden foo'
+        b.spec.ts:
+        - 'b.spec.ts:1: describe foo'
+        sub/d.spec.ts:
+        - 'sub/d.spec.ts:1: it foo'
+        sub/c.ts:
+        - 'sub/c.ts:1: const foo = 1;'
+      notice: null
+      details: {}

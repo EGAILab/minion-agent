@@ -7340,8 +7340,9 @@ rows:
     full-path handling), output collection, relativization, limits, truncation and notices
   rule: 'CONTRACT_DRAFT (WP-13.4, minion-agent#51; DIRECT_PI_PARITY for the wrapper; matching delegated to the pinned
     fd 10.4.2, TOOL-038; Owner Q1-Q3 minion-agent#51 issuecomment-5988502021). Cross-entry order is
-    ENGINE_DEFINED_UNSPECIFIED (Owner Q2), so conformance compares as a set and limited results by count and
-    membership. Pi quirks kept exact (limit 0 unlimited with its notice; trimmed names; fd stderr verbatim). The
+    ENGINE_DEFINED_UNSPECIFIED (Owner Q2), so conformance compares unlimited results as a multiset of formatted
+    entries (distinct paths can format identically after Pi''s trim, WP134-CON-R002) and limited results by count
+    and as a sub-multiset, with notices and details exact (WP134-CON-R004). Pi quirks kept exact (limit 0 unlimited with its notice; trimmed names; fd stderr verbatim). The
     Windows full-path ** zero-directory meaning is DIV-002 (row TOOL-036-DIV-002). Full rules: spec/tools.md,
     WP-13.4, find.'
   tests:

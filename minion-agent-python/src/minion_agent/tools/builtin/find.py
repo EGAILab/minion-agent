@@ -62,39 +62,116 @@ FIND_PARAMETERS: dict[str, Any] = {
 _SEPARATOR_CLASS = "[/\\\\]"  # Pi's String.raw`[/\\]`: either separator
 
 
-def _windows_full_path(pattern: str) -> str:
-    """Pi's Windows rewrite of every `/` to `[/\\]`, except (`DIV-002`) a `/**/` outside any brace
-    group becomes an alternation that also matches zero directories, so `**/` keeps its ordinary
-    meaning. Inside braces (fd's glob has no nested alternation) Pi's rewrite is kept as is.
-    An escaped character and a character class are never part of a `/**/` component, but their
-    `/` still takes Pi's rewrite (Pi's `replaceAll` spares neither), so they keep Pi's meaning."""
-    out: list[str] = []
-    depth = 0
+type _Atom = tuple[str, bool]  # (source text, is a plain single character)
+type _Sequence = list[_Atom | None]  # None is a plain "/" separator
+
+
+def _pi_windows_rewrite(pattern: str) -> str:
+    return pattern.replace("/", _SEPARATOR_CLASS)
+
+
+def _brace_alternatives(pattern: str) -> list[_Sequence] | None:
+    """The pattern as brace-free alternatives (fd's glob allows one level of `{a,b}`; alternation
+    distributes over concatenation), or None when it is not well formed -- nested or unclosed
+    braces, or an unclosed class -- which is then left to the engine exactly as Pi passes it. On
+    Windows fd's glob has no backslash escape: `\\` is an ordinary character."""
+    alternatives: list[_Sequence] = [[]]
+    group: list[_Sequence] | None = None
     index = 0
     while index < len(pattern):
         char = pattern[index]
-        if char == "\\" and index + 1 < len(pattern):
-            escaped = pattern[index + 1]
-            out.append(char + (_SEPARATOR_CLASS if escaped == "/" else escaped))
-            index += 2
-            continue
+        atom: _Atom | None
         if char == "[":
             end = pattern.find("]", index + 2)
-            if end != -1:
-                out.append(pattern[index : end + 1].replace("/", _SEPARATOR_CLASS))
-                index = end + 1
+            if end == -1:
+                return None
+            atom, index = (pattern[index : end + 1], False), end + 1
+        else:
+            index += 1
+            if char == "{":
+                if group is not None:
+                    return None
+                group = [[]]
                 continue
-        if char == "{":
-            depth += 1
-        elif char == "}" and depth:
-            depth -= 1
-        if depth == 0 and pattern.startswith("/**/", index):
-            out.append(f"{{{_SEPARATOR_CLASS},{_SEPARATOR_CLASS}**{_SEPARATOR_CLASS}}}")
-            index += 4
-            continue
-        out.append(_SEPARATOR_CLASS if char == "/" else char)
-        index += 1
-    return "".join(out)
+            if group is not None and char == ",":
+                group.append([])
+                continue
+            if group is not None and char == "}":
+                alternatives = [done + option for done in alternatives for option in group]
+                group = None
+                continue
+            atom = None if char == "/" else (char, True)
+        if group is not None:
+            group[-1].append(atom)
+        else:
+            for done in alternatives:
+                done.append(atom)
+    return None if group is not None else alternatives
+
+
+def _zero_directory_variants(sequence: _Sequence) -> list[list[list[_Atom]]] | None:
+    """`DIV-002`: the sequence split into components, once with and once without each genuine
+    `**/` component (a plain `**` component followed by a separator). The first component is
+    left alone: matched against an absolute path, it never stands for zero directories. A run of
+    adjacent `**/` components means the same as one. None when there is no such component."""
+    components: list[list[_Atom]] = [[]]
+    for atom in sequence:
+        if atom is None:
+            components.append([])
+        else:
+            components[-1].append(atom)
+
+    def recursive(i: int) -> bool:
+        return 0 < i < len(components) - 1 and components[i] == [("*", True), ("*", True)]
+
+    kept = [c for i, c in enumerate(components) if not (recursive(i) and recursive(i - 1))]
+    components = kept
+    optional = [i for i in range(len(components)) if recursive(i)]
+    if not optional:
+        return None
+    variants: list[list[list[_Atom]]] = []
+    for mask in range(1 << len(optional)):
+        dropped = {optional[bit] for bit in range(len(optional)) if mask >> bit & 1}
+        variants.append([c for i, c in enumerate(components) if i not in dropped])
+    return variants
+
+
+def _windows_full_path(pattern: str) -> str:
+    """The effective Windows full-path pattern. Pi rewrites every `/` to `[/\\]`, which loses the
+    zero-directory meaning of `**/` (`DIV-002`). Where the pattern has a genuine `**/` component
+    -- adjacent to another, or inside a brace alternative, included -- the result is one top-level
+    alternation of brace-free variants with and without each such component; fd's glob has no
+    nested alternation, so the user's braces are distributed into it. Otherwise the text is exactly
+    Pi's, so every other construct keeps the meaning Pi's rewrite gives it on the pinned fd."""
+    alternatives = _brace_alternatives(pattern)
+    if alternatives is None:
+        return _pi_windows_rewrite(pattern)
+    expanded = [_zero_directory_variants(sequence) for sequence in alternatives]
+    if all(variants is None for variants in expanded):
+        return _pi_windows_rewrite(pattern)
+    rendered: list[str] = []
+    for sequence, variants in zip(alternatives, expanded, strict=True):
+        if variants is None:
+            components: list[list[_Atom]] = [[]]
+            for atom in sequence:
+                if atom is None:
+                    components.append([])
+                else:
+                    components[-1].append(atom)
+            variants = [components]
+        for variant in variants:
+            text = _SEPARATOR_CLASS.join(
+                "".join(
+                    f"[{source}]"
+                    if plain and source in ",{}"
+                    else source.replace("/", _SEPARATOR_CLASS)
+                    for source, plain in component
+                )
+                for component in variant
+            )
+            if text not in rendered:
+                rendered.append(text)
+    return rendered[0] if len(rendered) == 1 else "{" + ",".join(rendered) + "}"
 
 
 async def _exists(fs: FileSystem, platform: Platform, path: str) -> bool:

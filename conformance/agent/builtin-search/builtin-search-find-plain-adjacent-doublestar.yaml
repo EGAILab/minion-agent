@@ -1,0 +1,26 @@
+name: builtin-search-find-plain-adjacent-doublestar
+family: agent
+authority: minion-agent-docs spec/tools.md WP-13.4 (master f3ae3ced); pinned-Pi search_probe outputs
+pi_revision: b7bb00b936dbe21b8e160b3e89efdec361846699
+requirements:
+- TOOL-036
+- TOOL-036-DIV-002
+witnesses:
+- builtin_search_find_plain_adjacent_doublestar
+builtin_search:
+  tool: find
+  corpus: plain
+  arguments:
+    pattern: src/**/**/*.spec.ts
+  expect:
+    win32: &id001
+      is_error: false
+      mode: find_multiset
+      entries:
+      - src/b.spec.ts
+      - src/sub/d.spec.ts
+      - src/sub/deep/er/e.spec.ts
+      notice: null
+      details: {}
+    linux: *id001
+notes: 'DIV-002: the win32 expectation is the corrected result (Windows equals Linux). Pinned Pi''s own Windows result, the divergence''s reference side: {"is_error": false, "mode": "find_multiset", "entries": ["src/sub/deep/er/e.spec.ts"], "notice": null, "details": {}}'

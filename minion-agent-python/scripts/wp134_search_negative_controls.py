@@ -229,8 +229,8 @@ CONTROLS: dict[str, Control] = {
         [
             (
                 FIND,
-                '        if depth == 0 and pattern.startswith("/**/", index):\n',
-                "        if False:\n",
+                "    alternatives = _brace_alternatives(pattern)\n",
+                "    return _pi_windows_rewrite(pattern)\n",
             )
         ],
         [
@@ -297,6 +297,48 @@ CONTROLS: dict[str, Control] = {
         ],
         [f"{UNIT}::test_relativize_and_node_paths"],
         "`c:\\R\\a\\` under `C:\\r` relativizes through `..` instead of to `a/`",
+    ),
+    # Remediation 1 (WP134-IMPL-R001, R002): the reviewed defects, as single-point mutants.
+    "abort_flag_lost_at_completion": Control(
+        [
+            (
+                GREP,
+                "            and signal.aborted\n        ):\n",
+                "            and signal.aborted\n            and False\n        ):\n",
+            )
+        ],
+        [f"{UNIT}::test_grep_keeps_an_abort_that_lands_just_before_completion"],
+        "R001: an abort after registration, unseen by the polling watcher, gives the match instead of `Operation aborted`",
+    ),
+    "doublestar_in_braces_left_to_pi": Control(
+        [
+            (
+                FIND,
+                "    alternatives = _brace_alternatives(pattern)\n",
+                '    alternatives = None if "{" in pattern else _brace_alternatives(pattern)\n',
+            )
+        ],
+        [
+            f"{UNIT}::test_windows_full_path_normalization",
+            _scenario("builtin-search-find-plain-brace-alternative-doublestar"),
+        ],
+        "R002: `{src/**/b.spec.ts,none}` misses src/b.spec.ts on Windows",
+    ),
+    "adjacent_doublestar_not_optional": Control(
+        [
+            (
+                FIND,
+                "    kept = [c for i, c in enumerate(components) if not (recursive(i) and recursive(i - 1))]\n"
+                "    components = kept\n"
+                "    optional = [i for i in range(len(components)) if recursive(i)]\n",
+                "    optional = [i for i in range(len(components)) if recursive(i) and not recursive(i - 1)]\n",
+            )
+        ],
+        [
+            f"{UNIT}::test_windows_full_path_normalization",
+            _scenario("builtin-search-find-plain-adjacent-doublestar"),
+        ],
+        "R002: `src/**/**/*.spec.ts` misses the direct file on Windows",
     ),
 }
 

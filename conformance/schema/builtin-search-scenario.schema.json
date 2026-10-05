@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$comment": "Layer 13 WP-13.4 `find`/`grep` canonical shape, discriminated by a top-level `builtin_search` key, in conformance/agent/builtin-search/. A runner builds the named corpus from conformance/agent/builtin-search/corpus.json in a fresh temporary directory that has no `.git` above it, constructs the real tool over the real local ctx.fs and ctx.subprocess with the CERTIFIED pinned engine store (TOOL-038), and runs the case through the real Layer 06 execute pipeline. Expectations are generated from the pinned-Pi search_probe outputs (minion-agent-docs assurance/layers/data/13-wp134/out/search-{win32,linux}.json), keyed by host platform; a host whose platform has no expectation skips the case. Normalization, never behaviour: the corpus root becomes `<ROOT>` in the result text and details. Cross-entry and cross-file order is unspecified (Owner Q2), so `mode` selects an order-insensitive comparison: `find_multiset` (formatted entries as a multiset), `find_subset` (a limited result: exactly `count` entries, a sub-multiset of `of`), `grep_by_file` (each file's lines exact, in order and contiguous; files in any order), `summary` (bulk: counts, bytes, notice and details without the order-dependent truncation content), `exact`.",
+  "$comment": "Layer 13 WP-13.4 `find`/`grep` canonical shape, discriminated by a top-level `builtin_search` key, in conformance/agent/builtin-search/. A runner builds the named corpus from conformance/agent/builtin-search/corpus.json in a fresh temporary directory that has no `.git` above it, constructs the real tool over the real local ctx.fs and ctx.subprocess with the CERTIFIED pinned engine store (TOOL-038), and runs the case through the real Layer 06 execute pipeline. Expectations are generated from the pinned-Pi search_probe outputs (minion-agent-docs assurance/layers/data/13-wp134/out/search-{win32,linux}.json), keyed by host platform; a host whose platform has no expectation skips the case. Normalization, never behaviour: the corpus root becomes `<ROOT>` in the result text and details. Cross-entry and cross-file order is unspecified (Owner Q2), so `mode` selects an order-insensitive comparison: `find_multiset` (formatted entries as a multiset), `find_subset` (a limited result: exactly `count` entries, a sub-multiset of `of`), `grep_by_file` (each file's lines exact, in order and contiguous; files in any order; under a match limit or byte truncation which files survive is unspecified and only the last block may stop early, as a prefix of its block), `exact`. In every mode the notice is exact and the details are exact except `truncation.content`, which expectations omit and which must equal the returned body. The bulk cases use the same modes over members derived from the bulk corpus and checked against the recorded observations (WP134-IMPL-R003).",
   "type": "object",
   "required": ["name", "family", "authority", "pi_revision", "requirements", "witnesses", "builtin_search"],
   "additionalProperties": false,
@@ -37,14 +37,12 @@
       "additionalProperties": false,
       "properties": {
         "is_error": { "type": "boolean" },
-        "mode": { "enum": ["exact", "find_multiset", "find_subset", "grep_by_file", "summary"] },
+        "mode": { "enum": ["exact", "find_multiset", "find_subset", "grep_by_file"] },
         "text": { "type": "string" },
         "entries": { "type": "array", "items": { "type": "string" } },
         "count": { "type": "integer", "minimum": 0 },
         "of": { "type": "array", "items": { "type": "string" } },
         "files": { "type": "object", "additionalProperties": { "type": "array", "items": { "type": "string" } } },
-        "lines": { "type": "integer", "minimum": 0 },
-        "body_bytes": { "type": "integer", "minimum": 0 },
         "notice": { "type": ["string", "null"] },
         "details": { "type": "object" }
       },
@@ -52,8 +50,7 @@
         { "if": { "properties": { "mode": { "const": "exact" } } }, "then": { "required": ["text"] } },
         { "if": { "properties": { "mode": { "const": "find_multiset" } } }, "then": { "required": ["entries", "notice"] } },
         { "if": { "properties": { "mode": { "const": "find_subset" } } }, "then": { "required": ["count", "of", "notice"] } },
-        { "if": { "properties": { "mode": { "const": "grep_by_file" } } }, "then": { "required": ["files", "notice"] } },
-        { "if": { "properties": { "mode": { "const": "summary" } } }, "then": { "required": ["lines", "body_bytes", "notice"] } }
+        { "if": { "properties": { "mode": { "const": "grep_by_file" } } }, "then": { "required": ["files", "notice"] } }
       ]
     }
   }

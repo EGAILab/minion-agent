@@ -11,7 +11,8 @@ every binding builds the identical tree.
 Comparison modes follow spec/tools.md WP-13.4 "Result order" (Owner Q2): cross-entry and cross-file
 order is unspecified, so `find` results compare as a multiset (a limited result as a count plus a
 sub-multiset of its unlimited reference), `grep` output compares per file (each file's lines exact,
-in order, contiguous), and the bulk cases compare by summary.
+in order, contiguous). The bulk cases use the same modes over members derived from the bulk
+corpus and checked against the recorded observations.
 """
 
 from __future__ import annotations
@@ -19,6 +20,7 @@ from __future__ import annotations
 import json
 import re
 import sys
+from collections import Counter
 from pathlib import Path
 from typing import Any
 
@@ -148,12 +150,21 @@ def grep_files(body: str) -> dict[str, list[str]]:
     return files
 
 
+def _details(details: dict[str, Any] | None) -> dict[str, Any]:
+    """Expected details: exact, except `truncation.content`, which depends on which entries an
+    unspecified traversal kept; runners check it equals the returned body instead."""
+    result = dict(details or {})
+    if "truncation" in result:
+        result["truncation"] = {k: v for k, v in result["truncation"].items() if k != "content"}
+    return result
+
+
 def expectation(
     tool: str, case: str, observed: dict[str, Any], plat: dict[str, Any], kind: str
 ) -> dict[str, Any]:
     if not observed["ok"]:
         return {"is_error": True, "mode": "exact", "text": observed["error"], "details": {}}
-    text, details = observed["text"], observed["details"] or {}
+    text, details = observed["text"], _details(observed["details"])
     if text in ("No files found matching pattern", "No matches found", ""):
         return {"is_error": False, "mode": "exact", "text": text, "details": details}
     body, notice = _split_notice(text)
@@ -184,17 +195,39 @@ def expectation(
     }
 
 
-def summary_expectation(observed: dict[str, Any]) -> dict[str, Any]:
-    details = dict(observed["details"] or {})
-    if "truncation" in details:
-        details["truncation"] = {k: v for k, v in details["truncation"].items() if k != "content"}
+def bulk_expectation(tool: str, case: str, observed: dict[str, Any]) -> dict[str, Any]:
+    """The bulk cases (WP134-IMPL-R003). The authority run records a summary of each: its line
+    count, body bytes, last line, notice and details (for `find`, `truncation.content` is the body
+    itself). The allowed members are derived from the bulk corpus, formatted as Pi formats them,
+    and every recorded observation is checked against that derivation before it is used."""
+    corpus_files = corpus()["bulk"]["files"]
+    if tool == "find":
+        allowed = sorted(
+            name.removeprefix("many/") for name in corpus_files if name.startswith("many/")
+        )
+        body = observed["details"]["truncation"]["content"]
+        entries = body.split("\n")
+        assert len(entries) == observed["lines"] and entries[-1] == observed["lastLine"], case
+        assert len(body.encode("utf-8")) == observed["bodyBytes"], case
+        assert not Counter(entries) - Counter(allowed), case
+        return {
+            "is_error": False,
+            "mode": "find_subset",
+            "count": observed["lines"],
+            "of": allowed,
+            "notice": observed["notice"],
+            "details": _details(observed["details"]),
+        }
+    source = corpus_files["wide/w.txt"]["text"].split("\n")[:-1]
+    lines = [f"w.txt:{n}: {text}" for n, text in enumerate(source, 1)][: observed["lines"]]
+    assert lines[-1] == observed["lastLine"], case
+    assert len("\n".join(lines).encode("utf-8")) == observed["bodyBytes"], case
     return {
         "is_error": False,
-        "mode": "summary",
-        "lines": observed["lines"],
-        "body_bytes": observed["bodyBytes"],
+        "mode": "grep_by_file",
+        "files": {"w.txt": lines},
         "notice": observed["notice"],
-        "details": details,
+        "details": _details(observed["details"]),
     }
 
 
@@ -268,7 +301,20 @@ def main(out_dir: Path) -> None:
                 "bulk",
                 arguments,
                 plat_name,
-                summary_expectation(observed),
+                bulk_expectation(tool, case, observed),
+            )
+        # WP134-IMPL-R002: genuine `**/` components adjacent to another or inside braces
+        # (harness `components` mode, its own output beside the default run's).
+        components = out_dir / f"components-{plat_name}.json"
+        for key, observed in json.loads(components.read_text(encoding="utf-8"))["find"].items():
+            kind, case = key.split("/", 1)
+            add(
+                f"builtin-search-find-{kind}-{case}",
+                "find",
+                kind,
+                observed["args"],
+                plat_name,
+                expectation("find", case, observed, plat, kind),
             )
         for key, observed in plat.get("edges", {}).items():
             tool, case = key.split("/", 1)

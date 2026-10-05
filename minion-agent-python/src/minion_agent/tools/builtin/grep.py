@@ -195,6 +195,16 @@ def create_grep_tool(fs: FileSystem, subprocess: Subprocess, engines: Engines) -
             watcher.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await watcher
+        if (
+            not state["aborted"]
+            and not registered_aborted
+            and signal is not None
+            and signal.aborted
+        ):
+            # Pi's listener sets `aborted` synchronously; the polling watcher may not have run yet
+            # when the engine completes (WP134-IMPL-R001). Pi's onAbort also kills the child.
+            state["aborted"] = True
+            await terminate_quietly(run.process)
         if state["aborted"]:
             raise aborted()
         if not state["killed_for_limit"] and run.exit_code not in (0, 1):

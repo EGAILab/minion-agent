@@ -21,7 +21,8 @@ from typing import Any
 import pytest
 
 from minion_agent.execution import LocalFileSystem, Platform
-from minion_agent.execution.subprocess import LocalSubprocess
+from minion_agent.execution.result import Ok
+from minion_agent.execution.subprocess import ExitStatus, LocalSubprocess
 from minion_agent.execution.world import ExecutionWorldIdentity
 from minion_agent.runtime import RunAbortController
 from minion_agent.tools.builtin import search_engines
@@ -311,6 +312,73 @@ async def test_grep_does_not_observe_an_abort_before_spawn(engine: dict[str, Any
     fs, sp = LocalFileSystem(str(root)), LocalSubprocess(str(root))
     grep = create_grep_tool(fs, sp, _AbortingOverride(controller))  # type: ignore[arg-type]
     assert await _run(grep, {"pattern": "x"}, controller.signal) == ("a.ts:1: x", {})
+
+
+class _ScriptedStream:
+    """An in-memory engine pipe: its chunks, then EOF, with no real I/O between reads."""
+
+    def __init__(self, chunks: list[bytes], on_read: Any = None) -> None:
+        self.chunks, self.on_read = chunks, on_read
+
+    async def read_chunk(self) -> Any:
+        if not self.chunks:
+            return Ok(None)
+        if self.on_read is not None:
+            self.on_read()
+        return Ok(self.chunks.pop(0))
+
+    async def close(self) -> None:
+        return None
+
+
+class _ScriptedProcess:
+    def __init__(self, stdout: _ScriptedStream) -> None:
+        self.stdout, self.stderr, self.terminated = stdout, _ScriptedStream([]), 0
+
+    async def wait(self) -> Any:
+        return Ok(ExitStatus(0))
+
+    async def terminate(self) -> None:
+        self.terminated += 1
+
+
+class _ScriptedSubprocess(LocalSubprocess):
+    """Spawns a scripted process whose first stdout read aborts the call's signal: the abort lands
+    after grep's listener registration, and the run completes within the same event-loop turns,
+    before any polling tick (WP134-IMPL-R001)."""
+
+    def __init__(self, cwd: str, controller: RunAbortController, abort_on: str) -> None:
+        super().__init__(cwd)
+        self.controller, self.abort_on = controller, abort_on
+        self.processes: list[_ScriptedProcess] = []
+
+    async def spawn(self, argv: Any, options: Any = None) -> Any:
+        if self.abort_on == "spawn":
+            self.controller.abort()
+        on_read = self.controller.abort if self.abort_on == "first_read" else None
+        line = _match(str(Path(self.cwd) / "a.ts"), 1) + "\n"
+        process = _ScriptedProcess(_ScriptedStream([line.encode()], on_read))
+        self.processes.append(process)
+        return Ok(process)
+
+
+async def test_grep_keeps_an_abort_that_lands_just_before_completion(tmp_path: Path) -> None:
+    """Pi grep.ts: the listener, registered after spawn, sets `aborted` synchronously and the close
+    handler rejects, even when the engine then exits 0 with a match; onAbort kills the child."""
+    controller = RunAbortController()
+    sp = _ScriptedSubprocess(str(tmp_path), controller, "first_read")
+    grep = create_grep_tool(LocalFileSystem(str(tmp_path)), sp, OVERRIDE)
+    assert await _run(grep, {"pattern": "x"}, controller.signal) == ("ERR Operation aborted", {})
+    assert sp.processes[0].terminated == 1
+
+
+async def test_grep_ignores_an_abort_before_its_listener_registration(tmp_path: Path) -> None:
+    """An abort during spawn precedes the registration: Pi's listener never fires for it."""
+    controller = RunAbortController()
+    sp = _ScriptedSubprocess(str(tmp_path), controller, "spawn")
+    grep = create_grep_tool(LocalFileSystem(str(tmp_path)), sp, OVERRIDE)
+    assert await _run(grep, {"pattern": "x"}, controller.signal) == ("a.ts:1: x", {})
+    assert sp.processes[0].terminated == 0
 
 
 async def test_find_aborted_during_engine_resolution(engine: dict[str, Any]) -> None:
@@ -676,13 +744,47 @@ def test_host_platform_and_default_store() -> None:
 
 
 def test_windows_full_path_normalization() -> None:
+    """DIV-002: each genuine `**/` component is optional in one top-level alternation (fd's glob has
+    no nested alternation); adjacent components collapse; the user's braces are distributed."""
     s = SEP_CLASS
-    assert _windows_full_path("**/src/**/*.spec.ts") == f"**{s}src{{{s},{s}**{s}}}*.spec.ts"
-    assert _windows_full_path("**/a/**/b/**/c") == f"**{s}a{{{s},{s}**{s}}}b{{{s},{s}**{s}}}c"
-    assert _windows_full_path("**/src/*.ts") == f"**{s}src{s}*.ts"
-    assert _windows_full_path("**/{a/**/b,c}/x") == f"**{s}{{a{s}**{s}b,c}}{s}x"
-    # Outside a real `/**/` component, the text is exactly Pi's `replaceAll("/", "[/\\]")`.
-    for pi_scope in ("**/a\\/b/[/]x", "**/[", "**/a\\*/b", "**/x\\/**\\/y", "**/[/**/]z", "/abs/x"):
+    d = f"**{s}"  # the pattern-initial component, never optional
+
+    def alternation(*variants: str) -> str:
+        return "{" + ",".join(d + v for v in variants) + "}"
+
+    assert _windows_full_path("**/src/**/*.spec.ts") == alternation(
+        f"src{s}**{s}*.spec.ts", f"src{s}*.spec.ts"
+    )
+    assert _windows_full_path("**/src/**/**/*.spec.ts") == _windows_full_path("**/src/**/*.spec.ts")
+    assert _windows_full_path("**/a/**/b/**/c") == alternation(
+        f"a{s}**{s}b{s}**{s}c", f"a{s}b{s}**{s}c", f"a{s}**{s}b{s}c", f"a{s}b{s}c"
+    )
+    assert _windows_full_path("**/{src/**/b.ts,none}") == alternation(
+        f"src{s}**{s}b.ts", f"src{s}b.ts", "none"
+    )
+    assert _windows_full_path("**/{a,b}/**/x") == alternation(
+        f"a{s}**{s}x", f"a{s}x", f"b{s}**{s}x", f"b{s}x"
+    )
+    # Plain `,` `{` `}` keep their literal meaning inside the generated alternation.
+    assert _windows_full_path("**/a,b}/**/x") == alternation(
+        f"a[,]b[}}]{s}**{s}x", f"a[,]b[}}]{s}x"
+    )
+    # Without a genuine `**/` component -- or when the braces or a class are not well formed --
+    # the text is exactly Pi's `replaceAll("/", "[/\\]")`.
+    for pi_scope in (
+        "**/src/*.ts",
+        "**/a\\/b/[/]x",
+        "**/[",
+        "**/a\\*/b",
+        "**/x\\/**\\/y",
+        "**/[/**/]z",
+        "/abs/x",
+        "**/x",
+        "**/src/**",
+        "**/{a,b}/c",
+        "**/{a/**/{b,c}}/x",
+        "**/{a/**/b",
+    ):
         assert _windows_full_path(pi_scope) == pi_scope.replace("/", s)
 
 

@@ -7332,6 +7332,87 @@ rows:
   python: 'minion_agent/tools/builtin/bash_output.py and the bash.py _Run persistence. Certified (WP-13.3; Python #146 -> 649927a2; final review minion-agent#146 issuecomment-5977177480).'
   rust: 'Certified (WP-13.3; Rust #150 -> 62f0c129; closure review minion-agent#150 issuecomment-5979787676): minion-agent-rust/crates/minion-agent/src/tools/builtin/bash_output.rs and bash.rs ordered persistence; tests/data/bash-boundary.json (pinned-Pi boundary replay); bash_tests.rs slow/gated persistence, cancellation, merged decoder and status witnesses; tests/builtin_bash_conformance.rs raw-file hashes and truncated observations; scripts/bash-negative-controls.py. Assurance: assurance/layers/13-wp133-rust-implementation.md.'
   disposition: adopted
+- id: TOOL-036
+  phase: 6
+  pi: packages/coding-agent/src/core/tools/find.ts (relativizeFindResultPath, execute default implementation);
+    core/tools/path-utils.ts resolveToCwd/pathExists; core/tools/truncate.ts truncateHead
+  surface: Layer 13, WP-13.4 -- the find tool definition and schema, fd argument vector (repository scoping,
+    full-path handling), output collection, relativization, limits, truncation and notices
+  rule: 'CONTRACT_DRAFT (WP-13.4, minion-agent#51; DIRECT_PI_PARITY for the wrapper; matching delegated to the pinned
+    fd 10.4.2, TOOL-038; Owner Q1-Q3 minion-agent#51 issuecomment-5988502021). Cross-entry order is
+    ENGINE_DEFINED_UNSPECIFIED (Owner Q2), so conformance compares unlimited results as a multiset of formatted
+    entries (distinct paths can format identically after Pi''s trim, WP134-CON-R002) and limited results by count
+    and as a sub-multiset, with notices and details exact (WP134-CON-R004). Pi quirks kept exact (limit 0 unlimited with its notice; trimmed names; fd stderr verbatim). The
+    Windows full-path ** zero-directory meaning is DIV-002 (row TOOL-036-DIV-002). Full rules: spec/tools.md,
+    WP-13.4, find.'
+  tests:
+  - assurance/layers/13-wp134-search-characterization.md and data/13-wp134/ (pinned-Pi probe search_probe.mjs, out/search-{win32,linux}.json, engines.json)
+  python: NOT_IMPLEMENTED
+  rust: NOT_IMPLEMENTED
+  disposition: adopted
+- id: TOOL-036-DIV-002
+  phase: 6
+  pi: packages/coding-agent/src/core/tools/find.ts (Windows rewrite of every "/" to [/\\] in a full-path pattern)
+  surface: Layer 13, WP-13.4 -- Windows find full-path glob zero-directory semantics
+  rule: 'DIV-002 (assurance/pi-divergences.md; Owner WP-13.4 Q1 = Option A, minion-agent#51
+    issuecomment-5988502021). On Windows each "**/" component of a full-path find pattern keeps its zero-or-more
+    whole-directory meaning while accepting either separator, so Windows results equal Linux results (Pi on Windows
+    misses src/b.spec.ts for src/**/*.spec.ts). Observable behaviour only; scoped to "**/": a single-segment "*"
+    keeps Pi''s Windows meaning on the pinned fd (parity).'
+  tests:
+  - assurance/layers/data/13-wp134/out/search-{win32,linux}.json find/*/full-path-* (Pi reference side)
+  - assurance/layers/data/13-wp134/out/div002-win32.json (harness/div002_probe.mjs feasibility evidence)
+  python: NOT_IMPLEMENTED
+  rust: NOT_IMPLEMENTED
+  disposition: intentional divergence
+- id: TOOL-037
+  phase: 6
+  pi: packages/coding-agent/src/core/tools/grep.ts (execute default implementation, defaultGrepOperations);
+    core/tools/truncate.ts truncateHead/truncateLine/GREP_MAX_LINE_LENGTH
+  surface: Layer 13, WP-13.4 -- the grep tool definition and schema, rg argument vector, JSON event collection,
+    Pi-owned context reconstruction, line and output truncation, notices
+  rule: 'CONTRACT_DRAFT (WP-13.4, minion-agent#51; DIRECT_PI_PARITY for the wrapper; matching delegated to the pinned
+    ripgrep 15.2.0, TOOL-038). Per-file matches contiguous and ascending; cross-file order unspecified (Owner Q2).
+    Pi quirks kept exact: no --no-require-git (outside a repository .gitignore is not honoured), Math.max(1, limit),
+    fractional context and limit, unmerged overlapping windows, BOM kept in re-read context lines, uncollected
+    matches counted (empty text for a non-UTF-8 path), truncateLine in UTF-16 code units. Full rules:
+    spec/tools.md, WP-13.4, grep.'
+  tests:
+  - assurance/layers/13-wp134-search-characterization.md and data/13-wp134/ (pinned-Pi probe search_probe.mjs, out/search-{win32,linux}.json, engines.json)
+  python: NOT_IMPLEMENTED
+  rust: NOT_IMPLEMENTED
+  disposition: adopted
+- id: TOOL-038
+  phase: 6
+  pi: packages/coding-agent/src/utils/tools-manager.ts (ensureTool, getToolPath, getLatestVersion, getAssetName)
+  surface: Layer 13, WP-13.4 -- the pinned search engines fd 10.4.2 and ripgrep 15.2.0 (win32-x64, linux-x64),
+    their artifact and binary SHA-256, explicit provisioning and use-time verification
+  rule: 'CONTRACT_DRAFT (WP-13.4, minion-agent#51; Owner TOOL-038 = EXACT_MINION_PINNED_ENGINES, #51 state block; Owner
+    Q3 = DIV-003). The pinned engines are the delegated semantic authority for matching; Minion never reimplements fd
+    glob or ripgrep regex semantics. Exact identities in spec/tools.md WP-13.4 and
+    assurance/layers/data/13-wp134/engines.json; an upgrade is an explicit contract change. Certified for the local
+    execution world on win32-x64 and linux-x64; no PATH fallback; an explicit override is uncertified.'
+  tests:
+  - assurance/layers/data/13-wp134/engines.json (artifact SHA-256 equal to GitHub release digests and ripgrep's
+    .sha256; binary SHA-256; --version on both platforms)
+  python: NOT_IMPLEMENTED
+  rust: NOT_IMPLEMENTED
+  disposition: adopted
+- id: TOOL-038-DIV-003
+  phase: 6
+  pi: packages/coding-agent/src/utils/tools-manager.ts (tool-call-time acquisition -- managed cache, then PATH, then a
+    latest-release download)
+  surface: Layer 13, WP-13.4 -- search-engine acquisition timing and mechanism
+  rule: 'DIV-003 (assurance/pi-divergences.md; Owner WP-13.4 Q3 = Option B, minion-agent#51
+    issuecomment-5988502021). Engines are provisioned explicitly (provision_search_engines: certified platform
+    artifact only, artifact SHA-256 before extraction, binary SHA-256 after, atomic install, idempotent); a find or
+    grep call never touches the network or PATH and verifies the binary hash before every spawn; unavailable engines
+    produce Minion-owned text naming the engine, the reason and the provisioning action.'
+  tests:
+  - spec/tools.md WP-13.4 "Witnesses and evidence" item 2 (to be implemented with the WP-13.4 code candidate)
+  python: NOT_IMPLEMENTED
+  rust: NOT_IMPLEMENTED
+  disposition: intentional divergence
 - id: TOOL-039
   phase: 6
   pi: 'no single Pi-authored template for this vocabulary itself -- pinned Pi''s own error TEXT at each

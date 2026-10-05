@@ -1,0 +1,24 @@
+name: builtin-search-find-components-rejected-invalid-range
+family: agent
+authority: minion-agent-docs spec/tools.md WP-13.4 (master f3ae3ced); pinned-Pi search_probe outputs
+pi_revision: b7bb00b936dbe21b8e160b3e89efdec361846699
+requirements:
+- TOOL-036
+witnesses:
+- builtin_search_find_components_rejected_invalid_range
+builtin_search:
+  tool: find
+  corpus: components
+  arguments:
+    pattern: src/[z-a]/**/b.spec.ts
+  expect:
+    win32:
+      is_error: true
+      mode: exact
+      text: '[fd error]: error parsing glob ''**[/\\]src[/\\][z-a][/\\]**[/\\]b.spec.ts'': invalid range; ''z'' > ''a'''
+      details: {}
+    linux:
+      is_error: true
+      mode: exact
+      text: '[fd error]: error parsing glob ''**/src/[z-a]/**/b.spec.ts'': invalid range; ''z'' > ''a'''
+      details: {}

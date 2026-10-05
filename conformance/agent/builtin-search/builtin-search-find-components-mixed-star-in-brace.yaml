@@ -1,0 +1,33 @@
+name: builtin-search-find-components-mixed-star-in-brace
+family: agent
+authority: minion-agent-docs spec/tools.md WP-13.4 (master f3ae3ced); pinned-Pi search_probe outputs
+pi_revision: b7bb00b936dbe21b8e160b3e89efdec361846699
+requirements:
+- TOOL-036
+- TOOL-036-DIV-002
+witnesses:
+- builtin_search_find_components_mixed_star_in_brace
+builtin_search:
+  tool: find
+  corpus: components
+  arguments:
+    pattern: '{src/**/a*.ts,none}'
+  expect:
+    win32:
+      is_error: false
+      mode: find_multiset
+      entries:
+      - src/a.ts
+      - src/a/sub/b.ts
+      - src/sub/a.ts
+      notice: null
+      details: {}
+    linux:
+      is_error: false
+      mode: find_multiset
+      entries:
+      - src/a.ts
+      - src/sub/a.ts
+      notice: null
+      details: {}
+notes: 'CE-L13-WP134-01 composition rule: the win32 expectation is the union of pinned Pi''s Windows results for the keep/remove variants ["{src/**/a*.ts,none}", "{src/a*.ts,none}"]; a retained Pi-scope construct makes it differ from Linux. Pinned Pi''s own Windows result, the divergence''s reference side: {"is_error": false, "mode": "find_multiset", "entries": ["src/sub/a.ts"], "notice": null, "details": {}}'

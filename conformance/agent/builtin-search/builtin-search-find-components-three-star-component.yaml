@@ -1,0 +1,32 @@
+name: builtin-search-find-components-three-star-component
+family: agent
+authority: minion-agent-docs spec/tools.md WP-13.4 (master f3ae3ced); pinned-Pi search_probe outputs
+pi_revision: b7bb00b936dbe21b8e160b3e89efdec361846699
+requirements:
+- TOOL-036
+- TOOL-036-DIV-002
+witnesses:
+- builtin_search_find_components_three_star_component
+builtin_search:
+  tool: find
+  corpus: components
+  arguments:
+    pattern: src/***/**/*.spec.ts
+  expect:
+    win32:
+      is_error: false
+      mode: find_multiset
+      entries:
+      - src/sub/d.spec.ts
+      - src/sub/deep/er/e.spec.ts
+      notice: null
+      details: {}
+    linux:
+      is_error: false
+      mode: find_multiset
+      entries:
+      - src/sub/d.spec.ts
+      - src/sub/deep/er/e.spec.ts
+      notice: null
+      details: {}
+notes: 'CE-L13-WP134-01 composition rule: the win32 expectation is the union of pinned Pi''s Windows results for the keep/remove variants ["src/***/**/*.spec.ts", "src/***/*.spec.ts"]; it equals Linux. Pinned Pi''s own Windows result, the divergence''s reference side: {"is_error": false, "mode": "find_multiset", "entries": ["src/sub/deep/er/e.spec.ts"], "notice": null, "details": {}}'

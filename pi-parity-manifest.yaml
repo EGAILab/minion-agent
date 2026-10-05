@@ -7347,7 +7347,7 @@ rows:
     WP-13.4, find.'
   tests:
   - assurance/layers/13-wp134-search-characterization.md and data/13-wp134/ (pinned-Pi probe search_probe.mjs, out/search-{win32,linux}.json, engines.json)
-  - minion-agent-python/tests/conformance/test_builtin_search_conformance.py over conformance/agent/builtin-search/ (196 generated scenarios, corpus.json; multiset / sub-multiset / per-file comparison, bulk members derived and cross-checked, WP134-IMPL-R003)
+  - minion-agent-python/tests/conformance/test_builtin_search_conformance.py over conformance/agent/builtin-search/ (219 generated scenarios incl. 28 CE-L13-WP134-01 components cases, corpus.json; multiset / sub-multiset / per-file comparison, bulk members derived and cross-checked, WP134-IMPL-R003)
   - minion-agent-python/tests/tools/builtin/test_search.py (argv vectors, unsorted-stream preservation, duplicates, emptiness before trim, cancellation, relativization, readline)
   - minion-agent-python/scripts/wp134_search_negative_controls.py (intended-witness kills, section 9.7)
   python: 'minion_agent/tools/builtin/find.py, _search.py, _node_path.py, _readline.py. Implementation candidate (WP-13.4, minion-agent#51; contract minion-agent-docs#247 -> f3ae3ced, minion-agent#152 -> fc1a1af0), pending independent review.'
@@ -7365,7 +7365,7 @@ rows:
   tests:
   - assurance/layers/data/13-wp134/out/search-{win32,linux}.json find/*/full-path-* (Pi reference side)
   - assurance/layers/data/13-wp134/out/div002-win32.json (harness/div002_probe.mjs feasibility evidence)
-  - conformance/agent/builtin-search/builtin-search-find-{plain,repo}-full-path-{spec,deep,two-doublestar}.yaml and builtin-search-find-plain-{adjacent-doublestar,brace-alternative-doublestar,brace-before-doublestar,doublestar-in-brace-after}.yaml (win32 expectation = corrected result; Pi reference side in notes; WP134-IMPL-R002)
+  - conformance/agent/builtin-search/builtin-search-find-{plain,repo}-full-path-{spec,deep,two-doublestar}.yaml and builtin-search-find-components-*.yaml (CE-L13-WP134-01 composition rule -- the win32 expectation is the union of Pi's Windows results over keep/remove of each recursive component, from the harness components mode; Pi reference side in notes)
   - minion-agent-python/tests/tools/builtin/test_search.py::test_windows_full_path_normalization (outside /**/ the text is exactly Pi's rewrite)
   python: 'minion_agent/tools/builtin/find.py _windows_full_path. Implementation candidate (WP-13.4, minion-agent#51; contract minion-agent-docs#247 -> f3ae3ced, minion-agent#152 -> fc1a1af0), pending independent review.'
   rust: NOT_IMPLEMENTED
@@ -7385,7 +7385,7 @@ rows:
   tests:
   - assurance/layers/13-wp134-search-characterization.md and data/13-wp134/ (pinned-Pi probe search_probe.mjs, out/search-{win32,linux}.json, engines.json)
   - minion-agent-python/tests/conformance/test_builtin_search_conformance.py over conformance/agent/builtin-search/ (grep scenarios, per-file blocks exact)
-  - minion-agent-python/tests/tools/builtin/test_search.py (argv vectors, uncollected counting, limits, context reconstruction, truncateLine units, abort registration)
+  - minion-agent-python/tests/tools/builtin/test_search.py (argv vectors, uncollected counting, limits, context reconstruction, truncateLine units, abort registration; test_abort_window_partition, the CE-L13-WP134-01 14-cell abort window)
   - minion-agent-python/scripts/wp134_search_negative_controls.py
   python: 'minion_agent/tools/builtin/grep.py, _search.py. Implementation candidate (WP-13.4, minion-agent#51; contract minion-agent-docs#247 -> f3ae3ced, minion-agent#152 -> fc1a1af0), pending independent review.'
   rust: NOT_IMPLEMENTED

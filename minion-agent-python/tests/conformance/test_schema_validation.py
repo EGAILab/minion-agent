@@ -180,7 +180,7 @@ def test_builtin_bash_scenario_validates(scenario: Path) -> None:
 
 
 def test_builtin_search_scenarios_exist() -> None:
-    assert len(sorted(BUILTIN_SEARCH_DIR.glob("*.yaml"))) == 196
+    assert len(sorted(BUILTIN_SEARCH_DIR.glob("*.yaml"))) == 219
 
 
 @pytest.mark.parametrize(

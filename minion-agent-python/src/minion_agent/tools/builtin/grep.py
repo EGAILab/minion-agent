@@ -27,11 +27,13 @@ from ._js import math_max, math_min, number_to_string
 from ._node_path import NodePath
 from ._search import (
     MAX_SAFE_INTEGER,
+    AbortWindow,
     resolve_engine,
     spawn_engine,
     terminate_quietly,
     truncation_result,
 )
+from ._signal import _POLL_INTERVAL_S
 from ._utf16 import decode_utf8, from_units, to_units
 from .bash_shell import js_trim
 from .paths import BuiltinToolError, aborted, preprocess_path
@@ -178,34 +180,25 @@ def create_grep_tool(fs: FileSystem, subprocess: Subprocess, engines: Engines) -
                 return True
             return False
 
-        registered_aborted = signal is not None and signal.aborted
+        # Pi's listener is registered after spawn (an abort before it is never observed) and is
+        # removed at engine completion (CE-L13-WP134-01): the window latches there.
+        window = AbortWindow(signal)
 
-        async def watch_abort() -> None:  # Pi's onAbort, registered after spawn
-            if signal is None or registered_aborted:
-                return
-            while not signal.aborted:
-                await asyncio.sleep(0.01)
-            state["aborted"] = True
-            await terminate_quietly(run.process)
+        async def watch_abort() -> None:  # Pi's onAbort: aborted = true; stopChild()
+            while window.open and not window.fired():
+                await asyncio.sleep(_POLL_INTERVAL_S)
+            if window.fired():
+                state["aborted"] = True
+                await terminate_quietly(run.process)
 
         watcher = asyncio.ensure_future(watch_abort())
         try:
-            await run.run(on_line)
+            await run.run(on_line, window.close)
         finally:
             watcher.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await watcher
-        if (
-            not state["aborted"]
-            and not registered_aborted
-            and signal is not None
-            and signal.aborted
-        ):
-            # Pi's listener sets `aborted` synchronously; the polling watcher may not have run yet
-            # when the engine completes (WP134-IMPL-R001). Pi's onAbort also kills the child.
-            state["aborted"] = True
-            await terminate_quietly(run.process)
-        if state["aborted"]:
+        if state["aborted"] or window.observed:
             raise aborted()
         if not state["killed_for_limit"] and run.exit_code not in (0, 1):
             code = "null" if run.exit_code is None else str(run.exit_code)

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+from collections.abc import Coroutine
 from typing import Any
 
 from ...execution import Err, FileSystem, Platform, Subprocess
@@ -22,12 +23,14 @@ from ._js import number_to_string
 from ._node_path import NodePath
 from ._search import (
     MAX_SAFE_INTEGER,
+    AbortWindow,
+    EngineRun,
     resolve_engine,
     spawn_engine,
     terminate_quietly,
     truncation_result,
 )
-from ._signal import race_abort
+from ._signal import _ABANDONED, _POLL_INTERVAL_S, _discard
 from .bash_shell import js_trim
 from .paths import BuiltinToolError, aborted, preprocess_path
 from .search_engines import Engines
@@ -62,116 +65,113 @@ FIND_PARAMETERS: dict[str, Any] = {
 _SEPARATOR_CLASS = "[/\\\\]"  # Pi's String.raw`[/\\]`: either separator
 
 
-type _Atom = tuple[str, bool]  # (source text, is a plain single character)
-type _Sequence = list[_Atom | None]  # None is a plain "/" separator
+type _Token = tuple[str, str]  # (kind, source text): class | open | comma | close | star | lit
 
 
 def _pi_windows_rewrite(pattern: str) -> str:
     return pattern.replace("/", _SEPARATOR_CLASS)
 
 
-def _brace_alternatives(pattern: str) -> list[_Sequence] | None:
-    """The pattern as brace-free alternatives (fd's glob allows one level of `{a,b}`; alternation
-    distributes over concatenation), or None when it is not well formed -- nested or unclosed
-    braces, or an unclosed class -- which is then left to the engine exactly as Pi passes it. On
-    Windows fd's glob has no backslash escape: `\\` is an ordinary character."""
-    alternatives: list[_Sequence] = [[]]
-    group: list[_Sequence] | None = None
-    index = 0
-    while index < len(pattern):
-        char = pattern[index]
-        atom: _Atom | None
+def _lex(text: str) -> list[_Token]:
+    """Glob text as the pinned fd reads it on Windows (spec/tools.md WP-13.4, "Recursive components
+    and Pi-scope constructs"): no backslash escape; a class is "[", an optional "!" or "^", a
+    leading "]" as a member, then up to the next "]" (an unclosed "[" is an ordinary character);
+    "{" and "*" are syntax; "," and "}" are syntax only inside an open brace group."""
+    tokens: list[_Token] = []
+    index, depth = 0, 0
+    while index < len(text):
+        char = text[index]
         if char == "[":
-            end = pattern.find("]", index + 2)
-            if end == -1:
-                return None
-            atom, index = (pattern[index : end + 1], False), end + 1
-        else:
-            index += 1
-            if char == "{":
-                if group is not None:
-                    return None
-                group = [[]]
+            j = index + 1
+            if j < len(text) and text[j] in "!^":
+                j += 1
+            if j < len(text) and text[j] == "]":
+                j += 1
+            end = text.find("]", j)
+            if end != -1:
+                tokens.append(("class", text[index : end + 1]))
+                index = end + 1
                 continue
-            if group is not None and char == ",":
-                group.append([])
-                continue
-            if group is not None and char == "}":
-                alternatives = [done + option for done in alternatives for option in group]
-                group = None
-                continue
-            atom = None if char == "/" else (char, True)
-        if group is not None:
-            group[-1].append(atom)
+        if char == "{":
+            kind, depth = "open", depth + 1
+        elif char == "}" and depth:
+            kind, depth = "close", depth - 1
+        elif char == "," and depth:
+            kind = "comma"
         else:
-            for done in alternatives:
-                done.append(atom)
-    return None if group is not None else alternatives
-
-
-def _zero_directory_variants(sequence: _Sequence) -> list[list[list[_Atom]]] | None:
-    """`DIV-002`: the sequence split into components, once with and once without each genuine
-    `**/` component (a plain `**` component followed by a separator). The first component is
-    left alone: matched against an absolute path, it never stands for zero directories. A run of
-    adjacent `**/` components means the same as one. None when there is no such component."""
-    components: list[list[_Atom]] = [[]]
-    for atom in sequence:
-        if atom is None:
-            components.append([])
-        else:
-            components[-1].append(atom)
-
-    def recursive(i: int) -> bool:
-        return 0 < i < len(components) - 1 and components[i] == [("*", True), ("*", True)]
-
-    kept = [c for i, c in enumerate(components) if not (recursive(i) and recursive(i - 1))]
-    components = kept
-    optional = [i for i in range(len(components)) if recursive(i)]
-    if not optional:
-        return None
-    variants: list[list[list[_Atom]]] = []
-    for mask in range(1 << len(optional)):
-        dropped = {optional[bit] for bit in range(len(optional)) if mask >> bit & 1}
-        variants.append([c for i, c in enumerate(components) if i not in dropped])
-    return variants
+            kind = "star" if char == "*" else "lit"
+        tokens.append((kind, char))
+        index += 1
+    return tokens
 
 
 def _windows_full_path(pattern: str) -> str:
-    """The effective Windows full-path pattern. Pi rewrites every `/` to `[/\\]`, which loses the
-    zero-directory meaning of `**/` (`DIV-002`). Where the pattern has a genuine `**/` component
-    -- adjacent to another, or inside a brace alternative, included -- the result is one top-level
-    alternation of brace-free variants with and without each such component; fd's glob has no
-    nested alternation, so the user's braces are distributed into it. Otherwise the text is exactly
-    Pi's, so every other construct keeps the meaning Pi's rewrite gives it on the pinned fd."""
-    alternatives = _brace_alternatives(pattern)
-    if alternatives is None:
-        return _pi_windows_rewrite(pattern)
-    expanded = [_zero_directory_variants(sequence) for sequence in alternatives]
-    if all(variants is None for variants in expanded):
-        return _pi_windows_rewrite(pattern)
-    rendered: list[str] = []
-    for sequence, variants in zip(alternatives, expanded, strict=True):
-        if variants is None:
-            components: list[list[_Atom]] = [[]]
-            for atom in sequence:
-                if atom is None:
-                    components.append([])
-                else:
-                    components[-1].append(atom)
-            variants = [components]
-        for variant in variants:
-            text = _SEPARATOR_CLASS.join(
-                "".join(
-                    f"[{source}]"
-                    if plain and source in ",{}"
-                    else source.replace("/", _SEPARATOR_CLASS)
-                    for source, plain in component
-                )
-                for component in variant
-            )
-            if text not in rendered:
-                rendered.append(text)
-    return rendered[0] if len(rendered) == 1 else "{" + ",".join(rendered) + "}"
+    """The effective Windows full-path pattern (`DIV-002`, CE-L13-WP134-01). It starts from Pi's
+    rewrite (every `/` to `[/\\]`) read as the pinned fd reads it, and changes only the recursive
+    components: a `**` (exactly two stars) followed by a separator and preceded by a separator or
+    beginning a brace alternative; the pattern-initial one is left alone. `SEP ** SEP` becomes
+    `{SEP,SEP**SEP}` (adjacent components collapse into one); an alternative-start `** SEP rest`
+    becomes `** SEP rest,rest` -- the alternative duplicated without it, since the pinned fd never
+    lets an empty alternative match. Every other character is Pi's, so every other construct keeps
+    Pi's Windows meaning and the result is the component-local union the contract specifies."""
+    tokens = _lex(_pi_windows_rewrite(pattern))
+    count = len(tokens)
+
+    def is_sep(k: int) -> bool:
+        return 0 <= k < count and tokens[k] == ("class", _SEPARATOR_CLASS)
+
+    def is_double_star(k: int) -> bool:
+        return (
+            k + 1 < count
+            and tokens[k][0] == "star"
+            and tokens[k + 1][0] == "star"
+            and (k + 2 >= count or tokens[k + 2][0] != "star")
+            and (k == 0 or tokens[k - 1][0] != "star")
+        )
+
+    def alternative_end(k: int) -> int | None:
+        depth = 0
+        for j in range(k, count):
+            kind = tokens[j][0]
+            if kind == "open":
+                depth += 1
+            elif kind == "close":
+                if depth == 0:
+                    return j
+                depth -= 1
+            elif kind == "comma" and depth == 0:
+                return j
+        return None
+
+    def render(lo: int, hi: int) -> str:
+        out: list[str] = []
+        i = lo
+        while i < hi:
+            if (
+                i > 0
+                and is_double_star(i)
+                and is_sep(i + 2)
+                and (is_sep(i - 1) or tokens[i - 1][0] in ("open", "comma"))
+            ):
+                j = i + 3
+                while j + 2 <= hi and is_double_star(j) and is_sep(j + 2):
+                    j += 3
+                if is_sep(i - 1):
+                    sep = _SEPARATOR_CLASS
+                    out[-1:] = [f"{{{sep},{sep}**{sep}}}"]
+                    i = j
+                    continue
+                end = alternative_end(i)
+                if end is not None and end <= hi:
+                    rest = render(j, end)
+                    out.append(f"**{_SEPARATOR_CLASS}{rest},{rest}")
+                    i = end
+                    continue
+            out.append(tokens[i][1])
+            i += 1
+        return "".join(out)
+
+    return render(0, count)
 
 
 async def _exists(fs: FileSystem, platform: Platform, path: str) -> bool:
@@ -180,6 +180,29 @@ async def _exists(fs: FileSystem, platform: Platform, path: str) -> bool:
     if platform is Platform.WINDOWS:
         return not isinstance(await fs.file_info(path), Err)
     return not isinstance(await fs.probe_dir_entry(path), Err)
+
+
+async def _race_window[T](work: Coroutine[Any, Any, T], window: AbortWindow) -> T:
+    """Pi's find settles "Operation aborted" the moment its listener fires (onAbort -> settle), and
+    the listener lives from the call's start until engine completion (CE-L13-WP134-01). An abort
+    inside the window answers at once and leaves the work running (it stops the engine); once the
+    window has closed the work's own outcome stands."""
+    task = asyncio.ensure_future(work)
+
+    async def watch() -> None:
+        while window.open and not window.fired():
+            await asyncio.sleep(_POLL_INTERVAL_S)
+
+    watcher = asyncio.ensure_future(watch())
+    try:
+        await asyncio.wait({task, watcher}, return_when=asyncio.FIRST_COMPLETED)
+    finally:
+        watcher.cancel()
+    if task.done() or not window.fired():
+        return await task
+    _ABANDONED.add(task)
+    task.add_done_callback(_discard)
+    raise aborted()
 
 
 def relativize(line: str, search_path: str, node: NodePath) -> str:
@@ -199,14 +222,14 @@ def create_find_tool(fs: FileSystem, subprocess: Subprocess, engines: Engines) -
     node = NodePath(subprocess.platform)
 
     async def work(
-        pattern: str, path: str | None, limit: Any, signal: RunSignal | None
+        pattern: str, path: str | None, limit: Any, window: AbortWindow
     ) -> tuple[str, dict[str, Any]]:
         working = preprocess_path(path or ".")
         resolved = await fs.absolute_path(working)
         search_path = working if isinstance(resolved, Err) else resolved.value
         effective_limit = DEFAULT_LIMIT if limit is None else limit
         fd = await resolve_engine(engines, subprocess, "fd")
-        if signal is not None and signal.aborted:
+        if window.fired():
             raise aborted()
         args = ["--glob", "--color=never", "--hidden"]
         inside_repo = False
@@ -222,37 +245,57 @@ def create_find_tool(fs: FileSystem, subprocess: Subprocess, engines: Engines) -
         if not inside_repo:
             args.append("--no-require-git")
         args += ["--max-results", number_to_string(effective_limit)]
-        effective = pattern
+        pi_pattern = effective = pattern
         if "/" in pattern:
             args.append("--full-path")
+            prefixed = pattern
             if not pattern.startswith("/") and not pattern.startswith("**/") and pattern != "**":
-                effective = f"**/{pattern}"
+                prefixed = f"**/{pattern}"
+            pi_pattern = effective = prefixed
             if node.windows:
-                effective = _windows_full_path(effective)
-        args += ["--", effective, search_path]
+                pi_pattern = _pi_windows_rewrite(prefixed)
+                effective = _windows_full_path(prefixed)
 
-        run = await spawn_engine(subprocess, [*fd, *args], "Failed to run fd")
-        lines: list[str] = []
+        async def run_fd(glob: str, may_retry: bool) -> tuple[EngineRun, list[str], bool]:
+            run = await spawn_engine(
+                subprocess, [*fd, *args, "--", glob, search_path], "Failed to run fd"
+            )
+            lines: list[str] = []
+            rejected: list[bool] = []
 
-        def on_line(line: str) -> bool:
-            lines.append(line)
-            return False
+            def on_line(line: str) -> bool:
+                lines.append(line)
+                return False
 
-        async def watch_abort() -> None:  # Pi's onAbort: stopChild()
-            if signal is None:
-                return
-            while not signal.aborted:
-                await asyncio.sleep(0.01)
-            await terminate_quietly(run.process)
+            def complete() -> None:  # engine completion: the outcome is decided here
+                rejected.append(may_retry and run.exit_code != 0 and not "\n".join(lines))
+                if not rejected[0]:
+                    window.close()
 
-        watcher = asyncio.ensure_future(watch_abort())
-        try:
-            await run.run(on_line)
-        finally:
-            watcher.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await watcher
-        if signal is not None and signal.aborted:
+            async def watch_abort() -> None:  # Pi's onAbort: stopChild(), only while listening
+                while window.open and not window.fired():
+                    await asyncio.sleep(_POLL_INTERVAL_S)
+                if window.fired():
+                    await terminate_quietly(run.process)
+
+            watcher = asyncio.ensure_future(watch_abort())
+            try:
+                await run.run(on_line, complete)
+            finally:
+                watcher.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await watcher
+            return run, lines, bool(rejected) and rejected[0]
+
+        run, lines, rejected = await run_fd(effective, effective != pi_pattern)
+        if rejected:
+            # The corrected pattern was rejected (non-zero exit, no output): the result is Pi's own
+            # -- fd's outcome for Pi's rewritten text (CE-L13-WP134-01, rule 5). The abort window
+            # stays open across both runs.
+            if window.fired():
+                raise aborted()
+            run, lines, _ = await run_fd(pi_pattern, False)
+        if window.observed:  # decided at engine completion, not after the stream release
             raise aborted()
         output = "\n".join(lines)
         if run.exit_code != 0 and not output:
@@ -288,9 +331,10 @@ def create_find_tool(fs: FileSystem, subprocess: Subprocess, engines: Engines) -
     ) -> ToolResult:
         if signal is not None and signal.aborted:
             raise aborted()
-        text, details = await race_abort(
-            work(arguments["pattern"], arguments.get("path"), arguments.get("limit"), signal),
-            signal,
+        window = AbortWindow(signal)
+        text, details = await _race_window(
+            work(arguments["pattern"], arguments.get("path"), arguments.get("limit"), window),
+            window,
         )
         return ToolResult(
             tool_call_id=tool_call_id,

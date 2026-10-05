@@ -364,12 +364,13 @@ class _ScriptedSubprocess(LocalSubprocess):
 
 async def test_grep_keeps_an_abort_that_lands_just_before_completion(tmp_path: Path) -> None:
     """Pi grep.ts: the listener, registered after spawn, sets `aborted` synchronously and the close
-    handler rejects, even when the engine then exits 0 with a match; onAbort kills the child."""
+    handler rejects, even when the engine then exits 0 with a match. (Here the engine has already
+    exited when the abort is latched, so stopping it -- Pi's `kill()` -- has no observable
+    effect.)"""
     controller = RunAbortController()
     sp = _ScriptedSubprocess(str(tmp_path), controller, "first_read")
     grep = create_grep_tool(LocalFileSystem(str(tmp_path)), sp, OVERRIDE)
     assert await _run(grep, {"pattern": "x"}, controller.signal) == ("ERR Operation aborted", {})
-    assert sp.processes[0].terminated == 1
 
 
 async def test_grep_ignores_an_abort_before_its_listener_registration(tmp_path: Path) -> None:
@@ -379,6 +380,175 @@ async def test_grep_ignores_an_abort_before_its_listener_registration(tmp_path: 
     grep = create_grep_tool(LocalFileSystem(str(tmp_path)), sp, OVERRIDE)
     assert await _run(grep, {"pattern": "x"}, controller.signal) == ("a.ts:1: x", {})
     assert sp.processes[0].terminated == 0
+
+
+# ---- CE-L13-WP134-01 R001: the abort observation window, cell by cell ----
+# Expected outcomes are pinned Pi's (minion-agent-docs assurance/layers/data/13-wp134-ce01/
+# abort-partition-pi.json): find listens from its start, grep from spawn's return; both stop at
+# engine completion (exit AND both stdio ends), before the asynchronous release of the streams.
+
+_ABORT_POINTS = [
+    "spawn",
+    "stdout_data",
+    "stdout_eof",
+    "stderr_eof",
+    "wait",
+    "stdout_close",
+    "stderr_close",
+]
+_PI_PARTITION = {
+    "find": ["aborted", "aborted", "aborted", "aborted", "aborted", "result", "result"],
+    "grep": ["result", "aborted", "aborted", "aborted", "aborted", "result", "result"],
+}
+
+
+class _PointStream:
+    def __init__(self, name: str, chunks: list[bytes], hook: Any) -> None:
+        self.name, self.chunks, self.hook = name, chunks, hook
+
+    async def read_chunk(self) -> Any:
+        if self.chunks:
+            self.hook(f"{self.name}_data")
+            return Ok(self.chunks.pop(0))
+        self.hook(f"{self.name}_eof")
+        return Ok(None)
+
+    async def close(self) -> None:
+        self.hook(f"{self.name}_close")
+        await asyncio.sleep(0)
+
+
+class _PointProcess:
+    def __init__(self, line: bytes, hook: Any) -> None:
+        self.stdout = _PointStream("stdout", [line], hook)
+        self.stderr = _PointStream("stderr", [], hook)
+        self.hook, self.terminated = hook, 0
+
+    async def wait(self) -> Any:
+        self.hook("wait")
+        await asyncio.sleep(0)
+        return Ok(ExitStatus(0))
+
+    async def terminate(self) -> None:
+        self.terminated += 1
+
+
+class _PointSubprocess(LocalSubprocess):
+    """One result line, EOF on both pipes, exit 0; the call is aborted at `point`."""
+
+    def __init__(self, cwd: str, line: bytes, controller: RunAbortController, point: str) -> None:
+        super().__init__(cwd)
+        self.line, self.controller, self.point, self.fired = line, controller, point, False
+
+    def hook(self, at: str) -> None:
+        if at == self.point and not self.fired:
+            self.fired = True
+            self.controller.abort()
+
+    async def spawn(self, argv: Any, options: Any = None) -> Any:
+        self.hook("spawn")
+        return Ok(_PointProcess(self.line, self.hook))
+
+
+@pytest.mark.parametrize("tool", ["find", "grep"])
+@pytest.mark.parametrize("position", range(len(_ABORT_POINTS)), ids=_ABORT_POINTS)
+async def test_abort_window_partition(tmp_path: Path, tool: str, position: int) -> None:
+    controller = RunAbortController()
+    fs = LocalFileSystem(str(tmp_path))
+    point = _ABORT_POINTS[position]
+    if tool == "find":
+        line = (str(tmp_path / "a.ts") + "\n").encode()
+        sp = _PointSubprocess(str(tmp_path), line, controller, point)
+        text, _ = await _run(
+            create_find_tool(fs, sp, OVERRIDE), {"pattern": "*"}, controller.signal
+        )
+        result = "a.ts"
+    else:
+        sp = _PointSubprocess(
+            str(tmp_path), (_match(str(tmp_path / "a.ts"), 1) + "\n").encode(), controller, point
+        )
+        text, _ = await _run(
+            create_grep_tool(fs, sp, OVERRIDE), {"pattern": "x"}, controller.signal
+        )
+        result = "a.ts:1: x"
+    assert sp.fired, f"abort point {point} was never reached"
+    expected = _PI_PARTITION[tool][position]
+    assert text == ("ERR Operation aborted" if expected == "aborted" else result), (
+        f"{tool} abort at {point}"
+    )
+
+
+# ---- CE-L13-WP134-01 rule 5: an engine-rejected corrected pattern reports Pi's own diagnostic ----
+
+
+class _WindowsScriptedSubprocess(LocalSubprocess):
+    """A Windows-platform engine scripted per spawn (stdout chunks, stderr, exit code), recording
+    each argv; `abort_on_wait` aborts the call while that spawn's process is being waited for."""
+
+    def __init__(
+        self, cwd: str, runs: list[tuple[bytes, bytes, int]], abort_on_wait: Any = None
+    ) -> None:
+        super().__init__(cwd)
+        self._platform = Platform.WINDOWS
+        self.runs, self.abort_on_wait, self.argvs = runs, abort_on_wait, []
+
+    async def spawn(self, argv: Any, options: Any = None) -> Any:
+        self.argvs.append(list(argv))
+        stdout, stderr, code = self.runs[len(self.argvs) - 1]
+        abort = self.abort_on_wait if len(self.argvs) == 1 else None
+
+        class Process:
+            def __init__(self) -> None:
+                self.stdout = _ScriptedStream([stdout] if stdout else [])
+                self.stderr = _ScriptedStream([stderr] if stderr else [])
+
+            async def wait(self) -> Any:
+                if abort is not None:
+                    abort()
+                return Ok(ExitStatus(code))
+
+            async def terminate(self) -> None:
+                return None
+
+        return Ok(Process())
+
+
+async def test_a_rejected_corrected_pattern_reports_pis_diagnostic(tmp_path: Path) -> None:
+    pi_text = "**" + SEP_CLASS + "src" + SEP_CLASS + "[z-a]" + SEP_CLASS + "**" + SEP_CLASS + "b"
+    sp = _WindowsScriptedSubprocess(
+        str(tmp_path),
+        [(b"", b"[fd error]: generated text\n", 1), (b"", f"[fd error]: {pi_text}\n".encode(), 1)],
+    )
+    find = create_find_tool(LocalFileSystem(str(tmp_path)), sp, OVERRIDE)
+    assert await _run(find, {"pattern": "src/[z-a]/**/b"}) == (f"ERR [fd error]: {pi_text}", {})
+    assert len(sp.argvs) == 2
+    assert sp.argvs[0][-2] == _windows_full_path("**/src/[z-a]/**/b") != pi_text
+    assert sp.argvs[1][-2] == pi_text
+
+
+async def test_no_rerun_when_the_corrected_pattern_succeeds_or_is_pis(tmp_path: Path) -> None:
+    root = str(tmp_path)
+    ok = _WindowsScriptedSubprocess(root, [(f"{tmp_path}\\a.ts\n".encode(), b"", 0)])
+    find = create_find_tool(LocalFileSystem(root), ok, OVERRIDE)
+    assert (await _run(find, {"pattern": "src/**/a.ts"}))[0] == "a.ts"
+    assert len(ok.argvs) == 1
+    same = _WindowsScriptedSubprocess(root, [(b"", b"[fd error]: x\n", 1)])
+    find = create_find_tool(LocalFileSystem(root), same, OVERRIDE)
+    assert await _run(find, {"pattern": "src/*.ts"}) == ("ERR [fd error]: x", {})
+    assert len(same.argvs) == 1  # Pi's own text: nothing to re-run
+
+
+async def test_an_abort_inside_the_window_before_the_rerun(tmp_path: Path) -> None:
+    controller = RunAbortController()
+    sp = _WindowsScriptedSubprocess(
+        str(tmp_path), [(b"", b"[fd error]: generated\n", 1)], controller.abort
+    )
+    find = create_find_tool(LocalFileSystem(str(tmp_path)), sp, OVERRIDE)
+    assert await _run(find, {"pattern": "src/[z-a]/**/b"}, controller.signal) == (
+        "ERR Operation aborted",
+        {},
+    )
+    assert len(sp.argvs) == 1
 
 
 async def test_find_aborted_during_engine_resolution(engine: dict[str, Any]) -> None:
@@ -744,33 +914,31 @@ def test_host_platform_and_default_store() -> None:
 
 
 def test_windows_full_path_normalization() -> None:
-    """DIV-002: each genuine `**/` component is optional in one top-level alternation (fd's glob has
-    no nested alternation); adjacent components collapse; the user's braces are distributed."""
+    """DIV-002 / CE-L13-WP134-01: only recursive components change, read on Pi's rewritten text as
+    the pinned fd reads it. `SEP ** SEP` becomes `{SEP,SEP**SEP}` (adjacent ones collapse); an
+    alternative-start component duplicates its alternative without it; everything else is Pi's."""
     s = SEP_CLASS
-    d = f"**{s}"  # the pattern-initial component, never optional
-
-    def alternation(*variants: str) -> str:
-        return "{" + ",".join(d + v for v in variants) + "}"
-
-    assert _windows_full_path("**/src/**/*.spec.ts") == alternation(
-        f"src{s}**{s}*.spec.ts", f"src{s}*.spec.ts"
+    g = f"{{{s},{s}**{s}}}"  # a separator, or one or more directories
+    assert _windows_full_path("**/src/**/*.spec.ts") == f"**{s}src{g}*.spec.ts"
+    assert _windows_full_path("**/src/**/**/*.spec.ts") == f"**{s}src{g}*.spec.ts"
+    assert _windows_full_path("**/a/**/b/**/c") == f"**{s}a{g}b{g}c"
+    assert _windows_full_path("**/{src/**/b.ts,none}") == f"**{s}{{src{g}b.ts,none}}"
+    assert _windows_full_path("**/{a/**/{b,c}}/x") == f"**{s}{{a{g}{{b,c}}}}{s}x"
+    assert _windows_full_path("**/x/{**/b,c}") == f"**{s}x{s}{{**{s}b,b,c}}"
+    assert _windows_full_path("**/x/{a,{**/b}}") == f"**{s}x{s}{{a,{{**{s}b,b}}}}"
+    assert _windows_full_path("**/x/{**/**/b,c}") == f"**{s}x{s}{{**{s}b,b,c}}"
+    assert _windows_full_path("**/x,{**/b}") == f"**{s}x,{{**{s}b,b}}"
+    assert _windows_full_path("**/x/{**/{a,b}/c,d}") == (
+        f"**{s}x{s}{{**{s}{{a,b}}{s}c,{{a,b}}{s}c,d}}"
     )
-    assert _windows_full_path("**/src/**/**/*.spec.ts") == _windows_full_path("**/src/**/*.spec.ts")
-    assert _windows_full_path("**/a/**/b/**/c") == alternation(
-        f"a{s}**{s}b{s}**{s}c", f"a{s}b{s}**{s}c", f"a{s}**{s}b{s}c", f"a{s}b{s}c"
-    )
-    assert _windows_full_path("**/{src/**/b.ts,none}") == alternation(
-        f"src{s}**{s}b.ts", f"src{s}b.ts", "none"
-    )
-    assert _windows_full_path("**/{a,b}/**/x") == alternation(
-        f"a{s}**{s}x", f"a{s}x", f"b{s}**{s}x", f"b{s}x"
-    )
-    # Plain `,` `{` `}` keep their literal meaning inside the generated alternation.
-    assert _windows_full_path("**/a,b}/**/x") == alternation(
-        f"a[,]b[}}]{s}**{s}x", f"a[,]b[}}]{s}x"
-    )
-    # Without a genuine `**/` component -- or when the braces or a class are not well formed --
-    # the text is exactly Pi's `replaceAll("/", "[/\\]")`.
+    assert _windows_full_path("**/src/***/**/x") == f"**{s}src{s}***{g}x"
+    assert _windows_full_path("**/src/a**/**/x") == f"**{s}src{s}a**{g}x"
+    # Engine-rejected syntax still gets the correction; the call then reports Pi's own diagnostic.
+    assert _windows_full_path("**/a}/**/x") == f"**{s}a}}{g}x"
+    assert _windows_full_path("**/{a/**/b") == f"**{s}{{a{g}b"
+    # No recursive component as fd reads Pi's text: exactly Pi's `replaceAll("/", "[/\\]")` --
+    # including a comma outside braces, a `**` that is not a whole component, classes Pi's rewrite
+    # reshapes, no backslash escape, and the pattern-initial and trailing `**`.
     for pi_scope in (
         "**/src/*.ts",
         "**/a\\/b/[/]x",
@@ -782,10 +950,17 @@ def test_windows_full_path_normalization() -> None:
         "**/x",
         "**/src/**",
         "**/{a,b}/c",
-        "**/{a/**/{b,c}}/x",
-        "**/{a/**/b",
+        "**/x,**/b",
+        "**/x,**/b{a,b}",
+        "**/x/**b",
+        "**/{x/**,y}/b",
+        "**/x/{**}/b",
+        "**/src/[!]/**/x",
+        "**/src/[]/**/x",
+        "**/src/[/**/x",
+        "**/{**/b",
     ):
-        assert _windows_full_path(pi_scope) == pi_scope.replace("/", s)
+        assert _windows_full_path(pi_scope) == pi_scope.replace("/", s), pi_scope
 
 
 def test_relativize_and_node_paths() -> None:

@@ -249,6 +249,152 @@
    }
   ]
  },
+ "components": {
+  "files": {
+   ".gitignore": {
+    "text": "ignored/\n*.log\nkeep.ts\n"
+   },
+   "src/a.ts": {
+    "text": "alpha\nBeta\nfoo bar\nfoo.bar\nlast\n"
+   },
+   "src/b.spec.ts": {
+    "text": "describe foo\n"
+   },
+   "src/sub/c.ts": {
+    "text": "const foo = 1;\n"
+   },
+   "src/sub/d.spec.ts": {
+    "text": "it foo\n"
+   },
+   "src/sub/deep/er/e.spec.ts": {
+    "text": "deep it\n"
+   },
+   "src/.hidden.ts": {
+    "text": "hidden foo\n"
+   },
+   ".hiddendir/e.ts": {
+    "text": "hidden dir foo\n"
+   },
+   "data/x.json": {
+    "text": "{\"foo\": 1}\n"
+   },
+   "data/y.JSON": {
+    "text": "{\"FOO\": 2}\n"
+   },
+   "ünïcode/文件.ts": {
+    "text": "naïve 日本語 foo\n"
+   },
+   "space dir/f.ts": {
+    "text": "space foo\n"
+   },
+   "ignored/g.ts": {
+    "text": "ignored foo\n"
+   },
+   "z.log": {
+    "text": "log foo\n"
+   },
+   "keep.ts": {
+    "text": "root keep foo\n"
+   },
+   "node_modules/pkg/index.ts": {
+    "text": "module foo\n"
+   },
+   "nested/.gitignore": {
+    "text": "inner.ts\n"
+   },
+   "nested/inner.ts": {
+    "text": "inner foo\n"
+   },
+   "nested/keep.ts": {
+    "text": "nested keep foo\n"
+   },
+   "text/crlf.txt": {
+    "text": "one\r\ntwo match\r\nthree\r\n"
+   },
+   "text/cr.txt": {
+    "text": "x\ry match\rz"
+   },
+   "text/long.txt": {
+    "text": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa needle bbbbbbbbbb\nshort needle\n"
+   },
+   "text/unicode.txt": {
+    "text": "café\nnaïve match\n日本語 match\nCAFÉ\n"
+   },
+   "text/bin.dat": {
+    "hex": "6d617463680a00000162696e617279206d617463680a"
+   },
+   "text/many.txt": {
+    "text": "hit 1\nhit 2\nhit 3\nhit 4\nhit 5\nhit 6\nhit 7\nhit 8\nhit 9\nhit 10\n"
+   },
+   "text/ctx.txt": {
+    "text": "L1\nL2 MATCH\nL3 MATCH\nL4\nL5\nL6\nL7\nL8\nL9\nL10\n"
+   },
+   "text/edge.txt": {
+    "text": "MATCH first\nmiddle\n\nlast MATCH\n"
+   },
+   "text/dash.txt": {
+    "text": "-v option\nplain\n"
+   },
+   "text/multi.txt": {
+    "text": "x x x\n"
+   },
+   "text/bom.txt": {
+    "hex": "efbbbf6669727374206d617463680a7365636f6e640a"
+   },
+   "text/badutf8.txt": {
+    "hex": "6f6b206c696e650a62616420fffe206d617463680a61667465720a"
+   },
+   " lead.ts": {
+    "text": "leading space name\n"
+   },
+   "src/sub/a.ts": {
+    "text": "x\n"
+   },
+   "src/a/sub/b.ts": {
+    "text": "x\n"
+   },
+   "src/x/b.ts": {
+    "text": "x\n"
+   },
+   "src/q/r/x/b.ts": {
+    "text": "x\n"
+   },
+   "src/q/r/x/s/b.ts": {
+    "text": "x\n"
+   },
+   "x,b": {
+    "text": "x\n"
+   },
+   "x,q/b": {
+    "text": "x\n"
+   }
+  },
+  "directories": [
+   "nested/.git"
+  ],
+  "raw_name_files": {
+   "linux": {
+    "text/raw-ff.txt": {
+     "name_hex": "7261772dff2e747874",
+     "text": "rawname match\n"
+    }
+   }
+  },
+  "links": [
+   {
+    "path": "link-file.ts",
+    "target": "src/a.ts",
+    "kind": "file"
+   },
+   {
+    "path": "link-dir",
+    "target": "src/sub",
+    "kind": "dir",
+    "windows": "junction"
+   }
+  ],
+  "$comment": "the plain corpus plus the harness components mode's COMPONENT_FILES (CE-L13-WP134-01 mixed and comma witnesses)"
+ },
  "bulk": {
   "files": {
    "many/f0000-pppppppppppppppppppppppppppppppppppppppppppppppp.txt": {

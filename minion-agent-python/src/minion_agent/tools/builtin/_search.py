@@ -13,6 +13,7 @@ from typing import Any
 from ...execution import Err
 from ...execution.subprocess import Process, ReadableStream, SpawnOptions, Subprocess
 from ...execution.world import ExecutionWorldIdentity
+from ...runtime.signal import RunSignal
 from ._readline import LineSplitter
 from .bash import scalar_command
 from .paths import BuiltinToolError
@@ -20,6 +21,29 @@ from .search_engines import EngineName, Engines, EngineStore, not_available
 from .truncate import DEFAULT_MAX_BYTES, Truncation, utf8_len
 
 MAX_SAFE_INTEGER = 9007199254740991
+
+
+class AbortWindow:
+    """Pi's abort-listener lifetime for a search call (CE-L13-WP134-01): an abort counts only while
+    the window is open. `close()` is called at engine completion and latches whether the signal had
+    fired by then; after it, the signal is no longer consulted. A window over no signal, or opened
+    on an already-aborted signal (a listener registered too late never fires), starts closed."""
+
+    __slots__ = ("observed", "open", "signal")
+
+    def __init__(self, signal: RunSignal | None, *, listening: bool = True) -> None:
+        self.signal = signal
+        self.open = listening and signal is not None and not signal.aborted
+        self.observed = False
+
+    def fired(self) -> bool:
+        """An abort inside the open window (as a listener would see it now)."""
+        return self.open and self.signal is not None and self.signal.aborted
+
+    def close(self) -> None:
+        if self.open:
+            self.observed = self.observed or self.fired()
+            self.open = False
 
 
 async def resolve_engine(engines: Engines, subprocess: Subprocess, engine: EngineName) -> list[str]:
@@ -90,8 +114,12 @@ class EngineRun:
             parts.append(chunk.value)
         self.stderr = b"".join(parts).decode("utf-8", "replace")
 
-    async def run(self, on_line: Callable[[str], bool]) -> None:
-        """Exit AND EOF on both pipes, then release the read ends (spec/execution.md section 16)."""
+    async def run(
+        self, on_line: Callable[[str], bool], on_complete: Callable[[], None] | None = None
+    ) -> None:
+        """Exit AND EOF on both pipes -- ENGINE COMPLETION, Pi's child `close` -- then
+        `on_complete` (synchronously, before anything else is awaited), then release the read ends
+        (spec/execution.md section 16)."""
         try:
             await asyncio.gather(
                 self._pump_stdout(self.process.stdout, on_line),
@@ -101,6 +129,8 @@ class EngineRun:
                 await self._stopping
             status = await self.process.wait()
             self.exit_code = None if isinstance(status, Err) else status.value.exit_code
+            if on_complete is not None:
+                on_complete()
         finally:
             for stream in (self.process.stdout, self.process.stderr):
                 if stream is not None:

@@ -18,7 +18,7 @@
       "additionalProperties": false,
       "properties": {
         "tool": { "enum": ["find", "grep"] },
-        "corpus": { "enum": ["plain", "repo", "bulk", "junction", "duplicate"] },
+        "corpus": { "enum": ["plain", "repo", "components", "bulk", "junction", "duplicate"] },
         "arguments": { "type": "object", "required": ["pattern"], "$comment": "a string value may contain <ROOT>, replaced by the corpus root" },
         "signal": { "const": "pre_aborted" },
         "expect": {

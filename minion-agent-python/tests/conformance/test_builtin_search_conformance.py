@@ -108,7 +108,7 @@ def compare(observed: dict[str, Any], expected: dict[str, Any]) -> None:
 
 
 def test_builtin_search_scenarios_exist() -> None:
-    assert len(SCENARIOS) >= 196
+    assert len(SCENARIOS) >= 219
 
 
 # ---- comparator controls (WP134-IMPL-R003): the comparisons reject wrong results ----

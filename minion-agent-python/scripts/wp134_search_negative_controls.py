@@ -225,20 +225,6 @@ CONTROLS: dict[str, Control] = {
         [f"{UNIT}::test_find_tests_emptiness_before_trimming"],
         "whitespace-only output with exit 1 becomes the stderr error",
     ),
-    "pi_windows_doublestar_rewrite": Control(
-        [
-            (
-                FIND,
-                "    alternatives = _brace_alternatives(pattern)\n",
-                "    return _pi_windows_rewrite(pattern)\n",
-            )
-        ],
-        [
-            f"{UNIT}::test_windows_full_path_normalization",
-            _scenario("builtin-search-find-plain-full-path-spec"),
-        ],
-        "DIV-002: `src/**/*.spec.ts` loses src/b.spec.ts (Pi's Windows result)",
-    ),
     "path_fallback": Control(
         [
             (
@@ -299,46 +285,166 @@ CONTROLS: dict[str, Control] = {
         "`c:\\R\\a\\` under `C:\\r` relativizes through `..` instead of to `a/`",
     ),
     # Remediation 1 (WP134-IMPL-R001, R002): the reviewed defects, as single-point mutants.
-    "abort_flag_lost_at_completion": Control(
+    # CE-L13-WP134-01 (agreed checkpoint revision 2): the converged rules, as single-point mutants.
+    "find_decides_after_release": Control(
+        [
+            (
+                FIND,
+                "                await run.run(on_line, complete)\n",
+                "                await run.run(on_line)\n                complete()\n",
+            )
+        ],
+        [
+            f"{UNIT}::test_abort_window_partition[stdout_close-find]",
+            f"{UNIT}::test_abort_window_partition[stderr_close-find]",
+        ],
+        "R001: an abort during the stream release, after engine completion, gives `Operation aborted` instead of a.ts",
+    ),
+    "grep_decides_after_release": Control(
         [
             (
                 GREP,
-                "            and signal.aborted\n        ):\n",
-                "            and signal.aborted\n            and False\n        ):\n",
+                "            await run.run(on_line, window.close)\n",
+                "            await run.run(on_line)\n            window.close()\n",
             )
         ],
-        [f"{UNIT}::test_grep_keeps_an_abort_that_lands_just_before_completion"],
-        "R001: an abort after registration, unseen by the polling watcher, gives the match instead of `Operation aborted`",
+        [
+            f"{UNIT}::test_abort_window_partition[stdout_close-grep]",
+            f"{UNIT}::test_abort_window_partition[stderr_close-grep]",
+        ],
+        "R001: an abort during the stream release, after engine completion, gives `Operation aborted` instead of the match",
     ),
-    "doublestar_in_braces_left_to_pi": Control(
+    "grep_latch_lost_at_completion": Control(
+        [
+            (
+                GREP,
+                '        if state["aborted"] or window.observed:\n',
+                '        if state["aborted"]:\n',
+            )
+        ],
+        [
+            f"{UNIT}::test_grep_keeps_an_abort_that_lands_just_before_completion",
+            f"{UNIT}::test_abort_window_partition[stdout_data-grep]",
+        ],
+        "R001: an abort inside the window, unseen by the polling watcher, gives the match",
+    ),
+    "grep_observes_pre_registration_abort": Control(
+        [
+            (
+                GREP,
+                "        window = AbortWindow(signal)\n",
+                "        window = AbortWindow(signal)\n        window.open = signal is not None\n",
+            )
+        ],
+        [
+            f"{UNIT}::test_abort_window_partition[spawn-grep]",
+            f"{UNIT}::test_grep_ignores_an_abort_before_its_listener_registration",
+        ],
+        "R001: an abort before grep's listener exists aborts the call",
+    ),
+    "zero_directory_left_broken": Control(
+        [(FIND, "    return render(0, count)\n", "    return _pi_windows_rewrite(pattern)\n")],
+        [
+            f"{UNIT}::test_windows_full_path_normalization",
+            _scenario("builtin-search-find-components-mixed-star-crossing"),
+            _scenario("builtin-search-find-plain-full-path-spec"),
+        ],
+        "DIV-002: Pi's Windows text; `src/**/a*.ts` misses src/a.ts and src/a/sub/b.ts",
+    ),
+    "whole_pattern_linux_conversion": Control(
         [
             (
                 FIND,
-                "    alternatives = _brace_alternatives(pattern)\n",
-                '    alternatives = None if "{" in pattern else _brace_alternatives(pattern)\n',
+                "            if line:\n                relativized.append(relativize(line, search_path, node))\n",
+                '            if line and ("/" not in pattern or __import__("pathlib").PurePosixPath(line.replace("\\\\", "/")).full_match(prefixed)):\n'
+                "                relativized.append(relativize(line, search_path, node))\n",
+            )
+        ],
+        [_scenario("builtin-search-find-components-mixed-star-crossing")],
+        "C001: Linux semantics for the whole pattern drops src/a/sub/b.ts (the retained single-* crossing)",
+        ("win32",),
+    ),
+    "alt_start_not_recursive": Control(
+        [
+            (
+                FIND,
+                '                and (is_sep(i - 1) or tokens[i - 1][0] in ("open", "comma"))\n',
+                "                and is_sep(i - 1)\n",
             )
         ],
         [
             f"{UNIT}::test_windows_full_path_normalization",
-            _scenario("builtin-search-find-plain-brace-alternative-doublestar"),
+            _scenario("builtin-search-find-components-alt-start-doublestar"),
         ],
-        "R002: `{src/**/b.spec.ts,none}` misses src/b.spec.ts on Windows",
+        "R002: `src/{**/b.spec.ts,none}` misses src/b.spec.ts on Windows",
     ),
-    "adjacent_doublestar_not_optional": Control(
+    "adjacent_components_not_collapsed": Control(
         [
             (
                 FIND,
-                "    kept = [c for i, c in enumerate(components) if not (recursive(i) and recursive(i - 1))]\n"
-                "    components = kept\n"
-                "    optional = [i for i in range(len(components)) if recursive(i)]\n",
-                "    optional = [i for i in range(len(components)) if recursive(i) and not recursive(i - 1)]\n",
+                "                while j + 2 <= hi and is_double_star(j) and is_sep(j + 2):\n                    j += 3\n",
+                "",
             )
         ],
         [
             f"{UNIT}::test_windows_full_path_normalization",
-            _scenario("builtin-search-find-plain-adjacent-doublestar"),
+            _scenario("builtin-search-find-components-adjacent-doublestar"),
         ],
-        "R002: `src/**/**/*.spec.ts` misses the direct file on Windows",
+        "R002: `src/**/**/*.spec.ts` loses a branch on Windows",
+    ),
+    "empty_alternative_zero_form": Control(
+        [
+            (
+                FIND,
+                '                    out[-1:] = [f"{{{sep},{sep}**{sep}}}"]\n',
+                '                    out.append(f"{{,**{sep}}}")\n',
+            )
+        ],
+        [
+            f"{UNIT}::test_windows_full_path_normalization",
+            _scenario("builtin-search-find-components-brace-alternative-doublestar"),
+        ],
+        "R002: the empty alternative never matches, so the direct file is missed",
+    ),
+    "lex_original_pattern": Control(
+        [
+            (
+                FIND,
+                "    tokens = _lex(_pi_windows_rewrite(pattern))\n",
+                '    tokens = [("class", _SEPARATOR_CLASS) if v == "/" else (k, v.replace("/", _SEPARATOR_CLASS)) for k, v in _lex(pattern)]\n',
+            )
+        ],
+        [
+            f"{UNIT}::test_windows_full_path_normalization",
+            _scenario("builtin-search-find-components-class-reshaped-negated"),
+        ],
+        "R002: a class Pi's rewrite reshapes (`src/[!]/**/...`) is corrected instead of keeping Pi's Windows meaning",
+    ),
+    "diagnostics_from_corrected_text": Control(
+        [
+            (
+                FIND,
+                "        run, lines, rejected = await run_fd(effective, effective != pi_pattern)\n",
+                "        run, lines, rejected = await run_fd(effective, False)\n",
+            )
+        ],
+        [
+            f"{UNIT}::test_a_rejected_corrected_pattern_reports_pis_diagnostic",
+            _scenario("builtin-search-find-components-rejected-invalid-range"),
+        ],
+        "R002 rule 5: fd's diagnostic shows the generated pattern text instead of Pi's",
+    ),
+    "literal_brace_wrapping": Control(
+        [
+            (
+                FIND,
+                "        tokens.append((kind, char))\n",
+                '        tokens.append((kind, "[}]" if char == "}" and kind == "lit" else char))\n',
+            )
+        ],
+        [_scenario("builtin-search-find-components-rejected-unopened-brace")],
+        "R002: an unmatched `}` made literal turns Pi's `unopened alternate group` error into a success",
+        ("win32",),
     ),
 }
 

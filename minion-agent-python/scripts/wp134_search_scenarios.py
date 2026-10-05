@@ -42,6 +42,26 @@ def _hex(data: bytes) -> dict[str, str]:
     return {"hex": data.hex()}
 
 
+COMPONENT_FILES = [
+    "src/sub/a.ts",
+    "src/a/sub/b.ts",
+    "src/x/b.ts",
+    "src/q/r/x/b.ts",
+    "src/q/r/x/s/b.ts",
+    "x,b",
+    "x,q/b",
+]
+
+
+def _entries(expect: dict[str, Any]) -> list[str] | None:
+    """A find expectation's formatted entries (None for an error)."""
+    if expect["is_error"]:
+        return None
+    if expect["mode"] == "exact":
+        return [] if expect["text"] == "No files found matching pattern" else [expect["text"]]
+    return list(expect["entries"])
+
+
 def corpus() -> dict[str, Any]:
     ctx = "\n".join(f"L{i + 1} MATCH" if i in (1, 2) else f"L{i + 1}" for i in range(10)) + "\n"
     files: dict[str, dict[str, str]] = {
@@ -102,6 +122,14 @@ def corpus() -> dict[str, Any]:
         ),
         "plain": base,
         "repo": {**base, "directories": ["nested/.git", ".git"]},
+        "components": {
+            **base,
+            "$comment": (
+                "the plain corpus plus the harness components mode's COMPONENT_FILES "
+                "(CE-L13-WP134-01 mixed and comma witnesses)"
+            ),
+            "files": {**base["files"], **{name: _text("x\n") for name in COMPONENT_FILES}},
+        },
         "bulk": {
             "files": {
                 **{f"many/f{i:04d}-{pad}.txt": _text("x\n") for i in range(1200)},
@@ -241,6 +269,7 @@ def main(out_dir: Path) -> None:
         json.dumps(corpus(), ensure_ascii=False, indent=1) + "\n", encoding="utf-8"
     )
     scenarios: dict[str, dict[str, Any]] = {}
+    classification: dict[str, dict[str, Any]] = {}
 
     def add(
         name: str,
@@ -305,9 +334,14 @@ def main(out_dir: Path) -> None:
             )
         # WP134-IMPL-R002: genuine `**/` components adjacent to another or inside braces
         # (harness `components` mode, its own output beside the default run's).
-        components = out_dir / f"components-{plat_name}.json"
-        for key, observed in json.loads(components.read_text(encoding="utf-8"))["find"].items():
+        components_out = json.loads(
+            (out_dir / f"components-{plat_name}.json").read_text(encoding="utf-8")
+        )
+        assert components_out["componentFiles"] == COMPONENT_FILES, "corpus out of step"
+        for key, observed in components_out["find"].items():
             kind, case = key.split("/", 1)
+            if plat_name == "win32":
+                classification[f"builtin-search-find-{kind}-{case}"] = observed
             add(
                 f"builtin-search-find-{kind}-{case}",
                 "find",
@@ -340,6 +374,8 @@ def main(out_dir: Path) -> None:
         search = scenario["builtin_search"]
         pattern = search["arguments"].get("pattern", "")
         expect = search["expect"]
+        if search["corpus"] == "components":
+            continue  # classified explicitly below (CE-L13-WP134-01)
         if search["tool"] != "find" or "/" not in pattern or "**" not in pattern:
             continue
         if {"win32", "linux"} <= expect.keys() and expect["win32"] != expect["linux"]:
@@ -351,6 +387,60 @@ def main(out_dir: Path) -> None:
                 "Pinned Pi's own Windows result, the divergence's reference side: "
                 + json.dumps(pi_win32, ensure_ascii=False)
             )
+
+    # CE-L13-WP134-01: each components case carries its own Windows classification. "pi" keeps
+    # Pi's Windows observation. A union case takes the union of pinned Pi's Windows results for
+    # its hand-written keep/remove variants (the component-local composition rule), checked
+    # against Linux where the harness states the two must agree.
+    for name, observed in classification.items():
+        rule = observed["expectWin32"]
+        if rule == "pi":
+            continue
+        scenario = scenarios[name]
+        expect = scenario["builtin_search"]["expect"]
+        union = observed["windowsUnion"]
+        linux = _entries(expect["linux"])
+        if rule["linux"]:
+            assert linux is not None and union == sorted(linux), f"{name}: union differs from Linux"
+        else:
+            assert linux is None or union != sorted(linux), (
+                f"{name}: union unexpectedly equals Linux"
+            )
+        corrected: dict[str, Any] = (
+            {
+                "is_error": False,
+                "mode": "find_multiset",
+                "entries": union,
+                "notice": None,
+                "details": {},
+            }
+            if union
+            else {
+                "is_error": False,
+                "mode": "exact",
+                "text": "No files found matching pattern",
+                "details": {},
+            }
+        )
+        pi_win32 = expect["win32"]
+        expect["win32"] = corrected
+        note = (
+            "CE-L13-WP134-01 composition rule: the win32 expectation is the union of pinned Pi's "
+            "Windows results for the keep/remove variants "
+            + json.dumps(rule["union"], ensure_ascii=False)
+            + (
+                "; it equals Linux."
+                if rule["linux"]
+                else "; a retained Pi-scope construct makes it differ from Linux."
+            )
+        )
+        if corrected != pi_win32:
+            scenario["requirements"] = ["TOOL-036", "TOOL-036-DIV-002"]
+            note += (
+                " Pinned Pi's own Windows result, the divergence's reference side: "
+                + json.dumps(pi_win32, ensure_ascii=False)
+            )
+        scenario["notes"] = note
 
     for old in OUT_DIR.glob("builtin-search-*.yaml"):
         old.unlink()

@@ -551,6 +551,87 @@ async def test_an_abort_inside_the_window_before_the_rerun(tmp_path: Path) -> No
     assert len(sp.argvs) == 1
 
 
+class _HeldStopStream:
+    def __init__(self, chunks: list[bytes], eof_gate: asyncio.Event, on_eof: Any) -> None:
+        self.chunks, self.eof_gate, self.on_eof = chunks, eof_gate, on_eof
+
+    async def read_chunk(self) -> Any:
+        if self.chunks:
+            return Ok(self.chunks.pop(0))
+        await self.eof_gate.wait()
+        self.on_eof()
+        return Ok(None)
+
+    async def close(self) -> None:
+        return None
+
+
+class _HeldStopSubprocess(LocalSubprocess):
+    """One match, then EOF on both pipes (gated) and an exit that is immediately ready; the
+    limit-stop's termination acknowledgement is held until `release` is set."""
+
+    def __init__(self, cwd: str, line: bytes) -> None:
+        super().__init__(cwd)
+        self.line = line
+        self.eof_gate, self.release = asyncio.Event(), asyncio.Event()
+        self.terminate_started, self.both_eof = asyncio.Event(), asyncio.Event()
+        self.eofs = 0
+
+    def _eof(self) -> None:
+        self.eofs += 1
+        if self.eofs == 2:
+            self.both_eof.set()
+
+    async def spawn(self, argv: Any, options: Any = None) -> Any:
+        outer = self
+
+        class Process:
+            def __init__(self) -> None:
+                self.stdout = _HeldStopStream([outer.line], outer.eof_gate, outer._eof)
+                self.stderr = _HeldStopStream([], outer.eof_gate, outer._eof)
+
+            async def wait(self) -> Any:
+                return Ok(ExitStatus(0))
+
+            async def terminate(self) -> None:
+                outer.terminate_started.set()
+                await outer.release.wait()
+
+        return Ok(Process())
+
+
+@pytest.mark.parametrize("abort", ["none", "while_only_the_stop_ack_is_pending", "before_eof"])
+async def test_a_held_stop_acknowledgement_does_not_extend_the_window(
+    tmp_path: Path, abort: str
+) -> None:
+    """CE-L13-WP134-01 targeted closure 1: Pi's `stopChild(true)` is synchronous and its `close`
+    handler (exit + both stdio ends) never waits for the kill to be acknowledged. An abort while
+    only that acknowledgement is pending comes after completion and is not observed; an abort
+    before end of input is inside the window."""
+    controller = RunAbortController()
+    sp = _HeldStopSubprocess(str(tmp_path), (_match(str(tmp_path / "a.ts"), 1) + "\n").encode())
+    grep = create_grep_tool(LocalFileSystem(str(tmp_path)), sp, OVERRIDE)
+    call = asyncio.ensure_future(_run(grep, {"pattern": "x", "limit": 1}, controller.signal))
+    await sp.terminate_started.wait()  # the limit was reached: the stop is requested
+    if abort == "before_eof":
+        controller.abort()
+        for _ in range(5):  # let the window's listener observe it
+            await asyncio.sleep(0.01)
+    sp.eof_gate.set()
+    await sp.both_eof.wait()
+    for _ in range(20):  # rendezvous: exit is ready; only the acknowledgement is pending
+        await asyncio.sleep(0)
+    if abort == "while_only_the_stop_ack_is_pending":
+        controller.abort()
+    sp.release.set()
+    limit_result = (
+        "a.ts:1: x\n\n[1 matches limit reached. Use limit=2 for more, or refine pattern]",
+        {"matchLimitReached": 1},
+    )
+    expected = ("ERR Operation aborted", {}) if abort == "before_eof" else limit_result
+    assert await call == expected
+
+
 async def test_find_aborted_during_engine_resolution(engine: dict[str, Any]) -> None:
     controller = RunAbortController()
     fs, sp = LocalFileSystem(str(engine["root"])), LocalSubprocess(str(engine["root"]))

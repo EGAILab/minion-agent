@@ -118,20 +118,23 @@ class EngineRun:
         self, on_line: Callable[[str], bool], on_complete: Callable[[], None] | None = None
     ) -> None:
         """Exit AND EOF on both pipes -- ENGINE COMPLETION, Pi's child `close` -- then
-        `on_complete` (synchronously, before anything else is awaited), then release the read ends
-        (spec/execution.md section 16)."""
+        `on_complete` (synchronously, before anything else is awaited); only then the cleanup:
+        joining a stop request's termination acknowledgement and releasing the read ends
+        (spec/execution.md section 16). Pi's `stopChild` is synchronous and its `close` handler
+        never waits for a kill to be acknowledged, so that join must not delay completion
+        (CE-L13-WP134-01, targeted closure 1)."""
         try:
             await asyncio.gather(
                 self._pump_stdout(self.process.stdout, on_line),
                 self._pump_stderr(self.process.stderr),
             )
-            if self._stopping is not None:
-                await self._stopping
             status = await self.process.wait()
             self.exit_code = None if isinstance(status, Err) else status.value.exit_code
             if on_complete is not None:
                 on_complete()
         finally:
+            if self._stopping is not None:
+                await self._stopping
             for stream in (self.process.stdout, self.process.stderr):
                 if stream is not None:
                     await stream.close()

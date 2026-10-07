@@ -29,6 +29,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 PKG = Path("minion_agent/tools/builtin")
 FIND, GREP = PKG / "find.py", PKG / "grep.py"
+SEARCH = PKG / "_search.py"
 ENGINES, READLINE, NODE_PATH = (
     PKG / "search_engines.py",
     PKG / "_readline.py",
@@ -313,6 +314,24 @@ CONTROLS: dict[str, Control] = {
             f"{UNIT}::test_abort_window_partition[stderr_close-grep]",
         ],
         "R001: an abort during the stream release, after engine completion, gives `Operation aborted` instead of the match",
+    ),
+    "stop_ack_join_before_completion": Control(
+        [
+            (
+                SEARCH,
+                "            status = await self.process.wait()\n",
+                "            if self._stopping is not None:\n"
+                "                await self._stopping\n"
+                "            status = await self.process.wait()\n",
+            )
+        ],
+        [
+            f"{UNIT}::test_a_held_stop_acknowledgement_does_not_extend_the_window"
+            "[while_only_the_stop_ack_is_pending]"
+        ],
+        "R001 (targeted closure 1): joining the limit-stop acknowledgement before completion keeps "
+        "the window open, so an abort while only the acknowledgement is pending gives "
+        "`Operation aborted` instead of the limit result",
     ),
     "grep_latch_lost_at_completion": Control(
         [

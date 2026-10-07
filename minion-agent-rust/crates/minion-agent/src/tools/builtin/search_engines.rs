@@ -105,6 +105,8 @@ pub trait SearchEngines: Send + Sync {
 #[derive(Clone, Debug)]
 pub struct SearchEngineStore {
     root: PathBuf,
+    #[cfg(test)]
+    verification_calls: std::sync::Arc<std::sync::atomic::AtomicUsize>,
 }
 impl Default for SearchEngineStore {
     fn default() -> Self {
@@ -117,12 +119,19 @@ impl Default for SearchEngineStore {
 }
 impl SearchEngineStore {
     pub fn new(root: impl Into<PathBuf>) -> Self {
-        Self { root: root.into() }
+        Self {
+            root: root.into(),
+            #[cfg(test)]
+            verification_calls: Default::default(),
+        }
     }
     pub fn root(&self) -> &Path {
         &self.root
     }
     async fn verified(&self, engine: SearchEngine, pin: SearchEnginePin) -> bool {
+        #[cfg(test)]
+        self.verification_calls
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         tokio::fs::read(self.root.join(engine.executable()))
             .await
             .is_ok_and(|bytes| hash(&bytes) == pin.binary_sha256)
@@ -139,6 +148,14 @@ impl SearchEngines for SearchEngineStore {
         engine: SearchEngine,
         world: &ExecutionWorldIdentity,
     ) -> Result<PathBuf, ToolCapabilityError> {
+        if world != &ExecutionWorldIdentity::local() {
+            return Err(ToolCapabilityError::new(format!(
+                "{} is not available on this platform: no certified {} engine for {} (non-local execution world).",
+                engine.name(),
+                engine.engine_name(),
+                world.as_str()
+            )));
+        }
         let pin = engine.pin().ok_or_else(|| {
             ToolCapabilityError::new(format!(
                 "{} is not available on this platform: no certified {} engine for {}-{}.",
@@ -156,7 +173,7 @@ impl SearchEngines for SearchEngineStore {
                 }
             ))
         })?;
-        if world != &ExecutionWorldIdentity::local() || !self.verified(engine, pin).await {
+        if !self.verified(engine, pin).await {
             return Err(engine.unavailable());
         }
         Ok(self.root.join(engine.executable()))
@@ -268,6 +285,43 @@ async fn stage_binary(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[tokio::test]
+    async fn non_local_world_has_exact_text_without_store_consultation() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = SearchEngineStore::new(dir.path());
+        let world = ExecutionWorldIdentity::fresh();
+        for engine in [SearchEngine::Fd, SearchEngine::Ripgrep] {
+            let error = store.resolve(engine, &world).await.unwrap_err();
+            assert_eq!(
+                String::from_utf16_lossy(error.message().code_units()),
+                format!(
+                    "{} is not available on this platform: no certified {} engine for {} (non-local execution world).",
+                    engine.name(),
+                    engine.engine_name(),
+                    world.as_str()
+                )
+            );
+            assert_eq!(
+                store
+                    .verification_calls
+                    .load(std::sync::atomic::Ordering::SeqCst),
+                0
+            );
+        }
+        // Calibrate the observation seam: a local lookup really consults verification.
+        assert!(
+            store
+                .resolve(SearchEngine::Fd, &ExecutionWorldIdentity::local())
+                .await
+                .is_err()
+        );
+        assert_eq!(
+            store
+                .verification_calls
+                .load(std::sync::atomic::Ordering::SeqCst),
+            1
+        );
+    }
     #[tokio::test]
     async fn staging_cannot_publish_a_partial_binary_at_the_fixed_name() {
         let dir = tempfile::tempdir().unwrap();

@@ -12,12 +12,14 @@ import sys
 import tempfile
 
 CONTROLS = {
+    "non-local-store-read": ("search_engines.rs", "        if world != &ExecutionWorldIdentity::local() {", "        if world != &ExecutionWorldIdentity::local() { let _ = self.verified(engine, engine.pin().unwrap()).await;", "non_local_world_has_exact_text_without_store_consultation"),
+    "non-local-provisioning-text": ("search_engines.rs", "{} is not available on this platform: no certified {} engine for {} (non-local execution world).", "{} is not provisioned: no certified {} engine for {} (non-local execution world).", "non_local_world_has_exact_text_without_store_consultation"),
     "retry-closes-first-window": ("find.rs", "                !retry", "                true", "diagnostic_rerun_abort_during_wait_settles_before_stop_ack"),
     "retry-without-signal": ("find.rs", "            request.signal.clone(),", "            if first {request.signal.clone()} else {None},", "diagnostic_rerun_abort_during_wait_settles_before_stop_ack"),
     "retry-skips-between-abort": ("find.rs", "        if request.signal.as_ref().is_some_and(|s| s.is_cancelled()) {", "        if false {", "diagnostic_rerun_abort_between_runs_prevents_spawn"),
     "retry-awaits-aborted-stop-ack": ("find.rs", "window.aborted.load(Ordering::SeqCst)\n                        || (window.active", "false\n                        || (window.active", "diagnostic_rerun_abort_during_wait_settles_before_stop_ack"),
     "unc-share-forced-absolute": ("search_paths.rs", "common < 2", "common < 3", "logical_surrogate_root_is_not_its_native_replacement"),
-    "automatic-call-time-provisioning": ("search_engines.rs", "if world != &ExecutionWorldIdentity::local() || !self.verified(engine, pin).await {", "let artifacts=std::env::var_os(\"MINION_SEARCH_ENGINE_ARTIFACTS\").unwrap(); let _=provision_search_engines(self,Some(Path::new(&artifacts))).await; if world != &ExecutionWorldIdentity::local() || !self.verified(engine, pin).await {", "managed_store_verifies_every_use_and_provisioning_is_idempotent"),
+    "automatic-call-time-provisioning": ("search_engines.rs", "if !self.verified(engine, pin).await {", "let artifacts=std::env::var_os(\"MINION_SEARCH_ENGINE_ARTIFACTS\").unwrap(); let _=provision_search_engines(self,Some(Path::new(&artifacts))).await; if !self.verified(engine, pin).await {", "managed_store_verifies_every_use_and_provisioning_is_idempotent"),
     "decision-after-disposal": ("search_run.rs", "    result\n}", "    result.map(|mut outcome| {outcome.aborted=signal.as_ref().is_some_and(|s|s.is_cancelled());outcome})\n}", "real_factories_reproduce_the_fourteen_pi_abort_partition_cells"),
     "adjacent-recursive-not-collapsed": ("search_glob.rs", "while tokens.get(i) == Some(&Token::Stars(2)) && tokens.get(i + 1) == Some(&Token::Sep)", "while false && tokens.get(i) == Some(&Token::Stars(2)) && tokens.get(i + 1) == Some(&Token::Sep)", "canonical:builtin-search-find-components-adjacent-doublestar"),
     "empty-alternative-zero-form": ("search_glob.rs", 'format!("{{{SEP},{SEP}**{SEP}}}")', 'format!("{SEP}{{,**{SEP}}}")', "canonical:builtin-search-find-components-brace-alternative-doublestar"),

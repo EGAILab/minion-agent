@@ -13,7 +13,7 @@ import tempfile
 
 CONTROLS = {
     "non-local-store-read": ("search_engines.rs", "        if world != &ExecutionWorldIdentity::local() {", "        if world != &ExecutionWorldIdentity::local() { let _ = self.verified(engine, engine.pin().unwrap()).await;", "non_local_world_has_exact_text_without_store_consultation"),
-    "non-local-provisioning-text": ("search_engines.rs", "{} is not available on this platform: no certified {} engine for {} (non-local execution world).", "{} is not provisioned: no certified {} engine for {} (non-local execution world).", "non_local_world_has_exact_text_without_store_consultation"),
+    "non-local-provisioning-text": ("search_engines.rs", 'return Err(ToolCapabilityError::new(format!(\n                "{} is not available on this platform: no certified {} engine for {} (non-local execution world).",', 'return Err(ToolCapabilityError::new(format!(\n                "{} is not provisioned: no certified {} engine for {} (non-local execution world).",', "non_local_world_has_exact_text_without_store_consultation"),
     "retry-closes-first-window": ("find.rs", "                !retry", "                true", "diagnostic_rerun_abort_during_wait_settles_before_stop_ack"),
     "retry-without-signal": ("find.rs", "            request.signal.clone(),", "            if first {request.signal.clone()} else {None},", "diagnostic_rerun_abort_during_wait_settles_before_stop_ack"),
     "retry-skips-between-abort": ("find.rs", "        if request.signal.as_ref().is_some_and(|s| s.is_cancelled()) {", "        if false {", "diagnostic_rerun_abort_between_runs_prevents_spawn"),

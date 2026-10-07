@@ -85,12 +85,7 @@ fn same_component(left: &[u16], right: &[u16], platform: Platform) -> bool {
     if platform == Platform::Posix {
         return left == right;
     }
-    match (String::from_utf16(left), String::from_utf16(right)) {
-        (Ok(a), Ok(b)) => a.to_lowercase() == b.to_lowercase(),
-        // Engine output is UTF-8 scalar text: a logical lone surrogate never
-        // equals the U+FFFD in its native projection.
-        _ => left == right,
-    }
+    super::search_node_lower::lower(left) == super::search_node_lower::lower(right)
 }
 pub(super) fn relative_logical(base: &FsPath, path: &str, platform: Platform) -> String {
     let left = components(base.code_units(), platform);

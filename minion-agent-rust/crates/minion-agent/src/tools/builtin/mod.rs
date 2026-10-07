@@ -25,6 +25,7 @@ mod photon;
 mod read;
 pub mod search_engines;
 mod search_glob;
+mod search_node_lower;
 mod search_paths;
 mod search_run;
 #[cfg(test)]

@@ -12,6 +12,8 @@ import sys
 import tempfile
 
 CONTROLS = {
+    "find-abort-result-lost": ("find.rs", 'if outcome.aborted {', 'if false {', "real_factories_reproduce_the_fourteen_pi_abort_partition_cells"),
+    "grep-abort-result-lost": ("grep.rs", 'if outcome.aborted {', 'if false {', "real_factories_reproduce_the_fourteen_pi_abort_partition_cells"),
     "logical-path-projected-too-early": ("search_paths.rs", 'let left = components(base.code_units(), platform);', 'let left = components(&String::from_utf16_lossy(base.code_units()).encode_utf16().collect::<Vec<_>>(), platform);', "logical_surrogate_root_is_not_its_native_replacement"),
     "following-windows-git-probe": ("find.rs", 'fs.file_info(&git, None).await.is_ok()', 'fs.probe_dir_entry(&git, None).await.is_ok()', "canonical:builtin-search-find-junction-dangling-git-junction"),
     "fixed-name-staging": ("search_engines.rs", '.join(format!(".{}.install", uuid::Uuid::new_v4()))', '.join(SearchEngine::Fd.executable())', "staging_cannot_publish_a_partial_binary_at_the_fixed_name"),
@@ -34,7 +36,8 @@ CONTROLS = {
     "strip-bom": ("search_run.rs", "for ch in text.chars() {", "for ch in text.trim_start_matches('\\u{feff}').chars() {", "readline_handles_cr_and_utf8_chunks_without_stripping_bom"),
     "utf16-cut-off-by-one": ("search_text.rs", "units.truncate(500);", "units.truncate(501);", "surrogate_cut_and_empty_body_do_not_lossily_serialize"),
     "lossy-result": ("search_text.rs", "ResultString::from_code_units(text)", "ResultString::from(String::from_utf16_lossy(&text))", "surrogate_cut_and_empty_body_do_not_lossily_serialize"),
-    "case-sensitive-windows-relative": ("search_paths.rs", ".to_lowercase()", ".to_owned()", "windows_relative_is_case_insensitive_not_prefix_matching"),
+    "case-sensitive-windows-relative": ("search_paths.rs", "super::search_node_lower::lower(left) == super::search_node_lower::lower(right)", "left == right", "windows_relative_is_case_insensitive_not_prefix_matching"),
+    "host-unicode-lowercase": ("search_node_lower.rs", "let points: Vec<u32>", "return String::from_utf16_lossy(units).to_lowercase().encode_utf16().collect(); #[allow(unreachable_code)] let points: Vec<u32>", "node_unicode16_lowercase_is_not_host_unicode17"),
     "sort-find-output": ("find.rs", "Ok(search_text::finish(", "let mut entries=entries; entries.sort(); Ok(search_text::finish(", "find_stream_order_duplicates_and_untrimmed_empty_decision"),
     "deduplicate-find-output": ("find.rs", "Ok(search_text::finish(", "let mut entries=entries; entries.dedup(); Ok(search_text::finish(", "find_stream_order_duplicates_and_untrimmed_empty_decision"),
     "trim-before-empty-decision": ("find.rs", 'if lines.join("\\n").is_empty() {', 'if js_trim(&lines.join("\\n")).is_empty() {', "find_stream_order_duplicates_and_untrimmed_empty_decision"),
@@ -86,7 +89,8 @@ def main():
             if canonical: env["MINION_SEARCH_CASE"] = witness.split(":",1)[1]
             run = subprocess.run([executables[0],test,"--nocapture"],cwd=scratch,env=env,text=True,capture_output=True,timeout=75)
             transcript = run.stdout+run.stderr
-            killed = run.returncode != 0 and f"{test} ... FAILED" in transcript and ("assertion" in transcript or (name=="stop-ack-before-completion" and "Elapsed" in transcript) or (name=="trim-before-empty-decision" and "whitespace-only nonempty stdout must be success" in transcript))
+            canonical_comparison = canonical and f'search case "{env["MINION_SEARCH_CASE"]}"' in transcript and "unexpected file" in transcript
+            killed = run.returncode != 0 and f"{test} ... FAILED" in transcript and ("assertion" in transcript or canonical_comparison or (name=="stop-ack-before-completion" and "Elapsed" in transcript) or (name=="trim-before-empty-decision" and "whitespace-only nonempty stdout must be success" in transcript))
             item={"control":name,"witness":witness,"expected":"intended semantic assertion fails (not compilation/setup)","killed":killed,"diagnostic":run.stderr.strip()[:4000]}
             results.append(item)
             print(json.dumps(item),flush=True)

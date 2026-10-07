@@ -123,6 +123,97 @@ fn request(params: serde_json::Value) -> ToolExecutionRequest {
         context: None,
     }
 }
+struct PartitionSpawn {
+    local: LocalSubprocess,
+    process: Arc<dyn Process>,
+    signal: Arc<super::search_run::tests::Signal>,
+    at: &'static str,
+}
+#[async_trait]
+impl Subprocess for PartitionSpawn {
+    fn cwd(&self) -> &Path {
+        self.local.cwd()
+    }
+    fn execution_world(&self) -> &ExecutionWorldIdentity {
+        self.local.execution_world()
+    }
+    fn platform(&self) -> Platform {
+        self.local.platform()
+    }
+    fn base_env(&self) -> EnvSnapshot {
+        self.local.base_env()
+    }
+    async fn spawn(
+        &self,
+        _: &[String],
+        _: SpawnOptions,
+    ) -> Result<Arc<dyn Process>, SubprocessError> {
+        if self.at == "spawn" {
+            self.signal.abort();
+        }
+        Ok(self.process.clone())
+    }
+}
+#[tokio::test]
+async fn real_factories_reproduce_the_fourteen_pi_abort_partition_cells() {
+    for find in [true, false] {
+        for point in [
+            "spawn",
+            "stdout_data",
+            "stdout_eof",
+            "stderr_eof",
+            "wait",
+            "stdout_close",
+            "stderr_close",
+        ] {
+            let dir = tempfile::tempdir().unwrap();
+            let output = if find {
+                b"a.ts\n".to_vec()
+            } else {
+                format!("{}\n",serde_json::json!({"type":"match","data":{"path":{"text":dir.path().join("a.ts").to_string_lossy()},"line_number":1,"lines":{"text":"x\n"}}})).into_bytes()
+            };
+            let (process, signal) = super::search_run::tests::partition_fixture(point, output);
+            let spawn = Arc::new(PartitionSpawn {
+                local: LocalSubprocess::new(dir.path()),
+                process,
+                signal: signal.clone(),
+                at: point,
+            });
+            let fs = Arc::new(LocalFileSystem::new(dir.path()));
+            let engines = Arc::new(Engines {
+                changed: Arc::new(AtomicBool::new(false)),
+                calls: AtomicUsize::new(0),
+            });
+            let tool = if find {
+                create_find_tool(fs, spawn, engines)
+            } else {
+                create_grep_tool(fs, spawn, engines)
+            }
+            .unwrap();
+            let mut req = request(serde_json::json!({"pattern":"x"}));
+            req.signal = Some(signal);
+            let result = (tool.execute())(req).await;
+            let abort = !point.ends_with("close") && (find || point != "spawn");
+            assert_eq!(
+                result.is_err(),
+                abort,
+                "{} {point}: {result:?}",
+                if find { "find" } else { "grep" }
+            );
+            if abort {
+                assert_eq!(
+                    String::from_utf16_lossy(result.unwrap_err().message().code_units()),
+                    "Operation aborted"
+                );
+            } else {
+                assert_eq!(
+                    text(result.unwrap()),
+                    if find { "a.ts" } else { "a.ts:1: x" }
+                );
+            }
+        }
+    }
+}
 fn text(result: AgentToolResult) -> String {
     match &result.content[0] {
         crate::llm::ToolResultContentBlock::Text(t) => {

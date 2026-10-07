@@ -175,12 +175,17 @@ pub(super) async fn run(
 }
 
 #[cfg(test)]
-mod tests {
+pub(super) mod tests {
     use super::*;
     use crate::execution::{ExitStatus, WritableStream};
     use async_trait::async_trait;
     use tokio::sync::{Mutex, Notify};
-    struct Signal(AtomicBool);
+    pub(crate) struct Signal(AtomicBool);
+    impl Signal {
+        pub(crate) fn abort(&self) {
+            self.0.store(true, Ordering::SeqCst);
+        }
+    }
     impl ToolExecutionSignal for Signal {
         fn is_cancelled(&self) -> bool {
             self.0.load(Ordering::SeqCst)
@@ -280,6 +285,15 @@ mod tests {
             wait_first: false,
         })
     }
+    pub(crate) fn partition_fixture(
+        point: &'static str,
+        output: Vec<u8>,
+    ) -> (Arc<dyn Process>, Arc<Signal>) {
+        let signal = Arc::new(Signal(AtomicBool::new(false)));
+        let process = child(point, signal.clone(), false);
+        *process.out.chunks.try_lock().unwrap() = [output].into();
+        (process, signal)
+    }
     #[tokio::test]
     async fn completion_requires_exit_and_both_eofs() {
         let signal = Arc::new(Signal(AtomicBool::new(false)));
@@ -335,9 +349,13 @@ mod tests {
     }
     #[tokio::test]
     async fn held_limit_stop_acknowledgement_does_not_extend_completion() {
-        for abort in [false, true] {
+        for mode in 0..3 {
             let signal = Arc::new(Signal(AtomicBool::new(false)));
-            let process = child("", signal.clone(), true);
+            let process = child(
+                if mode == 2 { "stdout_close" } else { "" },
+                signal.clone(),
+                true,
+            );
             let window = Window::new();
             let task = tokio::spawn({
                 let p = process.clone();
@@ -354,7 +372,7 @@ mod tests {
             })
             .await
             .unwrap();
-            if abort {
+            if mode == 1 {
                 signal.0.store(true, Ordering::SeqCst);
             }
             assert!(!task.is_finished(), "the acknowledgement is actually held");
@@ -362,6 +380,7 @@ mod tests {
             let result = task.await.unwrap();
             assert!(!result.aborted);
             assert!(result.killed_for_limit);
+            assert_eq!(signal.is_cancelled(), mode != 0);
         }
     }
     #[test]

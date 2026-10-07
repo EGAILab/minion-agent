@@ -12,6 +12,15 @@ import sys
 import tempfile
 
 CONTROLS = {
+    "unc-share-forced-absolute": ("search_paths.rs", "common < 2", "common < 3", "logical_surrogate_root_is_not_its_native_replacement"),
+    "automatic-call-time-provisioning": ("search_engines.rs", "if world != &ExecutionWorldIdentity::local() || !self.verified(engine, pin).await {", "let artifacts=std::env::var_os(\"MINION_SEARCH_ENGINE_ARTIFACTS\").unwrap(); let _=provision_search_engines(self,Some(Path::new(&artifacts))).await; if world != &ExecutionWorldIdentity::local() || !self.verified(engine, pin).await {", "managed_store_verifies_every_use_and_provisioning_is_idempotent"),
+    "decision-after-disposal": ("search_run.rs", "    result\n}", "    result.map(|mut outcome| {outcome.aborted=signal.as_ref().is_some_and(|s|s.is_cancelled());outcome})\n}", "real_factories_reproduce_the_fourteen_pi_abort_partition_cells"),
+    "adjacent-recursive-not-collapsed": ("search_glob.rs", "while tokens.get(i) == Some(&Token::Stars(2)) && tokens.get(i + 1) == Some(&Token::Sep)", "while false && tokens.get(i) == Some(&Token::Stars(2)) && tokens.get(i + 1) == Some(&Token::Sep)", "canonical:builtin-search-find-components-adjacent-doublestar"),
+    "empty-alternative-zero-form": ("search_glob.rs", 'format!("{{{rest},**{SEP}{rest}}}")', 'format!("{{,**{SEP}}}{rest}")', "canonical:builtin-search-find-components-brace-alternative-doublestar"),
+    "lex-original-pattern": ("search_glob.rs", "rewrite(&lex(&pi), false)", "{let _=pi;rewrite(&lex(pattern),false)}", "canonical:builtin-search-find-components-brace-alternative-doublestar"),
+    "literal-brace-wrapping": ("search_glob.rs", "rewrite(&lex(&pi), false)", 'format!("{{{}}}",rewrite(&lex(&pi),false))', "separators_classes_and_alternation_context"),
+    "whole-pattern-windows-conversion-on-linux": ("find.rs", "if platform == Platform::Windows {\n            effective", "if true {\n            effective", "canonical:builtin-search-find-components-adjacent-doublestar"),
+    "context-windows-merged": ("grep.rs", "for m in matches {", "let mut previous_end=std::collections::BTreeMap::<String,f64>::new(); for m in matches { if context>0.0 {let start=js_max(1.0,m.line-context);let end=m.line+context;if previous_end.get(&m.file).is_some_and(|old|start<=*old){continue;} previous_end.insert(m.file.clone(),end);}", "canonical:builtin-search-grep-plain-context-overlap"),
     "find-abort-result-lost": ("find.rs", 'if outcome.aborted {', 'if false {', "real_factories_reproduce_the_fourteen_pi_abort_partition_cells"),
     "grep-abort-result-lost": ("grep.rs", 'if outcome.aborted {', 'if false {', "real_factories_reproduce_the_fourteen_pi_abort_partition_cells"),
     "logical-path-projected-too-early": ("search_paths.rs", 'let left = components(base.code_units(), platform);', 'let left = components(&String::from_utf16_lossy(base.code_units()).encode_utf16().collect::<Vec<_>>(), platform);', "logical_surrogate_root_is_not_its_native_replacement"),
@@ -67,8 +76,9 @@ def main():
         originals = {file: (source / file).read_text(encoding="utf-8") for file, *_ in CONTROLS.values()}
         results = []
         for name in selected:
-            if name=="following-windows-git-probe" and sys.platform!="win32":
-                print(json.dumps({"control":name,"not_applicable":"Windows non-following .git junction boundary"}),flush=True)
+            windows_only = {"following-windows-git-probe", "adjacent-recursive-not-collapsed", "empty-alternative-zero-form", "lex-original-pattern"}
+            if (name in windows_only and sys.platform!="win32") or (name=="whole-pattern-windows-conversion-on-linux" and sys.platform=="win32"):
+                print(json.dumps({"control":name,"not_applicable":"platform-specific production branch"}),flush=True)
                 continue
             for file, original in originals.items():
                 (source / file).write_text(original, encoding="utf-8", newline="\n")

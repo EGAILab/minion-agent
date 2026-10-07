@@ -97,7 +97,7 @@ pub(super) fn relative_logical(base: &FsPath, path: &str, platform: Platform) ->
         common += 1;
     }
     if platform == Platform::Windows
-        && (common == 0 || (left.first().is_some_and(Vec::is_empty) && common < 3))
+        && (common == 0 || (left.first().is_some_and(Vec::is_empty) && common < 2))
     {
         return normalize(path, platform);
     }
@@ -232,6 +232,10 @@ mod tests {
                 Platform::Windows
             ),
             "\\\\other\\share\\x"
+        );
+        assert_eq!(
+            relative("\\\\server\\a", "\\\\server\\b\\x", Platform::Windows),
+            "..\\b\\x"
         );
     }
     #[test]

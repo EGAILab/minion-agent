@@ -7,6 +7,10 @@ use uuid::Uuid;
 pub struct ExecutionWorldIdentity(Arc<str>);
 
 impl ExecutionWorldIdentity {
+    pub(crate) fn as_str(&self) -> &str {
+        &self.0
+    }
+
     pub fn fresh() -> Self {
         Self(Arc::from(Uuid::new_v4().to_string()))
     }

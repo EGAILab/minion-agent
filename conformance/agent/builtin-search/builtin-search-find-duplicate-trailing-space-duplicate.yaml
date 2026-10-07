@@ -1,0 +1,23 @@
+name: builtin-search-find-duplicate-trailing-space-duplicate
+family: agent
+authority: minion-agent-docs spec/tools.md WP-13.4 (master f3ae3ced); pinned-Pi search_probe outputs
+pi_revision: b7bb00b936dbe21b8e160b3e89efdec361846699
+requirements:
+- TOOL-036
+witnesses:
+- builtin_search_find_duplicate_trailing_space_duplicate
+builtin_search:
+  tool: find
+  corpus: duplicate
+  arguments:
+    pattern: same.ts*
+    path: src
+  expect:
+    linux:
+      is_error: false
+      mode: find_multiset
+      entries:
+      - same.ts
+      - same.ts
+      notice: null
+      details: {}

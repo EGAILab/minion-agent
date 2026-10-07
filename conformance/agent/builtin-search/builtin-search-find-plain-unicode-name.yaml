@@ -1,0 +1,28 @@
+name: builtin-search-find-plain-unicode-name
+family: agent
+authority: minion-agent-docs spec/tools.md WP-13.4 (master f3ae3ced); pinned-Pi search_probe outputs
+pi_revision: b7bb00b936dbe21b8e160b3e89efdec361846699
+requirements:
+- TOOL-036
+witnesses:
+- builtin_search_find_plain_unicode_name
+builtin_search:
+  tool: find
+  corpus: plain
+  arguments:
+    pattern: 文件.ts
+  expect:
+    win32:
+      is_error: false
+      mode: find_multiset
+      entries:
+      - ünïcode/文件.ts
+      notice: null
+      details: {}
+    linux:
+      is_error: false
+      mode: find_multiset
+      entries:
+      - ünïcode/文件.ts
+      notice: null
+      details: {}

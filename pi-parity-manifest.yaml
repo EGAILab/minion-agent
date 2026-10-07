@@ -7347,7 +7347,10 @@ rows:
     WP-13.4, find.'
   tests:
   - assurance/layers/13-wp134-search-characterization.md and data/13-wp134/ (pinned-Pi probe search_probe.mjs, out/search-{win32,linux}.json, engines.json)
-  python: NOT_IMPLEMENTED
+  - minion-agent-python/tests/conformance/test_builtin_search_conformance.py over conformance/agent/builtin-search/ (219 generated scenarios incl. 28 CE-L13-WP134-01 components cases, corpus.json; multiset / sub-multiset / per-file comparison, bulk members derived and cross-checked, WP134-IMPL-R003)
+  - minion-agent-python/tests/tools/builtin/test_search.py (argv vectors, unsorted-stream preservation, duplicates, emptiness before trim, cancellation, relativization, readline)
+  - minion-agent-python/scripts/wp134_search_negative_controls.py (intended-witness kills, section 9.7)
+  python: 'minion_agent/tools/builtin/find.py, _search.py, _node_path.py, _readline.py. Implementation candidate (WP-13.4, minion-agent#51; contract minion-agent-docs#247 -> f3ae3ced, minion-agent#152 -> fc1a1af0), pending independent review.'
   rust: NOT_IMPLEMENTED
   disposition: adopted
 - id: TOOL-036-DIV-002
@@ -7355,14 +7358,20 @@ rows:
   pi: packages/coding-agent/src/core/tools/find.ts (Windows rewrite of every "/" to [/\\] in a full-path pattern)
   surface: Layer 13, WP-13.4 -- Windows find full-path glob zero-directory semantics
   rule: 'DIV-002 (assurance/pi-divergences.md; Owner WP-13.4 Q1 = Option A, minion-agent#51
-    issuecomment-5988502021). On Windows each "**/" component of a full-path find pattern keeps its zero-or-more
-    whole-directory meaning while accepting either separator, so Windows results equal Linux results (Pi on Windows
-    misses src/b.spec.ts for src/**/*.spec.ts). Observable behaviour only; scoped to "**/": a single-segment "*"
-    keeps Pi''s Windows meaning on the pinned fd (parity).'
+    issuecomment-5988502021). On Windows each recursive "**/" component of a full-path find pattern keeps its
+    zero-or-more whole-directory meaning while accepting either separator (Pi on Windows misses src/b.spec.ts for
+    src/**/*.spec.ts). Component-local (CE-L13-WP134-01): the Windows result is the union, over keeping or removing
+    each recursive component, of Pi''s own Windows result for that pattern; every other construct keeps Pi''s
+    Windows meaning on the pinned fd (a single-segment "*" crossing separators, classes Pi''s rewrite reshapes, no
+    escapes), and a pattern fd rejects gives Pi''s diagnostic. Windows results therefore equal Linux results only
+    where no such retained Pi-Windows construct is composed with a component (src/**/a*.ts also returns
+    src/a/sub/b.ts on Windows). Observable behaviour only; spec/tools.md WP-13.4.'
   tests:
   - assurance/layers/data/13-wp134/out/search-{win32,linux}.json find/*/full-path-* (Pi reference side)
   - assurance/layers/data/13-wp134/out/div002-win32.json (harness/div002_probe.mjs feasibility evidence)
-  python: NOT_IMPLEMENTED
+  - conformance/agent/builtin-search/builtin-search-find-{plain,repo}-full-path-{spec,deep,two-doublestar}.yaml and builtin-search-find-components-*.yaml (CE-L13-WP134-01 composition rule -- the win32 expectation is the union of Pi's Windows results over keep/remove of each recursive component, from the harness components mode; Pi reference side in notes)
+  - minion-agent-python/tests/tools/builtin/test_search.py::test_windows_full_path_normalization (outside /**/ the text is exactly Pi's rewrite)
+  python: 'minion_agent/tools/builtin/find.py _windows_full_path. Implementation candidate (WP-13.4, minion-agent#51; contract minion-agent-docs#247 -> f3ae3ced, minion-agent#152 -> fc1a1af0), pending independent review.'
   rust: NOT_IMPLEMENTED
   disposition: intentional divergence
 - id: TOOL-037
@@ -7379,7 +7388,10 @@ rows:
     spec/tools.md, WP-13.4, grep.'
   tests:
   - assurance/layers/13-wp134-search-characterization.md and data/13-wp134/ (pinned-Pi probe search_probe.mjs, out/search-{win32,linux}.json, engines.json)
-  python: NOT_IMPLEMENTED
+  - minion-agent-python/tests/conformance/test_builtin_search_conformance.py over conformance/agent/builtin-search/ (grep scenarios, per-file blocks exact)
+  - minion-agent-python/tests/tools/builtin/test_search.py (argv vectors, uncollected counting, limits, context reconstruction, truncateLine units, abort registration; test_abort_window_partition, the CE-L13-WP134-01 14-cell abort window)
+  - minion-agent-python/scripts/wp134_search_negative_controls.py
+  python: 'minion_agent/tools/builtin/grep.py, _search.py. Implementation candidate (WP-13.4, minion-agent#51; contract minion-agent-docs#247 -> f3ae3ced, minion-agent#152 -> fc1a1af0), pending independent review.'
   rust: NOT_IMPLEMENTED
   disposition: adopted
 - id: TOOL-038
@@ -7395,7 +7407,8 @@ rows:
   tests:
   - assurance/layers/data/13-wp134/engines.json (artifact SHA-256 equal to GitHub release digests and ripgrep's
     .sha256; binary SHA-256; --version on both platforms)
-  python: NOT_IMPLEMENTED
+  - minion-agent-python/tests/conformance/test_builtin_search_conformance.py (runs only the certified store, provisioned from MINION_SEARCH_ENGINE_ARTIFACTS and verified)
+  python: 'minion_agent/tools/builtin/search_engines.py (PINS, EngineStore). Implementation candidate (WP-13.4, minion-agent#51; contract minion-agent-docs#247 -> f3ae3ced, minion-agent#152 -> fc1a1af0), pending independent review.'
   rust: NOT_IMPLEMENTED
   disposition: adopted
 - id: TOOL-038-DIV-003
@@ -7410,7 +7423,8 @@ rows:
     produce Minion-owned text naming the engine, the reason and the provisioning action.'
   tests:
   - spec/tools.md WP-13.4 "Witnesses and evidence" item 2 (to be implemented with the WP-13.4 code candidate)
-  python: NOT_IMPLEMENTED
+  - minion-agent-python/tests/tools/builtin/test_search.py (unprovisioned texts, no download or PATH from a tool call, hash refusal, atomic install, idempotent provisioning)
+  python: 'minion_agent/tools/builtin/search_engines.py (provision_search_engines, EngineStore.resolve). Implementation candidate (WP-13.4, minion-agent#51; contract minion-agent-docs#247 -> f3ae3ced, minion-agent#152 -> fc1a1af0), pending independent review.'
   rust: NOT_IMPLEMENTED
   disposition: intentional divergence
 - id: TOOL-039

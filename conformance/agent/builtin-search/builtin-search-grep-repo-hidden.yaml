@@ -1,0 +1,34 @@
+name: builtin-search-grep-repo-hidden
+family: agent
+authority: minion-agent-docs spec/tools.md WP-13.4 (master f3ae3ced); pinned-Pi search_probe outputs
+pi_revision: b7bb00b936dbe21b8e160b3e89efdec361846699
+requirements:
+- TOOL-037
+witnesses:
+- builtin_search_grep_repo_hidden
+builtin_search:
+  tool: grep
+  corpus: repo
+  arguments:
+    pattern: hidden
+  expect:
+    win32:
+      is_error: false
+      mode: grep_by_file
+      files:
+        .hiddendir/e.ts:
+        - '.hiddendir/e.ts:1: hidden dir foo'
+        src/.hidden.ts:
+        - 'src/.hidden.ts:1: hidden foo'
+      notice: null
+      details: {}
+    linux:
+      is_error: false
+      mode: grep_by_file
+      files:
+        src/.hidden.ts:
+        - 'src/.hidden.ts:1: hidden foo'
+        .hiddendir/e.ts:
+        - '.hiddendir/e.ts:1: hidden dir foo'
+      notice: null
+      details: {}

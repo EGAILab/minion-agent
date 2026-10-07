@@ -1,0 +1,57 @@
+name: builtin-search-find-repo-limit-2
+family: agent
+authority: minion-agent-docs spec/tools.md WP-13.4 (master f3ae3ced); pinned-Pi search_probe outputs
+pi_revision: b7bb00b936dbe21b8e160b3e89efdec361846699
+requirements:
+- TOOL-036
+witnesses:
+- builtin_search_find_repo_limit_2
+builtin_search:
+  tool: find
+  corpus: repo
+  arguments:
+    pattern: '*.ts'
+    limit: 2
+  expect:
+    win32:
+      is_error: false
+      mode: find_subset
+      count: 2
+      of:
+      - ' lead.ts'
+      - .hiddendir/e.ts
+      - link-file.ts
+      - nested/keep.ts
+      - node_modules/pkg/index.ts
+      - space dir/f.ts
+      - src/.hidden.ts
+      - src/a.ts
+      - src/b.spec.ts
+      - src/sub/c.ts
+      - src/sub/d.spec.ts
+      - src/sub/deep/er/e.spec.ts
+      - ünïcode/文件.ts
+      notice: '[2 results limit reached. Use limit=4 for more, or refine pattern]'
+      details:
+        resultLimitReached: 2
+    linux:
+      is_error: false
+      mode: find_subset
+      count: 2
+      of:
+      - ' lead.ts'
+      - .hiddendir/e.ts
+      - link-file.ts
+      - nested/keep.ts
+      - node_modules/pkg/index.ts
+      - space dir/f.ts
+      - src/.hidden.ts
+      - src/a.ts
+      - src/b.spec.ts
+      - src/sub/c.ts
+      - src/sub/d.spec.ts
+      - src/sub/deep/er/e.spec.ts
+      - ünïcode/文件.ts
+      notice: '[2 results limit reached. Use limit=4 for more, or refine pattern]'
+      details:
+        resultLimitReached: 2

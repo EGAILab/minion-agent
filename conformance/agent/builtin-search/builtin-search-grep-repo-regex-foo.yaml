@@ -1,0 +1,72 @@
+name: builtin-search-grep-repo-regex-foo
+family: agent
+authority: minion-agent-docs spec/tools.md WP-13.4 (master f3ae3ced); pinned-Pi search_probe outputs
+pi_revision: b7bb00b936dbe21b8e160b3e89efdec361846699
+requirements:
+- TOOL-037
+witnesses:
+- builtin_search_grep_repo_regex_foo
+builtin_search:
+  tool: grep
+  corpus: repo
+  arguments:
+    pattern: foo
+  expect:
+    win32:
+      is_error: false
+      mode: grep_by_file
+      files:
+        .hiddendir/e.ts:
+        - '.hiddendir/e.ts:1: hidden dir foo'
+        space dir/f.ts:
+        - 'space dir/f.ts:1: space foo'
+        node_modules/pkg/index.ts:
+        - 'node_modules/pkg/index.ts:1: module foo'
+        ünïcode/文件.ts:
+        - 'ünïcode/文件.ts:1: naïve 日本語 foo'
+        nested/keep.ts:
+        - 'nested/keep.ts:1: nested keep foo'
+        data/x.json:
+        - 'data/x.json:1: {"foo": 1}'
+        src/.hidden.ts:
+        - 'src/.hidden.ts:1: hidden foo'
+        src/a.ts:
+        - 'src/a.ts:3: foo bar'
+        - 'src/a.ts:4: foo.bar'
+        src/b.spec.ts:
+        - 'src/b.spec.ts:1: describe foo'
+        src/sub/c.ts:
+        - 'src/sub/c.ts:1: const foo = 1;'
+        src/sub/d.spec.ts:
+        - 'src/sub/d.spec.ts:1: it foo'
+      notice: null
+      details: {}
+    linux:
+      is_error: false
+      mode: grep_by_file
+      files:
+        node_modules/pkg/index.ts:
+        - 'node_modules/pkg/index.ts:1: module foo'
+        data/x.json:
+        - 'data/x.json:1: {"foo": 1}'
+        nested/keep.ts:
+        - 'nested/keep.ts:1: nested keep foo'
+        src/a.ts:
+        - 'src/a.ts:3: foo bar'
+        - 'src/a.ts:4: foo.bar'
+        src/.hidden.ts:
+        - 'src/.hidden.ts:1: hidden foo'
+        .hiddendir/e.ts:
+        - '.hiddendir/e.ts:1: hidden dir foo'
+        src/b.spec.ts:
+        - 'src/b.spec.ts:1: describe foo'
+        space dir/f.ts:
+        - 'space dir/f.ts:1: space foo'
+        ünïcode/文件.ts:
+        - 'ünïcode/文件.ts:1: naïve 日本語 foo'
+        src/sub/d.spec.ts:
+        - 'src/sub/d.spec.ts:1: it foo'
+        src/sub/c.ts:
+        - 'src/sub/c.ts:1: const foo = 1;'
+      notice: null
+      details: {}

@@ -1,0 +1,31 @@
+name: builtin-search-grep-repo-empty-line
+family: agent
+authority: minion-agent-docs spec/tools.md WP-13.4 (master f3ae3ced); pinned-Pi search_probe outputs
+pi_revision: b7bb00b936dbe21b8e160b3e89efdec361846699
+requirements:
+- TOOL-037
+witnesses:
+- builtin_search_grep_repo_empty_line
+builtin_search:
+  tool: grep
+  corpus: repo
+  arguments:
+    pattern: ^$
+    path: text/edge.txt
+  expect:
+    win32:
+      is_error: false
+      mode: grep_by_file
+      files:
+        edge.txt:
+        - 'edge.txt:3: '
+      notice: null
+      details: {}
+    linux:
+      is_error: false
+      mode: grep_by_file
+      files:
+        edge.txt:
+        - 'edge.txt:3: '
+      notice: null
+      details: {}

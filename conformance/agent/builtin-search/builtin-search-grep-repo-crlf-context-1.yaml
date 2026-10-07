@@ -1,0 +1,36 @@
+name: builtin-search-grep-repo-crlf-context-1
+family: agent
+authority: minion-agent-docs spec/tools.md WP-13.4 (master f3ae3ced); pinned-Pi search_probe outputs
+pi_revision: b7bb00b936dbe21b8e160b3e89efdec361846699
+requirements:
+- TOOL-037
+witnesses:
+- builtin_search_grep_repo_crlf_context_1
+builtin_search:
+  tool: grep
+  corpus: repo
+  arguments:
+    pattern: match
+    path: text/crlf.txt
+    context: 1
+  expect:
+    win32:
+      is_error: false
+      mode: grep_by_file
+      files:
+        crlf.txt:
+        - crlf.txt-1- one
+        - 'crlf.txt:2: two match'
+        - crlf.txt-3- three
+      notice: null
+      details: {}
+    linux:
+      is_error: false
+      mode: grep_by_file
+      files:
+        crlf.txt:
+        - crlf.txt-1- one
+        - 'crlf.txt:2: two match'
+        - crlf.txt-3- three
+      notice: null
+      details: {}

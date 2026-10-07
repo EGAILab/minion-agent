@@ -7338,7 +7338,7 @@ rows:
     core/tools/path-utils.ts resolveToCwd/pathExists; core/tools/truncate.ts truncateHead
   surface: Layer 13, WP-13.4 -- the find tool definition and schema, fd argument vector (repository scoping,
     full-path handling), output collection, relativization, limits, truncation and notices
-  rule: 'CONTRACT_DRAFT (WP-13.4, minion-agent#51; DIRECT_PI_PARITY for the wrapper; matching delegated to the pinned
+  rule: 'CERTIFIED_CLOSED (WP-13.4 cross-language, minion-agent#51: contract docs #247 -> f3ae3ced, CE-L13-WP134-01 deltas in docs #248 -> 26a4bbf8, WP134-CON-R005 docs #250 -> 801d6eed; Python #153 -> 01ec8339 / docs #248 -> 26a4bbf8; Rust #154 -> 7e678628 / docs #249 -> 09e343f2; Python final review minion-agent#153 issuecomment-6038145224; Rust final closure minion-agent#154 issuecomment-6048860925). (DIRECT_PI_PARITY for the wrapper; matching delegated to the pinned
     fd 10.4.2, TOOL-038; Owner Q1-Q3 minion-agent#51 issuecomment-5988502021). Cross-entry order is
     ENGINE_DEFINED_UNSPECIFIED (Owner Q2), so conformance compares unlimited results as a multiset of formatted
     entries (distinct paths can format identically after Pi''s trim, WP134-CON-R002) and limited results by count
@@ -7350,14 +7350,14 @@ rows:
   - minion-agent-python/tests/conformance/test_builtin_search_conformance.py over conformance/agent/builtin-search/ (219 generated scenarios incl. 28 CE-L13-WP134-01 components cases, corpus.json; multiset / sub-multiset / per-file comparison, bulk members derived and cross-checked, WP134-IMPL-R003)
   - minion-agent-python/tests/tools/builtin/test_search.py (argv vectors, unsorted-stream preservation, duplicates, emptiness before trim, cancellation, relativization, readline)
   - minion-agent-python/scripts/wp134_search_negative_controls.py (intended-witness kills, section 9.7)
-  python: 'minion_agent/tools/builtin/find.py, _search.py, _node_path.py, _readline.py. Implementation candidate (WP-13.4, minion-agent#51; contract minion-agent-docs#247 -> f3ae3ced, minion-agent#152 -> fc1a1af0), pending independent review.'
-  rust: 'Candidate: minion-agent-rust/crates/minion-agent/src/tools/builtin/find.rs, search_run.rs, search_paths.rs, search_text.rs; tests/builtin_search_conformance.rs and search_tests.rs; scripts/search-negative-controls.py. Assurance: assurance/layers/13-wp134-rust-implementation.md. Independent closure pending.'
+  python: 'minion_agent/tools/builtin/find.py, _search.py, _node_path.py, _readline.py. Certified (WP-13.4; Python #153 -> 01ec8339; final review minion-agent#153 issuecomment-6038145224).'
+  rust: 'Certified (WP-13.4; Rust #154 -> 7e678628; final closure review minion-agent#154 issuecomment-6048860925): minion-agent-rust/crates/minion-agent/src/tools/builtin/find.rs, search_run.rs, search_paths.rs, search_text.rs; tests/builtin_search_conformance.rs and search_tests.rs; scripts/search-negative-controls.py. Assurance: assurance/layers/13-wp134-rust-implementation.md. Independent closure pending.'
   disposition: adopted
 - id: TOOL-036-DIV-002
   phase: 6
   pi: packages/coding-agent/src/core/tools/find.ts (Windows rewrite of every "/" to [/\\] in a full-path pattern)
   surface: Layer 13, WP-13.4 -- Windows find full-path glob zero-directory semantics
-  rule: 'DIV-002 (assurance/pi-divergences.md; Owner WP-13.4 Q1 = Option A, minion-agent#51
+  rule: 'CERTIFIED_CLOSED (WP-13.4 cross-language, minion-agent#51: contract docs #247 -> f3ae3ced, CE-L13-WP134-01 deltas in docs #248 -> 26a4bbf8, WP134-CON-R005 docs #250 -> 801d6eed; Python #153 -> 01ec8339 / docs #248 -> 26a4bbf8; Rust #154 -> 7e678628 / docs #249 -> 09e343f2; Python final review minion-agent#153 issuecomment-6038145224; Rust final closure minion-agent#154 issuecomment-6048860925). DIV-002 (assurance/pi-divergences.md; Owner WP-13.4 Q1 = Option A, minion-agent#51
     issuecomment-5988502021). On Windows each recursive "**/" component of a full-path find pattern keeps its
     zero-or-more whole-directory meaning while accepting either separator (Pi on Windows misses src/b.spec.ts for
     src/**/*.spec.ts). Component-local (CE-L13-WP134-01): the Windows result is the union, over keeping or removing
@@ -7371,8 +7371,8 @@ rows:
   - assurance/layers/data/13-wp134/out/div002-win32.json (harness/div002_probe.mjs feasibility evidence)
   - conformance/agent/builtin-search/builtin-search-find-{plain,repo}-full-path-{spec,deep,two-doublestar}.yaml and builtin-search-find-components-*.yaml (CE-L13-WP134-01 composition rule -- the win32 expectation is the union of Pi's Windows results over keep/remove of each recursive component, from the harness components mode; Pi reference side in notes)
   - minion-agent-python/tests/tools/builtin/test_search.py::test_windows_full_path_normalization (outside /**/ the text is exactly Pi's rewrite)
-  python: 'minion_agent/tools/builtin/find.py _windows_full_path. Implementation candidate (WP-13.4, minion-agent#51; contract minion-agent-docs#247 -> f3ae3ced, minion-agent#152 -> fc1a1af0), pending independent review.'
-  rust: 'Candidate: minion-agent-rust/crates/minion-agent/src/tools/builtin/search_glob.rs and find.rs (Pi-text diagnostic rerun with fresh engine verification); tests/builtin_search_conformance.rs, search_tests.rs and scripts/search-negative-controls.py. Assurance: assurance/layers/13-wp134-rust-implementation.md. Independent closure pending.'
+  python: 'minion_agent/tools/builtin/find.py _windows_full_path. Certified (WP-13.4; Python #153 -> 01ec8339; final review minion-agent#153 issuecomment-6038145224).'
+  rust: 'Certified (WP-13.4; Rust #154 -> 7e678628; final closure review minion-agent#154 issuecomment-6048860925): minion-agent-rust/crates/minion-agent/src/tools/builtin/search_glob.rs and find.rs (Pi-text diagnostic rerun with fresh engine verification); tests/builtin_search_conformance.rs, search_tests.rs and scripts/search-negative-controls.py. Assurance: assurance/layers/13-wp134-rust-implementation.md. Independent closure pending.'
   disposition: intentional divergence
 - id: TOOL-037
   phase: 6
@@ -7380,7 +7380,7 @@ rows:
     core/tools/truncate.ts truncateHead/truncateLine/GREP_MAX_LINE_LENGTH
   surface: Layer 13, WP-13.4 -- the grep tool definition and schema, rg argument vector, JSON event collection,
     Pi-owned context reconstruction, line and output truncation, notices
-  rule: 'CONTRACT_DRAFT (WP-13.4, minion-agent#51; DIRECT_PI_PARITY for the wrapper; matching delegated to the pinned
+  rule: 'CERTIFIED_CLOSED (WP-13.4 cross-language, minion-agent#51: contract docs #247 -> f3ae3ced, CE-L13-WP134-01 deltas in docs #248 -> 26a4bbf8, WP134-CON-R005 docs #250 -> 801d6eed; Python #153 -> 01ec8339 / docs #248 -> 26a4bbf8; Rust #154 -> 7e678628 / docs #249 -> 09e343f2; Python final review minion-agent#153 issuecomment-6038145224; Rust final closure minion-agent#154 issuecomment-6048860925). (DIRECT_PI_PARITY for the wrapper; matching delegated to the pinned
     ripgrep 15.2.0, TOOL-038). Per-file matches contiguous and ascending; cross-file order unspecified (Owner Q2).
     Pi quirks kept exact: no --no-require-git (outside a repository .gitignore is not honoured), Math.max(1, limit),
     fractional context and limit, unmerged overlapping windows, BOM kept in re-read context lines, uncollected
@@ -7391,15 +7391,15 @@ rows:
   - minion-agent-python/tests/conformance/test_builtin_search_conformance.py over conformance/agent/builtin-search/ (grep scenarios, per-file blocks exact)
   - minion-agent-python/tests/tools/builtin/test_search.py (argv vectors, uncollected counting, limits, context reconstruction, truncateLine units, abort registration; test_abort_window_partition, the CE-L13-WP134-01 14-cell abort window)
   - minion-agent-python/scripts/wp134_search_negative_controls.py
-  python: 'minion_agent/tools/builtin/grep.py, _search.py. Implementation candidate (WP-13.4, minion-agent#51; contract minion-agent-docs#247 -> f3ae3ced, minion-agent#152 -> fc1a1af0), pending independent review.'
-  rust: 'Candidate: minion-agent-rust/crates/minion-agent/src/tools/builtin/grep.rs, search_run.rs and search_text.rs; tests/builtin_search_conformance.rs and search_tests.rs (14-cell abort partition and held-stop acknowledgement); scripts/search-negative-controls.py. Assurance: assurance/layers/13-wp134-rust-implementation.md. Independent closure pending.'
+  python: 'minion_agent/tools/builtin/grep.py, _search.py. Certified (WP-13.4; Python #153 -> 01ec8339; final review minion-agent#153 issuecomment-6038145224).'
+  rust: 'Certified (WP-13.4; Rust #154 -> 7e678628; final closure review minion-agent#154 issuecomment-6048860925): minion-agent-rust/crates/minion-agent/src/tools/builtin/grep.rs, search_run.rs and search_text.rs; tests/builtin_search_conformance.rs and search_tests.rs (14-cell abort partition and held-stop acknowledgement); scripts/search-negative-controls.py. Assurance: assurance/layers/13-wp134-rust-implementation.md. Independent closure pending.'
   disposition: adopted
 - id: TOOL-038
   phase: 6
   pi: packages/coding-agent/src/utils/tools-manager.ts (ensureTool, getToolPath, getLatestVersion, getAssetName)
   surface: Layer 13, WP-13.4 -- the pinned search engines fd 10.4.2 and ripgrep 15.2.0 (win32-x64, linux-x64),
     their artifact and binary SHA-256, explicit provisioning and use-time verification
-  rule: 'CONTRACT_DRAFT (WP-13.4, minion-agent#51; Owner TOOL-038 = EXACT_MINION_PINNED_ENGINES, #51 state block; Owner
+  rule: 'CERTIFIED_CLOSED (WP-13.4 cross-language, minion-agent#51: contract docs #247 -> f3ae3ced, CE-L13-WP134-01 deltas in docs #248 -> 26a4bbf8, WP134-CON-R005 docs #250 -> 801d6eed; Python #153 -> 01ec8339 / docs #248 -> 26a4bbf8; Rust #154 -> 7e678628 / docs #249 -> 09e343f2; Python final review minion-agent#153 issuecomment-6038145224; Rust final closure minion-agent#154 issuecomment-6048860925). (Owner TOOL-038 = EXACT_MINION_PINNED_ENGINES, #51 state block; Owner
     Q3 = DIV-003). The pinned engines are the delegated semantic authority for matching; Minion never reimplements fd
     glob or ripgrep regex semantics. Exact identities in spec/tools.md WP-13.4 and
     assurance/layers/data/13-wp134/engines.json; an upgrade is an explicit contract change. Certified for the local
@@ -7408,15 +7408,15 @@ rows:
   - assurance/layers/data/13-wp134/engines.json (artifact SHA-256 equal to GitHub release digests and ripgrep's
     .sha256; binary SHA-256; --version on both platforms)
   - minion-agent-python/tests/conformance/test_builtin_search_conformance.py (runs only the certified store, provisioned from MINION_SEARCH_ENGINE_ARTIFACTS and verified)
-  python: 'minion_agent/tools/builtin/search_engines.py (PINS, EngineStore). Implementation candidate (WP-13.4, minion-agent#51; contract minion-agent-docs#247 -> f3ae3ced, minion-agent#152 -> fc1a1af0), pending independent review.'
-  rust: 'Candidate: minion-agent-rust/crates/minion-agent/src/tools/builtin/search_engines.rs (exact artifact/binary pins and verified managed store); tests/builtin_search_conformance.rs (real official engines), search_tests.rs and scripts/search-negative-controls.py. Assurance: assurance/layers/13-wp134-rust-implementation.md. Independent closure pending.'
+  python: 'minion_agent/tools/builtin/search_engines.py (PINS, EngineStore). Certified (WP-13.4; Python #153 -> 01ec8339; final review minion-agent#153 issuecomment-6038145224).'
+  rust: 'Certified (WP-13.4; Rust #154 -> 7e678628; final closure review minion-agent#154 issuecomment-6048860925): minion-agent-rust/crates/minion-agent/src/tools/builtin/search_engines.rs (exact artifact/binary pins and verified managed store); tests/builtin_search_conformance.rs (real official engines), search_tests.rs and scripts/search-negative-controls.py. Assurance: assurance/layers/13-wp134-rust-implementation.md. Independent closure pending.'
   disposition: adopted
 - id: TOOL-038-DIV-003
   phase: 6
   pi: packages/coding-agent/src/utils/tools-manager.ts (tool-call-time acquisition -- managed cache, then PATH, then a
     latest-release download)
   surface: Layer 13, WP-13.4 -- search-engine acquisition timing and mechanism
-  rule: 'DIV-003 (assurance/pi-divergences.md; Owner WP-13.4 Q3 = Option B, minion-agent#51
+  rule: 'CERTIFIED_CLOSED (WP-13.4 cross-language, minion-agent#51: contract docs #247 -> f3ae3ced, CE-L13-WP134-01 deltas in docs #248 -> 26a4bbf8, WP134-CON-R005 docs #250 -> 801d6eed; Python #153 -> 01ec8339 / docs #248 -> 26a4bbf8; Rust #154 -> 7e678628 / docs #249 -> 09e343f2; Python final review minion-agent#153 issuecomment-6038145224; Rust final closure minion-agent#154 issuecomment-6048860925). DIV-003 (assurance/pi-divergences.md; Owner WP-13.4 Q3 = Option B, minion-agent#51
     issuecomment-5988502021). Engines are provisioned explicitly (provision_search_engines: certified platform
     artifact only, artifact SHA-256 before extraction, binary SHA-256 after, atomic install, idempotent); a find or
     grep call never touches the network or PATH and verifies the binary hash before every spawn; unavailable engines
@@ -7424,8 +7424,8 @@ rows:
   tests:
   - spec/tools.md WP-13.4 "Witnesses and evidence" item 2 (to be implemented with the WP-13.4 code candidate)
   - minion-agent-python/tests/tools/builtin/test_search.py (unprovisioned texts, no download or PATH from a tool call, hash refusal, atomic install, idempotent provisioning)
-  python: 'minion_agent/tools/builtin/search_engines.py (provision_search_engines, EngineStore.resolve). Implementation candidate (WP-13.4, minion-agent#51; contract minion-agent-docs#247 -> f3ae3ced, minion-agent#152 -> fc1a1af0), pending independent review.'
-  rust: 'Candidate: minion-agent-rust/crates/minion-agent/src/tools/builtin/search_engines.rs (explicit acquisition, artifact-before-extraction and binary-before-atomic-rename verification, idempotence, no call-time acquisition or PATH fallback); staging and managed-store witnesses; scripts/search-negative-controls.py. Assurance: assurance/layers/13-wp134-rust-implementation.md. Independent closure pending.'
+  python: 'minion_agent/tools/builtin/search_engines.py (provision_search_engines, EngineStore.resolve). Certified (WP-13.4; Python #153 -> 01ec8339; final review minion-agent#153 issuecomment-6038145224).'
+  rust: 'Certified (WP-13.4; Rust #154 -> 7e678628; final closure review minion-agent#154 issuecomment-6048860925): minion-agent-rust/crates/minion-agent/src/tools/builtin/search_engines.rs (explicit acquisition, artifact-before-extraction and binary-before-atomic-rename verification, idempotence, no call-time acquisition or PATH fallback); staging and managed-store witnesses; scripts/search-negative-controls.py. Assurance: assurance/layers/13-wp134-rust-implementation.md. Independent closure pending.'
   disposition: intentional divergence
 - id: TOOL-039
   phase: 6

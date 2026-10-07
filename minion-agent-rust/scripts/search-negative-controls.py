@@ -88,7 +88,7 @@ def main():
             (source / file).write_text(originals[file].replace(old,new),encoding="utf-8",newline="\n")
             canonical = witness.startswith("canonical:")
             target = ["--test","builtin_search_conformance"] if canonical else ["--lib"]
-            build = subprocess.run(["cargo","test","--locked","--offline","-p","minion-agent","--all-features",*target,"--no-run","--message-format=json"],cwd=scratch,text=True,capture_output=True)
+            build = subprocess.run(["cargo","test","--locked","--offline","-p","minion-agent","--all-features",*target,"--no-run","--message-format=json"],cwd=scratch,text=True,encoding="utf-8",errors="replace",capture_output=True)
             events = [json.loads(line) for line in build.stdout.splitlines() if line.startswith("{")]
             executables = [e["executable"] for e in events if e.get("reason")=="compiler-artifact" and e.get("executable") and e.get("profile",{}).get("test")]
             if build.returncode or len(executables)!=1:
@@ -97,7 +97,7 @@ def main():
             env = os.environ.copy()
             test = "canonical_search_real_engines_and_layer_six" if canonical else witness
             if canonical: env["MINION_SEARCH_CASE"] = witness.split(":",1)[1]
-            run = subprocess.run([executables[0],test,"--nocapture"],cwd=scratch,env=env,text=True,capture_output=True,timeout=75)
+            run = subprocess.run([executables[0],test,"--nocapture"],cwd=scratch,env=env,text=True,encoding="utf-8",errors="replace",capture_output=True,timeout=75)
             transcript = run.stdout+run.stderr
             canonical_comparison = canonical and f'search case "{env["MINION_SEARCH_CASE"]}"' in transcript and "unexpected file" in transcript
             killed = run.returncode != 0 and f"{test} ... FAILED" in transcript and ("assertion" in transcript or canonical_comparison or (name=="stop-ack-before-completion" and "Elapsed" in transcript) or (name=="trim-before-empty-decision" and "whitespace-only nonempty stdout must be success" in transcript))

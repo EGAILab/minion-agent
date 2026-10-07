@@ -7621,7 +7621,7 @@ rows:
     runner); packages/coding-agent/src/core/extensions/runner.ts::createContext (sessionManager/model/thinkingLevel
     getters); packages/agent/src/agent-loop.ts::executePreparedToolCall (core loop passes no context)
   surface: Layer 05/06 delta L0506-D004 -- per-call read-only tool execution context
-  rule: 'CONTRACT_DRAFT (L0506-D004, minion-agent#131; Owner decision WP133-F3 Option A, minion-agent#50
+  rule: 'CERTIFIED_CLOSED (L0506-D004 cross-language, minion-agent#131: contract + Python docs #233 -> 20776f0f; Python #137 -> 0e2a04ca; Rust #139 -> 5d8ddb06 / docs #234 -> 7ed78270; Python final review minion-agent-docs#233 issuecomment-5970150389; Rust closure minion-agent-docs#234 issuecomment-5970678438). (Owner decision WP133-F3 Option A, minion-agent#50
     issuecomment-5951046523; MINION_ARCHITECTURAL_MAPPING of Pi''s ExtensionContext delivery). A tool that opts in
     receives, per call, an immutable ToolExecutionContext snapshot of the EXECUTING agent''s authoritative state --
     session_id, session_file (absent today: no persisted form), provider and model (AgentInstance.model), and
@@ -7637,10 +7637,10 @@ rows:
   - tests/tools/test_tool_execution_context_dispatch.py (context-only and every signal/update combination with context,
     absent without a provider, snapshot after the before-hooks, a blocked call never asks, non-opt-in tools unchanged;
     control -- counting context as positional)
-  python: minion_agent/tools/definition.py (ToolExecutionContext, ToolContextProvider, ToolDefinition.wants_context);
+  python: 'Certified (L0506-D004; Python #137 -> 0e2a04ca; final review minion-agent-docs#233 issuecomment-5970150389): minion_agent/tools/definition.py (ToolExecutionContext, ToolContextProvider, ToolDefinition.wants_context);
     tools/execute.py (_arity excludes the opted-in context keyword; provider called as execute is invoked); tools/batch.py;
-    agent_loop/driver.py (AgentLoop._tool_execution_context)
-  rust: 'Implementation candidate (L0506-D004; independent closure pending): tools/definition.rs
+    agent_loop/driver.py (AgentLoop._tool_execution_context)'
+  rust: 'Certified (L0506-D004; Rust #139 -> 5d8ddb06; closure review minion-agent-docs#234 issuecomment-5970678438): tools/definition.rs
     (owned immutable ToolExecutionContext, ToolContextProvider, ToolExecutionRequest.context);
     tools/execution.rs (per-execute provider inside the ordinary error boundary);
     agent/instance.rs and agent_loop/driver.rs (authoritative atomic snapshot, explicitly bound to the agent).

@@ -101,6 +101,9 @@ async fn execute(
     }
     let mut first = true;
     let (outcome, lines) = loop {
+        if request.signal.as_ref().is_some_and(|s| s.is_cancelled()) {
+            return Err(ToolCapabilityError::new(OPERATION_ABORTED));
+        }
         // Every spawn has a fresh verification, including the rule-5 retry.
         let binary = if first {
             fd.clone()
@@ -109,6 +112,9 @@ async fn execute(
                 .resolve(SearchEngine::Fd, subprocess.execution_world())
                 .await?
         };
+        if request.signal.as_ref().is_some_and(|s| s.is_cancelled()) {
+            return Err(ToolCapabilityError::new(OPERATION_ABORTED));
+        }
         let mut argv = vec![binary.to_string_lossy().into_owned()];
         argv.extend(args.clone());
         argv.extend([
@@ -120,25 +126,30 @@ async fn execute(
             .spawn(&argv, SpawnOptions::default())
             .await
             .map_err(|e| ToolCapabilityError::new(format!("Failed to run fd: {}", e.message)))?;
-        let mut lines = Vec::new();
-        let outcome = search_run::run(
+        let lines = std::sync::Mutex::new(Vec::new());
+        let mut retry = false;
+        let outcome = search_run::run_with_completion(
             process,
-            if first { request.signal.clone() } else { None },
+            request.signal.clone(),
             window.clone(),
             true,
             |line| {
-                lines.push(line);
+                lines.lock().unwrap().push(line);
                 false
+            },
+            |outcome| {
+                retry = first
+                    && effective != pi
+                    && lines.lock().unwrap().join("\n").is_empty()
+                    && outcome.code != Some(0)
+                    && !outcome.aborted
+                    && outcome.stderr.contains("error parsing glob");
+                !retry
             },
         )
         .await?;
-        if first
-            && effective != pi
-            && lines.join("\n").is_empty()
-            && outcome.code != Some(0)
-            && !outcome.aborted
-            && outcome.stderr.contains("error parsing glob")
-        {
+        let lines = lines.into_inner().unwrap();
+        if retry {
             first = false;
             continue;
         }
@@ -213,8 +224,9 @@ pub fn create_find_tool(
                             .await
                             .map_err(|e| ToolCapabilityError::new(e.to_string()))?;
                     }
-                    if window.active.load(Ordering::SeqCst)
-                        && signal.as_ref().is_some_and(|s| s.is_cancelled())
+                    if window.aborted.load(Ordering::SeqCst)
+                        || (window.active.load(Ordering::SeqCst)
+                            && signal.as_ref().is_some_and(|s| s.is_cancelled()))
                     {
                         window.aborted.store(true, Ordering::SeqCst);
                         return Err(ToolCapabilityError::new(OPERATION_ABORTED));

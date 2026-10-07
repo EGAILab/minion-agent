@@ -113,7 +113,28 @@ pub(super) async fn run(
     signal: Option<Arc<dyn ToolExecutionSignal>>,
     window: Arc<Window>,
     listen_to_preexisting_abort: bool,
+    on_line: impl FnMut(String) -> bool,
+) -> Result<EngineOutcome, ToolCapabilityError> {
+    run_with_completion(
+        process,
+        signal,
+        window,
+        listen_to_preexisting_abort,
+        on_line,
+        |_| true,
+    )
+    .await
+}
+
+/// Decide synchronously at exit + both EOFs whether this run's outcome stands.
+/// A diagnostic retry retains the same live window; it is never closed/reopened.
+pub(super) async fn run_with_completion(
+    process: Arc<dyn Process>,
+    signal: Option<Arc<dyn ToolExecutionSignal>>,
+    window: Arc<Window>,
+    listen_to_preexisting_abort: bool,
     mut on_line: impl FnMut(String) -> bool,
+    mut outcome_stands: impl FnMut(&EngineOutcome) -> bool,
 ) -> Result<EngineOutcome, ToolCapabilityError> {
     let stdout = process.stdout();
     let stderr = process.stderr();
@@ -131,15 +152,16 @@ pub(super) async fn run(
         loop {
             // Re-read the signal after each awaited exit/read operation, including
             // the operation which completes the last prerequisite. Cleanup and
-            // diagnostic reruns occur only after this window has been closed.
+            // diagnostic reruns retain it when their first outcome does not stand.
             if window.active.load(Ordering::SeqCst) && (!preexisting||listen_to_preexisting_abort) && signal.as_ref().is_some_and(|s|s.is_cancelled()) {
                 window.aborted.store(true,Ordering::SeqCst);
                 if stop.is_none() {let p=process.clone();stop=Some(tokio::spawn(async move {p.terminate().await;}));}
             }
             if out_eof && err_eof && let Some(code) = exit {
                 // Settle the abort window BEFORE cleanup or a pending terminate acknowledgement.
-                window.complete();
-                return Ok(EngineOutcome{code,stderr:err,killed_for_limit,aborted:window.aborted.load(Ordering::SeqCst)});
+                let outcome=EngineOutcome{code,stderr:err,killed_for_limit,aborted:window.aborted.load(Ordering::SeqCst)};
+                if outcome_stands(&outcome) { window.complete(); }
+                return Ok(outcome);
             }
             tokio::select! { biased;
                 status=process.wait(), if exit.is_none()=>{exit=Some(status.map_err(|e|ToolCapabilityError::new(e.to_string()))?.exit_code);},
@@ -155,7 +177,9 @@ pub(super) async fn run(
             }
         }
     }.await;
-    window.complete();
+    if result.is_err() {
+        window.complete();
+    }
     if result.is_err() && stop.is_none() {
         let p = process.clone();
         stop = Some(tokio::spawn(async move {

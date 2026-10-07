@@ -12,6 +12,10 @@ import sys
 import tempfile
 
 CONTROLS = {
+    "retry-closes-first-window": ("find.rs", "                !retry", "                true", "diagnostic_rerun_abort_during_wait_settles_before_stop_ack"),
+    "retry-without-signal": ("find.rs", "            request.signal.clone(),", "            if first {request.signal.clone()} else {None},", "diagnostic_rerun_abort_during_wait_settles_before_stop_ack"),
+    "retry-skips-between-abort": ("find.rs", "        if request.signal.as_ref().is_some_and(|s| s.is_cancelled()) {", "        if false {", "diagnostic_rerun_abort_between_runs_prevents_spawn"),
+    "retry-awaits-aborted-stop-ack": ("find.rs", "window.aborted.load(Ordering::SeqCst)\n                        || (window.active", "false\n                        || (window.active", "diagnostic_rerun_abort_during_wait_settles_before_stop_ack"),
     "unc-share-forced-absolute": ("search_paths.rs", "common < 2", "common < 3", "logical_surrogate_root_is_not_its_native_replacement"),
     "automatic-call-time-provisioning": ("search_engines.rs", "if world != &ExecutionWorldIdentity::local() || !self.verified(engine, pin).await {", "let artifacts=std::env::var_os(\"MINION_SEARCH_ENGINE_ARTIFACTS\").unwrap(); let _=provision_search_engines(self,Some(Path::new(&artifacts))).await; if world != &ExecutionWorldIdentity::local() || !self.verified(engine, pin).await {", "managed_store_verifies_every_use_and_provisioning_is_idempotent"),
     "decision-after-disposal": ("search_run.rs", "    result\n}", "    result.map(|mut outcome| {outcome.aborted=signal.as_ref().is_some_and(|s|s.is_cancelled());outcome})\n}", "real_factories_reproduce_the_fourteen_pi_abort_partition_cells"),
@@ -100,7 +104,7 @@ def main():
             run = subprocess.run([executables[0],test,"--nocapture"],cwd=scratch,env=env,text=True,encoding="utf-8",errors="replace",capture_output=True,timeout=75)
             transcript = run.stdout+run.stderr
             canonical_comparison = canonical and f'search case "{env["MINION_SEARCH_CASE"]}"' in transcript and "unexpected file" in transcript
-            killed = run.returncode != 0 and f"{test} ... FAILED" in transcript and ("assertion" in transcript or canonical_comparison or (name=="stop-ack-before-completion" and "Elapsed" in transcript) or (name=="trim-before-empty-decision" and "whitespace-only nonempty stdout must be success" in transcript))
+            killed = run.returncode != 0 and f"{test} ... FAILED" in transcript and ("assertion" in transcript or canonical_comparison or (name in {"stop-ack-before-completion", "retry-awaits-aborted-stop-ack"} and "Elapsed" in transcript) or (name=="trim-before-empty-decision" and "whitespace-only nonempty stdout must be success" in transcript))
             item={"control":name,"witness":witness,"expected":"intended semantic assertion fails (not compilation/setup)","killed":killed,"diagnostic":run.stderr.strip()[:4000]}
             results.append(item)
             print(json.dumps(item),flush=True)

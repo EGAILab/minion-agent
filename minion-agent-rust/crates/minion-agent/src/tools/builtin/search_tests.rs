@@ -285,6 +285,194 @@ async fn diagnostic_rerun_is_verified_again_and_preserves_pi_text() {
         }
     }
 }
+const RERUN_DIAGNOSTIC: &str = "error parsing glob: Pi diagnostic";
+struct RerunPipe {
+    signal: Arc<super::search_run::tests::Signal>,
+    abort_on_close: bool,
+}
+#[async_trait]
+impl ReadableStream for RerunPipe {
+    async fn read_chunk(&self) -> Result<Option<Vec<u8>>, SubprocessError> {
+        Ok(None)
+    }
+    async fn close(&self) {
+        if self.abort_on_close {
+            self.signal.abort();
+        }
+    }
+}
+struct RerunEngines {
+    signal: Arc<super::search_run::tests::Signal>,
+    between: bool,
+    calls: AtomicUsize,
+}
+#[async_trait]
+impl SearchEngines for RerunEngines {
+    async fn resolve(
+        &self,
+        _: SearchEngine,
+        _: &ExecutionWorldIdentity,
+    ) -> Result<PathBuf, ToolCapabilityError> {
+        if self.calls.fetch_add(1, Ordering::SeqCst) == 1 && self.between {
+            self.signal.abort();
+        }
+        Ok("scripted-engine".into())
+    }
+}
+struct RerunChild {
+    signal: Arc<super::search_run::tests::Signal>,
+    abort_in_wait: bool,
+    out: Arc<RerunPipe>,
+    err: Arc<Pipe>,
+    stopped: Arc<tokio::sync::Notify>,
+    release: Arc<tokio::sync::Notify>,
+}
+#[async_trait]
+impl Process for RerunChild {
+    fn pid(&self) -> u32 {
+        1
+    }
+    fn stdin(&self) -> Option<Arc<dyn WritableStream>> {
+        None
+    }
+    fn stdout(&self) -> Option<Arc<dyn ReadableStream>> {
+        Some(self.out.clone())
+    }
+    fn stderr(&self) -> Option<Arc<dyn ReadableStream>> {
+        Some(self.err.clone())
+    }
+    async fn wait(&self) -> Result<ExitStatus, SubprocessError> {
+        if self.abort_in_wait {
+            self.signal.abort();
+        }
+        Ok(ExitStatus { exit_code: Some(2) })
+    }
+    async fn terminate(&self) {
+        self.stopped.notify_one();
+        self.release.notified().await;
+    }
+}
+struct RerunSpawn {
+    local: LocalSubprocess,
+    signal: Arc<super::search_run::tests::Signal>,
+    during: bool,
+    after: bool,
+    calls: AtomicUsize,
+    stopped: Arc<tokio::sync::Notify>,
+    release: Arc<tokio::sync::Notify>,
+}
+#[async_trait]
+impl Subprocess for RerunSpawn {
+    fn cwd(&self) -> &Path {
+        self.local.cwd()
+    }
+    fn execution_world(&self) -> &ExecutionWorldIdentity {
+        self.local.execution_world()
+    }
+    fn platform(&self) -> Platform {
+        Platform::Windows
+    }
+    fn base_env(&self) -> EnvSnapshot {
+        self.local.base_env()
+    }
+    async fn spawn(
+        &self,
+        _: &[String],
+        _: SpawnOptions,
+    ) -> Result<Arc<dyn Process>, SubprocessError> {
+        let second = self.calls.fetch_add(1, Ordering::SeqCst) == 1;
+        Ok(Arc::new(RerunChild {
+            signal: self.signal.clone(),
+            abort_in_wait: second && self.during,
+            out: Arc::new(RerunPipe {
+                signal: self.signal.clone(),
+                abort_on_close: second && self.after,
+            }),
+            err: Arc::new(Pipe(Mutex::new(Some(RERUN_DIAGNOSTIC.as_bytes().to_vec())))),
+            stopped: self.stopped.clone(),
+            release: self.release.clone(),
+        }))
+    }
+}
+async fn rerun_abort_case(between: bool, during: bool, after: bool) {
+    let dir = tempfile::tempdir().unwrap();
+    let (_, signal) = super::search_run::tests::partition_fixture("", Vec::new());
+    let spawn = Arc::new(RerunSpawn {
+        local: LocalSubprocess::new(dir.path()),
+        signal: signal.clone(),
+        during,
+        after,
+        calls: AtomicUsize::new(0),
+        stopped: Arc::new(tokio::sync::Notify::new()),
+        release: Arc::new(tokio::sync::Notify::new()),
+    });
+    let engines = Arc::new(RerunEngines {
+        signal: signal.clone(),
+        between,
+        calls: AtomicUsize::new(0),
+    });
+    let tool = create_find_tool(
+        Arc::new(LocalFileSystem::new(dir.path())),
+        spawn.clone(),
+        engines.clone(),
+    )
+    .unwrap();
+    let mut req = request(serde_json::json!({"pattern":"src/**/["}));
+    req.signal = Some(signal.clone());
+    // The stop acknowledgement remains held throughout settlement: no sleep/retry.
+    let result =
+        tokio::time::timeout(std::time::Duration::from_secs(5), (tool.execute())(req)).await;
+    if during
+        && result.as_ref().is_ok_and(|r| {
+            r.as_ref().is_err_and(|e| {
+                String::from_utf16_lossy(e.message().code_units()) == "Operation aborted"
+            })
+        })
+    {
+        tokio::time::timeout(std::time::Duration::from_secs(5), spawn.stopped.notified())
+            .await
+            .unwrap();
+    }
+    spawn.release.notify_one();
+    let error = result
+        .expect("find must settle without awaiting the stop acknowledgement")
+        .unwrap_err();
+    assert_eq!(
+        String::from_utf16_lossy(error.message().code_units()),
+        if between || during {
+            "Operation aborted"
+        } else {
+            RERUN_DIAGNOSTIC
+        }
+    );
+    assert_eq!(engines.calls.load(Ordering::SeqCst), 2);
+    assert_eq!(
+        spawn.calls.load(Ordering::SeqCst),
+        if between { 1 } else { 2 }
+    );
+    if after {
+        assert!(
+            signal.is_cancelled(),
+            "the disposal abort was actually delivered"
+        );
+    }
+}
+#[tokio::test]
+async fn diagnostic_rerun_abort_during_wait_settles_before_stop_ack() {
+    rerun_abort_case(false, true, false).await;
+}
+#[tokio::test]
+async fn diagnostic_rerun_abort_between_runs_prevents_spawn() {
+    rerun_abort_case(true, false, false).await;
+}
+#[tokio::test]
+async fn diagnostic_rerun_without_abort_keeps_diagnostic() {
+    rerun_abort_case(false, false, false).await;
+}
+#[tokio::test]
+async fn diagnostic_rerun_completion_excludes_disposal_abort() {
+    rerun_abort_case(false, false, true).await;
+}
 #[tokio::test]
 async fn find_stream_order_duplicates_and_untrimmed_empty_decision() {
     let dir = tempfile::tempdir().unwrap();

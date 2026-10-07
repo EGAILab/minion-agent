@@ -7358,10 +7358,14 @@ rows:
   pi: packages/coding-agent/src/core/tools/find.ts (Windows rewrite of every "/" to [/\\] in a full-path pattern)
   surface: Layer 13, WP-13.4 -- Windows find full-path glob zero-directory semantics
   rule: 'DIV-002 (assurance/pi-divergences.md; Owner WP-13.4 Q1 = Option A, minion-agent#51
-    issuecomment-5988502021). On Windows each "**/" component of a full-path find pattern keeps its zero-or-more
-    whole-directory meaning while accepting either separator, so Windows results equal Linux results (Pi on Windows
-    misses src/b.spec.ts for src/**/*.spec.ts). Observable behaviour only; scoped to "**/": a single-segment "*"
-    keeps Pi''s Windows meaning on the pinned fd (parity).'
+    issuecomment-5988502021). On Windows each recursive "**/" component of a full-path find pattern keeps its
+    zero-or-more whole-directory meaning while accepting either separator (Pi on Windows misses src/b.spec.ts for
+    src/**/*.spec.ts). Component-local (CE-L13-WP134-01): the Windows result is the union, over keeping or removing
+    each recursive component, of Pi''s own Windows result for that pattern; every other construct keeps Pi''s
+    Windows meaning on the pinned fd (a single-segment "*" crossing separators, classes Pi''s rewrite reshapes, no
+    escapes), and a pattern fd rejects gives Pi''s diagnostic. Windows results therefore equal Linux results only
+    where no such retained Pi-Windows construct is composed with a component (src/**/a*.ts also returns
+    src/a/sub/b.ts on Windows). Observable behaviour only; spec/tools.md WP-13.4.'
   tests:
   - assurance/layers/data/13-wp134/out/search-{win32,linux}.json find/*/full-path-* (Pi reference side)
   - assurance/layers/data/13-wp134/out/div002-win32.json (harness/div002_probe.mjs feasibility evidence)

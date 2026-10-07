@@ -632,6 +632,39 @@ async def test_a_held_stop_acknowledgement_does_not_extend_the_window(
     assert await call == expected
 
 
+@pytest.mark.parametrize("replaced_between_runs", [False, True])
+async def test_the_diagnostic_rerun_spawn_is_verified_too(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, replaced_between_runs: bool
+) -> None:
+    """TOOL-038 "Verification at use time" (WP134-IMPL-R004): the rule-5 re-run with Pi's text
+    is a spawn of its own, so the stored binary is verified again first. A binary replaced after
+    the first run's verification gives the governed not-provisioned error and no second spawn."""
+    monkeypatch.setattr(search_engines, "PINS", _fake_pins(tmp_path))
+    store = EngineStore(root=tmp_path / "store", platform="test-x64")
+    provision_search_engines(store, source=tmp_path)
+
+    def replace() -> None:
+        if replaced_between_runs:
+            store.binary_path("fd").write_bytes(b"replaced after the first verification")
+
+    root = tmp_path / "root"
+    root.mkdir()
+    sp = _WindowsScriptedSubprocess(
+        str(root),
+        [(b"", b"[fd error]: generated\n", 1), (b"", b"[fd error]: pi\n", 1)],
+        replace,
+    )
+    find = create_find_tool(LocalFileSystem(str(root)), sp, store)
+    text, _ = await _run(find, {"pattern": "src/[z-a]/**/b"})
+    if replaced_between_runs:
+        assert text.startswith("ERR fd is not provisioned: "), text
+        assert len(sp.argvs) == 1
+    else:
+        assert text == "ERR [fd error]: pi"
+        assert len(sp.argvs) == 2
+        assert sp.argvs[1][0] == str(store.binary_path("fd"))
+
+
 async def test_find_aborted_during_engine_resolution(engine: dict[str, Any]) -> None:
     controller = RunAbortController()
     fs, sp = LocalFileSystem(str(engine["root"])), LocalSubprocess(str(engine["root"]))

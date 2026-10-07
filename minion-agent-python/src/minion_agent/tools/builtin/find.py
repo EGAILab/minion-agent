@@ -294,6 +294,9 @@ def create_find_tool(fs: FileSystem, subprocess: Subprocess, engines: Engines) -
             # stays open across both runs.
             if window.fired():
                 raise aborted()
+            # TOOL-038 "Verification at use time": every spawn is preceded by its own verification
+            # (WP134-IMPL-R004); a failed one is the unavailable-engine error, with no spawn.
+            fd = await resolve_engine(engines, subprocess, "fd")
             run, lines, _ = await run_fd(pi_pattern, False)
         if window.observed:  # decided at engine completion, not after the stream release
             raise aborted()

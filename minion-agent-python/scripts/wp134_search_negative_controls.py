@@ -315,6 +315,20 @@ CONTROLS: dict[str, Control] = {
         ],
         "R001: an abort during the stream release, after engine completion, gives `Operation aborted` instead of the match",
     ),
+    "rerun_spawn_not_reverified": Control(
+        [
+            (
+                FIND,
+                '            fd = await resolve_engine(engines, subprocess, "fd")\n',
+                "",
+            )
+        ],
+        [
+            f"{UNIT}::test_the_diagnostic_rerun_spawn_is_verified_too[True]",
+        ],
+        "R004: the rule-5 re-run spawns a binary replaced after the first verification instead of "
+        "giving the not-provisioned error",
+    ),
     "stop_ack_join_before_completion": Control(
         [
             (

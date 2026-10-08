@@ -1,0 +1,172 @@
+{
+  "name": "skills-d05-sorted-traversal-order",
+  "family": "agent",
+  "authority": "minion-agent-docs spec/harness.md WP-14.1 (HAR-001, HAR-010..HAR-013); assurance/layers/14-wp141-characterization.md",
+  "pi_revision": "b7bb00b936dbe21b8e160b3e89efdec361846699",
+  "requirements": [
+    "HAR-001",
+    "HAR-013"
+  ],
+  "witnesses": [
+    "skill_discovery_d05_sorted_traversal_order"
+  ],
+  "skill_discovery": {
+    "fixture": [
+      {
+        "path": "skills/b/SKILL.md",
+        "text": "---\ndescription: Skill in b.\n---\nBody."
+      },
+      {
+        "path": "skills/a/SKILL.md",
+        "text": "---\ndescription: Skill in a.\n---\nBody."
+      },
+      {
+        "path": "skills/_x/SKILL.md",
+        "text": "---\ndescription: Skill in _x.\n---\nBody."
+      },
+      {
+        "path": "skills/-y/SKILL.md",
+        "text": "---\ndescription: Skill in -y.\n---\nBody."
+      },
+      {
+        "path": "skills/e/SKILL.md",
+        "text": "---\ndescription: Skill in e.\n---\nBody."
+      },
+      {
+        "path": "skills/é/SKILL.md",
+        "text": "---\ndescription: Skill in é.\n---\nBody."
+      },
+      {
+        "path": "skills/Z/SKILL.md",
+        "text": "---\ndescription: Skill in Z.\n---\nBody."
+      },
+      {
+        "path": "skills/a10/SKILL.md",
+        "text": "---\ndescription: Skill in a10.\n---\nBody."
+      },
+      {
+        "path": "skills/a9/SKILL.md",
+        "text": "---\ndescription: Skill in a9.\n---\nBody."
+      },
+      {
+        "path": "skills/a-b/SKILL.md",
+        "text": "---\ndescription: Skill in a-b.\n---\nBody."
+      },
+      {
+        "path": "skills/a_b/SKILL.md",
+        "text": "---\ndescription: Skill in a_b.\n---\nBody."
+      }
+    ],
+    "roots": [
+      "skills"
+    ],
+    "expect": {
+      "skills": [
+        {
+          "name": "_x",
+          "description": "Skill in _x.",
+          "content": "Body.",
+          "path": "skills/_x/SKILL.md",
+          "disable_model_invocation": false
+        },
+        {
+          "name": "-y",
+          "description": "Skill in -y.",
+          "content": "Body.",
+          "path": "skills/-y/SKILL.md",
+          "disable_model_invocation": false
+        },
+        {
+          "name": "a",
+          "description": "Skill in a.",
+          "content": "Body.",
+          "path": "skills/a/SKILL.md",
+          "disable_model_invocation": false
+        },
+        {
+          "name": "a_b",
+          "description": "Skill in a_b.",
+          "content": "Body.",
+          "path": "skills/a_b/SKILL.md",
+          "disable_model_invocation": false
+        },
+        {
+          "name": "a-b",
+          "description": "Skill in a-b.",
+          "content": "Body.",
+          "path": "skills/a-b/SKILL.md",
+          "disable_model_invocation": false
+        },
+        {
+          "name": "a10",
+          "description": "Skill in a10.",
+          "content": "Body.",
+          "path": "skills/a10/SKILL.md",
+          "disable_model_invocation": false
+        },
+        {
+          "name": "a9",
+          "description": "Skill in a9.",
+          "content": "Body.",
+          "path": "skills/a9/SKILL.md",
+          "disable_model_invocation": false
+        },
+        {
+          "name": "b",
+          "description": "Skill in b.",
+          "content": "Body.",
+          "path": "skills/b/SKILL.md",
+          "disable_model_invocation": false
+        },
+        {
+          "name": "e",
+          "description": "Skill in e.",
+          "content": "Body.",
+          "path": "skills/e/SKILL.md",
+          "disable_model_invocation": false
+        },
+        {
+          "name": "é",
+          "description": "Skill in é.",
+          "content": "Body.",
+          "path": "skills/é/SKILL.md",
+          "disable_model_invocation": false
+        },
+        {
+          "name": "Z",
+          "description": "Skill in Z.",
+          "content": "Body.",
+          "path": "skills/Z/SKILL.md",
+          "disable_model_invocation": false
+        }
+      ],
+      "diagnostics": [
+        {
+          "code": "invalid_metadata",
+          "path": "skills/_x/SKILL.md",
+          "message": "name contains invalid characters (must be lowercase a-z, 0-9, hyphens only)"
+        },
+        {
+          "code": "invalid_metadata",
+          "path": "skills/-y/SKILL.md",
+          "message": "name must not start or end with a hyphen"
+        },
+        {
+          "code": "invalid_metadata",
+          "path": "skills/a_b/SKILL.md",
+          "message": "name contains invalid characters (must be lowercase a-z, 0-9, hyphens only)"
+        },
+        {
+          "code": "invalid_metadata",
+          "path": "skills/é/SKILL.md",
+          "message": "name contains invalid characters (must be lowercase a-z, 0-9, hyphens only)"
+        },
+        {
+          "code": "invalid_metadata",
+          "path": "skills/Z/SKILL.md",
+          "message": "name contains invalid characters (must be lowercase a-z, 0-9, hyphens only)"
+        }
+      ]
+    }
+  }
+}

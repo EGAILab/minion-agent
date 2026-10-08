@@ -1,0 +1,146 @@
+{
+  "name": "skills-f05-yaml-value-semantics",
+  "family": "agent",
+  "authority": "minion-agent-docs spec/harness.md WP-14.1 (HAR-001, HAR-010..HAR-013); assurance/layers/14-wp141-characterization.md",
+  "pi_revision": "b7bb00b936dbe21b8e160b3e89efdec361846699",
+  "requirements": [
+    "HAR-001",
+    "HAR-010",
+    "HAR-013"
+  ],
+  "witnesses": [
+    "skill_discovery_f05_yaml_value_semantics"
+  ],
+  "divergences": [
+    "DIV-004"
+  ],
+  "skill_discovery": {
+    "fixture": [
+      {
+        "path": "skills/date/SKILL.md",
+        "text": "---\nname: date\ndescription: 2001-12-14\n---\nBody."
+      },
+      {
+        "path": "skills/tagged/SKILL.md",
+        "text": "---\nname: tagged\ndescription: !!str 123\n---\nBody."
+      },
+      {
+        "path": "skills/alias/SKILL.md",
+        "text": "---\nbase: &d Aliased.\nname: alias\ndescription: *d\n---\nBody."
+      },
+      {
+        "path": "skills/merge/SKILL.md",
+        "text": "---\nbase: &b {description: Merged.}\nname: merge\n<<: *b\n---\nBody."
+      },
+      {
+        "path": "skills/flow/SKILL.md",
+        "text": "---\n{name: flow, description: Flow.}\n---\nBody."
+      },
+      {
+        "path": "skills/scalar/SKILL.md",
+        "text": "---\njust a scalar\n---\nBody."
+      },
+      {
+        "path": "skills/folded/SKILL.md",
+        "text": "---\nname: folded\ndescription: >\n  one\n  two\n---\nBody."
+      },
+      {
+        "path": "skills/literal/SKILL.md",
+        "text": "---\nname: literal\ndescription: |\n  one\n  two\n---\nBody."
+      },
+      {
+        "path": "skills/quoted/SKILL.md",
+        "text": "---\nname: quoted\ndescription: \"a\\tb \\u00e9 \\x41\"\n---\nBody."
+      },
+      {
+        "path": "skills/octal/SKILL.md",
+        "text": "---\nname: octal\ndescription: 0o17\n---\nBody."
+      },
+      {
+        "path": "skills/complexkey/SKILL.md",
+        "text": "---\n? [a, b]\n: c\nname: complexkey\ndescription: d\n---\nBody."
+      },
+      {
+        "path": "skills/proto/SKILL.md",
+        "text": "---\nname: proto\ndescription: d\n__proto__: {x: 1}\n---\nBody."
+      }
+    ],
+    "roots": [
+      "skills"
+    ],
+    "expect": {
+      "skills": [
+        {
+          "name": "date",
+          "description": "2001-12-14",
+          "content": "Body.",
+          "path": "skills/date/SKILL.md",
+          "disable_model_invocation": false
+        },
+        {
+          "name": "folded",
+          "description": "one two\n",
+          "content": "Body.",
+          "path": "skills/folded/SKILL.md",
+          "disable_model_invocation": false
+        },
+        {
+          "name": "literal",
+          "description": "one\ntwo\n",
+          "content": "Body.",
+          "path": "skills/literal/SKILL.md",
+          "disable_model_invocation": false
+        },
+        {
+          "name": "quoted",
+          "description": "a\tb é A",
+          "content": "Body.",
+          "path": "skills/quoted/SKILL.md",
+          "disable_model_invocation": false
+        }
+      ],
+      "diagnostics": [
+        {
+          "code": "parse_failed",
+          "path": "skills/alias/SKILL.md",
+          "message": "frontmatter is not valid in the supported YAML subset"
+        },
+        {
+          "code": "parse_failed",
+          "path": "skills/complexkey/SKILL.md",
+          "message": "frontmatter is not valid in the supported YAML subset"
+        },
+        {
+          "code": "parse_failed",
+          "path": "skills/flow/SKILL.md",
+          "message": "frontmatter is not valid in the supported YAML subset"
+        },
+        {
+          "code": "parse_failed",
+          "path": "skills/merge/SKILL.md",
+          "message": "frontmatter is not valid in the supported YAML subset"
+        },
+        {
+          "code": "invalid_metadata",
+          "path": "skills/octal/SKILL.md",
+          "message": "description is required"
+        },
+        {
+          "code": "parse_failed",
+          "path": "skills/proto/SKILL.md",
+          "message": "frontmatter is not valid in the supported YAML subset"
+        },
+        {
+          "code": "parse_failed",
+          "path": "skills/scalar/SKILL.md",
+          "message": "frontmatter is not valid in the supported YAML subset"
+        },
+        {
+          "code": "parse_failed",
+          "path": "skills/tagged/SKILL.md",
+          "message": "frontmatter is not valid in the supported YAML subset"
+        }
+      ]
+    }
+  }
+}

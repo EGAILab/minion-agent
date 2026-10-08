@@ -1,0 +1,49 @@
+{
+  "name": "skills-d06-dotfiles-and-node-modules-skipped",
+  "family": "agent",
+  "authority": "minion-agent-docs spec/harness.md WP-14.1 (HAR-001, HAR-010..HAR-013); assurance/layers/14-wp141-characterization.md",
+  "pi_revision": "b7bb00b936dbe21b8e160b3e89efdec361846699",
+  "requirements": [
+    "HAR-001",
+    "HAR-011",
+    "HAR-013"
+  ],
+  "witnesses": [
+    "skill_discovery_d06_dotfiles_and_node_modules_skipped"
+  ],
+  "skill_discovery": {
+    "fixture": [
+      {
+        "path": "skills/.hidden/SKILL.md",
+        "text": "---\nname: hidden\ndescription: Use hidden.\n---\nBody."
+      },
+      {
+        "path": "skills/node_modules/dep/SKILL.md",
+        "text": "---\nname: dep\ndescription: Use dep.\n---\nBody."
+      },
+      {
+        "path": "skills/.root.md",
+        "text": "---\nname: root\ndescription: Use root.\n---\nBody."
+      },
+      {
+        "path": "skills/visible/SKILL.md",
+        "text": "---\nname: visible\ndescription: Use visible.\n---\nBody."
+      }
+    ],
+    "roots": [
+      "skills"
+    ],
+    "expect": {
+      "skills": [
+        {
+          "name": "visible",
+          "description": "Use visible.",
+          "content": "Body.",
+          "path": "skills/visible/SKILL.md",
+          "disable_model_invocation": false
+        }
+      ],
+      "diagnostics": []
+    }
+  }
+}

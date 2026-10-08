@@ -1,0 +1,45 @@
+{
+  "name": "skills-d04-ignored-skill-md-does-not-short-circuit",
+  "family": "agent",
+  "authority": "minion-agent-docs spec/harness.md WP-14.1 (HAR-001, HAR-010..HAR-013); assurance/layers/14-wp141-characterization.md",
+  "pi_revision": "b7bb00b936dbe21b8e160b3e89efdec361846699",
+  "requirements": [
+    "HAR-001",
+    "HAR-011",
+    "HAR-013"
+  ],
+  "witnesses": [
+    "skill_discovery_d04_ignored_skill_md_does_not_short_circuit"
+  ],
+  "skill_discovery": {
+    "fixture": [
+      {
+        "path": "skills/.gitignore",
+        "text": "alpha/SKILL.md\n"
+      },
+      {
+        "path": "skills/alpha/SKILL.md",
+        "text": "---\nname: alpha\ndescription: Use alpha.\n---\nBody."
+      },
+      {
+        "path": "skills/alpha/inner/SKILL.md",
+        "text": "---\nname: inner\ndescription: Use inner.\n---\nBody."
+      }
+    ],
+    "roots": [
+      "skills"
+    ],
+    "expect": {
+      "skills": [
+        {
+          "name": "inner",
+          "description": "Use inner.",
+          "content": "Body.",
+          "path": "skills/alpha/inner/SKILL.md",
+          "disable_model_invocation": false
+        }
+      ],
+      "diagnostics": []
+    }
+  }
+}

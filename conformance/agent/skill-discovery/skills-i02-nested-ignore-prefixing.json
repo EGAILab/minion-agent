@@ -1,0 +1,60 @@
+{
+  "name": "skills-i02-nested-ignore-prefixing",
+  "family": "agent",
+  "authority": "minion-agent-docs spec/harness.md WP-14.1 (HAR-001, HAR-010..HAR-013); assurance/layers/14-wp141-characterization.md",
+  "pi_revision": "b7bb00b936dbe21b8e160b3e89efdec361846699",
+  "requirements": [
+    "HAR-001",
+    "HAR-011",
+    "HAR-013"
+  ],
+  "witnesses": [
+    "skill_discovery_i02_nested_ignore_prefixing"
+  ],
+  "skill_discovery": {
+    "fixture": [
+      {
+        "path": "skills/group/.gitignore",
+        "text": "inner\n/anchored\n"
+      },
+      {
+        "path": "skills/group/inner/SKILL.md",
+        "text": "---\nname: inner\ndescription: Use inner.\n---\nBody."
+      },
+      {
+        "path": "skills/group/anchored/SKILL.md",
+        "text": "---\nname: anchored\ndescription: Use anchored.\n---\nBody."
+      },
+      {
+        "path": "skills/group/deep/anchored/SKILL.md",
+        "text": "---\nname: anchored\ndescription: Use anchored.\n---\nBody."
+      },
+      {
+        "path": "skills/inner/SKILL.md",
+        "text": "---\nname: inner\ndescription: Use inner.\n---\nBody."
+      }
+    ],
+    "roots": [
+      "skills"
+    ],
+    "expect": {
+      "skills": [
+        {
+          "name": "anchored",
+          "description": "Use anchored.",
+          "content": "Body.",
+          "path": "skills/group/deep/anchored/SKILL.md",
+          "disable_model_invocation": false
+        },
+        {
+          "name": "inner",
+          "description": "Use inner.",
+          "content": "Body.",
+          "path": "skills/inner/SKILL.md",
+          "disable_model_invocation": false
+        }
+      ],
+      "diagnostics": []
+    }
+  }
+}

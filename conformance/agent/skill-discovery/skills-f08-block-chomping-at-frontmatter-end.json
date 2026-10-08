@@ -1,0 +1,81 @@
+{
+  "name": "skills-f08-block-chomping-at-frontmatter-end",
+  "family": "agent",
+  "authority": "minion-agent-docs spec/harness.md WP-14.1 (HAR-001, HAR-010..HAR-013); assurance/layers/14-wp141-characterization.md",
+  "pi_revision": "b7bb00b936dbe21b8e160b3e89efdec361846699",
+  "requirements": [
+    "HAR-001",
+    "HAR-010",
+    "HAR-013"
+  ],
+  "witnesses": [
+    "skill_discovery_f08_block_chomping_at_frontmatter_end"
+  ],
+  "skill_discovery": {
+    "fixture": [
+      {
+        "path": "skills/keep-ws/SKILL.md",
+        "text": "---\nname: keep-ws\ndescription: |+\n  x\n  \n---\nBody"
+      },
+      {
+        "path": "skills/keep-blank/SKILL.md",
+        "text": "---\nname: keep-blank\ndescription: |+\n  x\n\n---\nBody"
+      },
+      {
+        "path": "skills/keep-both/SKILL.md",
+        "text": "---\nname: keep-both\ndescription: >+\n  x\n\n  \n---\nBody"
+      },
+      {
+        "path": "skills/clip-ws/SKILL.md",
+        "text": "---\nname: clip-ws\ndescription: |\n  x\n  \n---\nBody"
+      },
+      {
+        "path": "skills/strip-ws/SKILL.md",
+        "text": "---\nname: strip-ws\ndescription: >-\n  x\n  \n---\nBody"
+      }
+    ],
+    "roots": [
+      "skills"
+    ],
+    "expect": {
+      "skills": [
+        {
+          "name": "clip-ws",
+          "description": "x\n",
+          "content": "Body",
+          "path": "skills/clip-ws/SKILL.md",
+          "disable_model_invocation": false
+        },
+        {
+          "name": "keep-blank",
+          "description": "x\n",
+          "content": "Body",
+          "path": "skills/keep-blank/SKILL.md",
+          "disable_model_invocation": false
+        },
+        {
+          "name": "keep-both",
+          "description": "x\n\n",
+          "content": "Body",
+          "path": "skills/keep-both/SKILL.md",
+          "disable_model_invocation": false
+        },
+        {
+          "name": "keep-ws",
+          "description": "x\n",
+          "content": "Body",
+          "path": "skills/keep-ws/SKILL.md",
+          "disable_model_invocation": false
+        },
+        {
+          "name": "strip-ws",
+          "description": "x",
+          "content": "Body",
+          "path": "skills/strip-ws/SKILL.md",
+          "disable_model_invocation": false
+        }
+      ],
+      "diagnostics": []
+    }
+  }
+}

@@ -1,0 +1,428 @@
+{
+  "name": "skills-y02-realistic-frontmatter",
+  "family": "agent",
+  "authority": "minion-agent-docs spec/harness.md WP-14.1 (HAR-001, HAR-010..HAR-013); assurance/layers/14-wp141-characterization.md",
+  "pi_revision": "b7bb00b936dbe21b8e160b3e89efdec361846699",
+  "requirements": [
+    "HAR-001",
+    "HAR-010",
+    "HAR-012",
+    "HAR-013"
+  ],
+  "witnesses": [
+    "skill_discovery_y02_realistic_frontmatter"
+  ],
+  "skill_discovery": {
+    "fixture": [
+      {
+        "path": "skills/y000/SKILL.md",
+        "text": "---\nname: pdf\ndescription: Extract text and tables from PDF files. Use when working with PDFs.\n---\nBody."
+      },
+      {
+        "path": "skills/y001/SKILL.md",
+        "text": "---\nname: pdf\ndescription: Extract text, fill forms, and merge PDFs. Use when the user mentions PDFs, forms, or document extraction.\nlicense: Proprietary. LICENSE.txt has complete terms\n---\nBody."
+      },
+      {
+        "path": "skills/y002/SKILL.md",
+        "text": "---\nname: brand-guidelines\ndescription: >\n  Applies the company's official brand colors and typography.\n  Use when producing branded documents.\n---\nBody."
+      },
+      {
+        "path": "skills/y003/SKILL.md",
+        "text": "---\nname: brand-guidelines\ndescription: >-\n  Applies the company's official brand colors and typography.\n  Use when producing branded documents.\n---\nBody."
+      },
+      {
+        "path": "skills/y004/SKILL.md",
+        "text": "---\nname: changelog\ndescription: |\n  Generates changelog entries.\n\n  Use after merging a release branch.\n---\nBody."
+      },
+      {
+        "path": "skills/y005/SKILL.md",
+        "text": "---\nname: review\ndescription: \"Reviews code: style, correctness, and tests.\"\n---\nBody."
+      },
+      {
+        "path": "skills/y006/SKILL.md",
+        "text": "---\nname: review\ndescription: 'Reviews code: style, correctness, and tests.'\n---\nBody."
+      },
+      {
+        "path": "skills/y007/SKILL.md",
+        "text": "---\nname: deploy\ndescription: Deploys the service\ndisable-model-invocation: true\n---\nBody."
+      },
+      {
+        "path": "skills/y008/SKILL.md",
+        "text": "---\nname: deploy\ndescription: Deploys the service\ndisable-model-invocation: false\n---\nBody."
+      },
+      {
+        "path": "skills/y009/SKILL.md",
+        "text": "---\nname: data-viz\ndescription: Builds charts from CSV data\nmetadata:\n  author: Data Team\n  version: \"1.2\"\n---\nBody."
+      },
+      {
+        "path": "skills/y010/SKILL.md",
+        "text": "---\nname: data-viz\ndescription: Builds charts\nmetadata:\n  author: Data Team\n  version: 1.2\n---\nBody."
+      },
+      {
+        "path": "skills/y011/SKILL.md",
+        "text": "---\nname: git-helper\ndescription: Git workflows\nallowed-tools: Bash(git:*) Read Grep\n---\nBody."
+      },
+      {
+        "path": "skills/y012/SKILL.md",
+        "text": "---\nname: helper\ndescription: Helps with tasks\ncompatibility: Requires Python 3.11+ and network access\n---\nBody."
+      },
+      {
+        "path": "skills/y013/SKILL.md",
+        "text": "---\n# Skill frontmatter\nname: commented\ndescription: Has comments # trailing comment\n# end\n---\nBody."
+      },
+      {
+        "path": "skills/y014/SKILL.md",
+        "text": "---\nname: tags\ndescription: Uses a tag list\ntags:\n  - writing\n  - editing\n---\nBody."
+      },
+      {
+        "path": "skills/y015/SKILL.md",
+        "text": "---\nname: tags\ndescription: Uses a tag list\ntags:\n- writing\n- editing\n---\nBody."
+      },
+      {
+        "path": "skills/y016/SKILL.md",
+        "text": "---\nname: long\ndescription: A long description that wraps\n  onto a second line without quotes\n  and a third.\n---\nBody."
+      },
+      {
+        "path": "skills/y017/SKILL.md",
+        "text": "---\nname: unicode\ndescription: Handles café menus and 😀 emoji\n---\nBody."
+      },
+      {
+        "path": "skills/y018/SKILL.md",
+        "text": "---\nname: url\ndescription: Fetches https://example.com/docs#section pages\n---\nBody."
+      },
+      {
+        "path": "skills/y019/SKILL.md",
+        "text": "---\nname: colon\ndescription: \"Note: quoted because it has a colon-space\"\n---\nBody."
+      },
+      {
+        "path": "skills/y020/SKILL.md",
+        "text": "---\nname: escape\ndescription: \"Tab\\tseparated and \\u00e9 escaped\"\n---\nBody."
+      },
+      {
+        "path": "skills/y021/SKILL.md",
+        "text": "---\nname: empty-meta\ndescription: Something\nmetadata:\n---\nBody."
+      },
+      {
+        "path": "skills/y022/SKILL.md",
+        "text": "---\nname: version\ndescription: Something\nversion: 1.0.0\n---\nBody."
+      },
+      {
+        "path": "skills/y023/SKILL.md",
+        "text": "---\nname: trailing-space   \ndescription: Something   \n---\nBody."
+      },
+      {
+        "path": "skills/y024/SKILL.md",
+        "text": "---\n\nname: leading-blank\ndescription: Something\n\n---\nBody."
+      }
+    ],
+    "roots": [
+      "skills"
+    ],
+    "expect": {
+      "skills": [
+        {
+          "name": "pdf",
+          "description": "Extract text and tables from PDF files. Use when working with PDFs.",
+          "content": "Body.",
+          "path": "skills/y000/SKILL.md",
+          "disable_model_invocation": false
+        },
+        {
+          "name": "pdf",
+          "description": "Extract text, fill forms, and merge PDFs. Use when the user mentions PDFs, forms, or document extraction.",
+          "content": "Body.",
+          "path": "skills/y001/SKILL.md",
+          "disable_model_invocation": false
+        },
+        {
+          "name": "brand-guidelines",
+          "description": "Applies the company's official brand colors and typography. Use when producing branded documents.\n",
+          "content": "Body.",
+          "path": "skills/y002/SKILL.md",
+          "disable_model_invocation": false
+        },
+        {
+          "name": "brand-guidelines",
+          "description": "Applies the company's official brand colors and typography. Use when producing branded documents.",
+          "content": "Body.",
+          "path": "skills/y003/SKILL.md",
+          "disable_model_invocation": false
+        },
+        {
+          "name": "changelog",
+          "description": "Generates changelog entries.\n\nUse after merging a release branch.\n",
+          "content": "Body.",
+          "path": "skills/y004/SKILL.md",
+          "disable_model_invocation": false
+        },
+        {
+          "name": "review",
+          "description": "Reviews code: style, correctness, and tests.",
+          "content": "Body.",
+          "path": "skills/y005/SKILL.md",
+          "disable_model_invocation": false
+        },
+        {
+          "name": "review",
+          "description": "Reviews code: style, correctness, and tests.",
+          "content": "Body.",
+          "path": "skills/y006/SKILL.md",
+          "disable_model_invocation": false
+        },
+        {
+          "name": "deploy",
+          "description": "Deploys the service",
+          "content": "Body.",
+          "path": "skills/y007/SKILL.md",
+          "disable_model_invocation": true
+        },
+        {
+          "name": "deploy",
+          "description": "Deploys the service",
+          "content": "Body.",
+          "path": "skills/y008/SKILL.md",
+          "disable_model_invocation": false
+        },
+        {
+          "name": "data-viz",
+          "description": "Builds charts from CSV data",
+          "content": "Body.",
+          "path": "skills/y009/SKILL.md",
+          "disable_model_invocation": false
+        },
+        {
+          "name": "data-viz",
+          "description": "Builds charts",
+          "content": "Body.",
+          "path": "skills/y010/SKILL.md",
+          "disable_model_invocation": false
+        },
+        {
+          "name": "git-helper",
+          "description": "Git workflows",
+          "content": "Body.",
+          "path": "skills/y011/SKILL.md",
+          "disable_model_invocation": false
+        },
+        {
+          "name": "helper",
+          "description": "Helps with tasks",
+          "content": "Body.",
+          "path": "skills/y012/SKILL.md",
+          "disable_model_invocation": false
+        },
+        {
+          "name": "commented",
+          "description": "Has comments",
+          "content": "Body.",
+          "path": "skills/y013/SKILL.md",
+          "disable_model_invocation": false
+        },
+        {
+          "name": "tags",
+          "description": "Uses a tag list",
+          "content": "Body.",
+          "path": "skills/y014/SKILL.md",
+          "disable_model_invocation": false
+        },
+        {
+          "name": "tags",
+          "description": "Uses a tag list",
+          "content": "Body.",
+          "path": "skills/y015/SKILL.md",
+          "disable_model_invocation": false
+        },
+        {
+          "name": "long",
+          "description": "A long description that wraps onto a second line without quotes and a third.",
+          "content": "Body.",
+          "path": "skills/y016/SKILL.md",
+          "disable_model_invocation": false
+        },
+        {
+          "name": "unicode",
+          "description": "Handles café menus and 😀 emoji",
+          "content": "Body.",
+          "path": "skills/y017/SKILL.md",
+          "disable_model_invocation": false
+        },
+        {
+          "name": "url",
+          "description": "Fetches https://example.com/docs#section pages",
+          "content": "Body.",
+          "path": "skills/y018/SKILL.md",
+          "disable_model_invocation": false
+        },
+        {
+          "name": "colon",
+          "description": "Note: quoted because it has a colon-space",
+          "content": "Body.",
+          "path": "skills/y019/SKILL.md",
+          "disable_model_invocation": false
+        },
+        {
+          "name": "escape",
+          "description": "Tab\tseparated and é escaped",
+          "content": "Body.",
+          "path": "skills/y020/SKILL.md",
+          "disable_model_invocation": false
+        },
+        {
+          "name": "empty-meta",
+          "description": "Something",
+          "content": "Body.",
+          "path": "skills/y021/SKILL.md",
+          "disable_model_invocation": false
+        },
+        {
+          "name": "version",
+          "description": "Something",
+          "content": "Body.",
+          "path": "skills/y022/SKILL.md",
+          "disable_model_invocation": false
+        },
+        {
+          "name": "trailing-space",
+          "description": "Something",
+          "content": "Body.",
+          "path": "skills/y023/SKILL.md",
+          "disable_model_invocation": false
+        },
+        {
+          "name": "leading-blank",
+          "description": "Something",
+          "content": "Body.",
+          "path": "skills/y024/SKILL.md",
+          "disable_model_invocation": false
+        }
+      ],
+      "diagnostics": [
+        {
+          "code": "invalid_metadata",
+          "path": "skills/y000/SKILL.md",
+          "message": "name \"pdf\" does not match parent directory \"y000\""
+        },
+        {
+          "code": "invalid_metadata",
+          "path": "skills/y001/SKILL.md",
+          "message": "name \"pdf\" does not match parent directory \"y001\""
+        },
+        {
+          "code": "invalid_metadata",
+          "path": "skills/y002/SKILL.md",
+          "message": "name \"brand-guidelines\" does not match parent directory \"y002\""
+        },
+        {
+          "code": "invalid_metadata",
+          "path": "skills/y003/SKILL.md",
+          "message": "name \"brand-guidelines\" does not match parent directory \"y003\""
+        },
+        {
+          "code": "invalid_metadata",
+          "path": "skills/y004/SKILL.md",
+          "message": "name \"changelog\" does not match parent directory \"y004\""
+        },
+        {
+          "code": "invalid_metadata",
+          "path": "skills/y005/SKILL.md",
+          "message": "name \"review\" does not match parent directory \"y005\""
+        },
+        {
+          "code": "invalid_metadata",
+          "path": "skills/y006/SKILL.md",
+          "message": "name \"review\" does not match parent directory \"y006\""
+        },
+        {
+          "code": "invalid_metadata",
+          "path": "skills/y007/SKILL.md",
+          "message": "name \"deploy\" does not match parent directory \"y007\""
+        },
+        {
+          "code": "invalid_metadata",
+          "path": "skills/y008/SKILL.md",
+          "message": "name \"deploy\" does not match parent directory \"y008\""
+        },
+        {
+          "code": "invalid_metadata",
+          "path": "skills/y009/SKILL.md",
+          "message": "name \"data-viz\" does not match parent directory \"y009\""
+        },
+        {
+          "code": "invalid_metadata",
+          "path": "skills/y010/SKILL.md",
+          "message": "name \"data-viz\" does not match parent directory \"y010\""
+        },
+        {
+          "code": "invalid_metadata",
+          "path": "skills/y011/SKILL.md",
+          "message": "name \"git-helper\" does not match parent directory \"y011\""
+        },
+        {
+          "code": "invalid_metadata",
+          "path": "skills/y012/SKILL.md",
+          "message": "name \"helper\" does not match parent directory \"y012\""
+        },
+        {
+          "code": "invalid_metadata",
+          "path": "skills/y013/SKILL.md",
+          "message": "name \"commented\" does not match parent directory \"y013\""
+        },
+        {
+          "code": "invalid_metadata",
+          "path": "skills/y014/SKILL.md",
+          "message": "name \"tags\" does not match parent directory \"y014\""
+        },
+        {
+          "code": "invalid_metadata",
+          "path": "skills/y015/SKILL.md",
+          "message": "name \"tags\" does not match parent directory \"y015\""
+        },
+        {
+          "code": "invalid_metadata",
+          "path": "skills/y016/SKILL.md",
+          "message": "name \"long\" does not match parent directory \"y016\""
+        },
+        {
+          "code": "invalid_metadata",
+          "path": "skills/y017/SKILL.md",
+          "message": "name \"unicode\" does not match parent directory \"y017\""
+        },
+        {
+          "code": "invalid_metadata",
+          "path": "skills/y018/SKILL.md",
+          "message": "name \"url\" does not match parent directory \"y018\""
+        },
+        {
+          "code": "invalid_metadata",
+          "path": "skills/y019/SKILL.md",
+          "message": "name \"colon\" does not match parent directory \"y019\""
+        },
+        {
+          "code": "invalid_metadata",
+          "path": "skills/y020/SKILL.md",
+          "message": "name \"escape\" does not match parent directory \"y020\""
+        },
+        {
+          "code": "invalid_metadata",
+          "path": "skills/y021/SKILL.md",
+          "message": "name \"empty-meta\" does not match parent directory \"y021\""
+        },
+        {
+          "code": "invalid_metadata",
+          "path": "skills/y022/SKILL.md",
+          "message": "name \"version\" does not match parent directory \"y022\""
+        },
+        {
+          "code": "invalid_metadata",
+          "path": "skills/y023/SKILL.md",
+          "message": "name \"trailing-space\" does not match parent directory \"y023\""
+        },
+        {
+          "code": "invalid_metadata",
+          "path": "skills/y024/SKILL.md",
+          "message": "name \"leading-blank\" does not match parent directory \"y024\""
+        }
+      ]
+    }
+  }
+}

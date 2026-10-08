@@ -1,0 +1,44 @@
+{
+  "name": "skills-d02-root-skill-md-short-circuits",
+  "family": "agent",
+  "authority": "minion-agent-docs spec/harness.md WP-14.1 (HAR-001, HAR-010..HAR-013); assurance/layers/14-wp141-characterization.md",
+  "pi_revision": "b7bb00b936dbe21b8e160b3e89efdec361846699",
+  "requirements": [
+    "HAR-001",
+    "HAR-013"
+  ],
+  "witnesses": [
+    "skill_discovery_d02_root_skill_md_short_circuits"
+  ],
+  "skill_discovery": {
+    "fixture": [
+      {
+        "path": "skills/SKILL.md",
+        "text": "---\nname: skills\ndescription: Use skills.\n---\nBody."
+      },
+      {
+        "path": "skills/beta/SKILL.md",
+        "text": "---\nname: beta\ndescription: Use beta.\n---\nBody."
+      },
+      {
+        "path": "skills/gamma.md",
+        "text": "---\nname: gamma\ndescription: Use gamma.\n---\nBody."
+      }
+    ],
+    "roots": [
+      "skills"
+    ],
+    "expect": {
+      "skills": [
+        {
+          "name": "skills",
+          "description": "Use skills.",
+          "content": "Body.",
+          "path": "skills/SKILL.md",
+          "disable_model_invocation": false
+        }
+      ],
+      "diagnostics": []
+    }
+  }
+}

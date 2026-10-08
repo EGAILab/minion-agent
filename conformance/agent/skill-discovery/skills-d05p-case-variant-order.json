@@ -1,0 +1,140 @@
+{
+  "name": "skills-d05p-case-variant-order",
+  "family": "agent",
+  "authority": "minion-agent-docs spec/harness.md WP-14.1 (HAR-001, HAR-010..HAR-013); assurance/layers/14-wp141-characterization.md",
+  "pi_revision": "b7bb00b936dbe21b8e160b3e89efdec361846699",
+  "requirements": [
+    "HAR-001",
+    "HAR-013"
+  ],
+  "witnesses": [
+    "skill_discovery_d05p_case_variant_order"
+  ],
+  "skill_discovery": {
+    "posix_only": true,
+    "fixture": [
+      {
+        "path": "skills/b/SKILL.md",
+        "text": "---\ndescription: Skill in b.\n---\nBody."
+      },
+      {
+        "path": "skills/B/SKILL.md",
+        "text": "---\ndescription: Skill in B.\n---\nBody."
+      },
+      {
+        "path": "skills/a/SKILL.md",
+        "text": "---\ndescription: Skill in a.\n---\nBody."
+      },
+      {
+        "path": "skills/A/SKILL.md",
+        "text": "---\ndescription: Skill in A.\n---\nBody."
+      },
+      {
+        "path": "skills/é/SKILL.md",
+        "text": "---\ndescription: Skill in é.\n---\nBody."
+      },
+      {
+        "path": "skills/É/SKILL.md",
+        "text": "---\ndescription: Skill in É.\n---\nBody."
+      },
+      {
+        "path": "skills/e/SKILL.md",
+        "text": "---\ndescription: Skill in e.\n---\nBody."
+      },
+      {
+        "path": "skills/E/SKILL.md",
+        "text": "---\ndescription: Skill in E.\n---\nBody."
+      }
+    ],
+    "roots": [
+      "skills"
+    ],
+    "expect": {
+      "skills": [
+        {
+          "name": "a",
+          "description": "Skill in a.",
+          "content": "Body.",
+          "path": "skills/a/SKILL.md",
+          "disable_model_invocation": false
+        },
+        {
+          "name": "A",
+          "description": "Skill in A.",
+          "content": "Body.",
+          "path": "skills/A/SKILL.md",
+          "disable_model_invocation": false
+        },
+        {
+          "name": "b",
+          "description": "Skill in b.",
+          "content": "Body.",
+          "path": "skills/b/SKILL.md",
+          "disable_model_invocation": false
+        },
+        {
+          "name": "B",
+          "description": "Skill in B.",
+          "content": "Body.",
+          "path": "skills/B/SKILL.md",
+          "disable_model_invocation": false
+        },
+        {
+          "name": "e",
+          "description": "Skill in e.",
+          "content": "Body.",
+          "path": "skills/e/SKILL.md",
+          "disable_model_invocation": false
+        },
+        {
+          "name": "E",
+          "description": "Skill in E.",
+          "content": "Body.",
+          "path": "skills/E/SKILL.md",
+          "disable_model_invocation": false
+        },
+        {
+          "name": "é",
+          "description": "Skill in é.",
+          "content": "Body.",
+          "path": "skills/é/SKILL.md",
+          "disable_model_invocation": false
+        },
+        {
+          "name": "É",
+          "description": "Skill in É.",
+          "content": "Body.",
+          "path": "skills/É/SKILL.md",
+          "disable_model_invocation": false
+        }
+      ],
+      "diagnostics": [
+        {
+          "code": "invalid_metadata",
+          "path": "skills/A/SKILL.md",
+          "message": "name contains invalid characters (must be lowercase a-z, 0-9, hyphens only)"
+        },
+        {
+          "code": "invalid_metadata",
+          "path": "skills/B/SKILL.md",
+          "message": "name contains invalid characters (must be lowercase a-z, 0-9, hyphens only)"
+        },
+        {
+          "code": "invalid_metadata",
+          "path": "skills/E/SKILL.md",
+          "message": "name contains invalid characters (must be lowercase a-z, 0-9, hyphens only)"
+        },
+        {
+          "code": "invalid_metadata",
+          "path": "skills/é/SKILL.md",
+          "message": "name contains invalid characters (must be lowercase a-z, 0-9, hyphens only)"
+        },
+        {
+          "code": "invalid_metadata",
+          "path": "skills/É/SKILL.md",
+          "message": "name contains invalid characters (must be lowercase a-z, 0-9, hyphens only)"
+        }
+      ]
+    }
+  }
+}

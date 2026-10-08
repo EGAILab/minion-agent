@@ -1,0 +1,77 @@
+{
+  "name": "skills-g23-ignore-corpus",
+  "family": "agent",
+  "authority": "minion-agent-docs spec/harness.md WP-14.1 (HAR-001, HAR-010..HAR-013); assurance/layers/14-wp141-characterization.md",
+  "pi_revision": "b7bb00b936dbe21b8e160b3e89efdec361846699",
+  "requirements": [
+    "HAR-001",
+    "HAR-011",
+    "HAR-013"
+  ],
+  "witnesses": [
+    "skill_discovery_g23_ignore_corpus"
+  ],
+  "skill_discovery": {
+    "fixture": [
+      {
+        "path": "skills/.gitignore",
+        "text": "[ab]\n"
+      },
+      {
+        "path": "skills/!keep/SKILL.md",
+        "text": "---\ndescription: In !keep.\n---\nBody."
+      },
+      {
+        "path": "skills/a/c/SKILL.md",
+        "text": "---\ndescription: In a/c.\n---\nBody."
+      },
+      {
+        "path": "skills/d1/SKILL.md",
+        "text": "---\ndescription: In d1.\n---\nBody."
+      },
+      {
+        "path": "skills/x/b/SKILL.md",
+        "text": "---\ndescription: In x/b.\n---\nBody."
+      },
+      {
+        "path": "skills/keep.md",
+        "text": "---\nname: skills\ndescription: Keep.\n---\nBody."
+      }
+    ],
+    "roots": [
+      "skills"
+    ],
+    "expect": {
+      "skills": [
+        {
+          "name": "!keep",
+          "description": "In !keep.",
+          "content": "Body.",
+          "path": "skills/!keep/SKILL.md",
+          "disable_model_invocation": false
+        },
+        {
+          "name": "d1",
+          "description": "In d1.",
+          "content": "Body.",
+          "path": "skills/d1/SKILL.md",
+          "disable_model_invocation": false
+        },
+        {
+          "name": "skills",
+          "description": "Keep.",
+          "content": "Body.",
+          "path": "skills/keep.md",
+          "disable_model_invocation": false
+        }
+      ],
+      "diagnostics": [
+        {
+          "code": "invalid_metadata",
+          "path": "skills/!keep/SKILL.md",
+          "message": "name contains invalid characters (must be lowercase a-z, 0-9, hyphens only)"
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,93 @@
+{
+  "name": "skills-v04-description-required-cases",
+  "family": "agent",
+  "authority": "minion-agent-docs spec/harness.md WP-14.1 (HAR-001, HAR-010..HAR-013); assurance/layers/14-wp141-characterization.md",
+  "pi_revision": "b7bb00b936dbe21b8e160b3e89efdec361846699",
+  "requirements": [
+    "HAR-001",
+    "HAR-010",
+    "HAR-012",
+    "HAR-013"
+  ],
+  "witnesses": [
+    "skill_discovery_v04_description_required_cases"
+  ],
+  "divergences": [
+    "DIV-004"
+  ],
+  "skill_discovery": {
+    "fixture": [
+      {
+        "path": "skills/ws/SKILL.md",
+        "text": "---\nname: ws\ndescription: \"  \\t \"\n---\nBody."
+      },
+      {
+        "path": "skills/num/SKILL.md",
+        "text": "---\nname: num\ndescription: 42\n---\nBody."
+      },
+      {
+        "path": "skills/none/SKILL.md",
+        "text": "---\nname: none\n---\nBody."
+      },
+      {
+        "path": "skills/nul/SKILL.md",
+        "text": "---\nname: nul\ndescription: ~\n---\nBody."
+      },
+      {
+        "path": "skills/list/SKILL.md",
+        "text": "---\nname: list\ndescription: [a, b]\n---\nBody."
+      },
+      {
+        "path": "skills/ideo/SKILL.md",
+        "text": "---\nname: ideo\ndescription: \"\\u3000\"\n---\nBody."
+      },
+      {
+        "path": "skills/bomws/SKILL.md",
+        "text": "---\nname: bomws\ndescription: \"\\uFEFF\"\n---\nBody."
+      }
+    ],
+    "roots": [
+      "skills"
+    ],
+    "expect": {
+      "skills": [],
+      "diagnostics": [
+        {
+          "code": "parse_failed",
+          "path": "skills/bomws/SKILL.md",
+          "message": "frontmatter is not valid in the supported YAML subset"
+        },
+        {
+          "code": "invalid_metadata",
+          "path": "skills/ideo/SKILL.md",
+          "message": "description is required"
+        },
+        {
+          "code": "parse_failed",
+          "path": "skills/list/SKILL.md",
+          "message": "frontmatter is not valid in the supported YAML subset"
+        },
+        {
+          "code": "invalid_metadata",
+          "path": "skills/none/SKILL.md",
+          "message": "description is required"
+        },
+        {
+          "code": "invalid_metadata",
+          "path": "skills/nul/SKILL.md",
+          "message": "description is required"
+        },
+        {
+          "code": "invalid_metadata",
+          "path": "skills/num/SKILL.md",
+          "message": "description is required"
+        },
+        {
+          "code": "invalid_metadata",
+          "path": "skills/ws/SKILL.md",
+          "message": "description is required"
+        }
+      ]
+    }
+  }
+}

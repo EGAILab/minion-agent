@@ -1130,3 +1130,77 @@ def test_fs_path_error_origin_schema_rejects_malformed_cases(mutation: Any) -> N
     assert "expect_by_platform" in case["steps"][-1]
     mutation(case)
     assert list(_fs_path_validator().iter_errors(document))
+
+
+# ---- Layer 14 WP-14.1 skill discovery (spec/harness.md WP-14.1; HAR-001, HAR-010..HAR-013) ----
+
+SKILL_DISCOVERY_SCHEMA = CONFORMANCE / "schema" / "skill-discovery-scenario.schema.json"
+SKILL_DISCOVERY_DIR = CONFORMANCE / "agent" / "skill-discovery"
+
+
+def _skill_validator() -> Draft202012Validator:
+    return Draft202012Validator(json.loads(SKILL_DISCOVERY_SCHEMA.read_text(encoding="utf-8")))
+
+
+def test_skill_discovery_schema_is_wellformed() -> None:
+    Draft202012Validator.check_schema(
+        json.loads(SKILL_DISCOVERY_SCHEMA.read_text(encoding="utf-8"))
+    )
+
+
+def test_skill_discovery_scenarios_exist() -> None:
+    assert len(sorted(SKILL_DISCOVERY_DIR.glob("*.json"))) == 89
+
+
+@pytest.mark.parametrize(
+    "scenario", sorted(SKILL_DISCOVERY_DIR.glob("*.json")), ids=lambda value: value.stem
+)
+def test_skill_discovery_scenario_validates(scenario: Path) -> None:
+    document = json.loads(scenario.read_text(encoding="utf-8"))
+    assert "skill_discovery" in document
+    errors = sorted(_skill_validator().iter_errors(document), key=lambda error: list(error.path))
+    assert not errors, "\n".join(
+        f"{'/'.join(str(part) for part in error.path)}: {error.message}" for error in errors
+    )
+
+
+def _skill_case() -> dict[str, Any]:
+    path = SKILL_DISCOVERY_DIR / "skills-c01-symlink-cycle.json"
+    return copy.deepcopy(json.loads(path.read_text(encoding="utf-8")))
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        lambda c: c["skill_discovery"]["expect"]["diagnostics"][0].__setitem__(
+            "code", "list_failed"
+        ),
+        lambda c: c["skill_discovery"]["expect"]["diagnostics"][0].__setitem__("message", "x"),
+        lambda c: c["skill_discovery"]["expect"]["diagnostics"].__setitem__(
+            0, {"code": "invalid_metadata", "path": "skills/b.md"}
+        ),
+        lambda c: c["skill_discovery"]["expect"]["diagnostics"].__setitem__(
+            0, {"code": "list_failed", "path": "skills/a", "message": "fs prose"}
+        ),
+        lambda c: c["skill_discovery"]["fixture"].__setitem__(
+            1, {"path": "skills/a/loop", "symlink": ".."}
+        ),
+        lambda c: c.__setitem__("divergences", ["DIV-999"]),
+        lambda c: c.__setitem__("requirements", ["TOOL-001"]),
+    ],
+    ids=[
+        "cycle-shape-mixed-with-exact-code",
+        "cycle-shape-with-message",
+        "normative-code-without-message",
+        "fs-code-with-message",
+        "symlink-without-kind",
+        "unknown-divergence",
+        "foreign-requirement",
+    ],
+)
+def test_skill_discovery_schema_rejects_malformed_cases(mutation: Any) -> None:
+    """The diagnostic forms are exclusive: exact `code`+`path` (with `message` exactly when its text
+    is normative) or the PP-14-3 cycle shape `code_one_of`+`path_within` (never a message)."""
+    case = _skill_case()
+    mutation(case)
+    assert list(_skill_validator().iter_errors(case))

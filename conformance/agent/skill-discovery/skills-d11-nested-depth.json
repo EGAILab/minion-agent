@@ -1,0 +1,51 @@
+{
+  "name": "skills-d11-nested-depth",
+  "family": "agent",
+  "authority": "minion-agent-docs spec/harness.md WP-14.1 (HAR-001, HAR-010..HAR-013); assurance/layers/14-wp141-characterization.md",
+  "pi_revision": "b7bb00b936dbe21b8e160b3e89efdec361846699",
+  "requirements": [
+    "HAR-001",
+    "HAR-013"
+  ],
+  "witnesses": [
+    "skill_discovery_d11_nested_depth"
+  ],
+  "skill_discovery": {
+    "fixture": [
+      {
+        "path": "skills/a/b/c/SKILL.md",
+        "text": "---\nname: c\ndescription: Use c.\n---\nBody."
+      },
+      {
+        "path": "skills/x/SKILL.md",
+        "text": "---\nname: x\ndescription: Use x.\n---\nBody."
+      },
+      {
+        "path": "skills/x/y/SKILL.md",
+        "text": "---\nname: y\ndescription: Use y.\n---\nBody."
+      }
+    ],
+    "roots": [
+      "skills"
+    ],
+    "expect": {
+      "skills": [
+        {
+          "name": "c",
+          "description": "Use c.",
+          "content": "Body.",
+          "path": "skills/a/b/c/SKILL.md",
+          "disable_model_invocation": false
+        },
+        {
+          "name": "x",
+          "description": "Use x.",
+          "content": "Body.",
+          "path": "skills/x/SKILL.md",
+          "disable_model_invocation": false
+        }
+      ],
+      "diagnostics": []
+    }
+  }
+}

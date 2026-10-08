@@ -1,0 +1,58 @@
+{
+  "name": "skills-g11-ignore-corpus",
+  "family": "agent",
+  "authority": "minion-agent-docs spec/harness.md WP-14.1 (HAR-001, HAR-010..HAR-013); assurance/layers/14-wp141-characterization.md",
+  "pi_revision": "b7bb00b936dbe21b8e160b3e89efdec361846699",
+  "requirements": [
+    "HAR-001",
+    "HAR-011",
+    "HAR-013"
+  ],
+  "witnesses": [
+    "skill_discovery_g11_ignore_corpus"
+  ],
+  "skill_discovery": {
+    "fixture": [
+      {
+        "path": "skills/.gitignore",
+        "text": "   \nkeep\n!/a\na b\n"
+      },
+      {
+        "path": "skills/B/SKILL.md",
+        "text": "---\ndescription: In B.\n---\nBody."
+      },
+      {
+        "path": "skills/a-x/SKILL.md",
+        "text": "---\ndescription: In a-x.\n---\nBody."
+      }
+    ],
+    "roots": [
+      "skills"
+    ],
+    "expect": {
+      "skills": [
+        {
+          "name": "a-x",
+          "description": "In a-x.",
+          "content": "Body.",
+          "path": "skills/a-x/SKILL.md",
+          "disable_model_invocation": false
+        },
+        {
+          "name": "B",
+          "description": "In B.",
+          "content": "Body.",
+          "path": "skills/B/SKILL.md",
+          "disable_model_invocation": false
+        }
+      ],
+      "diagnostics": [
+        {
+          "code": "invalid_metadata",
+          "path": "skills/B/SKILL.md",
+          "message": "name contains invalid characters (must be lowercase a-z, 0-9, hyphens only)"
+        }
+      ]
+    }
+  }
+}

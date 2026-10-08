@@ -1,0 +1,62 @@
+{
+  "name": "skills-d10-roots-missing-file-duplicate-order",
+  "family": "agent",
+  "authority": "minion-agent-docs spec/harness.md WP-14.1 (HAR-001, HAR-010..HAR-013); assurance/layers/14-wp141-characterization.md",
+  "pi_revision": "b7bb00b936dbe21b8e160b3e89efdec361846699",
+  "requirements": [
+    "HAR-001",
+    "HAR-013"
+  ],
+  "witnesses": [
+    "skill_discovery_d10_roots_missing_file_duplicate_order"
+  ],
+  "skill_discovery": {
+    "fixture": [
+      {
+        "path": "one/a/SKILL.md",
+        "text": "---\nname: a\ndescription: Use a.\n---\nBody."
+      },
+      {
+        "path": "two/b/SKILL.md",
+        "text": "---\nname: b\ndescription: Use b.\n---\nBody."
+      },
+      {
+        "path": "afile.md",
+        "text": "---\nname: afile\ndescription: Use afile.\n---\nBody."
+      }
+    ],
+    "roots": [
+      "two",
+      "missing",
+      "afile.md",
+      "one",
+      "two"
+    ],
+    "expect": {
+      "skills": [
+        {
+          "name": "b",
+          "description": "Use b.",
+          "content": "Body.",
+          "path": "two/b/SKILL.md",
+          "disable_model_invocation": false
+        },
+        {
+          "name": "a",
+          "description": "Use a.",
+          "content": "Body.",
+          "path": "one/a/SKILL.md",
+          "disable_model_invocation": false
+        },
+        {
+          "name": "b",
+          "description": "Use b.",
+          "content": "Body.",
+          "path": "two/b/SKILL.md",
+          "disable_model_invocation": false
+        }
+      ],
+      "diagnostics": []
+    }
+  }
+}

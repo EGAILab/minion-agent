@@ -1,0 +1,115 @@
+{
+  "name": "skills-v06-disable-model-invocation-values",
+  "family": "agent",
+  "authority": "minion-agent-docs spec/harness.md WP-14.1 (HAR-001, HAR-010..HAR-013); assurance/layers/14-wp141-characterization.md",
+  "pi_revision": "b7bb00b936dbe21b8e160b3e89efdec361846699",
+  "requirements": [
+    "HAR-001",
+    "HAR-010",
+    "HAR-012",
+    "HAR-013"
+  ],
+  "witnesses": [
+    "skill_discovery_v06_disable_model_invocation_values"
+  ],
+  "skill_discovery": {
+    "fixture": [
+      {
+        "path": "skills/t-true/SKILL.md",
+        "text": "---\nname: t-true\ndescription: d\ndisable-model-invocation: true\n---\nBody."
+      },
+      {
+        "path": "skills/t-cap/SKILL.md",
+        "text": "---\nname: t-cap\ndescription: d\ndisable-model-invocation: True\n---\nBody."
+      },
+      {
+        "path": "skills/t-upper/SKILL.md",
+        "text": "---\nname: t-upper\ndescription: d\ndisable-model-invocation: TRUE\n---\nBody."
+      },
+      {
+        "path": "skills/t-yes/SKILL.md",
+        "text": "---\nname: t-yes\ndescription: d\ndisable-model-invocation: yes\n---\nBody."
+      },
+      {
+        "path": "skills/t-on/SKILL.md",
+        "text": "---\nname: t-on\ndescription: d\ndisable-model-invocation: on\n---\nBody."
+      },
+      {
+        "path": "skills/t-str/SKILL.md",
+        "text": "---\nname: t-str\ndescription: d\ndisable-model-invocation: 'true'\n---\nBody."
+      },
+      {
+        "path": "skills/t-one/SKILL.md",
+        "text": "---\nname: t-one\ndescription: d\ndisable-model-invocation: 1\n---\nBody."
+      },
+      {
+        "path": "skills/t-false/SKILL.md",
+        "text": "---\nname: t-false\ndescription: d\ndisable-model-invocation: false\n---\nBody."
+      }
+    ],
+    "roots": [
+      "skills"
+    ],
+    "expect": {
+      "skills": [
+        {
+          "name": "t-cap",
+          "description": "d",
+          "content": "Body.",
+          "path": "skills/t-cap/SKILL.md",
+          "disable_model_invocation": true
+        },
+        {
+          "name": "t-false",
+          "description": "d",
+          "content": "Body.",
+          "path": "skills/t-false/SKILL.md",
+          "disable_model_invocation": false
+        },
+        {
+          "name": "t-on",
+          "description": "d",
+          "content": "Body.",
+          "path": "skills/t-on/SKILL.md",
+          "disable_model_invocation": false
+        },
+        {
+          "name": "t-one",
+          "description": "d",
+          "content": "Body.",
+          "path": "skills/t-one/SKILL.md",
+          "disable_model_invocation": false
+        },
+        {
+          "name": "t-str",
+          "description": "d",
+          "content": "Body.",
+          "path": "skills/t-str/SKILL.md",
+          "disable_model_invocation": false
+        },
+        {
+          "name": "t-true",
+          "description": "d",
+          "content": "Body.",
+          "path": "skills/t-true/SKILL.md",
+          "disable_model_invocation": true
+        },
+        {
+          "name": "t-upper",
+          "description": "d",
+          "content": "Body.",
+          "path": "skills/t-upper/SKILL.md",
+          "disable_model_invocation": true
+        },
+        {
+          "name": "t-yes",
+          "description": "d",
+          "content": "Body.",
+          "path": "skills/t-yes/SKILL.md",
+          "disable_model_invocation": false
+        }
+      ],
+      "diagnostics": []
+    }
+  }
+}

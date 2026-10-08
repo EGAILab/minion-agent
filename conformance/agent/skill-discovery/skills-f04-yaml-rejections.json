@@ -1,0 +1,84 @@
+{
+  "name": "skills-f04-yaml-rejections",
+  "family": "agent",
+  "authority": "minion-agent-docs spec/harness.md WP-14.1 (HAR-001, HAR-010..HAR-013); assurance/layers/14-wp141-characterization.md",
+  "pi_revision": "b7bb00b936dbe21b8e160b3e89efdec361846699",
+  "requirements": [
+    "HAR-001",
+    "HAR-010",
+    "HAR-013"
+  ],
+  "witnesses": [
+    "skill_discovery_f04_yaml_rejections"
+  ],
+  "divergences": [
+    "DIV-004",
+    "PP-14-1"
+  ],
+  "skill_discovery": {
+    "fixture": [
+      {
+        "path": "skills/dupkey/SKILL.md",
+        "text": "---\nname: dupkey\ndescription: a\ndescription: b\n---\nBody."
+      },
+      {
+        "path": "skills/tabs/SKILL.md",
+        "text": "---\nname: tabs\n\tdescription: d\n---\nBody."
+      },
+      {
+        "path": "skills/docend/SKILL.md",
+        "text": "---\nname: docend\ndescription: d\n...\nx: 1\n---\nBody."
+      },
+      {
+        "path": "skills/badindent/SKILL.md",
+        "text": "---\nname: badindent\ndescription: d\n  - x\n---\nBody."
+      },
+      {
+        "path": "skills/unterminated/SKILL.md",
+        "text": "---\nname: unterminated\ndescription: \"open\n---\nBody."
+      },
+      {
+        "path": "skills/directive/SKILL.md",
+        "text": "---\n%YAML 1.1\n---\nname: directive\ndescription: d\n---\nBody."
+      }
+    ],
+    "roots": [
+      "skills"
+    ],
+    "expect": {
+      "skills": [],
+      "diagnostics": [
+        {
+          "code": "parse_failed",
+          "path": "skills/badindent/SKILL.md",
+          "message": "frontmatter is not valid in the supported YAML subset"
+        },
+        {
+          "code": "parse_failed",
+          "path": "skills/directive/SKILL.md",
+          "message": "frontmatter is not valid in the supported YAML subset"
+        },
+        {
+          "code": "parse_failed",
+          "path": "skills/docend/SKILL.md",
+          "message": "frontmatter is not valid in the supported YAML subset"
+        },
+        {
+          "code": "parse_failed",
+          "path": "skills/dupkey/SKILL.md",
+          "message": "frontmatter is not valid in the supported YAML subset"
+        },
+        {
+          "code": "parse_failed",
+          "path": "skills/tabs/SKILL.md",
+          "message": "frontmatter is not valid in the supported YAML subset"
+        },
+        {
+          "code": "parse_failed",
+          "path": "skills/unterminated/SKILL.md",
+          "message": "frontmatter is not valid in the supported YAML subset"
+        }
+      ]
+    }
+  }
+}

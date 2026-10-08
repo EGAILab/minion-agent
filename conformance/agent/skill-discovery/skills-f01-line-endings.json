@@ -1,0 +1,48 @@
+{
+  "name": "skills-f01-line-endings",
+  "family": "agent",
+  "authority": "minion-agent-docs spec/harness.md WP-14.1 (HAR-001, HAR-010..HAR-013); assurance/layers/14-wp141-characterization.md",
+  "pi_revision": "b7bb00b936dbe21b8e160b3e89efdec361846699",
+  "requirements": [
+    "HAR-001",
+    "HAR-010",
+    "HAR-013"
+  ],
+  "witnesses": [
+    "skill_discovery_f01_line_endings"
+  ],
+  "skill_discovery": {
+    "fixture": [
+      {
+        "path": "skills/crlf/SKILL.md",
+        "text": "---\r\nname: crlf\r\ndescription: d\r\n---\r\nLine 1\r\nLine 2\r\n"
+      },
+      {
+        "path": "skills/cr/SKILL.md",
+        "text": "---\rname: cr\rdescription: d\r---\rBody\r"
+      }
+    ],
+    "roots": [
+      "skills"
+    ],
+    "expect": {
+      "skills": [
+        {
+          "name": "cr",
+          "description": "d",
+          "content": "Body",
+          "path": "skills/cr/SKILL.md",
+          "disable_model_invocation": false
+        },
+        {
+          "name": "crlf",
+          "description": "d",
+          "content": "Line 1\nLine 2",
+          "path": "skills/crlf/SKILL.md",
+          "disable_model_invocation": false
+        }
+      ],
+      "diagnostics": []
+    }
+  }
+}

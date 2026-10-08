@@ -1,0 +1,73 @@
+{
+  "name": "skills-d12-symlinks",
+  "family": "agent",
+  "authority": "minion-agent-docs spec/harness.md WP-14.1 (HAR-001, HAR-010..HAR-013); assurance/layers/14-wp141-characterization.md",
+  "pi_revision": "b7bb00b936dbe21b8e160b3e89efdec361846699",
+  "requirements": [
+    "HAR-001",
+    "HAR-013"
+  ],
+  "witnesses": [
+    "skill_discovery_d12_symlinks"
+  ],
+  "skill_discovery": {
+    "fixture": [
+      {
+        "path": "real/linked/SKILL.md",
+        "text": "---\nname: linked\ndescription: Use linked.\n---\nBody."
+      },
+      {
+        "path": "real/file-target.md",
+        "text": "---\nname: viafile\ndescription: Use viafile.\n---\nBody."
+      },
+      {
+        "path": "skills/linked",
+        "symlink": "../real/linked",
+        "symlink_kind": "dir"
+      },
+      {
+        "path": "skills/viafile/SKILL.md",
+        "symlink": "../../real/file-target.md",
+        "symlink_kind": "file"
+      },
+      {
+        "path": "skills/dangling",
+        "symlink": "../nowhere",
+        "symlink_kind": "dir"
+      },
+      {
+        "path": "skills/plain/SKILL.md",
+        "text": "---\nname: plain\ndescription: Use plain.\n---\nBody."
+      }
+    ],
+    "roots": [
+      "skills"
+    ],
+    "expect": {
+      "skills": [
+        {
+          "name": "linked",
+          "description": "Use linked.",
+          "content": "Body.",
+          "path": "skills/linked/SKILL.md",
+          "disable_model_invocation": false
+        },
+        {
+          "name": "plain",
+          "description": "Use plain.",
+          "content": "Body.",
+          "path": "skills/plain/SKILL.md",
+          "disable_model_invocation": false
+        },
+        {
+          "name": "viafile",
+          "description": "Use viafile.",
+          "content": "Body.",
+          "path": "skills/viafile/SKILL.md",
+          "disable_model_invocation": false
+        }
+      ],
+      "diagnostics": []
+    }
+  }
+}

@@ -1,0 +1,29 @@
+{
+  "name": "skills-f06-non-declared-parse-error-silent",
+  "family": "agent",
+  "authority": "minion-agent-docs spec/harness.md WP-14.1 (HAR-001, HAR-010..HAR-013); assurance/layers/14-wp141-characterization.md",
+  "pi_revision": "b7bb00b936dbe21b8e160b3e89efdec361846699",
+  "requirements": [
+    "HAR-001",
+    "HAR-010",
+    "HAR-013"
+  ],
+  "witnesses": [
+    "skill_discovery_f06_non_declared_parse_error_silent"
+  ],
+  "skill_discovery": {
+    "fixture": [
+      {
+        "path": "skills/bad.md",
+        "text": "---\nname: a\nname: b\n---\nBody."
+      }
+    ],
+    "roots": [
+      "skills"
+    ],
+    "expect": {
+      "skills": [],
+      "diagnostics": []
+    }
+  }
+}

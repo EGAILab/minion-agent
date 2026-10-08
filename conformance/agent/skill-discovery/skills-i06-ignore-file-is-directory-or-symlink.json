@@ -1,0 +1,50 @@
+{
+  "name": "skills-i06-ignore-file-is-directory-or-symlink",
+  "family": "agent",
+  "authority": "minion-agent-docs spec/harness.md WP-14.1 (HAR-001, HAR-010..HAR-013); assurance/layers/14-wp141-characterization.md",
+  "pi_revision": "b7bb00b936dbe21b8e160b3e89efdec361846699",
+  "requirements": [
+    "HAR-001",
+    "HAR-011",
+    "HAR-013"
+  ],
+  "witnesses": [
+    "skill_discovery_i06_ignore_file_is_directory_or_symlink"
+  ],
+  "skill_discovery": {
+    "fixture": [
+      {
+        "path": "skills/.gitignore",
+        "dir": true
+      },
+      {
+        "path": "real-ignore",
+        "text": "a\n"
+      },
+      {
+        "path": "skills/.ignore",
+        "symlink": "../real-ignore",
+        "symlink_kind": "file"
+      },
+      {
+        "path": "skills/a/SKILL.md",
+        "text": "---\nname: a\ndescription: Use a.\n---\nBody."
+      }
+    ],
+    "roots": [
+      "skills"
+    ],
+    "expect": {
+      "skills": [
+        {
+          "name": "a",
+          "description": "Use a.",
+          "content": "Body.",
+          "path": "skills/a/SKILL.md",
+          "disable_model_invocation": false
+        }
+      ],
+      "diagnostics": []
+    }
+  }
+}

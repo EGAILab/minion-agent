@@ -1,0 +1,109 @@
+{
+  "name": "skills-f03-delimiter-edges",
+  "family": "agent",
+  "authority": "minion-agent-docs spec/harness.md WP-14.1 (HAR-001, HAR-010..HAR-013); assurance/layers/14-wp141-characterization.md",
+  "pi_revision": "b7bb00b936dbe21b8e160b3e89efdec361846699",
+  "requirements": [
+    "HAR-001",
+    "HAR-010",
+    "HAR-013"
+  ],
+  "witnesses": [
+    "skill_discovery_f03_delimiter_edges"
+  ],
+  "skill_discovery": {
+    "fixture": [
+      {
+        "path": "skills/unclosed/SKILL.md",
+        "text": "---\nname: unclosed\ndescription: d\nBody"
+      },
+      {
+        "path": "skills/opener-x/SKILL.md",
+        "text": "---x\nname: opener-x\ndescription: d\n---\nBody"
+      },
+      {
+        "path": "skills/close4/SKILL.md",
+        "text": "---\nname: close4\ndescription: d\n----\nBody"
+      },
+      {
+        "path": "skills/closefoo/SKILL.md",
+        "text": "---\nname: closefoo\ndescription: d\n---foo\nBody"
+      },
+      {
+        "path": "skills/empty-fm/SKILL.md",
+        "text": "---\n---\nBody"
+      },
+      {
+        "path": "skills/body-trim/SKILL.md",
+        "text": "---\nname: body-trim\ndescription: d\n---\n\n\n  Body text  \n\n"
+      },
+      {
+        "path": "skills/no-body/SKILL.md",
+        "text": "---\nname: no-body\ndescription: d\n---"
+      },
+      {
+        "path": "skills/indented/SKILL.md",
+        "text": " ---\nname: indented\ndescription: d\n---\nBody"
+      }
+    ],
+    "roots": [
+      "skills"
+    ],
+    "expect": {
+      "skills": [
+        {
+          "name": "body-trim",
+          "description": "d",
+          "content": "Body text",
+          "path": "skills/body-trim/SKILL.md",
+          "disable_model_invocation": false
+        },
+        {
+          "name": "close4",
+          "description": "d",
+          "content": "-\nBody",
+          "path": "skills/close4/SKILL.md",
+          "disable_model_invocation": false
+        },
+        {
+          "name": "closefoo",
+          "description": "d",
+          "content": "foo\nBody",
+          "path": "skills/closefoo/SKILL.md",
+          "disable_model_invocation": false
+        },
+        {
+          "name": "no-body",
+          "description": "d",
+          "content": "",
+          "path": "skills/no-body/SKILL.md",
+          "disable_model_invocation": false
+        },
+        {
+          "name": "opener-x",
+          "description": "d",
+          "content": "Body",
+          "path": "skills/opener-x/SKILL.md",
+          "disable_model_invocation": false
+        }
+      ],
+      "diagnostics": [
+        {
+          "code": "invalid_metadata",
+          "path": "skills/empty-fm/SKILL.md",
+          "message": "description is required"
+        },
+        {
+          "code": "invalid_metadata",
+          "path": "skills/indented/SKILL.md",
+          "message": "description is required"
+        },
+        {
+          "code": "invalid_metadata",
+          "path": "skills/unclosed/SKILL.md",
+          "message": "description is required"
+        }
+      ]
+    }
+  }
+}

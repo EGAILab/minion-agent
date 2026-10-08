@@ -2428,7 +2428,7 @@ rows:
   pi: 'none (MINION_EXTENSION). Reference only: packages/coding-agent/src/core/agent-session.ts
     _rebuildSystemPrompt / _installAgentNextTurnRefresh (C-11) keep Pi''s prompt consistent with its tools'
   surface: Layer 08 delta L08-D001 -- optional prompt assembler invoked while each provider request is built
-  rule: 'CONTRACT_DRAFT (L08-D001; Owner decision PP-14-9 Option A, minion-agent#159 issuecomment-6057640884;
+  rule: 'CONTRACT APPROVED and merged (L08-D001, #165 -> b1f8108b, #260 -> 142d0491; Owner decision PP-14-9 Option A, minion-agent#159 issuecomment-6057640884;
     spec/agent.md Layer 08 "Optional prompt assembler"). A driver may have at most one synchronous assembler
     assemble(base, tools) -> string. For every provider request without a per-step system override, the system
     text is assemble(RunContext.system_prompt, RunContext.tools) -- the very tool snapshot whose schemas that
@@ -2436,8 +2436,11 @@ rows:
     non-string result sends nothing, records no header, and settles the run through handleRunFailure. With no
     assembler installed, behaviour is exactly the certified Layer 08 behaviour.'
   tests:
-  - planned (L08-D001 contract review first)
-  python: 'NOT_IMPLEMENTED (L08-D001 contract draft).'
+  - 'minion-agent-python/tests/agent_loop/test_prompt_assembler.py (13 witnesses -- no assembler, run start, mid-run
+    registration, prepareNextTurn replacement, added_tool_names growth, override bypass, concurrent churn identity,
+    raising / non-string / later-turn failures, header reconstruction, factory)'
+  python: 'Implementation candidate (L08-D001, minion-agent#166): minion-agent-python/src/minion_agent/agent_loop/driver.py
+    (AgentLoop.prompt_assembler, _system_text) and agent_loop/__init__.py (AgentLoopFactory.for_instance).'
   rust: 'NOT_IMPLEMENTED (L08-D001 contract draft).'
   disposition: adopted
 - id: AG-011

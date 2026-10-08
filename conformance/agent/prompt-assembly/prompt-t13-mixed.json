@@ -1,0 +1,34 @@
+{
+ "name": "prompt-t13-mixed",
+ "family": "agent",
+ "authority": "Minion model of pinned Pi coding-agent buildSystemPrompt + agent-session normalizers (tools-oracle.mjs; asserted removals of non-adopted text); MINION_EXTENSION, PP-14-5 Option B",
+ "pi_revision": "b7bb00b936dbe21b8e160b3e89efdec361846699",
+ "requirements": [
+  "HAR-018"
+ ],
+ "prompt_assembly": {
+  "kind": "tools_section",
+  "input": {
+   "tools": [
+    {
+     "name": "read",
+     "snippet": "Read"
+    },
+    {
+     "name": "x"
+    },
+    {
+     "name": "edit",
+     "guidelines": [
+      "Edit carefully"
+     ]
+    }
+   ]
+  },
+  "expected": "Available tools:\n- read: Read\n\nGuidelines:\n- Edit carefully",
+  "pi_reference": {
+   "available_tools": "Available tools:\n- read: Read",
+   "guidelines": "Guidelines:\n- Edit carefully\n- Be concise in your responses\n- Show file paths clearly when working with files"
+  }
+ }
+}

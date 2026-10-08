@@ -1,0 +1,31 @@
+{
+ "name": "prompt-b05-all-disabled",
+ "family": "agent",
+ "authority": "pinned Pi packages/agent/src/harness (system-prompt.ts formatSkillsForSystemPrompt, skills.ts formatSkillInvocation), byte-copied; DIRECT_PI_PARITY",
+ "pi_revision": "b7bb00b936dbe21b8e160b3e89efdec361846699",
+ "requirements": [
+  "HAR-002"
+ ],
+ "prompt_assembly": {
+  "kind": "skills_block",
+  "input": {
+   "skills": [
+    {
+     "name": "a",
+     "description": "a description",
+     "content": "# a\nbody",
+     "file_path": "/skills/a/SKILL.md",
+     "disable_model_invocation": true
+    },
+    {
+     "name": "b",
+     "description": "b description",
+     "content": "# b\nbody",
+     "file_path": "/skills/b/SKILL.md",
+     "disable_model_invocation": true
+    }
+   ]
+  },
+  "expected": ""
+ }
+}

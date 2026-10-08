@@ -1204,3 +1204,63 @@ def test_skill_discovery_schema_rejects_malformed_cases(mutation: Any) -> None:
     case = _skill_case()
     mutation(case)
     assert list(_skill_validator().iter_errors(case))
+
+
+# ---- Layer 14 WP-14.2 prompt assembly (spec/harness.md WP-14.2; HAR-002/014/015/018) ----
+
+PROMPT_ASSEMBLY_SCHEMA = CONFORMANCE / "schema" / "prompt-assembly-scenario.schema.json"
+PROMPT_ASSEMBLY_DIR = CONFORMANCE / "agent" / "prompt-assembly"
+
+
+def _prompt_validator() -> Draft202012Validator:
+    return Draft202012Validator(json.loads(PROMPT_ASSEMBLY_SCHEMA.read_text(encoding="utf-8")))
+
+
+def test_prompt_assembly_schema_is_wellformed() -> None:
+    Draft202012Validator.check_schema(
+        json.loads(PROMPT_ASSEMBLY_SCHEMA.read_text(encoding="utf-8"))
+    )
+
+
+def test_prompt_assembly_scenarios_exist() -> None:
+    assert len(sorted(PROMPT_ASSEMBLY_DIR.glob("*.json"))) == 63
+
+
+@pytest.mark.parametrize(
+    "scenario", sorted(PROMPT_ASSEMBLY_DIR.glob("*.json")), ids=lambda value: value.stem
+)
+def test_prompt_assembly_scenario_validates(scenario: Path) -> None:
+    document = json.loads(scenario.read_text(encoding="utf-8"))
+    assert "prompt_assembly" in document
+    errors = sorted(_prompt_validator().iter_errors(document), key=lambda error: list(error.path))
+    assert not errors, "\n".join(
+        f"{'/'.join(str(part) for part in error.path)}: {error.message}" for error in errors
+    )
+
+
+def _prompt_case(name: str) -> dict[str, Any]:
+    path = PROMPT_ASSEMBLY_DIR / f"{name}.json"
+    return copy.deepcopy(json.loads(path.read_text(encoding="utf-8")))
+
+
+@pytest.mark.parametrize(
+    ("name", "mutate"),
+    [
+        ("prompt-b02-one", lambda c: c["prompt_assembly"].__setitem__("kind", "skills")),
+        ("prompt-b02-one", lambda c: c.__setitem__("requirements", ["HAR-016"])),
+        ("prompt-t02-snippet-only", lambda c: c["prompt_assembly"].pop("pi_reference")),
+        ("prompt-b02-one", lambda c: c["prompt_assembly"]["input"]["skills"][0].pop("file_path")),
+        (
+            "prompt-c01-base-only",
+            lambda c: c["prompt_assembly"]["input"].__setitem__("tools_section", "yes"),
+        ),
+        (
+            "prompt-v01-dirname",
+            lambda c: c["prompt_assembly"].__setitem__("expected", {"utf16": [70000]}),
+        ),
+    ],
+)
+def test_prompt_assembly_schema_rejects_malformed_cases(name: str, mutate: Any) -> None:
+    case = _prompt_case(name)
+    mutate(case)
+    assert list(_prompt_validator().iter_errors(case))

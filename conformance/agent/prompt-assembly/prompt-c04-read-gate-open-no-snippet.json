@@ -1,0 +1,34 @@
+{
+ "name": "prompt-c04-read-gate-open-no-snippet",
+ "family": "agent",
+ "authority": "MINION_ARCHITECTURAL_MAPPING (PP-14-4, HAR-015 order and join) over the pinned harness skills block and the HAR-018 Minion model",
+ "pi_revision": "b7bb00b936dbe21b8e160b3e89efdec361846699",
+ "requirements": [
+  "HAR-015",
+  "HAR-002",
+  "HAR-018"
+ ],
+ "prompt_assembly": {
+  "kind": "compose",
+  "input": {
+   "base": "BASE",
+   "tools": [
+    {
+     "name": "read"
+    }
+   ],
+   "tools_section": false,
+   "sections": [],
+   "skills": [
+    {
+     "name": "alpha",
+     "description": "alpha description",
+     "content": "# alpha",
+     "file_path": "/skills/alpha/SKILL.md",
+     "disable_model_invocation": false
+    }
+   ]
+  },
+  "expected": "BASE\n\nThe following skills provide specialized instructions for specific tasks.\nRead the full skill file when the task matches its description.\nWhen a skill file references a relative path, resolve it against the skill directory (parent of SKILL.md / dirname of the path) and use that absolute path in tool commands.\n\n<available_skills>\n  <skill>\n    <name>alpha</name>\n    <description>alpha description</description>\n    <location>/skills/alpha/SKILL.md</location>\n  </skill>\n</available_skills>"
+ }
+}

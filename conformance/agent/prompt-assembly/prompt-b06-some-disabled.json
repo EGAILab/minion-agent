@@ -1,0 +1,38 @@
+{
+ "name": "prompt-b06-some-disabled",
+ "family": "agent",
+ "authority": "pinned Pi packages/agent/src/harness (system-prompt.ts formatSkillsForSystemPrompt, skills.ts formatSkillInvocation), byte-copied; DIRECT_PI_PARITY",
+ "pi_revision": "b7bb00b936dbe21b8e160b3e89efdec361846699",
+ "requirements": [
+  "HAR-002"
+ ],
+ "prompt_assembly": {
+  "kind": "skills_block",
+  "input": {
+   "skills": [
+    {
+     "name": "a",
+     "description": "a description",
+     "content": "# a\nbody",
+     "file_path": "/skills/a/SKILL.md",
+     "disable_model_invocation": false
+    },
+    {
+     "name": "b",
+     "description": "b description",
+     "content": "# b\nbody",
+     "file_path": "/skills/b/SKILL.md",
+     "disable_model_invocation": true
+    },
+    {
+     "name": "c",
+     "description": "c description",
+     "content": "# c\nbody",
+     "file_path": "/skills/c/SKILL.md",
+     "disable_model_invocation": false
+    }
+   ]
+  },
+  "expected": "The following skills provide specialized instructions for specific tasks.\nRead the full skill file when the task matches its description.\nWhen a skill file references a relative path, resolve it against the skill directory (parent of SKILL.md / dirname of the path) and use that absolute path in tool commands.\n\n<available_skills>\n  <skill>\n    <name>a</name>\n    <description>a description</description>\n    <location>/skills/a/SKILL.md</location>\n  </skill>\n  <skill>\n    <name>c</name>\n    <description>c description</description>\n    <location>/skills/c/SKILL.md</location>\n  </skill>\n</available_skills>"
+ }
+}

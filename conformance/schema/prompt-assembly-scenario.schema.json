@@ -1,0 +1,114 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$comment": "Layer 14 WP-14.2 (spec/harness.md WP-14.2; HAR-002, HAR-014, HAR-015, HAR-018): byte-exact prompt text. Scenarios live in conformance/agent/prompt-assembly/, discriminated by the top-level `prompt_assembly` key. A runner calls the binding's real function for the case's `kind` with `input` and compares the result, as a JavaScript string (UTF-16 code units), with `expected`: skills_block -> the available-skills block (HAR-002); invocation -> the explicit invocation text (HAR-014); tools_section -> the opt-in tools section over `tools` in order (HAR-018); compose -> the assembled prompt for that configuration and tool snapshot (HAR-015). It formats nothing itself. STRINGS (`jsstring`) are a plain JSON string, or {\"utf16\": units} when the text holds an unpaired surrogate; a plain JSON string never contains a surrogate escape. `pi_reference` (tools_section only) records pinned Pi's own default-prompt blocks for the same input; it is evidence, never compared. Snapshot timing (HAR-016) and request reconstruction (HAR-017) are driver-level witnesses, not scenarios of this schema.",
+  "type": "object",
+  "required": ["name", "family", "authority", "pi_revision", "requirements", "prompt_assembly"],
+  "additionalProperties": false,
+  "properties": {
+    "name": { "type": "string", "pattern": "^prompt-[a-z][0-9]{2}-[a-z0-9-]+$" },
+    "family": { "const": "agent" },
+    "authority": { "type": "string", "minLength": 1 },
+    "pi_revision": { "const": "b7bb00b936dbe21b8e160b3e89efdec361846699" },
+    "requirements": {
+      "type": "array", "minItems": 1, "uniqueItems": true,
+      "items": { "enum": ["HAR-002", "HAR-014", "HAR-015", "HAR-018"] }
+    },
+    "prompt_assembly": {
+      "oneOf": [
+        {
+          "type": "object", "required": ["kind", "input", "expected"], "additionalProperties": false,
+          "properties": {
+            "kind": { "const": "skills_block" },
+            "input": {
+              "type": "object", "required": ["skills"], "additionalProperties": false,
+              "properties": { "skills": { "type": "array", "items": { "$ref": "#/$defs/skill" } } }
+            },
+            "expected": { "$ref": "#/$defs/jsstring" }
+          }
+        },
+        {
+          "type": "object", "required": ["kind", "input", "expected"], "additionalProperties": false,
+          "properties": {
+            "kind": { "const": "invocation" },
+            "input": {
+              "type": "object", "required": ["skill"], "additionalProperties": false,
+              "properties": {
+                "skill": { "$ref": "#/$defs/skill" },
+                "additional_instructions": { "$ref": "#/$defs/jsstring", "$comment": "absent = not supplied" }
+              }
+            },
+            "expected": { "$ref": "#/$defs/jsstring" }
+          }
+        },
+        {
+          "type": "object", "required": ["kind", "input", "expected", "pi_reference"], "additionalProperties": false,
+          "properties": {
+            "kind": { "const": "tools_section" },
+            "input": {
+              "type": "object", "required": ["tools"], "additionalProperties": false,
+              "properties": { "tools": { "type": "array", "items": { "$ref": "#/$defs/tool" } } }
+            },
+            "expected": { "$ref": "#/$defs/jsstring" },
+            "pi_reference": {
+              "type": "object", "required": ["available_tools", "guidelines"], "additionalProperties": false,
+              "properties": {
+                "available_tools": { "type": ["string", "null"] },
+                "guidelines": { "type": ["string", "null"] }
+              }
+            }
+          }
+        },
+        {
+          "type": "object", "required": ["kind", "input", "expected"], "additionalProperties": false,
+          "properties": {
+            "kind": { "const": "compose" },
+            "input": {
+              "type": "object", "required": ["base", "tools", "tools_section", "sections", "skills"],
+              "additionalProperties": false,
+              "properties": {
+                "base": { "$ref": "#/$defs/jsstring" },
+                "tools": { "type": "array", "items": { "$ref": "#/$defs/tool" }, "$comment": "the request's tool snapshot, in order" },
+                "tools_section": { "type": "boolean" },
+                "sections": { "type": "array", "items": { "$ref": "#/$defs/jsstring" } },
+                "skills": { "type": "array", "items": { "$ref": "#/$defs/skill" } }
+              }
+            },
+            "expected": { "$ref": "#/$defs/jsstring" }
+          }
+        }
+      ]
+    }
+  },
+  "$defs": {
+    "units": { "type": "array", "items": { "type": "integer", "minimum": 0, "maximum": 65535 } },
+    "jsstring": {
+      "oneOf": [
+        { "type": "string" },
+        {
+          "type": "object", "required": ["utf16"], "additionalProperties": false,
+          "properties": { "utf16": { "$ref": "#/$defs/units" } }
+        }
+      ]
+    },
+    "skill": {
+      "type": "object",
+      "required": ["name", "description", "content", "file_path", "disable_model_invocation"],
+      "additionalProperties": false,
+      "properties": {
+        "name": { "$ref": "#/$defs/jsstring" },
+        "description": { "$ref": "#/$defs/jsstring" },
+        "content": { "$ref": "#/$defs/jsstring" },
+        "file_path": { "$ref": "#/$defs/jsstring" },
+        "disable_model_invocation": { "type": "boolean" }
+      }
+    },
+    "tool": {
+      "type": "object", "required": ["name"], "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "snippet": { "$ref": "#/$defs/jsstring", "$comment": "absent = no prompt_snippet" },
+        "guidelines": { "type": "array", "items": { "$ref": "#/$defs/jsstring" }, "$comment": "absent = no prompt_guidelines" }
+      }
+    }
+  }
+}

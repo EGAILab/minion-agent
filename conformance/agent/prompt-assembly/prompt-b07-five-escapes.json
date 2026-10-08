@@ -1,0 +1,24 @@
+{
+ "name": "prompt-b07-five-escapes",
+ "family": "agent",
+ "authority": "pinned Pi packages/agent/src/harness (system-prompt.ts formatSkillsForSystemPrompt, skills.ts formatSkillInvocation), byte-copied; DIRECT_PI_PARITY",
+ "pi_revision": "b7bb00b936dbe21b8e160b3e89efdec361846699",
+ "requirements": [
+  "HAR-002"
+ ],
+ "prompt_assembly": {
+  "kind": "skills_block",
+  "input": {
+   "skills": [
+    {
+     "name": "esc&<>",
+     "description": "a & b < c > d \" e ' f &amp; ]]> </available_skills>",
+     "content": "# esc&<>\nbody",
+     "file_path": "/s/\"q'&<>/SKILL.md",
+     "disable_model_invocation": false
+    }
+   ]
+  },
+  "expected": "The following skills provide specialized instructions for specific tasks.\nRead the full skill file when the task matches its description.\nWhen a skill file references a relative path, resolve it against the skill directory (parent of SKILL.md / dirname of the path) and use that absolute path in tool commands.\n\n<available_skills>\n  <skill>\n    <name>esc&amp;&lt;&gt;</name>\n    <description>a &amp; b &lt; c &gt; d &quot; e &apos; f &amp;amp; ]]&gt; &lt;/available_skills&gt;</description>\n    <location>/s/&quot;q&apos;&amp;&lt;&gt;/SKILL.md</location>\n  </skill>\n</available_skills>"
+ }
+}

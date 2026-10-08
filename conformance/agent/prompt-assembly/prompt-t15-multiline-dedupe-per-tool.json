@@ -1,0 +1,29 @@
+{
+ "name": "prompt-t15-multiline-dedupe-per-tool",
+ "family": "agent",
+ "authority": "Minion model of pinned Pi coding-agent buildSystemPrompt + agent-session normalizers (tools-oracle.mjs; asserted removals of non-adopted text); MINION_EXTENSION, PP-14-5 Option B",
+ "pi_revision": "b7bb00b936dbe21b8e160b3e89efdec361846699",
+ "requirements": [
+  "HAR-018"
+ ],
+ "prompt_assembly": {
+  "kind": "tools_section",
+  "input": {
+   "tools": [
+    {
+     "name": "a",
+     "guidelines": [
+      "p1\n\np2",
+      "p1\n\np2",
+      "other"
+     ]
+    }
+   ]
+  },
+  "expected": "Guidelines:\n- p1\n\np2\n- other",
+  "pi_reference": {
+   "available_tools": "Available tools:\n(none)",
+   "guidelines": "Guidelines:\n- p1\n\np2\n- other\n- Be concise in your responses\n- Show file paths clearly when working with files"
+  }
+ }
+}

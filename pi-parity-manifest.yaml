@@ -5729,13 +5729,91 @@ rows:
   disposition: intentional divergence
 - id: HAR-002
   phase: 7
-  pi: packages/agent/src/harness/skills.ts::available skills formatting
-  surface: available-skills prompt XML
-  rule: Pi-compatible XML shape/escaping; disable-model-invocation excluded
+  pi: packages/agent/src/harness/system-prompt.ts::formatSkillsForSystemPrompt (+ escapeXml)
+  surface: Layer 14, WP-14.2 -- available-skills prompt block
+  rule: 'CONTRACT_DRAFT (WP-14.2, minion-agent#159; spec/harness.md WP-14.2). DIRECT_PI_PARITY. Skills with
+    disable_model_invocation exactly true are dropped; none left -> the empty string. Otherwise the three fixed
+    instruction lines, a blank line and <available_skills>, one <skill> element per kept skill in input order (no
+    sorting, no dedupe) with name, description and location (= the addressed file_path) each escaped for exactly
+    & < > " '' in that order, joined by \n with no leading or trailing newline.'
   tests:
-  - skills-prompt-xml-parity
-  python: 'target: src/minion_agent/system_prompt/ + skills/'
-  rust: Phase 7 prompt/skills
+  - conformance/agent/prompt-assembly/prompt-b*.json (pinned-harness oracle; prompt-assembly-scenario.schema.json)
+  python: 'NOT_IMPLEMENTED (WP-14.2 contract draft, minion-agent#159). Target: src/minion_agent/system_prompt/.'
+  rust: 'NOT_IMPLEMENTED (WP-14.2 contract draft, minion-agent#159).'
+  disposition: adopted
+- id: HAR-014
+  phase: 7
+  pi: packages/agent/src/harness/skills.ts::formatSkillInvocation + dirnameEnvPath
+  surface: Layer 14, WP-14.2 -- explicit skill invocation text
+  rule: 'CONTRACT_DRAFT (WP-14.2, minion-agent#159; spec/harness.md WP-14.2). DIRECT_PI_PARITY. <skill
+    name="{name}" location="{file_path}">\nReferences are relative to {dirname}.\n\n{content}\n</skill>, plus
+    \n\n{additional} when additional instructions are non-empty; no escaping. dirname on code units: strip every
+    trailing / and \; i = the last index of / or \; i == 2 with unit 1 == ":" -> the first 3 units; else i <= 0 ->
+    "/"; else the first i units.'
+  tests:
+  - conformance/agent/prompt-assembly/prompt-v*.json (pinned-harness oracle)
+  python: 'NOT_IMPLEMENTED (WP-14.2 contract draft, minion-agent#159).'
+  rust: 'NOT_IMPLEMENTED (WP-14.2 contract draft, minion-agent#159).'
+  disposition: adopted
+- id: HAR-015
+  phase: 7
+  pi: 'none at the harness pin (AgentHarnessOptions.systemPrompt is application-supplied). Reference only:
+    packages/coding-agent/src/core/system-prompt.ts::buildSystemPrompt order and read gate (AUTH-14-2)'
+  surface: Layer 14, WP-14.2 -- system prompt section composition
+  rule: 'CONTRACT_DRAFT (WP-14.2, minion-agent#159; spec/harness.md WP-14.2). MINION_ARCHITECTURAL_MAPPING
+    (PP-14-4). Sections in order: base, tools (HAR-018, opt-in), contributed sections (the prompt configuration''s
+    sections, in order), skills block (HAR-002) only when the tool snapshot has a tool named exactly read.
+    Non-empty sections joined by \n\n; no leading or trailing separator; no cwd line, context files or Pi product
+    text.'
+  tests:
+  - conformance/agent/prompt-assembly/prompt-c*.json
+  python: 'NOT_IMPLEMENTED (WP-14.2 contract draft, minion-agent#159).'
+  rust: 'NOT_IMPLEMENTED (WP-14.2 contract draft, minion-agent#159).'
+  disposition: adopted
+- id: HAR-016
+  phase: 7
+  pi: 'none (MINION_ARCHITECTURAL_MAPPING). Reference only: coding-agent agent-session.ts C-11 eager rebuild and
+    _installAgentNextTurnRefresh'
+  surface: Layer 14, WP-14.2 -- prompt/tool snapshot consistency
+  rule: 'CONTRACT_DRAFT (WP-14.2, minion-agent#159; spec/harness.md WP-14.2); Owner PP-14-9 Option A. The composer
+    is the driver''s prompt assembler (L08-D001, AG-024): for every request without a per-step override it assembles
+    from RunContext.system_prompt and that request''s own tool snapshot, so the tools section, the read gate and the
+    request schemas derive from one snapshot. The prompt configuration (skills, tools_section, sections) changes
+    only by whole-value replacement, taking effect at the next request build; the override bypasses the composer.'
+  tests:
+  - planned driver-level witnesses (spec/harness.md WP-14.2 conformance evidence), after L08-D001
+  python: 'NOT_IMPLEMENTED (WP-14.2 contract draft, minion-agent#159).'
+  rust: 'NOT_IMPLEMENTED (WP-14.2 contract draft, minion-agent#159).'
+  disposition: adopted
+- id: HAR-017
+  phase: 7
+  pi: 'none (Minion MINION-003 header); the model-visible bytes are the normative object'
+  surface: Layer 14, WP-14.2 -- request reconstruction of the assembled prompt
+  rule: 'CONTRACT_DRAFT (WP-14.2, minion-agent#159; spec/harness.md WP-14.2). The assembled prompt is the
+    request''s system_base component (or the per-step override) through the certified MINION-003 header;
+    reconstruction yields byte-identical model-visible text. Multi-component decomposition is a storage detail,
+    not adopted.'
+  tests:
+  - planned header round-trip witnesses (spec/harness.md WP-14.2), after L08-D001
+  python: 'NOT_IMPLEMENTED (WP-14.2 contract draft, minion-agent#159).'
+  rust: 'NOT_IMPLEMENTED (WP-14.2 contract draft, minion-agent#159).'
+  disposition: adopted
+- id: HAR-018
+  phase: 7
+  pi: 'packages/coding-agent/src/core/agent-session.ts::_normalizePromptSnippet/_normalizePromptGuidelines and
+    system-prompt.ts::buildSystemPrompt tools-list/guidelines rendering (default prompt only)'
+  surface: Layer 14, WP-14.2 -- optional tool prompt metadata and the opt-in tools section
+  rule: 'CONTRACT_DRAFT (WP-14.2, minion-agent#159; spec/harness.md WP-14.2). MINION_EXTENSION (PP-14-5 Option B).
+    Optional prompt_snippet and prompt_guidelines on the Layer 05 tool definition, model-visible only (no schema,
+    identity, execution, validation, lookup or permission effect). Snippet: each run of \r/\n -> one space, each run
+    of JS whitespace -> one space, JS trim, empty -> none. Guidelines: JS trim, drop empty, first occurrence per
+    tool. Section (opt-in), over the snapshot in order: "Available tools:" + "- name: snippet" lines (omitted when
+    none) and "Guidelines:" + "- g" lines deduplicated across tools (omitted when none), joined by \n\n; empty or
+    disabled -> absent. Pi product text ((none), preamble, bash bullet, fixed bullets) is not adopted.'
+  tests:
+  - conformance/agent/prompt-assembly/prompt-t*.json (Minion model of pinned Pi; pi_reference recorded)
+  python: 'NOT_IMPLEMENTED (WP-14.2 contract draft, minion-agent#159). Layer 05 additive fields.'
+  rust: 'NOT_IMPLEMENTED (WP-14.2 contract draft, minion-agent#159). Layer 05 additive fields.'
   disposition: adopted
 - id: HAR-003
   phase: 7

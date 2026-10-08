@@ -1,0 +1,24 @@
+{
+ "name": "prompt-b10-empty-strings",
+ "family": "agent",
+ "authority": "pinned Pi packages/agent/src/harness (system-prompt.ts formatSkillsForSystemPrompt, skills.ts formatSkillInvocation), byte-copied; DIRECT_PI_PARITY",
+ "pi_revision": "b7bb00b936dbe21b8e160b3e89efdec361846699",
+ "requirements": [
+  "HAR-002"
+ ],
+ "prompt_assembly": {
+  "kind": "skills_block",
+  "input": {
+   "skills": [
+    {
+     "name": "",
+     "description": "",
+     "content": "# \nbody",
+     "file_path": "",
+     "disable_model_invocation": false
+    }
+   ]
+  },
+  "expected": "The following skills provide specialized instructions for specific tasks.\nRead the full skill file when the task matches its description.\nWhen a skill file references a relative path, resolve it against the skill directory (parent of SKILL.md / dirname of the path) and use that absolute path in tool commands.\n\n<available_skills>\n  <skill>\n    <name></name>\n    <description></description>\n    <location></location>\n  </skill>\n</available_skills>"
+ }
+}

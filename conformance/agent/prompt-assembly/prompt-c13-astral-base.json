@@ -1,0 +1,22 @@
+{
+ "name": "prompt-c13-astral-base",
+ "family": "agent",
+ "authority": "MINION_ARCHITECTURAL_MAPPING (PP-14-4, HAR-015 order and join) over the pinned harness skills block and the HAR-018 Minion model",
+ "pi_revision": "b7bb00b936dbe21b8e160b3e89efdec361846699",
+ "requirements": [
+  "HAR-015",
+  "HAR-002",
+  "HAR-018"
+ ],
+ "prompt_assembly": {
+  "kind": "compose",
+  "input": {
+   "base": "x😀y",
+   "tools": [],
+   "tools_section": false,
+   "sections": [],
+   "skills": []
+  },
+  "expected": "x😀y"
+ }
+}

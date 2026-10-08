@@ -1,0 +1,22 @@
+{
+ "name": "prompt-v08-dirname",
+ "family": "agent",
+ "authority": "pinned Pi packages/agent/src/harness (system-prompt.ts formatSkillsForSystemPrompt, skills.ts formatSkillInvocation), byte-copied; DIRECT_PI_PARITY",
+ "pi_revision": "b7bb00b936dbe21b8e160b3e89efdec361846699",
+ "requirements": [
+  "HAR-014"
+ ],
+ "prompt_assembly": {
+  "kind": "invocation",
+  "input": {
+   "skill": {
+    "name": "s",
+    "description": "s description",
+    "content": "# s\nbody",
+    "file_path": "C:\\skills\\a\\SKILL.md",
+    "disable_model_invocation": false
+   }
+  },
+  "expected": "<skill name=\"s\" location=\"C:\\skills\\a\\SKILL.md\">\nReferences are relative to C:\\skills\\a.\n\n# s\nbody\n</skill>"
+ }
+}

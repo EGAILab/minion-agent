@@ -5691,7 +5691,7 @@ rows:
     canonical_path, depth-first emission, direct .md only at a root. PP-14-3: a symlink cycle terminates with exactly
     one fs-origin diagnostic, depth and code host-defined. DIV-005 for invalid ignore paths (row HAR-001-DIV-005).'
   tests:
-  - conformance/agent/skill-discovery/ (shape skill-discovery-scenario.schema.json; 86 cases)
+  - conformance/agent/skill-discovery/ (shape skill-discovery-scenario.schema.json; 89 cases)
   python: 'NOT_IMPLEMENTED (WP-14.1 contract draft, minion-agent#158). Target: src/minion_agent/skills/.'
   rust: 'NOT_IMPLEMENTED (WP-14.1 contract draft, minion-agent#158).'
   disposition: adopted
@@ -5775,8 +5775,8 @@ rows:
     trailing newline Pi''s slice produces); outside it parse_failed (row HAR-010-DIV-004). name/description used only
     when strings; disable-model-invocation only when the boolean true.'
   tests:
-  - conformance/agent/skill-discovery/ (shape skill-discovery-scenario.schema.json; 86 cases)
-  - minion-agent-docs assurance/layers/data/14-wp141/subset-diff.mjs (1.5M-input soundness fuzz), fuzz-controls.mjs, subset-realistic.mjs
+  - conformance/agent/skill-discovery/ (shape skill-discovery-scenario.schema.json; 89 cases)
+  - minion-agent-docs assurance/layers/data/14-wp141/subset-diff.mjs (1,500,000 generated / 1,374,031 distinct inputs soundness fuzz), fuzz-controls.mjs, subset-realistic.mjs
   python: 'NOT_IMPLEMENTED (WP-14.1 contract draft, minion-agent#158). Target: src/minion_agent/skills/.'
   rust: 'NOT_IMPLEMENTED (WP-14.1 contract draft, minion-agent#158).'
   disposition: adopted
@@ -5805,7 +5805,7 @@ rows:
     ! negation, \! keeps the !, one leading / stripped); matching is ignore@7.0.5 ignores() with default options
     (case-insensitive; unescaped trailing space discarded) -- ported, verified on the canonical pattern x path corpus.'
   tests:
-  - conformance/agent/skill-discovery/ (shape skill-discovery-scenario.schema.json; 86 cases)
+  - conformance/agent/skill-discovery/ (shape skill-discovery-scenario.schema.json; 89 cases)
   python: 'NOT_IMPLEMENTED (WP-14.1 contract draft, minion-agent#158). Target: src/minion_agent/skills/.'
   rust: 'NOT_IMPLEMENTED (WP-14.1 contract draft, minion-agent#158).'
   disposition: adopted
@@ -5818,7 +5818,7 @@ rows:
     untrimmed value. Codes, paths and order normative for every diagnostic; parse_failed and invalid_path texts
     Minion-defined; fs-origin messages are ctx.fs FsError.message, non-normative (PP-14-8).'
   tests:
-  - conformance/agent/skill-discovery/ (shape skill-discovery-scenario.schema.json; 86 cases)
+  - conformance/agent/skill-discovery/ (shape skill-discovery-scenario.schema.json; 89 cases)
   python: 'NOT_IMPLEMENTED (WP-14.1 contract draft, minion-agent#158). Target: src/minion_agent/skills/.'
   rust: 'NOT_IMPLEMENTED (WP-14.1 contract draft, minion-agent#158).'
   disposition: adopted
@@ -5832,7 +5832,7 @@ rows:
     strings (the subset refuses lone-surrogate and control-character constructs); filesystem-derived names and paths
     are within Layer 12''s certified path domain (#133 exclusions unchanged). WP-14.2 consumes this shape.'
   tests:
-  - conformance/agent/skill-discovery/ (shape skill-discovery-scenario.schema.json; 86 cases)
+  - conformance/agent/skill-discovery/ (shape skill-discovery-scenario.schema.json; 89 cases)
   python: 'NOT_IMPLEMENTED (WP-14.1 contract draft, minion-agent#158). Target: src/minion_agent/skills/.'
   rust: 'NOT_IMPLEMENTED (WP-14.1 contract draft, minion-agent#158).'
   disposition: adopted

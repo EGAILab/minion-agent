@@ -12,26 +12,39 @@
     "skill_discovery_g28_ignore_corpus"
   ],
   "skill_discovery": {
+    "posix_only": true,
     "fixture": [
       {
         "path": "skills/.gitignore",
-        "text": "/a\n"
+        "text": "d?\n"
       },
       {
-        "path": "skills/keep/SKILL.md",
-        "text": "---\ndescription: In keep.\n---\nBody."
+        "path": "skills/sub/.gitignore",
+        "text": "\n"
       },
       {
         "path": "skills/c/SKILL.md",
         "text": "---\ndescription: In c.\n---\nBody."
       },
       {
-        "path": "skills/a-x/SKILL.md",
-        "text": "---\ndescription: In a-x.\n---\nBody."
+        "path": "skills/b/SKILL.md",
+        "text": "---\ndescription: In b.\n---\nBody."
       },
       {
-        "path": "skills/ab/SKILL.md",
-        "text": "---\ndescription: In ab.\n---\nBody."
+        "path": "skills/x/b/SKILL.md",
+        "text": "---\ndescription: In x/b.\n---\nBody."
+      },
+      {
+        "path": "skills/a/b/SKILL.md",
+        "text": "---\ndescription: In a/b.\n---\nBody."
+      },
+      {
+        "path": "skills/B/SKILL.md",
+        "text": "---\ndescription: In B.\n---\nBody."
+      },
+      {
+        "path": "skills/root.md",
+        "text": "---\nname: skills\ndescription: Root.\n---\nBody."
       }
     ],
     "roots": [
@@ -40,17 +53,24 @@
     "expect": {
       "skills": [
         {
-          "name": "a-x",
-          "description": "In a-x.",
+          "name": "b",
+          "description": "In a/b.",
           "content": "Body.",
-          "path": "skills/a-x/SKILL.md",
+          "path": "skills/a/b/SKILL.md",
           "disable_model_invocation": false
         },
         {
-          "name": "ab",
-          "description": "In ab.",
+          "name": "b",
+          "description": "In b.",
           "content": "Body.",
-          "path": "skills/ab/SKILL.md",
+          "path": "skills/b/SKILL.md",
+          "disable_model_invocation": false
+        },
+        {
+          "name": "B",
+          "description": "In B.",
+          "content": "Body.",
+          "path": "skills/B/SKILL.md",
           "disable_model_invocation": false
         },
         {
@@ -61,14 +81,27 @@
           "disable_model_invocation": false
         },
         {
-          "name": "keep",
-          "description": "In keep.",
+          "name": "skills",
+          "description": "Root.",
           "content": "Body.",
-          "path": "skills/keep/SKILL.md",
+          "path": "skills/root.md",
+          "disable_model_invocation": false
+        },
+        {
+          "name": "b",
+          "description": "In x/b.",
+          "content": "Body.",
+          "path": "skills/x/b/SKILL.md",
           "disable_model_invocation": false
         }
       ],
-      "diagnostics": []
+      "diagnostics": [
+        {
+          "code": "invalid_metadata",
+          "path": "skills/B/SKILL.md",
+          "message": "name contains invalid characters (must be lowercase a-z, 0-9, hyphens only)"
+        }
+      ]
     }
   }
 }

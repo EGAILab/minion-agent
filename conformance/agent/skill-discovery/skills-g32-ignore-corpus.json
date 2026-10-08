@@ -15,30 +15,56 @@
     "fixture": [
       {
         "path": "skills/.gitignore",
-        "text": "**\n"
+        "text": "# c\nb/\n"
+      },
+      {
+        "path": "skills/a/c/SKILL.md",
+        "text": "---\ndescription: In a/c.\n---\nBody."
       },
       {
         "path": "skills/c/SKILL.md",
         "text": "---\ndescription: In c.\n---\nBody."
       },
       {
+        "path": "skills/a/SKILL.md",
+        "text": "---\ndescription: In a.\n---\nBody."
+      },
+      {
         "path": "skills/x/b/SKILL.md",
         "text": "---\ndescription: In x/b.\n---\nBody."
       },
       {
-        "path": "skills/b/SKILL.md",
-        "text": "---\ndescription: In b.\n---\nBody."
-      },
-      {
-        "path": "skills/root.md",
-        "text": "---\nname: skills\ndescription: Root.\n---\nBody."
+        "path": "skills/keep.md",
+        "text": "---\nname: skills\ndescription: Keep.\n---\nBody."
       }
     ],
     "roots": [
       "skills"
     ],
     "expect": {
-      "skills": [],
+      "skills": [
+        {
+          "name": "a",
+          "description": "In a.",
+          "content": "Body.",
+          "path": "skills/a/SKILL.md",
+          "disable_model_invocation": false
+        },
+        {
+          "name": "c",
+          "description": "In c.",
+          "content": "Body.",
+          "path": "skills/c/SKILL.md",
+          "disable_model_invocation": false
+        },
+        {
+          "name": "skills",
+          "description": "Keep.",
+          "content": "Body.",
+          "path": "skills/keep.md",
+          "disable_model_invocation": false
+        }
+      ],
       "diagnostics": []
     }
   }

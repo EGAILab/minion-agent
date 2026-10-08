@@ -15,47 +15,59 @@
     "fixture": [
       {
         "path": "skills/.gitignore",
-        "text": "*.md\n"
+        "text": "!*.md\n/a\na*\n!*.md\n"
       },
       {
-        "path": "skills/sub/.gitignore",
-        "text": "\n"
+        "path": "skills/!keep/SKILL.md",
+        "text": "---\ndescription: In !keep.\n---\nBody."
       },
       {
-        "path": "skills/c/SKILL.md",
-        "text": "---\ndescription: In c.\n---\nBody."
+        "path": "skills/sub/c/SKILL.md",
+        "text": "---\ndescription: In sub/c.\n---\nBody."
       },
       {
-        "path": "skills/a/c/SKILL.md",
-        "text": "---\ndescription: In a/c.\n---\nBody."
-      },
-      {
-        "path": "skills/#x/SKILL.md",
-        "text": "---\ndescription: In #x.\n---\nBody."
-      },
-      {
-        "path": "skills/b/SKILL.md",
-        "text": "---\ndescription: In b.\n---\nBody."
-      },
-      {
-        "path": "skills/d1/SKILL.md",
-        "text": "---\ndescription: In d1.\n---\nBody."
+        "path": "skills/a/SKILL.md",
+        "text": "---\ndescription: In a.\n---\nBody."
       },
       {
         "path": "skills/root.md",
         "text": "---\nname: skills\ndescription: Root.\n---\nBody."
-      },
-      {
-        "path": "skills/keep.md",
-        "text": "---\nname: skills\ndescription: Keep.\n---\nBody."
       }
     ],
     "roots": [
       "skills"
     ],
     "expect": {
-      "skills": [],
-      "diagnostics": []
+      "skills": [
+        {
+          "name": "!keep",
+          "description": "In !keep.",
+          "content": "Body.",
+          "path": "skills/!keep/SKILL.md",
+          "disable_model_invocation": false
+        },
+        {
+          "name": "skills",
+          "description": "Root.",
+          "content": "Body.",
+          "path": "skills/root.md",
+          "disable_model_invocation": false
+        },
+        {
+          "name": "c",
+          "description": "In sub/c.",
+          "content": "Body.",
+          "path": "skills/sub/c/SKILL.md",
+          "disable_model_invocation": false
+        }
+      ],
+      "diagnostics": [
+        {
+          "code": "invalid_metadata",
+          "path": "skills/!keep/SKILL.md",
+          "message": "name contains invalid characters (must be lowercase a-z, 0-9, hyphens only)"
+        }
+      ]
     }
   }
 }

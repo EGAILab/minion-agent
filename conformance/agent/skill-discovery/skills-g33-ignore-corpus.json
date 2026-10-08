@@ -15,35 +15,19 @@
     "fixture": [
       {
         "path": "skills/.gitignore",
-        "text": "b/\nkeep\n"
-      },
-      {
-        "path": "skills/sub/.gitignore",
-        "text": "a b\n"
-      },
-      {
-        "path": "skills/sub/b/SKILL.md",
-        "text": "---\ndescription: In sub/b.\n---\nBody."
-      },
-      {
-        "path": "skills/sub/c/SKILL.md",
-        "text": "---\ndescription: In sub/c.\n---\nBody."
+        "text": "?b\n?b\na b\n"
       },
       {
         "path": "skills/c/SKILL.md",
         "text": "---\ndescription: In c.\n---\nBody."
       },
       {
-        "path": "skills/B/SKILL.md",
-        "text": "---\ndescription: In B.\n---\nBody."
+        "path": "skills/a/c/SKILL.md",
+        "text": "---\ndescription: In a/c.\n---\nBody."
       },
       {
-        "path": "skills/root.md",
-        "text": "---\nname: skills\ndescription: Root.\n---\nBody."
-      },
-      {
-        "path": "skills/keep.md",
-        "text": "---\nname: skills\ndescription: Keep.\n---\nBody."
+        "path": "skills/ab/SKILL.md",
+        "text": "---\ndescription: In ab.\n---\nBody."
       }
     ],
     "roots": [
@@ -53,30 +37,16 @@
       "skills": [
         {
           "name": "c",
-          "description": "In c.",
+          "description": "In a/c.",
           "content": "Body.",
-          "path": "skills/c/SKILL.md",
-          "disable_model_invocation": false
-        },
-        {
-          "name": "skills",
-          "description": "Keep.",
-          "content": "Body.",
-          "path": "skills/keep.md",
-          "disable_model_invocation": false
-        },
-        {
-          "name": "skills",
-          "description": "Root.",
-          "content": "Body.",
-          "path": "skills/root.md",
+          "path": "skills/a/c/SKILL.md",
           "disable_model_invocation": false
         },
         {
           "name": "c",
-          "description": "In sub/c.",
+          "description": "In c.",
           "content": "Body.",
-          "path": "skills/sub/c/SKILL.md",
+          "path": "skills/c/SKILL.md",
           "disable_model_invocation": false
         }
       ],

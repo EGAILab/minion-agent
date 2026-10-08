@@ -12,27 +12,22 @@
     "skill_discovery_g27_ignore_corpus"
   ],
   "skill_discovery": {
-    "posix_only": true,
     "fixture": [
       {
         "path": "skills/.gitignore",
-        "text": "[ab]\na\nkeep\n**/c/\n"
+        "text": "*/b\n*.md\nd?\n"
       },
       {
-        "path": "skills/sub/.gitignore",
-        "text": "b/\n"
+        "path": "skills/c/SKILL.md",
+        "text": "---\ndescription: In c.\n---\nBody."
+      },
+      {
+        "path": "skills/a/b/SKILL.md",
+        "text": "---\ndescription: In a/b.\n---\nBody."
       },
       {
         "path": "skills/a/SKILL.md",
         "text": "---\ndescription: In a.\n---\nBody."
-      },
-      {
-        "path": "skills/B/SKILL.md",
-        "text": "---\ndescription: In B.\n---\nBody."
-      },
-      {
-        "path": "skills/#x/SKILL.md",
-        "text": "---\ndescription: In #x.\n---\nBody."
       },
       {
         "path": "skills/b/SKILL.md",
@@ -43,22 +38,8 @@
       "skills"
     ],
     "expect": {
-      "skills": [
-        {
-          "name": "#x",
-          "description": "In",
-          "content": "Body.",
-          "path": "skills/#x/SKILL.md",
-          "disable_model_invocation": false
-        }
-      ],
-      "diagnostics": [
-        {
-          "code": "invalid_metadata",
-          "path": "skills/#x/SKILL.md",
-          "message": "name contains invalid characters (must be lowercase a-z, 0-9, hyphens only)"
-        }
-      ]
+      "skills": [],
+      "diagnostics": []
     }
   }
 }

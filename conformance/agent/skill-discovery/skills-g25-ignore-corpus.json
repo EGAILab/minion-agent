@@ -15,23 +15,27 @@
     "fixture": [
       {
         "path": "skills/.gitignore",
-        "text": "*\n"
+        "text": "*\n[!a]*\n?b\n"
       },
       {
-        "path": "skills/a/SKILL.md",
-        "text": "---\ndescription: In a.\n---\nBody."
+        "path": "skills/sub/b/SKILL.md",
+        "text": "---\ndescription: In sub/b.\n---\nBody."
       },
       {
-        "path": "skills/a-x/SKILL.md",
-        "text": "---\ndescription: In a-x.\n---\nBody."
+        "path": "skills/a/c/SKILL.md",
+        "text": "---\ndescription: In a/c.\n---\nBody."
       },
       {
-        "path": "skills/a/b/SKILL.md",
-        "text": "---\ndescription: In a/b.\n---\nBody."
+        "path": "skills/keep/SKILL.md",
+        "text": "---\ndescription: In keep.\n---\nBody."
       },
       {
-        "path": "skills/root.md",
-        "text": "---\nname: skills\ndescription: Root.\n---\nBody."
+        "path": "skills/B/SKILL.md",
+        "text": "---\ndescription: In B.\n---\nBody."
+      },
+      {
+        "path": "skills/keep.md",
+        "text": "---\nname: skills\ndescription: Keep.\n---\nBody."
       }
     ],
     "roots": [

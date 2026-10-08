@@ -15,19 +15,23 @@
     "fixture": [
       {
         "path": "skills/.gitignore",
-        "text": "a b\nx[\n"
+        "text": "b/\n!*.md\n"
       },
       {
         "path": "skills/#x/SKILL.md",
         "text": "---\ndescription: In #x.\n---\nBody."
       },
       {
-        "path": "skills/d1/SKILL.md",
-        "text": "---\ndescription: In d1.\n---\nBody."
+        "path": "skills/c/SKILL.md",
+        "text": "---\ndescription: In c.\n---\nBody."
       },
       {
-        "path": "skills/root.md",
-        "text": "---\nname: skills\ndescription: Root.\n---\nBody."
+        "path": "skills/B/SKILL.md",
+        "text": "---\ndescription: In B.\n---\nBody."
+      },
+      {
+        "path": "skills/d1/SKILL.md",
+        "text": "---\ndescription: In d1.\n---\nBody."
       }
     ],
     "roots": [
@@ -43,17 +47,17 @@
           "disable_model_invocation": false
         },
         {
+          "name": "c",
+          "description": "In c.",
+          "content": "Body.",
+          "path": "skills/c/SKILL.md",
+          "disable_model_invocation": false
+        },
+        {
           "name": "d1",
           "description": "In d1.",
           "content": "Body.",
           "path": "skills/d1/SKILL.md",
-          "disable_model_invocation": false
-        },
-        {
-          "name": "skills",
-          "description": "Root.",
-          "content": "Body.",
-          "path": "skills/root.md",
           "disable_model_invocation": false
         }
       ],

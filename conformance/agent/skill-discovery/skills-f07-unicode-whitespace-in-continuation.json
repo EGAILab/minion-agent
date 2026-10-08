@@ -1,0 +1,70 @@
+{
+  "name": "skills-f07-unicode-whitespace-in-continuation",
+  "family": "agent",
+  "authority": "minion-agent-docs spec/harness.md WP-14.1 (HAR-001, HAR-010..HAR-013); assurance/layers/14-wp141-characterization.md",
+  "pi_revision": "b7bb00b936dbe21b8e160b3e89efdec361846699",
+  "requirements": [
+    "HAR-001",
+    "HAR-010",
+    "HAR-013"
+  ],
+  "witnesses": [
+    "skill_discovery_f07_unicode_whitespace_in_continuation"
+  ],
+  "skill_discovery": {
+    "fixture": [
+      {
+        "path": "skills/nbsp/SKILL.md",
+        "text": "---\nname: nbsp\ndescription: a\n   b\n---\nBody."
+      },
+      {
+        "path": "skills/emsp/SKILL.md",
+        "text": "---\nname: emsp\ndescription: a\n   b\n---\nBody."
+      },
+      {
+        "path": "skills/ideosp/SKILL.md",
+        "text": "---\nname: ideosp\ndescription: a\n  　b\n---\nBody."
+      },
+      {
+        "path": "skills/leadnbsp/SKILL.md",
+        "text": "---\nname: leadnbsp\ndescription:  x\n  y \n---\nBody."
+      }
+    ],
+    "roots": [
+      "skills"
+    ],
+    "expect": {
+      "skills": [
+        {
+          "name": "emsp",
+          "description": "a  b",
+          "content": "Body.",
+          "path": "skills/emsp/SKILL.md",
+          "disable_model_invocation": false
+        },
+        {
+          "name": "ideosp",
+          "description": "a 　b",
+          "content": "Body.",
+          "path": "skills/ideosp/SKILL.md",
+          "disable_model_invocation": false
+        },
+        {
+          "name": "leadnbsp",
+          "description": " x y ",
+          "content": "Body.",
+          "path": "skills/leadnbsp/SKILL.md",
+          "disable_model_invocation": false
+        },
+        {
+          "name": "nbsp",
+          "description": "a  b",
+          "content": "Body.",
+          "path": "skills/nbsp/SKILL.md",
+          "disable_model_invocation": false
+        }
+      ],
+      "diagnostics": []
+    }
+  }
+}

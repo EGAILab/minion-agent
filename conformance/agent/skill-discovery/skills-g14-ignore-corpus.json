@@ -15,15 +15,27 @@
     "fixture": [
       {
         "path": "skills/.gitignore",
-        "text": "*/b\nx[\n"
+        "text": "keep\n!/a\n"
       },
       {
-        "path": "skills/ab/SKILL.md",
-        "text": "---\ndescription: In ab.\n---\nBody."
+        "path": "skills/sub/c/SKILL.md",
+        "text": "---\ndescription: In sub/c.\n---\nBody."
       },
       {
         "path": "skills/b/SKILL.md",
         "text": "---\ndescription: In b.\n---\nBody."
+      },
+      {
+        "path": "skills/#x/SKILL.md",
+        "text": "---\ndescription: In #x.\n---\nBody."
+      },
+      {
+        "path": "skills/a/b/SKILL.md",
+        "text": "---\ndescription: In a/b.\n---\nBody."
+      },
+      {
+        "path": "skills/ab/SKILL.md",
+        "text": "---\ndescription: In ab.\n---\nBody."
       }
     ],
     "roots": [
@@ -31,6 +43,20 @@
     ],
     "expect": {
       "skills": [
+        {
+          "name": "#x",
+          "description": "In",
+          "content": "Body.",
+          "path": "skills/#x/SKILL.md",
+          "disable_model_invocation": false
+        },
+        {
+          "name": "b",
+          "description": "In a/b.",
+          "content": "Body.",
+          "path": "skills/a/b/SKILL.md",
+          "disable_model_invocation": false
+        },
         {
           "name": "ab",
           "description": "In ab.",
@@ -44,9 +70,22 @@
           "content": "Body.",
           "path": "skills/b/SKILL.md",
           "disable_model_invocation": false
+        },
+        {
+          "name": "c",
+          "description": "In sub/c.",
+          "content": "Body.",
+          "path": "skills/sub/c/SKILL.md",
+          "disable_model_invocation": false
         }
       ],
-      "diagnostics": []
+      "diagnostics": [
+        {
+          "code": "invalid_metadata",
+          "path": "skills/#x/SKILL.md",
+          "message": "name contains invalid characters (must be lowercase a-z, 0-9, hyphens only)"
+        }
+      ]
     }
   }
 }

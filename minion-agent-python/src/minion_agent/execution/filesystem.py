@@ -675,11 +675,19 @@ def _realpath_posix(path: str) -> str:
     counts every symlink traversed while resolving the path, so a cycle or a chain of more than
     `MAXSYMLINKS` links fails with `ELOOP`, as in Pi. `os.path.realpath(strict=True)` resolved
     component by component in userspace and never reached that limit, so it succeeded where Pi
-    fails. The errno is kept and classified by `to_fs_error`."""
+    fails. The errno is kept and classified by `to_fs_error`.
+
+    A path containing NUL never reaches the C call (`L12D004-R001`): a C string would end at the
+    NUL and resolve a different, shorter path. Such a path keeps the previous resolution,
+    `os.path.realpath(strict=True)`, unchanged -- NUL disposition is `minion-agent#133`'s, not this
+    delta's."""
     import ctypes
 
+    encoded = os.fsencode(path)
+    if b"\0" in encoded:
+        return os.path.realpath(path, strict=True)
     realpath, free = _libc_realpath()
-    pointer = realpath(os.fsencode(path), None)
+    pointer = realpath(encoded, None)
     if not pointer:
         code = ctypes.get_errno()
         raise OSError(code, os.strerror(code), path)

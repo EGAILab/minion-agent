@@ -6175,7 +6175,7 @@ rows:
     tests/execution/test_fs_error_origin.py'
   - minion-agent-rust/crates/minion-agent/tests/execution_filesystem.rs
   - minion-agent-python/tests/execution/test_filesystem.py
-  python: 'minion-agent-python/src/minion_agent/execution/filesystem.py; integration evidence in
+  python: 'L12-D004 candidate (minion-agent issue pending; PI_PARITY_DEFECT, Owner-authorized targeted correction): canonical_path on POSIX is one OS realpath(3) call (ELOOP at the kernel traversal limit, as Pi); Windows unchanged; evidence minion-agent-docs assurance/layers/12-l12-d004-canonical-path.md. minion-agent-python/src/minion_agent/execution/filesystem.py; integration evidence in
     minion-agent-python/tests/execution/test_filesystem.py'
   rust: 'minion-agent-rust/crates/minion-agent/src/execution/filesystem.rs (`ada-url = 3.1.0`,
     whose bundled core is exact Ada 2.9.2); 8,246-case direct-oracle gate in that module''s unit

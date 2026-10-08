@@ -48,9 +48,11 @@ type DiagnosticCode = Literal[
 ]
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class Skill:
-    """`HAR-013`: pinned Pi `Skill` (`types.ts`)."""
+    """`HAR-013`: pinned Pi `Skill` (`types.ts`). Like every public record here it is writable, as
+    Pi's are: `map_skill` receives the loaded record itself and may edit and return it
+    (`WP141-R001`)."""
 
     name: str
     description: str
@@ -60,7 +62,7 @@ class Skill:
     disable_model_invocation: bool
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class SkillDiagnostic:
     """`HAR-013`: pinned Pi `SkillDiagnostic`."""
 
@@ -70,19 +72,19 @@ class SkillDiagnostic:
     type: Literal["warning"] = "warning"
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class LoadedSkills:
     skills: list[Skill]
     diagnostics: list[SkillDiagnostic]
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class SourcedSkill[TSkill, TSource]:
     skill: TSkill
     source: TSource
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class SourcedSkillDiagnostic[TSource]:
     """A diagnostic with the input's opaque `source` attached (Pi `{...diagnostic, source}`)."""
 
@@ -93,7 +95,7 @@ class SourcedSkillDiagnostic[TSource]:
     type: Literal["warning"] = "warning"
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class LoadedSourcedSkills[TSkill, TSource]:
     skills: list[SourcedSkill[TSkill, TSource]]
     diagnostics: list[SourcedSkillDiagnostic[TSource]]

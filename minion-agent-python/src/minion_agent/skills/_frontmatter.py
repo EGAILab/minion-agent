@@ -414,5 +414,13 @@ class _Reader:
 
 def read_subset(text: str) -> dict[str, Value]:
     """The frontmatter mapping (empty for an empty document); raises `FrontmatterError` outside
-    the subset."""
-    return _Reader(text).document()
+    the subset.
+
+    Nesting deep enough to exhaust the reader's stack is contained as `FrontmatterError` too
+    (`WP141-R002`), as pinned Pi's `parseFrontmatter` contains its YAML parser's failure: the file
+    gets the usual parse outcome and discovery continues. The depth at which that happens is a
+    host limit, not part of the subset grammar."""
+    try:
+        return _Reader(text).document()
+    except RecursionError:
+        raise FrontmatterError("frontmatter nesting exceeds the reader's stack") from None

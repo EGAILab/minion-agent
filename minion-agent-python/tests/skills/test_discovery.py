@@ -12,7 +12,13 @@ import pytest
 
 from minion_agent.execution import Err, FsError, FsErrorCode, LocalFileSystem, Ok
 from minion_agent.execution.filesystem import FileInfo, FileKind
-from minion_agent.skills import Skill, SkillDiagnostic, load_skills, load_sourced_skills
+from minion_agent.skills import (
+    PARSE_FAILED_MESSAGE,
+    Skill,
+    SkillDiagnostic,
+    load_skills,
+    load_sourced_skills,
+)
 from minion_agent.skills._frontmatter import extract
 from minion_agent.skills._ignore import Ignore, InvalidIgnorePattern, to_python
 
@@ -359,4 +365,78 @@ async def test_an_all_valid_ignore_file_emits_no_diagnostic(tmp_path: Path) -> N
         _write(tmp_path, f"skills/{name}/SKILL.md", SKILL.format(name=name))
     result = await load_skills(LocalFileSystem(str(tmp_path)), [str(tmp_path / "skills")])
     assert [s.name for s in result.skills] == ["keep"]
+    assert result.diagnostics == []
+
+
+# ---- WP141-R001: the public records are writable, as Pi's are ----
+
+
+async def test_map_skill_may_edit_the_loaded_skill_and_return_it(tmp_path: Path) -> None:
+    """Pi passes the loaded `Skill` itself to `mapSkill`; an ordinary mapper edits it in place and
+    returns it. The very object comes back, edited, with the opaque source untouched."""
+    _write(tmp_path, "one/a/SKILL.md", SKILL.format(name="a"))
+    source = object()
+    seen: list[Skill] = []
+
+    def mapping(skill: Skill, src: object) -> Skill:
+        seen.append(skill)
+        skill.name = "mapped"
+        skill.description = "edited"
+        return skill
+
+    result = await load_sourced_skills(
+        LocalFileSystem(str(tmp_path)), [(str(tmp_path / "one"), source)], mapping
+    )
+    assert len(result.skills) == 1
+    assert result.skills[0].skill is seen[0]
+    assert (result.skills[0].skill.name, result.skills[0].skill.description) == ("mapped", "edited")
+    assert result.skills[0].source is source
+
+
+async def test_loaded_records_and_their_lists_are_writable(tmp_path: Path) -> None:
+    _write(tmp_path, "s/a/SKILL.md", SKILL.format(name="a"))
+    _write(tmp_path, "s/B/SKILL.md", "---\ndescription: d\n---\n")
+    result = await load_skills(LocalFileSystem(str(tmp_path)), [str(tmp_path / "s")])
+    result.skills[0].disable_model_invocation = True
+    result.diagnostics[0].message = "replaced"
+    result.skills.append(result.skills[0])
+    assert result.skills[0].disable_model_invocation is True
+    assert result.diagnostics[0].message == "replaced"
+    assert len(result.skills) == 3
+
+
+# ---- WP141-R002: a stack-exhausting nesting is contained as parse_failed ----
+
+
+def _nested(name: str, depth: int) -> str:
+    body = "".join("  " * i + "k:\n" for i in range(depth)) + "  " * depth + "leaf: value\n"
+    return f"---\nname: {name}\ndescription: Example.\n{body}---\nBody."
+
+
+async def test_deep_nesting_is_one_parse_failed_and_later_roots_still_load(tmp_path: Path) -> None:
+    """Pinned Pi (yaml@2.9.0) contains its parser's failure at depth 1200 as one `parse_failed` and
+    keeps loading; the reader's stack exhaustion must not escape and lose the later root."""
+    bad = _write(tmp_path, "bad/bad/SKILL.md", _nested("bad", 1200))
+    _write(tmp_path, "good/good/SKILL.md", SKILL.format(name="good"))
+    result = await load_skills(
+        LocalFileSystem(str(tmp_path)), [str(tmp_path / "bad"), str(tmp_path / "good")]
+    )
+    assert [s.name for s in result.skills] == ["good"]
+    assert result.diagnostics == [SkillDiagnostic("parse_failed", PARSE_FAILED_MESSAGE, bad)]
+
+
+async def test_deep_nesting_in_an_undeclared_root_file_is_skipped_silently(tmp_path: Path) -> None:
+    _write(tmp_path, "root/deep.md", _nested("deep", 1200))
+    _write(tmp_path, "root/ok/SKILL.md", SKILL.format(name="ok"))
+    result = await load_skills(LocalFileSystem(str(tmp_path)), [str(tmp_path / "root")])
+    assert [s.name for s in result.skills] == ["ok"]
+    assert result.diagnostics == []
+
+
+@pytest.mark.parametrize("depth", [100, 500])
+async def test_shallower_nesting_still_loads(tmp_path: Path, depth: int) -> None:
+    """Controls: the containment is not a depth limit; these depths load in Pi and here."""
+    _write(tmp_path, "s/n/SKILL.md", _nested("n", depth))
+    result = await load_skills(LocalFileSystem(str(tmp_path)), [str(tmp_path / "s")])
+    assert [s.name for s in result.skills] == ["n"]
     assert result.diagnostics == []

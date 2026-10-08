@@ -1,0 +1,22 @@
+name: request-header-single-request
+description: One provider request records exactly one header, after the prompt and before the reply.
+config:
+  system: be concise
+provider_script:
+- content:
+  - type: text
+    text: done
+  stop_reason: stop
+steps:
+- followup: hi
+- await_idle: true
+expect_request_log:
+- user
+- header
+- assistant
+expect_headers:
+- system: be concise
+  components:
+  - system_base
+  model: mock-1
+  tools: []

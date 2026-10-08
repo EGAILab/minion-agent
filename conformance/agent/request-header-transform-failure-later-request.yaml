@@ -1,0 +1,53 @@
+name: request-header-transform-failure-later-request
+description: 'transformContext raises on the second request: the first request and header are intact;
+  the second header is published, its request is not sent.'
+config:
+  system: base
+provider_script:
+- content:
+  - type: tool_call
+    id: t1
+    name: echo
+    arguments: {}
+  stop_reason: tool_use
+- content:
+  - type: text
+    text: done
+  stop_reason: stop
+tools:
+  echo:
+    result:
+      text: ok
+listeners:
+- event: agent/transform-context
+  action: raise
+  message: transform failed
+  on_request: 2
+steps:
+- followup: go
+- await_idle: true
+expect_request_log:
+- user
+- header
+- assistant
+- toolResult
+- header
+- assistant
+expect_headers:
+- system: base
+  components:
+  - system_base
+  model: mock-1
+  tools:
+  - echo
+- system: base
+  components:
+  - system_base
+  model: mock-1
+  tools:
+  - echo
+expect_request_tools:
+- - echo
+expect_assistant_stop_reasons:
+- tool_use
+- error

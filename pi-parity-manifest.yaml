@@ -2443,6 +2443,24 @@ rows:
     (AgentLoop.prompt_assembler, _system_text) and agent_loop/__init__.py (AgentLoopFactory.for_instance).'
   rust: 'NOT_IMPLEMENTED (L08-D001 contract draft).'
   disposition: adopted
+- id: AG-025
+  phase: 3
+  pi: 'none (MINION-003 integration; Minion artifact architecture)'
+  surface: Layer 08 delta L08-D002 -- one request/header per provider request in both drivers
+  rule: 'CONTRACT_DRAFT (L08-D002, minion-agent#171; Owner decision on L08D001-RUST-C001, #166 issuecomment-6068630928;
+    spec/agent.md Layer 08 "Request header per provider request"). Each provider request build records exactly one
+    request/header through the existing Layer 03 record_header: components {system_base: the request system text --
+    override verbatim, else the L08-D001 assembler result, else RunContext.system_prompt}, model = the request
+    ModelId.model, tools = the request tool-snapshot schemas in order. Published after the entering messages are
+    logged and the system text, model and schemas are final, before transformContext and the provider call: a
+    failure before that point (assembler, schema computation, pre-step Reject) records none; a later failure
+    (transformContext, eager unknown model, provider error/abort) keeps it. Log-only; no new format, store or API;
+    historical logs unchanged. Python already conforms; Rust gains the integration.'
+  tests:
+  - conformance/agent/request-header-*.yaml (expect_request_log, expect_headers; agent-scenario.schema.json)
+  python: 'Conforms (pre-existing driver integration; runner support in tests/conformance/agent_runner.py).'
+  rust: 'NOT_IMPLEMENTED (L08-D002 contract draft; the certified Rust driver records no request header).'
+  disposition: adopted
 - id: AG-011
   phase: 3
   pi: packages/agent/src/agent.ts::PendingMessageQueue, Agent.steer, Agent.followUp

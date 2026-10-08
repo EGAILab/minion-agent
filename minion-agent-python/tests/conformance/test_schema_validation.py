@@ -1223,7 +1223,7 @@ def test_prompt_assembly_schema_is_wellformed() -> None:
 
 
 def test_prompt_assembly_scenarios_exist() -> None:
-    assert len(sorted(PROMPT_ASSEMBLY_DIR.glob("*.json"))) == 63
+    assert len(sorted(PROMPT_ASSEMBLY_DIR.glob("*.json"))) == 66
 
 
 @pytest.mark.parametrize(
@@ -1232,10 +1232,26 @@ def test_prompt_assembly_scenarios_exist() -> None:
 def test_prompt_assembly_scenario_validates(scenario: Path) -> None:
     document = json.loads(scenario.read_text(encoding="utf-8"))
     assert "prompt_assembly" in document
+    assert _prompt_preflight(document) == []
     errors = sorted(_prompt_validator().iter_errors(document), key=lambda error: list(error.path))
     assert not errors, "\n".join(
         f"{'/'.join(str(part) for part in error.path)}: {error.message}" for error in errors
     )
+
+
+def _prompt_preflight(value: Any, at: str = "") -> list[str]:
+    """The schema's normative preflight (WP142-R001/R003): every JSON string in the document, keys
+    included, is a Unicode scalar-value string -- no code point in U+D800..U+DFFF."""
+    if isinstance(value, str):
+        return [at or "/"] if any(0xD800 <= ord(ch) <= 0xDFFF for ch in value) else []
+    if isinstance(value, dict):
+        found: list[str] = []
+        for key, item in value.items():
+            found += _prompt_preflight(key, f"{at}/<key>") + _prompt_preflight(item, f"{at}/{key}")
+        return found
+    if isinstance(value, list):
+        return [f for i, item in enumerate(value) for f in _prompt_preflight(item, f"{at}/{i}")]
+    return []
 
 
 def _prompt_case(name: str) -> dict[str, Any]:
@@ -1256,7 +1272,7 @@ def _prompt_case(name: str) -> dict[str, Any]:
         ),
         (
             "prompt-v01-dirname",
-            lambda c: c["prompt_assembly"].__setitem__("expected", {"utf16": [70000]}),
+            lambda c: c["prompt_assembly"].__setitem__("expected", {"utf16": [65]}),
         ),
     ],
 )
@@ -1264,3 +1280,59 @@ def test_prompt_assembly_schema_rejects_malformed_cases(name: str, mutate: Any) 
     case = _prompt_case(name)
     mutate(case)
     assert list(_prompt_validator().iter_errors(case))
+
+
+@pytest.mark.parametrize(
+    ("name", "mutate", "where"),
+    [
+        (
+            "prompt-b02-one",
+            lambda c: c["prompt_assembly"]["input"]["skills"][0].__setitem__(
+                "description", "a" + chr(0xD800) + "b"
+            ),
+            "/prompt_assembly/input/skills/0/description",
+        ),
+        (
+            "prompt-v01-dirname",
+            lambda c: c["prompt_assembly"].__setitem__("expected", "x" + chr(0xDC00)),
+            "/prompt_assembly/expected",
+        ),
+        (
+            "prompt-c01-base-only",
+            lambda c: c["prompt_assembly"]["input"].__setitem__("base", chr(0xDBFF)),
+            "/prompt_assembly/input/base",
+        ),
+        (
+            "prompt-t02-snippet-only",
+            lambda c: c["prompt_assembly"]["input"]["tools"][0].__setitem__("snippet", chr(0xDFFF)),
+            "/prompt_assembly/input/tools/0/snippet",
+        ),
+        (
+            "prompt-c02-everything",
+            lambda c: c["prompt_assembly"]["input"]["sections"].append(chr(0xD83D)),
+            "/prompt_assembly/input/sections/2",
+        ),
+    ],
+)
+def test_prompt_assembly_preflight_rejects_unpaired_surrogates(
+    name: str, mutate: Any, where: str
+) -> None:
+    """Negative controls: lone high and low surrogates in input and expected positions. The schema
+    alone accepts every one of them (a plain string), which is why the preflight is normative."""
+    case = _prompt_case(name)
+    mutate(case)
+    assert _prompt_preflight(case) == [where]
+    assert not list(_prompt_validator().iter_errors(case))
+
+
+def test_prompt_assembly_preflight_accepts_supplementary_characters() -> None:
+    """Positive controls: an astral character is one scalar value (a surrogate PAIR in UTF-16 and in
+    a JSON escape), never an unpaired surrogate."""
+    for name in ["prompt-c13-astral-base", "prompt-b08-pass-through", "prompt-v94-pass-through"]:
+        case = _prompt_case(name)
+        assert _prompt_preflight(case) == []
+        assert "\U0001f600" in json.dumps(case, ensure_ascii=False)
+    paired = json.loads('"x\\ud83d\\ude00y"')
+    assert paired == "x\U0001f600y"
+    assert _prompt_preflight(paired) == []
+    assert _prompt_preflight(json.loads('"x\\ud83dy"')) == ["/"]

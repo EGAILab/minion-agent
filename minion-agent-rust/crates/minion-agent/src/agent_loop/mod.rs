@@ -13,8 +13,8 @@ pub use decisions::{
     register_should_stop_after_turn_listener, register_transform_context_listener,
     resolve_stopping,
 };
-pub use driver::{AgentLoop, PromptInput};
-pub use error::{AgentListenerError, AgentLoopError};
+pub use driver::{AgentLoop, PromptAssembler, PromptInput};
+pub use error::{AgentListenerError, AgentLoopError, PromptAssemblyError};
 pub use events::{
     AgentEndReason, AgentEvent, AgentEventKind, AgentLifecycleContext, RunCause,
     dispatch_agent_event, register_agent_listener, register_agent_listener_with_signal,

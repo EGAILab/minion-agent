@@ -18,7 +18,8 @@ use crate::{
         ThinkingLevel as LlmThinkingLevel, UserContent, UserContentBlock, UserMessage,
     },
     tools::{
-        ToolExecutionBatchResult, ToolExecutionOptions, ToolLifecycleError, execute_tool_calls,
+        ToolDefinition, ToolExecutionBatchResult, ToolExecutionOptions, ToolLifecycleError,
+        execute_tool_calls,
     },
 };
 
@@ -51,6 +52,30 @@ pub struct AgentLoop {
     llm: Arc<LlmService>,
     next_step_policy: ClaimPolicy,
     next_turn_policy: ClaimPolicy,
+    prompt_assembler: Option<Arc<dyn PromptAssembler>>,
+}
+
+/// Synchronous request-time composition over the request's ordered tool snapshot.
+/// Implementations must derive tool-dependent text from this slice, not the live registry.
+pub trait PromptAssembler: Send + Sync {
+    fn assemble(
+        &self,
+        base: &str,
+        tools: &[Arc<ToolDefinition>],
+    ) -> Result<String, super::PromptAssemblyError>;
+}
+
+impl<F> PromptAssembler for F
+where
+    F: Fn(&str, &[Arc<ToolDefinition>]) -> Result<String, super::PromptAssemblyError> + Send + Sync,
+{
+    fn assemble(
+        &self,
+        base: &str,
+        tools: &[Arc<ToolDefinition>],
+    ) -> Result<String, super::PromptAssemblyError> {
+        self(base, tools)
+    }
 }
 
 struct PreparedRun {
@@ -130,11 +155,17 @@ impl AgentLoop {
             llm,
             next_step_policy: ClaimPolicy::OneAtATime,
             next_turn_policy: ClaimPolicy::OneAtATime,
+            prompt_assembler: None,
         }
     }
 
     pub fn set_next_step_policy(&mut self, policy: ClaimPolicy) {
         self.next_step_policy = policy;
+    }
+
+    /// Installs at most one assembler; `None` restores the certified base-prompt path.
+    pub fn set_prompt_assembler(&mut self, assembler: Option<Arc<dyn PromptAssembler>>) {
+        self.prompt_assembler = assembler;
     }
 
     pub fn set_next_turn_policy(&mut self, policy: ClaimPolicy) {
@@ -390,15 +421,19 @@ impl AgentLoop {
             },
         )
         .await?;
+        let system_prompt = match &decision.system_override {
+            Some(text) => text.clone(),
+            None => match &self.prompt_assembler {
+                Some(assembler) => {
+                    assembler.assemble(&prepared.context.system_prompt, &prepared.context.tools)?
+                }
+                None => prepared.context.system_prompt.clone(),
+            },
+        };
         let request = LlmRequest {
             model: prepared.config.model.clone(),
             context: LlmContext {
-                system_prompt: Some(
-                    decision
-                        .system_override
-                        .clone()
-                        .unwrap_or_else(|| prepared.context.system_prompt.clone()),
-                ),
+                system_prompt: Some(system_prompt),
                 messages: request_messages,
                 tools: Some(
                     prepared
@@ -1165,6 +1200,161 @@ mod tests {
 
     fn loop_for(runtime: &Runtime, session: Session) -> (AgentLoop, Arc<AgentInstance>) {
         loop_for_with_llm(runtime, session, Arc::new(LlmService::new()))
+    }
+
+    #[test]
+    fn prompt_assembler_uses_snapshot_order_without_mutating_base() {
+        run(async {
+            let runtime = Runtime::new();
+            let _z = runtime.tools().register_for_scope(None, tool("z")).unwrap();
+            let _a = runtime.tools().register_for_scope(None, tool("a")).unwrap();
+            let adapter = Arc::new(ScriptedAdapter::new([text_turn("answer")]));
+            let llm = Arc::new(LlmService::new());
+            llm.register(identity(), adapter.clone());
+            let (mut driver, agent) = loop_for_with_llm(
+                &runtime,
+                Session::new("assembler", [] as [&str; 0]).unwrap(),
+                llm,
+            );
+            let calls = Arc::new(Mutex::new(Vec::new()));
+            let observed = calls.clone();
+            driver.set_prompt_assembler(Some(Arc::new(
+                move |base: &str, tools: &[Arc<ToolDefinition>]| {
+                    let names = tools
+                        .iter()
+                        .map(|tool| tool.name().to_owned())
+                        .collect::<Vec<_>>();
+                    observed.lock().push((base.to_owned(), names.clone()));
+                    Ok(format!("{base}:{}", names.join(",")))
+                },
+            )));
+            let mut prepared = driver
+                .prepare_prompt_run(PromptInput::Message(user("question")))
+                .await
+                .unwrap();
+            let snapshot = prepared
+                .context
+                .tools
+                .iter()
+                .map(|tool| tool.name().to_owned())
+                .collect::<Vec<_>>();
+            let _late = runtime
+                .tools()
+                .register_for_scope(None, tool("late"))
+                .unwrap();
+            driver.run_provider_turn(&mut prepared).await.unwrap();
+            assert_eq!(*calls.lock(), vec![("system".to_owned(), snapshot.clone())]);
+            let requests = adapter.requests();
+            assert_eq!(
+                requests[0].context.system_prompt,
+                Some(format!("system:{}", snapshot.join(",")))
+            );
+            assert_eq!(
+                requests[0]
+                    .context
+                    .tools
+                    .as_ref()
+                    .unwrap()
+                    .iter()
+                    .map(|tool| tool.name.clone())
+                    .collect::<Vec<_>>(),
+                snapshot
+            );
+            assert_eq!(prepared.context.system_prompt, "system");
+            assert_eq!(agent.system_prompt(), "system");
+        });
+    }
+
+    #[test]
+    fn prompt_assembler_empty_override_bypasses_callback() {
+        run(async {
+            let runtime = Runtime::new();
+            let adapter = Arc::new(ScriptedAdapter::new([text_turn("answer")]));
+            let llm = Arc::new(LlmService::new());
+            llm.register(identity(), adapter.clone());
+            let (mut driver, _) = loop_for_with_llm(
+                &runtime,
+                Session::new("override", [] as [&str; 0]).unwrap(),
+                llm,
+            );
+            driver.set_prompt_assembler(Some(Arc::new(|_: &str, _: &[Arc<ToolDefinition>]| {
+                Err(super::super::PromptAssemblyError::new("must not run"))
+            })));
+            let mut prepared = driver
+                .prepare_prompt_run(PromptInput::Message(user("question")))
+                .await
+                .unwrap();
+            let decision = Enter {
+                messages: vec![],
+                system_override: Some(String::new()),
+                history_window: None,
+            };
+            driver
+                .run_provider_turn_with_decision(&mut prepared, &decision)
+                .await
+                .unwrap();
+            assert_eq!(
+                adapter.requests()[0].context.system_prompt.as_deref(),
+                Some("")
+            );
+        });
+    }
+
+    #[test]
+    fn prompt_assembler_failure_settles_without_provider_request() {
+        run(async {
+            let runtime = Runtime::new();
+            let adapter = Arc::new(ScriptedAdapter::new([text_turn("unused")]));
+            let llm = Arc::new(LlmService::new());
+            llm.register(identity(), adapter.clone());
+            let (mut driver, agent) = loop_for_with_llm(
+                &runtime,
+                Session::new("failed", [] as [&str; 0]).unwrap(),
+                llm,
+            );
+            driver.set_prompt_assembler(Some(Arc::new(|_: &str, _: &[Arc<ToolDefinition>]| {
+                Err(super::super::PromptAssemblyError::new(
+                    "unknown model from assembler",
+                ))
+            })));
+            driver
+                .prompt(PromptInput::Message(user("question")))
+                .await
+                .unwrap();
+            assert!(adapter.requests().is_empty());
+            assert_eq!(agent.status(), AgentStatus::Idle);
+            assert_eq!(
+                agent.error_message().as_deref(),
+                Some("unknown model from assembler")
+            );
+        });
+    }
+
+    #[test]
+    fn l08d001_baseline_header_gap_characterization() {
+        run(async {
+            let runtime = Runtime::new();
+            let adapter = Arc::new(ScriptedAdapter::new([text_turn("answer")]));
+            let llm = Arc::new(LlmService::new());
+            llm.register(identity(), adapter.clone());
+            let session = Session::new("header-gap", [] as [&str; 0]).unwrap();
+            let (driver, _) = loop_for_with_llm(&runtime, session.clone(), llm);
+            driver
+                .prompt(PromptInput::Message(user("question")))
+                .await
+                .unwrap();
+            assert_eq!(adapter.requests().len(), 1);
+            let headers = session
+                .events()
+                .into_iter()
+                .filter(|event| event.kind.as_str() == "request/header")
+                .count();
+            println!("L08-D001 baseline: provider_requests=1 request_headers={headers}");
+            assert_eq!(
+                headers, 0,
+                "characterizes the pre-existing gap; not a conformance assertion"
+            );
+        });
     }
 
     fn loop_for_with_llm(

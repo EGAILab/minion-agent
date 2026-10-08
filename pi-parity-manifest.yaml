@@ -5708,8 +5708,8 @@ rows:
     canonical_path, depth-first emission, direct .md only at a root. PP-14-3: a symlink cycle terminates with exactly
     one fs-origin diagnostic, depth and code host-defined. DIV-005 for invalid ignore paths (row HAR-001-DIV-005).'
   tests:
-  - conformance/agent/skill-discovery/ (shape skill-discovery-scenario.schema.json; 89 cases)
-  python: 'NOT_IMPLEMENTED (WP-14.1 contract draft, minion-agent#158). Target: src/minion_agent/skills/.'
+  - conformance/agent/skill-discovery/ (shape skill-discovery-scenario.schema.json; 96 cases)
+  python: 'Implementation candidate (WP-14.1, minion-agent#161): minion-agent-python/src/minion_agent/skills/ (discovery.py, _frontmatter.py, _ignore.py).'
   rust: 'NOT_IMPLEMENTED (WP-14.1 contract draft, minion-agent#158).'
   disposition: adopted
 - id: HAR-001-DIV-005
@@ -5724,7 +5724,7 @@ rows:
   tests:
   - conformance/agent/skill-discovery/skills-r0*.json (divergences DIV-005; Pi rejection kept in minion-agent-docs
     assurance/layers/data/14-wp141/out-linux.json)
-  python: 'NOT_IMPLEMENTED (WP-14.1 contract draft, minion-agent#158). Target: src/minion_agent/skills/.'
+  python: 'Implementation candidate (WP-14.1, minion-agent#161): minion-agent-python/src/minion_agent/skills/ (discovery.py, _frontmatter.py, _ignore.py).'
   rust: 'NOT_IMPLEMENTED (WP-14.1 contract draft, minion-agent#158).'
   disposition: intentional divergence
 - id: HAR-002
@@ -5870,9 +5870,9 @@ rows:
     trailing newline Pi''s slice produces); outside it parse_failed (row HAR-010-DIV-004). name/description used only
     when strings; disable-model-invocation only when the boolean true.'
   tests:
-  - conformance/agent/skill-discovery/ (shape skill-discovery-scenario.schema.json; 89 cases)
+  - conformance/agent/skill-discovery/ (shape skill-discovery-scenario.schema.json; 96 cases)
   - minion-agent-docs assurance/layers/data/14-wp141/subset-diff.mjs (1,500,000 generated / 1,374,031 distinct inputs soundness fuzz), fuzz-controls.mjs, subset-realistic.mjs
-  python: 'NOT_IMPLEMENTED (WP-14.1 contract draft, minion-agent#158). Target: src/minion_agent/skills/.'
+  python: 'Implementation candidate (WP-14.1, minion-agent#161): minion-agent-python/src/minion_agent/skills/ (discovery.py, _frontmatter.py, _ignore.py).'
   rust: 'NOT_IMPLEMENTED (WP-14.1 contract draft, minion-agent#158).'
   disposition: adopted
 - id: HAR-010-DIV-004
@@ -5888,7 +5888,25 @@ rows:
   tests:
   - conformance/agent/skill-discovery/skills-{f04,f05,v04,y01,y03}-*.json (divergences DIV-004 / PP-14-1; Pi results
     kept in minion-agent-docs assurance/layers/data/14-wp141/out-linux.json)
-  python: 'NOT_IMPLEMENTED (WP-14.1 contract draft, minion-agent#158). Target: src/minion_agent/skills/.'
+  python: 'Implementation candidate (WP-14.1, minion-agent#161): minion-agent-python/src/minion_agent/skills/ (discovery.py, _frontmatter.py, _ignore.py).'
+  rust: 'NOT_IMPLEMENTED (WP-14.1 contract draft, minion-agent#158).'
+  disposition: intentional divergence
+- id: HAR-010-DIV-007
+  phase: 7
+  pi: 'packages/agent/src/harness/skills.ts::parseFrontmatter + yaml@2.9.0 (block nesting accepted up to the host
+    JavaScript stack, about 950 levels at the pin; then a contained parse failure)'
+  surface: Layer 14, WP-14.1 -- frontmatter block-collection nesting depth
+  rule: 'DIV-007 (assurance/pi-divergences.md; Owner decision WP141-R003 Option 1, minion-agent#158
+    issuecomment-6058827431). The root mapping is depth 1 and each nested mapping or sequence one deeper; a
+    collection at depth 65 or more is outside the subset, so the file is parse_failed (declared) or silently
+    skipped (undeclared), identically in every binding. A reader stack exhaustion is still contained as the same
+    outcome (WP141-R002, defence in depth).'
+  tests:
+  - conformance/agent/skill-discovery/skills-n01-*.json (identical to Pi), skills-n02/n03/n04-*.json (divergences
+    DIV-007; Pi acceptance recorded in assurance/layers/data/14-wp141/out-*.json)
+  - minion-agent-python/tests/skills/test_discovery.py (63/64/65 boundaries, sequences, 100/500, lifted-bound
+    containment)
+  python: 'Implementation candidate (WP-14.1, minion-agent#161).'
   rust: 'NOT_IMPLEMENTED (WP-14.1 contract draft, minion-agent#158).'
   disposition: intentional divergence
 - id: HAR-011
@@ -5898,12 +5916,32 @@ rows:
   rule: 'CONTRACT_DRAFT (WP-14.1, minion-agent#158; spec/harness.md WP-14.1). .gitignore, .ignore, .fdignore read in order per walked directory (a symlinked or directory ignore
     file is not read); lines prefixed with the directory''s root-relative path (blank and # lines dropped, \# kept,
     ! negation, \! keeps the !, one leading / stripped); matching is ignore@7.0.5 ignores() with default options
-    (case-insensitive; unescaped trailing space discarded) -- ported, verified on the canonical pattern x path corpus.'
+    (case-insensitive; unescaped trailing space discarded) -- ported, verified on the canonical pattern x path corpus.
+    DIV-006 for patterns whose RegExp pinned ignore rejects (row HAR-011-DIV-006).'
   tests:
-  - conformance/agent/skill-discovery/ (shape skill-discovery-scenario.schema.json; 89 cases)
-  python: 'NOT_IMPLEMENTED (WP-14.1 contract draft, minion-agent#158). Target: src/minion_agent/skills/.'
+  - conformance/agent/skill-discovery/ (shape skill-discovery-scenario.schema.json; 96 cases)
+  python: 'Implementation candidate (WP-14.1, minion-agent#161): minion-agent-python/src/minion_agent/skills/ (discovery.py, _frontmatter.py, _ignore.py).'
   rust: 'NOT_IMPLEMENTED (WP-14.1 contract draft, minion-agent#158).'
   disposition: adopted
+- id: HAR-011-DIV-006
+  phase: 7
+  pi: 'packages/agent/src/harness/skills.ts::addIgnoreRules + ignore@7.0.5 (a rule''s RegExp is built lazily; an invalid
+    one -- out-of-order range, unterminated class -- throws SyntaxError when the rule is first evaluated, rejecting the
+    whole loadSkills call)'
+  surface: Layer 14, WP-14.1 -- ignore-file patterns whose pinned-ignore RegExp is invalid
+  rule: 'CONTRACT_DRAFT (WP-14.1, minion-agent#158; spec/harness.md WP-14.1). DIV-006 (assurance/pi-divergences.md; Owner decision minion-agent#158 issuecomment-6054403282,
+    section 1). When an ignore file is read, each prefixed pattern whose RegExp pinned ignore@7.0.5 would reject is
+    dropped with one diagnostic {code: invalid_ignore_pattern, path: the ignore file, message: "ignore pattern is not
+    valid and was dropped"}, in line order, right after that file is read; the valid patterns are added in their
+    original order and discovery continues. Patterns ignore itself skips (blank, comment, invalid trailing backslash)
+    stay silent.'
+  tests:
+  - conformance/agent/skill-discovery/skills-i10-*.json, skills-i11-*.json (divergences DIV-006), skills-i12-*.json
+    (positive control, identical to Pi)
+  - minion-agent-python/tests/skills (positive, negative and mixed-pattern regressions)
+  python: 'Implementation candidate (WP-14.1, minion-agent#161).'
+  rust: 'NOT_IMPLEMENTED (WP-14.1 contract draft, minion-agent#158).'
+  disposition: intentional divergence
 - id: HAR-012
   phase: 7
   pi: packages/agent/src/harness/skills.ts::validateName, validateDescription, loadSkillFromFile diagnostics
@@ -5913,8 +5951,8 @@ rows:
     untrimmed value. Codes, paths and order normative for every diagnostic; parse_failed and invalid_path texts
     Minion-defined; fs-origin messages are ctx.fs FsError.message, non-normative (PP-14-8).'
   tests:
-  - conformance/agent/skill-discovery/ (shape skill-discovery-scenario.schema.json; 89 cases)
-  python: 'NOT_IMPLEMENTED (WP-14.1 contract draft, minion-agent#158). Target: src/minion_agent/skills/.'
+  - conformance/agent/skill-discovery/ (shape skill-discovery-scenario.schema.json; 96 cases)
+  python: 'Implementation candidate (WP-14.1, minion-agent#161): minion-agent-python/src/minion_agent/skills/ (discovery.py, _frontmatter.py, _ignore.py).'
   rust: 'NOT_IMPLEMENTED (WP-14.1 contract draft, minion-agent#158).'
   disposition: adopted
 - id: HAR-013
@@ -5927,8 +5965,8 @@ rows:
     strings (the subset refuses lone-surrogate and control-character constructs); filesystem-derived names and paths
     are within Layer 12''s certified path domain (#133 exclusions unchanged). WP-14.2 consumes this shape.'
   tests:
-  - conformance/agent/skill-discovery/ (shape skill-discovery-scenario.schema.json; 89 cases)
-  python: 'NOT_IMPLEMENTED (WP-14.1 contract draft, minion-agent#158). Target: src/minion_agent/skills/.'
+  - conformance/agent/skill-discovery/ (shape skill-discovery-scenario.schema.json; 96 cases)
+  python: 'Implementation candidate (WP-14.1, minion-agent#161): minion-agent-python/src/minion_agent/skills/ (discovery.py, _frontmatter.py, _ignore.py).'
   rust: 'NOT_IMPLEMENTED (WP-14.1 contract draft, minion-agent#158).'
   disposition: adopted
 - id: EXEC-001

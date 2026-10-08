@@ -23,6 +23,9 @@ FORBIDDEN = {
     "tools": ("session", "telemetry", "agent", "agent_loop"),
     # The driver is package-internal: the `agent` package holds the interface,
     # so the dependency runs one way only.
+    # Skills (Layer 14) sit above tools: discovery reads ctx.fs and reuses builtin JS-string and
+    # collation helpers, but owns no session/agent state.
+    "skills": ("session", "telemetry", "agent", "agent_loop"),
     "agent": ("agent_loop",),
     "agent_loop": (),
 }

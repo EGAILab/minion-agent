@@ -1149,7 +1149,7 @@ def test_skill_discovery_schema_is_wellformed() -> None:
 
 
 def test_skill_discovery_scenarios_exist() -> None:
-    assert len(sorted(SKILL_DISCOVERY_DIR.glob("*.json"))) == 89
+    assert len(sorted(SKILL_DISCOVERY_DIR.glob("*.json"))) == 96
 
 
 @pytest.mark.parametrize(

@@ -30,8 +30,8 @@
         "text": "---\nname: none\n---\nBody."
       },
       {
-        "path": "skills/nul/SKILL.md",
-        "text": "---\nname: nul\ndescription: ~\n---\nBody."
+        "path": "skills/tilde-null/SKILL.md",
+        "text": "---\nname: tilde-null\ndescription: ~\n---\nBody."
       },
       {
         "path": "skills/list/SKILL.md",
@@ -74,12 +74,12 @@
         },
         {
           "code": "invalid_metadata",
-          "path": "skills/nul/SKILL.md",
+          "path": "skills/num/SKILL.md",
           "message": "description is required"
         },
         {
           "code": "invalid_metadata",
-          "path": "skills/num/SKILL.md",
+          "path": "skills/tilde-null/SKILL.md",
           "message": "description is required"
         },
         {

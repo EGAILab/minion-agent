@@ -1,0 +1,61 @@
+{
+  "name": "skills-i11-invalid-prefix-from-directory-name",
+  "family": "agent",
+  "authority": "minion-agent-docs spec/harness.md WP-14.1 (HAR-001, HAR-010..HAR-013); assurance/layers/14-wp141-characterization.md",
+  "pi_revision": "b7bb00b936dbe21b8e160b3e89efdec361846699",
+  "requirements": [
+    "HAR-001",
+    "HAR-011",
+    "HAR-013"
+  ],
+  "witnesses": [
+    "skill_discovery_i11_invalid_prefix_from_directory_name"
+  ],
+  "divergences": [
+    "DIV-006"
+  ],
+  "skill_discovery": {
+    "fixture": [
+      {
+        "path": "skills/[~-a]/.gitignore",
+        "text": "hidden\n"
+      },
+      {
+        "path": "skills/[~-a]/hidden/SKILL.md",
+        "text": "---\nname: hidden\ndescription: Use hidden.\n---\nBody."
+      },
+      {
+        "path": "skills/sibling/SKILL.md",
+        "text": "---\nname: sibling\ndescription: Use sibling.\n---\nBody."
+      }
+    ],
+    "roots": [
+      "skills"
+    ],
+    "expect": {
+      "skills": [
+        {
+          "name": "hidden",
+          "description": "Use hidden.",
+          "content": "Body.",
+          "path": "skills/[~-a]/hidden/SKILL.md",
+          "disable_model_invocation": false
+        },
+        {
+          "name": "sibling",
+          "description": "Use sibling.",
+          "content": "Body.",
+          "path": "skills/sibling/SKILL.md",
+          "disable_model_invocation": false
+        }
+      ],
+      "diagnostics": [
+        {
+          "code": "invalid_ignore_pattern",
+          "path": "skills/[~-a]/.gitignore",
+          "message": "ignore pattern is not valid and was dropped"
+        }
+      ]
+    }
+  }
+}

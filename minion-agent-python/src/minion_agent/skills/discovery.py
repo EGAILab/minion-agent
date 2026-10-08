@@ -8,6 +8,8 @@ the certified `ctx.fs` seam. The Owner-approved departures are:
   whose frontmatter is outside it gets the Minion-defined `parse_failed` text;
 - DIV-005: an entry whose ignore-check path is empty or starts with `/` gets one `invalid_path`
   diagnostic and is skipped, instead of rejecting the whole discovery;
+- DIV-006: an ignore pattern whose RegExp pinned `ignore` rejects is dropped with one
+  `invalid_ignore_pattern` diagnostic, instead of rejecting the whole discovery;
 - PP-14-8: filesystem-origin diagnostics carry `FsError.message` (non-normative);
 - skill order uses the `TOOL-040` pinned collator, compared raw (Owner-approved mapping).
 """
@@ -33,6 +35,7 @@ MAX_DESCRIPTION_LENGTH: Final = 1024
 IGNORE_FILE_NAMES: Final = (".gitignore", ".ignore", ".fdignore")
 PARSE_FAILED_MESSAGE: Final = "frontmatter is not valid in the supported YAML subset"
 INVALID_PATH_MESSAGE: Final = "entry path cannot be matched against ignore rules"
+INVALID_IGNORE_PATTERN_MESSAGE: Final = "ignore pattern is not valid and was dropped"
 
 type DiagnosticCode = Literal[
     "file_info_failed",
@@ -41,6 +44,7 @@ type DiagnosticCode = Literal[
     "parse_failed",
     "invalid_metadata",
     "invalid_path",
+    "invalid_ignore_pattern",
 ]
 
 
@@ -265,8 +269,14 @@ async def _add_ignore_rules(
         patterns = [
             p for line in re.split(r"\r?\n", content.value) if (p := _prefix_pattern(line, prefix))
         ]
-        if patterns:
-            matcher.add(patterns)
+        # DIV-006: a pattern whose RegExp pinned `ignore` rejects is dropped with one diagnostic,
+        # in line order, right after its ignore file is read; the valid ones keep their order
+        for _ in matcher.add_valid(patterns):
+            diagnostics.append(
+                SkillDiagnostic(
+                    "invalid_ignore_pattern", INVALID_IGNORE_PATTERN_MESSAGE, ignore_path
+                )
+            )
 
 
 def _prefix_pattern(line: str, prefix: str) -> str | None:

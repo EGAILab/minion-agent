@@ -415,6 +415,29 @@ class Ignore:
         if added:
             self._cache = {}
 
+    def add_valid(self, patterns: Sequence[str]) -> list[str]:
+        """DIV-006: add each pattern whose JavaScript RegExp is valid, in order, and return the
+        patterns whose RegExp pinned `ignore` would reject (`SyntaxError`) -- dropped, never added.
+        A pattern `ignore` itself skips (blank, comment, invalid trailing backslash) is neither
+        added nor rejected, as in Pi."""
+        rejected: list[str] = []
+        valid: list[_Rule] = []
+        for raw in patterns:
+            pattern = to_units(raw)
+            if not _check_pattern(pattern):
+                continue
+            rule = _create_rule(pattern)
+            try:
+                rule.regex  # noqa: B018 -- compile now: an invalid RegExp is the rejection test
+            except InvalidIgnorePattern:
+                rejected.append(raw)
+                continue
+            valid.append(rule)
+        if valid:
+            self._rules.extend(valid)
+            self._cache = {}
+        return rejected
+
     def _test(self, path: str) -> tuple[bool, bool]:
         """`RuleManager.test(path, checkUnignored=false, MODE_IGNORE)` -> (ignored, unignored)."""
         ignored = unignored = False

@@ -17,7 +17,7 @@
     "divergences": {
       "$comment": "Empty or absent: the expectation is pinned Pi's own result.",
       "type": "array", "uniqueItems": true,
-      "items": { "enum": ["DIV-004", "DIV-005", "PP-14-1"] }
+      "items": { "enum": ["DIV-004", "DIV-005", "DIV-006", "PP-14-1"] }
     },
     "notes": { "type": "string" },
     "skill_discovery": {
@@ -77,14 +77,14 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "code": { "enum": ["file_info_failed", "list_failed", "read_failed", "parse_failed", "invalid_metadata", "invalid_path"] },
+        "code": { "enum": ["file_info_failed", "list_failed", "read_failed", "parse_failed", "invalid_metadata", "invalid_path", "invalid_ignore_pattern"] },
         "code_one_of": {
           "$comment": "PP-14-3 symlink cycle only: the host decides which fs-origin code it carries",
           "type": "array", "minItems": 2, "uniqueItems": true, "items": { "enum": ["file_info_failed", "list_failed"] }
         },
         "path": { "type": "string", "minLength": 1, "$comment": "exact, relative to the fixture directory" },
         "path_within": { "type": "string", "minLength": 1, "$comment": "PP-14-3 only: the path must start with this relative prefix followed by '/'; its depth is host-defined" },
-        "message": { "type": "string", "$comment": "present exactly when the text is normative: invalid_metadata, parse_failed, invalid_path" }
+        "message": { "type": "string", "$comment": "present exactly when the text is normative: invalid_metadata, parse_failed, invalid_path, invalid_ignore_pattern" }
       },
       "oneOf": [
         { "required": ["code", "path"], "not": { "anyOf": [{ "required": ["code_one_of"] }, { "required": ["path_within"] }] } },
@@ -92,7 +92,7 @@
       ],
       "allOf": [
         {
-          "if": { "required": ["code"], "properties": { "code": { "enum": ["invalid_metadata", "parse_failed", "invalid_path"] } } },
+          "if": { "required": ["code"], "properties": { "code": { "enum": ["invalid_metadata", "parse_failed", "invalid_path", "invalid_ignore_pattern"] } } },
           "then": { "required": ["message"] },
           "else": { "not": { "required": ["message"] } }
         }

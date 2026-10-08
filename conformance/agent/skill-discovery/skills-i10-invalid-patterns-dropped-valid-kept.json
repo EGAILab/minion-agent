@@ -1,0 +1,79 @@
+{
+  "name": "skills-i10-invalid-patterns-dropped-valid-kept",
+  "family": "agent",
+  "authority": "minion-agent-docs spec/harness.md WP-14.1 (HAR-001, HAR-010..HAR-013); assurance/layers/14-wp141-characterization.md",
+  "pi_revision": "b7bb00b936dbe21b8e160b3e89efdec361846699",
+  "requirements": [
+    "HAR-001",
+    "HAR-011",
+    "HAR-013"
+  ],
+  "witnesses": [
+    "skill_discovery_i10_invalid_patterns_dropped_valid_kept"
+  ],
+  "divergences": [
+    "DIV-006"
+  ],
+  "skill_discovery": {
+    "fixture": [
+      {
+        "path": "skills/.gitignore",
+        "text": "drop-me\n[~-a]\n!keep[~-!]\nother*\nx[ab/c\n"
+      },
+      {
+        "path": "skills/drop-me/SKILL.md",
+        "text": "---\nname: drop-me\ndescription: Use drop-me.\n---\nBody."
+      },
+      {
+        "path": "skills/other1/SKILL.md",
+        "text": "---\nname: other1\ndescription: Use other1.\n---\nBody."
+      },
+      {
+        "path": "skills/keep/SKILL.md",
+        "text": "---\nname: keep\ndescription: Use keep.\n---\nBody."
+      },
+      {
+        "path": "skills/z/SKILL.md",
+        "text": "---\nname: z\ndescription: Use z.\n---\nBody."
+      }
+    ],
+    "roots": [
+      "skills"
+    ],
+    "expect": {
+      "skills": [
+        {
+          "name": "keep",
+          "description": "Use keep.",
+          "content": "Body.",
+          "path": "skills/keep/SKILL.md",
+          "disable_model_invocation": false
+        },
+        {
+          "name": "z",
+          "description": "Use z.",
+          "content": "Body.",
+          "path": "skills/z/SKILL.md",
+          "disable_model_invocation": false
+        }
+      ],
+      "diagnostics": [
+        {
+          "code": "invalid_ignore_pattern",
+          "path": "skills/.gitignore",
+          "message": "ignore pattern is not valid and was dropped"
+        },
+        {
+          "code": "invalid_ignore_pattern",
+          "path": "skills/.gitignore",
+          "message": "ignore pattern is not valid and was dropped"
+        },
+        {
+          "code": "invalid_ignore_pattern",
+          "path": "skills/.gitignore",
+          "message": "ignore pattern is not valid and was dropped"
+        }
+      ]
+    }
+  }
+}

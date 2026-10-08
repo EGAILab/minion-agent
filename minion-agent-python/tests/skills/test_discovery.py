@@ -305,3 +305,58 @@ async def test_div005_invalid_entry_is_reported_and_skipped_while_discovery_cont
             "invalid_path", "entry path cannot be matched against ignore rules", odd.path
         )
     ]
+
+
+# ---- DIV-006: invalid ignore patterns are dropped with one diagnostic each ----
+
+
+def test_add_valid_keeps_valid_patterns_in_order_and_returns_the_invalid_ones() -> None:
+    matcher = Ignore()
+    rejected = matcher.add_valid(["a*", "[~-a]", "", "# comment", "!ab", "x[ab/c", "[~-a]", "b"])
+    assert rejected == ["[~-a]", "x[ab/c", "[~-a]"]  # line order, duplicates kept
+    # the valid rules behave exactly as the same valid patterns added with Pi's `add`
+    reference = Ignore()
+    reference.add(["a*", "!ab", "b"])
+    for path in ["a", "ab", "abc", "b", "c", "x/a", "x/ab"]:
+        assert matcher.ignores(path) == reference.ignores(path), path
+
+
+def test_add_valid_with_only_valid_patterns_rejects_nothing() -> None:
+    matcher = Ignore()
+    assert matcher.add_valid(["build/", "*.md", "!keep.md"]) == []
+    assert matcher.ignores("build/") and matcher.ignores("x.md") and not matcher.ignores("keep.md")
+
+
+def test_add_valid_with_only_invalid_patterns_adds_no_rule() -> None:
+    matcher = Ignore()
+    assert matcher.add_valid(["[~-a]", "![z-!]"]) == ["[~-a]", "![z-!]"]
+    assert not matcher.ignores("anything")
+
+
+async def test_invalid_patterns_are_reported_per_pattern_in_file_order(tmp_path: Path) -> None:
+    """Mixed: diagnostics follow the ignore-file order (.gitignore before .ignore) and line order;
+    a negated invalid pattern is reported too; the valid patterns from both files still apply."""
+    _write(tmp_path, "skills/.gitignore", "drop\n[~-a]\n!keep[~-!]\n")
+    _write(tmp_path, "skills/.ignore", "x[ab/c\nother*\n")
+    for name in ["drop", "other1", "keep", "z"]:
+        _write(tmp_path, f"skills/{name}/SKILL.md", SKILL.format(name=name))
+    skills = tmp_path / "skills"
+    result = await load_skills(LocalFileSystem(str(tmp_path)), [str(skills)])
+    assert [s.name for s in result.skills] == ["keep", "z"]
+    assert [(d.code, d.path) for d in result.diagnostics] == [
+        ("invalid_ignore_pattern", str(skills / ".gitignore")),
+        ("invalid_ignore_pattern", str(skills / ".gitignore")),
+        ("invalid_ignore_pattern", str(skills / ".ignore")),
+    ]
+    assert {d.message for d in result.diagnostics} == {
+        "ignore pattern is not valid and was dropped"
+    }
+
+
+async def test_an_all_valid_ignore_file_emits_no_diagnostic(tmp_path: Path) -> None:
+    _write(tmp_path, "skills/.gitignore", "drop\n# c\n\nother*\n")
+    for name in ["drop", "other1", "keep"]:
+        _write(tmp_path, f"skills/{name}/SKILL.md", SKILL.format(name=name))
+    result = await load_skills(LocalFileSystem(str(tmp_path)), [str(tmp_path / "skills")])
+    assert [s.name for s in result.skills] == ["keep"]
+    assert result.diagnostics == []

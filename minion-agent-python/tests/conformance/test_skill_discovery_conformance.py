@@ -20,7 +20,7 @@ SCENARIOS = sorted(
 
 
 def test_every_canonical_scenario_is_collected() -> None:
-    assert len(SCENARIOS) == 89
+    assert len(SCENARIOS) == 92
 
 
 @pytest.mark.parametrize("path", SCENARIOS, ids=lambda p: p.stem)

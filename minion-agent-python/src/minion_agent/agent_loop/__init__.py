@@ -10,7 +10,7 @@ from __future__ import annotations
 from ..agent.instance import AgentInstance
 from ..runtime import Context, plugin
 from ..telemetry import TelemetryService
-from .driver import AgentLoop
+from .driver import AgentLoop, PromptAssembler
 
 
 class AgentLoopFactory:
@@ -35,14 +35,18 @@ class AgentLoopFactory:
         telemetry: TelemetryService = self._ctx.telemetry
         return telemetry
 
-    def for_instance(self, instance: AgentInstance) -> AgentLoop:
-        """A driver for `instance`, sharing this context's services."""
+    def for_instance(
+        self, instance: AgentInstance, *, prompt_assembler: PromptAssembler | None = None
+    ) -> AgentLoop:
+        """A driver for `instance`, sharing this context's services. `prompt_assembler` is the
+        optional `L08-D001` seam; omitted, the driver behaves exactly as certified."""
         return AgentLoop(
             instance=instance,
             llm=self._ctx.llm,
             tools=self._ctx.tools,
             artifacts=self._ctx.sessions.artifacts,
             telemetry=self._telemetry(),
+            prompt_assembler=prompt_assembler,
         )
 
 
@@ -60,4 +64,4 @@ async def agent_loop_plugin(ctx: Context, config: None) -> None:
     ctx.provide("agent_loop", AgentLoopFactory(ctx))
 
 
-__all__ = ["AgentLoopFactory", "agent_loop_plugin"]
+__all__ = ["AgentLoopFactory", "PromptAssembler", "agent_loop_plugin"]

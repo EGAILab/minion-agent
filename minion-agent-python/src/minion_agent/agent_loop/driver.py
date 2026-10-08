@@ -73,6 +73,7 @@ narrower-tool-event-seam carve-out language PASS 5 left in place, now false.
 from __future__ import annotations
 
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 
 from ..agent.decisions import (
@@ -152,6 +153,12 @@ from ..tools.definition import ToolDefinition, ToolExecutionContext
 from ..tools.registry import ToolRegistry
 from ..tools.result import ToolPartialResult, ToolResult
 
+type PromptAssembler = Callable[[str, tuple[ToolDefinition, ...]], str]
+"""`L08-D001` (`AG-024`, spec/agent.md "Optional prompt assembler"): `assemble(base, tools)`,
+synchronous, returning the system text of one provider request. `tools` is that request's own tool
+snapshot -- the tuple whose schemas the request carries -- so prompt and schemas cannot disagree.
+The assembler must derive tool-dependent text from `tools` only, never from the live registry."""
+
 
 def _snapshot_tool_registry(tools: tuple[ToolDefinition, ...]) -> ToolRegistry:
     """A fresh, unscoped `ToolRegistry` holding exactly `tools` -- the
@@ -195,6 +202,7 @@ class AgentLoop:
         tools: ToolRegistry,
         artifacts: ArtifactStore,
         telemetry: TelemetryService | None = None,
+        prompt_assembler: PromptAssembler | None = None,
     ) -> None:
         self.instance = instance
         # Collaborators are public: tests configure them directly.
@@ -202,6 +210,8 @@ class AgentLoop:
         self.tools = tools
         self.artifacts = artifacts
         self.telemetry = telemetry
+        # `L08-D001`: at most one; `None` keeps every request exactly as certified.
+        self.prompt_assembler = prompt_assembler
         self.next_turn_policy = ClaimPolicy.ONE_AT_A_TIME
         self.next_step_policy = ClaimPolicy.ONE_AT_A_TIME
 
@@ -1010,6 +1020,23 @@ class AgentLoop:
         )
         return decision
 
+    def _system_text(self, decision: Enter, context: RunContext) -> str:
+        """This request's system text (`L08-D001`): a per-step override, verbatim; otherwise the
+        prompt assembler over `(RunContext.system_prompt, RunContext.tools)` -- the very snapshot
+        this request's schemas come from -- when one is installed; otherwise the stored prompt.
+        Called before the header is recorded, so a failing assembler publishes and sends nothing:
+        its exception settles the run through `_execute_run`'s certified failure path."""
+        if decision.system_override is not None:
+            return decision.system_override
+        if self.prompt_assembler is None:
+            return context.system_prompt
+        text = self.prompt_assembler(context.system_prompt, context.tools)
+        if not isinstance(text, str):
+            raise TypeError(
+                f"prompt assembler returned {type(text).__name__}, not a string (L08-D001)"
+            )
+        return text
+
     async def _run_step(
         self,
         decision: Enter,
@@ -1042,11 +1069,7 @@ class AgentLoop:
             log.append(EventKind.TURN_START, {"reason": reason.value})
             await self._dispatch_agent_event(TurnStart())
 
-        components = {
-            "system_base": decision.system_override
-            if decision.system_override is not None
-            else context.system_prompt
-        }
+        components = {"system_base": self._system_text(decision, context)}
         schemas = tuple(definition.schema() for definition in context.tools)
         record_header(
             log,

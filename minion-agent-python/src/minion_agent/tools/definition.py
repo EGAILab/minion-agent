@@ -146,6 +146,13 @@ class ToolDefinition:
     When `True`, `execute` is additionally called with the KEYWORD argument `context=`
     (`ToolExecutionContext | None`); a `context` parameter is never counted for the positional
     `signal`/`update` dispatch above, which is unchanged for every combination."""
+    prompt_snippet: str | None = None
+    """`HAR-018` (WP-14.2, Owner `PP-14-5` Option B): an optional one-line description the opt-in
+    tools section of the system prompt may show. Model-visible metadata only: it never enters the
+    schema, identity, execution, validation, lookup or permissions."""
+    prompt_guidelines: tuple[str, ...] | None = None
+    """`HAR-018`: optional guideline lines for the opt-in tools section. Metadata only, like
+    `prompt_snippet`."""
 
     def __post_init__(self) -> None:
         """Reject `None`/non-mapping `parameters` at construction, not only via typing

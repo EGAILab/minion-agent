@@ -5740,8 +5740,9 @@ rows:
     sorting, no dedupe) with name, description and location (= the addressed file_path) each escaped for exactly
     & < > " '' in that order, joined by \n with no leading or trailing newline.'
   tests:
+  - 'minion-agent-python/tests/system_prompt/test_formatting.py; tests/conformance/test_prompt_assembly_conformance.py'
   - conformance/agent/prompt-assembly/prompt-b*.json (pinned-harness oracle; prompt-assembly-scenario.schema.json)
-  python: 'NOT_IMPLEMENTED (WP-14.2 contract draft, minion-agent#159). Target: src/minion_agent/system_prompt/.'
+  python: 'Implementation candidate (WP-14.2, minion-agent#159): minion-agent-python/src/minion_agent/system_prompt/formatting.py (format_skills_block).'
   rust: 'NOT_IMPLEMENTED (WP-14.2 contract draft, minion-agent#159).'
   disposition: adopted
 - id: HAR-014
@@ -5754,8 +5755,9 @@ rows:
     trailing / and \; i = the last index of / or \; i == 2 with unit 1 == ":" -> the first 3 units; else i <= 0 ->
     "/"; else the first i units.'
   tests:
+  - 'minion-agent-python/tests/system_prompt/test_formatting.py (UTF-16 dirname); test_integration.py (persisted invocation message)'
   - conformance/agent/prompt-assembly/prompt-v*.json (pinned-harness oracle)
-  python: 'NOT_IMPLEMENTED (WP-14.2 contract draft, minion-agent#159).'
+  python: 'Implementation candidate (WP-14.2, minion-agent#159): minion-agent-python/src/minion_agent/system_prompt/formatting.py (format_skill_invocation).'
   rust: 'NOT_IMPLEMENTED (WP-14.2 contract draft, minion-agent#159).'
   disposition: adopted
 - id: HAR-015
@@ -5769,8 +5771,9 @@ rows:
     Non-empty sections joined by \n\n; no leading or trailing separator; no cwd line, context files or Pi product
     text.'
   tests:
+  - 'minion-agent-python/tests/conformance/test_prompt_assembly_conformance.py; tests/system_prompt/test_integration.py'
   - conformance/agent/prompt-assembly/prompt-c*.json
-  python: 'NOT_IMPLEMENTED (WP-14.2 contract draft, minion-agent#159).'
+  python: 'Implementation candidate (WP-14.2, minion-agent#159): minion-agent-python/src/minion_agent/system_prompt/composer.py (compose_prompt).'
   rust: 'NOT_IMPLEMENTED (WP-14.2 contract draft, minion-agent#159).'
   disposition: adopted
 - id: HAR-016
@@ -5784,8 +5787,9 @@ rows:
     request schemas derive from one snapshot. The prompt configuration (skills, tools_section, sections) changes
     only by whole-value replacement, taking effect at the next request build; the override bypasses the composer.'
   tests:
+  - 'minion-agent-python/tests/system_prompt/test_integration.py (read gate and tools section from the request snapshot; whole-value replacement; retained-record mutation; override bypass)'
   - planned driver-level witnesses (spec/harness.md WP-14.2 conformance evidence), after L08-D001
-  python: 'NOT_IMPLEMENTED (WP-14.2 contract draft, minion-agent#159).'
+  python: 'Implementation candidate (WP-14.2, minion-agent#159): minion-agent-python/src/minion_agent/system_prompt/composer.py (PromptComposer, the L08-D001 assembler).'
   rust: 'NOT_IMPLEMENTED (WP-14.2 contract draft, minion-agent#159).'
   disposition: adopted
 - id: HAR-017
@@ -5797,8 +5801,9 @@ rows:
     reconstruction yields byte-identical model-visible text. Multi-component decomposition is a storage detail,
     not adopted.'
   tests:
+  - 'minion-agent-python/tests/system_prompt/test_integration.py (header persistence and reconstruction; exact provider prompt)'
   - planned header round-trip witnesses (spec/harness.md WP-14.2), after L08-D001
-  python: 'NOT_IMPLEMENTED (WP-14.2 contract draft, minion-agent#159).'
+  python: 'Implementation candidate (WP-14.2, minion-agent#159): the composed prompt is the system_base component of the request header (Layer 03, unchanged).'
   rust: 'NOT_IMPLEMENTED (WP-14.2 contract draft, minion-agent#159).'
   disposition: adopted
 - id: HAR-018
@@ -5814,8 +5819,9 @@ rows:
     none) and "Guidelines:" + "- g" lines deduplicated across tools (omitted when none), joined by \n\n; empty or
     disabled -> absent. Pi product text ((none), preamble, bash bullet, fixed bullets) is not adopted.'
   tests:
+  - 'minion-agent-python/tests/system_prompt/test_formatting.py; tests/conformance/test_prompt_assembly_conformance.py'
   - conformance/agent/prompt-assembly/prompt-t*.json (Minion model of pinned Pi; pi_reference recorded)
-  python: 'NOT_IMPLEMENTED (WP-14.2 contract draft, minion-agent#159). Layer 05 additive fields.'
+  python: 'Implementation candidate (WP-14.2, minion-agent#159): minion-agent-python/src/minion_agent/system_prompt/formatting.py (normalize_*, format_tools_section); tools/definition.py prompt_snippet / prompt_guidelines.'
   rust: 'NOT_IMPLEMENTED (WP-14.2 contract draft, minion-agent#159). Layer 05 additive fields.'
   disposition: adopted
 - id: HAR-003

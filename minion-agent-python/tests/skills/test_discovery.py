@@ -479,7 +479,7 @@ async def test_deep_nesting_in_an_undeclared_root_file_is_skipped_silently(tmp_p
 # ---- WP141-R004: directory depth is bounded by the filesystem, not the interpreter stack ----
 
 
-def _deep_tree(base: Path, depth: int) -> Path:
+def _deep_tree(base: Path, depth: int, *, leaf_ignore: bool = False) -> Path:
     """`depth` nested directories named `a`, with one valid SKILL.md at the leaf. Built one level
     at a time: `Path.mkdir(parents=True)` itself recurses per missing parent."""
     leaf = base
@@ -487,19 +487,22 @@ def _deep_tree(base: Path, depth: int) -> Path:
     for _ in range(depth):
         leaf = leaf / "a"
         leaf.mkdir()
+    if leaf_ignore:  # a valid rule that matches nothing here, but resets the matcher's cache
+        (leaf / ".gitignore").write_text("unrelated.txt\n", encoding="utf-8")
     (leaf / "SKILL.md").write_text(SKILL.format(name="a"), encoding="utf-8")
     return leaf
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="Windows MAX_PATH; covered by the next test")
+@pytest.mark.parametrize("leaf_ignore", [False, True], ids=["plain", "leaf-ignore-file"])
 @pytest.mark.parametrize("depth", [100, 950, 1050])
 async def test_a_deep_acyclic_tree_loads_and_later_roots_still_load(
-    tmp_path: Path, depth: int
+    tmp_path: Path, depth: int, leaf_ignore: bool
 ) -> None:
     """Pinned Pi loads 100-, 950- and 1,050-deep acyclic trees with the later root (Codex final
     review, `WP141-R004`); a per-level recursive walk exhausted Python's stack and lost the later
     root. Depth 100 is the shallow control that loaded before the fix too."""
-    _deep_tree(tmp_path / "deep", depth)
+    _deep_tree(tmp_path / "deep", depth, leaf_ignore=leaf_ignore)
     _write(tmp_path, "good/good/SKILL.md", SKILL.format(name="good"))
     result = await load_skills(
         LocalFileSystem(str(tmp_path)), [str(tmp_path / "deep"), str(tmp_path / "good")]
@@ -511,9 +514,10 @@ async def test_a_deep_acyclic_tree_loads_and_later_roots_still_load(
 async def test_the_walk_does_not_grow_the_interpreter_stack_with_directory_depth(
     tmp_path: Path,
 ) -> None:
-    """Every platform: a 60-deep tree under a recursion limit only a few dozen frames above the
-    caller. A walk that recursed per directory level would exceed it; the frame stack does not."""
-    _deep_tree(tmp_path / "deep", 60)
+    """Every platform: a 60-deep tree, with an ignore file at the leaf, under a recursion limit only
+    a few dozen frames above the caller. A walk, or an ignore-parent evaluation, that recursed per
+    directory level would exceed it (`WP141-R004`)."""
+    _deep_tree(tmp_path / "deep", 60, leaf_ignore=True)
     _write(tmp_path, "good/good/SKILL.md", SKILL.format(name="good"))
     fs = LocalFileSystem(str(tmp_path))
     roots = [str(tmp_path / "deep"), str(tmp_path / "good")]
@@ -525,3 +529,16 @@ async def test_the_walk_does_not_grow_the_interpreter_stack_with_directory_depth
         sys.setrecursionlimit(limit)
     assert [s.name for s in result.skills] == ["a", "good"]
     assert result.diagnostics == []
+
+
+def test_the_ignore_matcher_evaluates_a_deep_path_without_recursing() -> None:
+    """`WP141-R004`: `ignores()` on a 3,000-segment path, after a rule reset the cache. The result
+    is the package's: ancestors first, the nearest ignored ancestor wins, and the leaf's own rule
+    applies otherwise."""
+    matcher = Ignore()
+    matcher.add(["deep/x"])
+    segments = ["d"] * 3000
+    assert matcher.ignores("/".join(segments) + "/f") is False
+    matcher.add(["d/d/"])
+    assert matcher.ignores("/".join(segments) + "/f") is True
+    assert matcher.ignores("d/f") is False

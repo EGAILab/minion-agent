@@ -453,19 +453,31 @@ class Ignore:
             unignored = rule.negative
         return ignored, unignored
 
-    def _t(self, path: str, slices: list[str] | None = None) -> tuple[bool, bool]:
-        if path in self._cache:
-            return self._cache[path]
-        if slices is None:
-            slices = [s for s in path.split("/") if s]
-        slices.pop()
-        if not slices:
-            result = self._test(path)
-        else:
-            parent = self._t("/".join(slices) + "/", slices)
-            result = parent if parent[0] else self._test(path)
-        self._cache[path] = result
-        return result
+    def _t(self, path: str) -> tuple[bool, bool]:
+        """`ignore`'s `_t`: a path is ignored when its nearest cached-or-tested ancestor is, else by
+        its own rules; every result is cached. The package recurses once per parent; this walks the
+        same parent chain upward with a list, then evaluates it top-down (`WP141-R004`), so a deep
+        path never depends on the interpreter's stack. Evaluation order, the short-circuit on an
+        ignored parent, and the cache entries written are the recursion's."""
+        slices = [s for s in path.split("/") if s]
+        chain: list[str] = []
+        current = path
+        parent: tuple[bool, bool] | None = None
+        while True:
+            if current in self._cache:
+                parent = self._cache[current]
+                break
+            chain.append(current)
+            slices.pop()
+            if not slices:
+                break
+            current = "/".join(slices) + "/"
+        for pending in reversed(chain):
+            result = parent if parent is not None and parent[0] else self._test(pending)
+            self._cache[pending] = result
+            parent = result
+        assert parent is not None
+        return parent
 
     def ignores(self, path: str) -> bool:
         """`ignores(path)` for a root-relative, non-empty, not `/`-led path."""

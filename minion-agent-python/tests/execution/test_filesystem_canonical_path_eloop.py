@@ -2,9 +2,9 @@
 pinned Pi's `canonicalPath` does (`fs/promises.realpath` -> libuv `uv_fs_realpath`).
 
 Characterization (minion-agent-docs assurance/layers/12-l12-d004-canonical-path.md): on Linux the
-previous `os.path.realpath(strict=True)` differed from Pi on exactly two of 45 probed paths, both
+previous `os.path.realpath(strict=True)` differed from Pi on exactly two of 44 probed paths, both
 symlink-traversal-limit (`ELOOP`) cases -- a cycle walked 41 levels deep and an acyclic chain of 41
-links -- and agreed everywhere else; the OS `realpath(3)` agrees with Pi on all 45. Windows
+links -- and agreed everywhere else; the OS `realpath(3)` agrees with Pi on all 44. Windows
 resolution is unchanged.
 """
 
@@ -13,6 +13,7 @@ from __future__ import annotations
 import ctypes
 import os
 import sys
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 
 import pytest
@@ -81,6 +82,58 @@ async def test_posix_branch_classifies_the_kept_errno(
     assert isinstance(result, Err)
     assert result.error.code == code
     assert fake.freed == []
+
+
+def test_posix_branch_never_passes_a_nul_path_to_libc(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`L12D004-R001`: a C string ends at the NUL, so `realpath(3)` would resolve the prefix. A
+    NUL-containing path keeps the previous `os.path.realpath(strict=True)`, never reaching libc."""
+    fake = _FakeLibc("/the/prefix")
+    _route(monkeypatch, fake)
+    calls: list[tuple[str, bool]] = []
+    monkeypatch.setattr(
+        filesystem_module.os.path,
+        "realpath",
+        lambda p, strict=False: calls.append((p, strict)) or "PREVIOUS",
+    )
+    assert filesystem_module._realpath("/the/prefix\0missing") == "PREVIOUS"
+    assert calls == [("/the/prefix\0missing", True)]
+    assert fake.calls == []
+    assert fake.freed == []
+
+
+async def _previous_canonical_path(cwd: Path, name: str) -> object:
+    """The pre-`L12-D004` body: `os.path.realpath(strict=True)`; an `OSError` becomes `Err`."""
+    native = filesystem_module.native_path(filesystem_module.resolve_local_path(str(cwd), name))
+    try:
+        return Ok(os.path.realpath(native, strict=True))
+    except OSError as exc:
+        return Err(filesystem_module.to_fs_error(exc, native))
+
+
+async def _outcome(call: Callable[[], Awaitable[object]]) -> object:
+    try:
+        result = await call()
+    except ValueError as exc:  # the previous POSIX rejection: embedded null character
+        return ("raises", type(exc), str(exc))
+    if isinstance(result, Err):  # the `cause` exception objects compare by identity
+        return ("err", result.error.code, result.error.message, result.error.path)
+    return result
+
+
+@pytest.mark.parametrize("name", ["file\0missing", "missing\0file", "file\0"])
+async def test_a_nul_path_keeps_the_previous_outcome_and_never_answers_for_its_prefix(
+    tmp_path: Path, name: str
+) -> None:
+    """`L12D004-R001` real-host witness, with an existing prefix `file`: the outcome is exactly the
+    previous resolution's on this host (POSIX: `ValueError`, embedded null character; Windows:
+    unchanged), and never `file`'s canonical path. NUL's disposition is `minion-agent#133`'s and is
+    not decided here."""
+    (tmp_path / "file").write_text("x")
+    fs = LocalFileSystem(cwd=str(tmp_path))
+    candidate = await _outcome(lambda: fs.canonical_path(name))
+    previous = await _outcome(lambda: _previous_canonical_path(tmp_path, name))
+    assert candidate == previous
+    assert candidate != Ok(os.path.realpath(tmp_path / "file"))
 
 
 def test_windows_branch_keeps_os_path_realpath(monkeypatch: pytest.MonkeyPatch) -> None:

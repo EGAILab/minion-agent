@@ -5713,7 +5713,7 @@ rows:
   tests:
   - conformance/agent/skill-discovery/ (shape skill-discovery-scenario.schema.json; 96 cases)
   python: 'Implementation candidate (WP-14.1, minion-agent#161): minion-agent-python/src/minion_agent/skills/ (discovery.py, _frontmatter.py, _ignore.py).'
-  rust: 'NOT_IMPLEMENTED (WP-14.1 contract draft, minion-agent#158).'
+  rust: 'IMPLEMENTATION CANDIDATE (minion-agent#158): minion-agent-rust/crates/minion-agent/src/skills/; tests/skill_discovery.rs (canonical adapter and binding witnesses); skills unit tests (shared frontmatter/ignore corpora); scripts/wp141_negative_controls.py. Assurance: assurance/layers/14-wp141-rust-implementation.md. Independent Rust closure review pending; not certified.'
   disposition: adopted
 - id: HAR-001-DIV-005
   phase: 7
@@ -5728,7 +5728,7 @@ rows:
   - conformance/agent/skill-discovery/skills-r0*.json (divergences DIV-005; Pi rejection kept in minion-agent-docs
     assurance/layers/data/14-wp141/out-linux.json)
   python: 'Implementation candidate (WP-14.1, minion-agent#161): minion-agent-python/src/minion_agent/skills/ (discovery.py, _frontmatter.py, _ignore.py).'
-  rust: 'NOT_IMPLEMENTED (WP-14.1 contract draft, minion-agent#158).'
+  rust: 'IMPLEMENTATION CANDIDATE (minion-agent#158): minion-agent-rust/crates/minion-agent/src/skills/; tests/skill_discovery.rs (canonical adapter and binding witnesses); skills unit tests (shared frontmatter/ignore corpora); scripts/wp141_negative_controls.py. Assurance: assurance/layers/14-wp141-rust-implementation.md. Independent Rust closure review pending; not certified.'
   disposition: intentional divergence
 - id: HAR-002
   phase: 7
@@ -5876,7 +5876,7 @@ rows:
   - conformance/agent/skill-discovery/ (shape skill-discovery-scenario.schema.json; 96 cases)
   - minion-agent-docs assurance/layers/data/14-wp141/subset-diff.mjs (1,500,000 generated / 1,374,031 distinct inputs soundness fuzz), fuzz-controls.mjs, subset-realistic.mjs
   python: 'Implementation candidate (WP-14.1, minion-agent#161): minion-agent-python/src/minion_agent/skills/ (discovery.py, _frontmatter.py, _ignore.py).'
-  rust: 'NOT_IMPLEMENTED (WP-14.1 contract draft, minion-agent#158).'
+  rust: 'IMPLEMENTATION CANDIDATE (minion-agent#158): minion-agent-rust/crates/minion-agent/src/skills/; tests/skill_discovery.rs (canonical adapter and binding witnesses); skills unit tests (shared frontmatter/ignore corpora); scripts/wp141_negative_controls.py. Assurance: assurance/layers/14-wp141-rust-implementation.md. Independent Rust closure review pending; not certified.'
   disposition: adopted
 - id: HAR-010-DIV-004
   phase: 7
@@ -5892,7 +5892,7 @@ rows:
   - conformance/agent/skill-discovery/skills-{f04,f05,v04,y01,y03}-*.json (divergences DIV-004 / PP-14-1; Pi results
     kept in minion-agent-docs assurance/layers/data/14-wp141/out-linux.json)
   python: 'Implementation candidate (WP-14.1, minion-agent#161): minion-agent-python/src/minion_agent/skills/ (discovery.py, _frontmatter.py, _ignore.py).'
-  rust: 'NOT_IMPLEMENTED (WP-14.1 contract draft, minion-agent#158).'
+  rust: 'IMPLEMENTATION CANDIDATE (minion-agent#158): minion-agent-rust/crates/minion-agent/src/skills/; tests/skill_discovery.rs (canonical adapter and binding witnesses); skills unit tests (shared frontmatter/ignore corpora); scripts/wp141_negative_controls.py. Assurance: assurance/layers/14-wp141-rust-implementation.md. Independent Rust closure review pending; not certified.'
   disposition: intentional divergence
 - id: HAR-010-DIV-007
   phase: 7
@@ -5910,7 +5910,7 @@ rows:
   - minion-agent-python/tests/skills/test_discovery.py (63/64/65 boundaries, sequences, 100/500, lifted-bound
     containment)
   python: 'Implementation candidate (WP-14.1, minion-agent#161).'
-  rust: 'NOT_IMPLEMENTED (WP-14.1 contract draft, minion-agent#158).'
+  rust: 'IMPLEMENTATION CANDIDATE (minion-agent#158): minion-agent-rust/crates/minion-agent/src/skills/; tests/skill_discovery.rs (canonical adapter and binding witnesses); skills unit tests (shared frontmatter/ignore corpora); scripts/wp141_negative_controls.py. Assurance: assurance/layers/14-wp141-rust-implementation.md. Independent Rust closure review pending; not certified.'
   disposition: intentional divergence
 - id: HAR-011
   phase: 7
@@ -5924,7 +5924,7 @@ rows:
   tests:
   - conformance/agent/skill-discovery/ (shape skill-discovery-scenario.schema.json; 96 cases)
   python: 'Implementation candidate (WP-14.1, minion-agent#161): minion-agent-python/src/minion_agent/skills/ (discovery.py, _frontmatter.py, _ignore.py).'
-  rust: 'NOT_IMPLEMENTED (WP-14.1 contract draft, minion-agent#158).'
+  rust: 'IMPLEMENTATION CANDIDATE (minion-agent#158): minion-agent-rust/crates/minion-agent/src/skills/; tests/skill_discovery.rs (canonical adapter and binding witnesses); skills unit tests (shared frontmatter/ignore corpora); scripts/wp141_negative_controls.py. Assurance: assurance/layers/14-wp141-rust-implementation.md. Independent Rust closure review pending; not certified.'
   disposition: adopted
 - id: HAR-011-DIV-006
   phase: 7
@@ -5943,7 +5943,7 @@ rows:
     (positive control, identical to Pi)
   - minion-agent-python/tests/skills (positive, negative and mixed-pattern regressions)
   python: 'Implementation candidate (WP-14.1, minion-agent#161).'
-  rust: 'NOT_IMPLEMENTED (WP-14.1 contract draft, minion-agent#158).'
+  rust: 'IMPLEMENTATION CANDIDATE (minion-agent#158): minion-agent-rust/crates/minion-agent/src/skills/; tests/skill_discovery.rs (canonical adapter and binding witnesses); skills unit tests (shared frontmatter/ignore corpora); scripts/wp141_negative_controls.py. Assurance: assurance/layers/14-wp141-rust-implementation.md. Independent Rust closure review pending; not certified.'
   disposition: intentional divergence
 - id: HAR-012
   phase: 7
@@ -5956,7 +5956,7 @@ rows:
   tests:
   - conformance/agent/skill-discovery/ (shape skill-discovery-scenario.schema.json; 96 cases)
   python: 'Implementation candidate (WP-14.1, minion-agent#161): minion-agent-python/src/minion_agent/skills/ (discovery.py, _frontmatter.py, _ignore.py).'
-  rust: 'NOT_IMPLEMENTED (WP-14.1 contract draft, minion-agent#158).'
+  rust: 'IMPLEMENTATION CANDIDATE (minion-agent#158): minion-agent-rust/crates/minion-agent/src/skills/; tests/skill_discovery.rs (canonical adapter and binding witnesses); skills unit tests (shared frontmatter/ignore corpora); scripts/wp141_negative_controls.py. Assurance: assurance/layers/14-wp141-rust-implementation.md. Independent Rust closure review pending; not certified.'
   disposition: adopted
 - id: HAR-013
   phase: 7
@@ -5970,7 +5970,7 @@ rows:
   tests:
   - conformance/agent/skill-discovery/ (shape skill-discovery-scenario.schema.json; 96 cases)
   python: 'Implementation candidate (WP-14.1, minion-agent#161): minion-agent-python/src/minion_agent/skills/ (discovery.py, _frontmatter.py, _ignore.py).'
-  rust: 'NOT_IMPLEMENTED (WP-14.1 contract draft, minion-agent#158).'
+  rust: 'IMPLEMENTATION CANDIDATE (minion-agent#158): minion-agent-rust/crates/minion-agent/src/skills/; tests/skill_discovery.rs (canonical adapter and binding witnesses); skills unit tests (shared frontmatter/ignore corpora); scripts/wp141_negative_controls.py. Assurance: assurance/layers/14-wp141-rust-implementation.md. Independent Rust closure review pending; not certified.'
   disposition: adopted
 - id: EXEC-001
   phase: 6

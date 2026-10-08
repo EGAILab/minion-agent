@@ -405,17 +405,58 @@ async def test_loaded_records_and_their_lists_are_writable(tmp_path: Path) -> No
     assert len(result.skills) == 3
 
 
-# ---- WP141-R002: a stack-exhausting nesting is contained as parse_failed ----
+# ---- DIV-007 (WP141-R003) and WP141-R002: nesting depth ----
 
 
-def _nested(name: str, depth: int) -> str:
-    body = "".join("  " * i + "k:\n" for i in range(depth)) + "  " * depth + "leaf: value\n"
-    return f"---\nname: {name}\ndescription: Example.\n{body}---\nBody."
+def _nested(name: str, depth: int, *, seq: bool = False) -> str:
+    """The root mapping is depth 1; depth-1 chained `k:` entries reach a mapping (or, with `seq`, a
+    sequence) at exactly `depth` (DIV-007's counting)."""
+    chain = "".join("  " * i + "k:\n" for i in range(depth - 1))
+    leaf = "  " * (depth - 1) + ("- item\n" if seq else "leaf: value\n")
+    return f"---\nname: {name}\ndescription: Example.\n{chain}{leaf}---\nBody."
+
+
+@pytest.mark.parametrize(("depth", "seq"), [(63, False), (64, False), (64, True)])
+async def test_nesting_up_to_64_loads(tmp_path: Path, depth: int, seq: bool) -> None:
+    _write(tmp_path, "s/n/SKILL.md", _nested("n", depth, seq=seq))
+    result = await load_skills(LocalFileSystem(str(tmp_path)), [str(tmp_path / "s")])
+    assert [s.name for s in result.skills] == ["n"]
+    assert result.diagnostics == []
+
+
+@pytest.mark.parametrize(("depth", "seq"), [(65, False), (65, True), (100, False), (500, False)])
+async def test_nesting_deeper_than_64_is_parse_failed(
+    tmp_path: Path, depth: int, seq: bool
+) -> None:
+    """DIV-007: beyond 64 levels the file is outside the subset. Pinned Pi accepts 65, 100 and 500
+    (canonical n02-n04 record that as divergence evidence); Minion's bound is normative."""
+    path = _write(tmp_path, "s/n/SKILL.md", _nested("n", depth, seq=seq))
+    _write(tmp_path, "s/ok/SKILL.md", SKILL.format(name="ok"))
+    result = await load_skills(LocalFileSystem(str(tmp_path)), [str(tmp_path / "s")])
+    assert [s.name for s in result.skills] == ["ok"]
+    assert result.diagnostics == [SkillDiagnostic("parse_failed", PARSE_FAILED_MESSAGE, path)]
+
+
+async def test_stack_exhaustion_is_still_contained_without_the_bound(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """WP141-R002, kept as defence in depth: with the DIV-007 bound lifted, a nesting deep enough
+    to exhaust the reader's stack is still one `parse_failed`, never an escaping RecursionError."""
+    import minion_agent.skills._frontmatter as frontmatter
+
+    monkeypatch.setattr(frontmatter, "MAX_DEPTH", 10**9)
+    bad = _write(tmp_path, "bad/bad/SKILL.md", _nested("bad", 1200))
+    _write(tmp_path, "good/good/SKILL.md", SKILL.format(name="good"))
+    result = await load_skills(
+        LocalFileSystem(str(tmp_path)), [str(tmp_path / "bad"), str(tmp_path / "good")]
+    )
+    assert [s.name for s in result.skills] == ["good"]
+    assert result.diagnostics == [SkillDiagnostic("parse_failed", PARSE_FAILED_MESSAGE, bad)]
 
 
 async def test_deep_nesting_is_one_parse_failed_and_later_roots_still_load(tmp_path: Path) -> None:
     """Pinned Pi (yaml@2.9.0) contains its parser's failure at depth 1200 as one `parse_failed` and
-    keeps loading; the reader's stack exhaustion must not escape and lose the later root."""
+    keeps loading; here DIV-007's bound rejects it first, with the same outcome."""
     bad = _write(tmp_path, "bad/bad/SKILL.md", _nested("bad", 1200))
     _write(tmp_path, "good/good/SKILL.md", SKILL.format(name="good"))
     result = await load_skills(
@@ -430,13 +471,4 @@ async def test_deep_nesting_in_an_undeclared_root_file_is_skipped_silently(tmp_p
     _write(tmp_path, "root/ok/SKILL.md", SKILL.format(name="ok"))
     result = await load_skills(LocalFileSystem(str(tmp_path)), [str(tmp_path / "root")])
     assert [s.name for s in result.skills] == ["ok"]
-    assert result.diagnostics == []
-
-
-@pytest.mark.parametrize("depth", [100, 500])
-async def test_shallower_nesting_still_loads(tmp_path: Path, depth: int) -> None:
-    """Controls: the containment is not a depth limit; these depths load in Pi and here."""
-    _write(tmp_path, "s/n/SKILL.md", _nested("n", depth))
-    result = await load_skills(LocalFileSystem(str(tmp_path)), [str(tmp_path / "s")])
-    assert [s.name for s in result.skills] == ["n"]
     assert result.diagnostics == []

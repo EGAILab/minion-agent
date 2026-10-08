@@ -180,6 +180,17 @@ def _decode_double(body: str) -> str:
     return "".join(out)
 
 
+MAX_DEPTH: Final = 64
+"""`DIV-007` (Owner decision, `WP141-R003`): block collections nest at most 64 deep. The root
+mapping is depth 1, and each nested mapping or sequence is one deeper. Deeper input is outside the
+subset (`parse_failed`) in every binding."""
+
+
+def _check_depth(depth: int) -> None:
+    if depth > MAX_DEPTH:
+        raise FrontmatterError("nesting deeper than 64")
+
+
 class _Reader:
     def __init__(self, text: str) -> None:
         for ch in text:
@@ -322,7 +333,8 @@ class _Reader:
             return body + "\n" + "\n" * trailing, consumed
         return body + "\n", consumed
 
-    def sequence(self, i: int, m: int) -> tuple[Value, int]:
+    def sequence(self, i: int, m: int, depth: int) -> tuple[Value, int]:
+        _check_depth(depth)
         items: list[Value] = []
         j = i
         while j < len(self.lines):
@@ -346,7 +358,8 @@ class _Reader:
             j += 1
         return items, j - 1 - i
 
-    def mapping(self, i: int, n: int) -> tuple[Value, int]:
+    def mapping(self, i: int, n: int, depth: int) -> tuple[Value, int]:
+        _check_depth(depth)
         entries: dict[str, Value] = {}
         j = i
         while j < len(self.lines):
@@ -380,10 +393,10 @@ class _Reader:
                     k += 1
                 nxt = self.next_content_indent(j + 1)
                 if nxt > n and _ENTRY.match(self.lines[k][nxt:]):
-                    value, consumed = self.mapping(k, nxt)
+                    value, consumed = self.mapping(k, nxt, depth + 1)
                     consumed += k - j
                 elif nxt >= n and nxt != -1 and self.lines[k][nxt:].startswith("- "):
-                    value, consumed = self.sequence(k, nxt)
+                    value, consumed = self.sequence(k, nxt, depth + 1)
                     consumed += k - j
                 elif nxt > n:
                     raise FrontmatterError("a value on the following line is outside the subset")
@@ -407,7 +420,7 @@ class _Reader:
             raise FrontmatterError("the top-level mapping must start at column 0")
         # Mapping(0) ends only at the end of T (no line is indented below 0, and a deeper line is
         # rejected), so nothing can follow it
-        value, _ = self.mapping(k, 0)
+        value, _ = self.mapping(k, 0, 1)
         assert isinstance(value, dict)
         return value
 

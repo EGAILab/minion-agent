@@ -1,0 +1,48 @@
+{
+  "name": "skills-n01-depth-63-and-64-load",
+  "family": "agent",
+  "authority": "minion-agent-docs spec/harness.md WP-14.1 (HAR-001, HAR-010..HAR-013); assurance/layers/14-wp141-characterization.md",
+  "pi_revision": "b7bb00b936dbe21b8e160b3e89efdec361846699",
+  "requirements": [
+    "HAR-001",
+    "HAR-010",
+    "HAR-013"
+  ],
+  "witnesses": [
+    "skill_discovery_n01_depth_63_and_64_load"
+  ],
+  "skill_discovery": {
+    "fixture": [
+      {
+        "path": "skills/deep63/SKILL.md",
+        "text": "---\nname: deep63\ndescription: Nested.\nk:\n  k:\n    k:\n      k:\n        k:\n          k:\n            k:\n              k:\n                k:\n                  k:\n                    k:\n                      k:\n                        k:\n                          k:\n                            k:\n                              k:\n                                k:\n                                  k:\n                                    k:\n                                      k:\n                                        k:\n                                          k:\n                                            k:\n                                              k:\n                                                k:\n                                                  k:\n                                                    k:\n                                                      k:\n                                                        k:\n                                                          k:\n                                                            k:\n                                                              k:\n                                                                k:\n                                                                  k:\n                                                                    k:\n                                                                      k:\n                                                                        k:\n                                                                          k:\n                                                                            k:\n                                                                              k:\n                                                                                k:\n                                                                                  k:\n                                                                                    k:\n                                                                                      k:\n                                                                                        k:\n                                                                                          k:\n                                                                                            k:\n                                                                                              k:\n                                                                                                k:\n                                                                                                  k:\n                                                                                                    k:\n                                                                                                      k:\n                                                                                                        k:\n                                                                                                          k:\n                                                                                                            k:\n                                                                                                              k:\n                                                                                                                k:\n                                                                                                                  k:\n                                                                                                                    k:\n                                                                                                                      k:\n                                                                                                                        k:\n                                                                                                                          k:\n                                                                                                                            leaf: value\n---\nBody."
+      },
+      {
+        "path": "skills/deep64/SKILL.md",
+        "text": "---\nname: deep64\ndescription: Nested.\nk:\n  k:\n    k:\n      k:\n        k:\n          k:\n            k:\n              k:\n                k:\n                  k:\n                    k:\n                      k:\n                        k:\n                          k:\n                            k:\n                              k:\n                                k:\n                                  k:\n                                    k:\n                                      k:\n                                        k:\n                                          k:\n                                            k:\n                                              k:\n                                                k:\n                                                  k:\n                                                    k:\n                                                      k:\n                                                        k:\n                                                          k:\n                                                            k:\n                                                              k:\n                                                                k:\n                                                                  k:\n                                                                    k:\n                                                                      k:\n                                                                        k:\n                                                                          k:\n                                                                            k:\n                                                                              k:\n                                                                                k:\n                                                                                  k:\n                                                                                    k:\n                                                                                      k:\n                                                                                        k:\n                                                                                          k:\n                                                                                            k:\n                                                                                              k:\n                                                                                                k:\n                                                                                                  k:\n                                                                                                    k:\n                                                                                                      k:\n                                                                                                        k:\n                                                                                                          k:\n                                                                                                            k:\n                                                                                                              k:\n                                                                                                                k:\n                                                                                                                  k:\n                                                                                                                    k:\n                                                                                                                      k:\n                                                                                                                        k:\n                                                                                                                          k:\n                                                                                                                            k:\n                                                                                                                              leaf: value\n---\nBody."
+      }
+    ],
+    "roots": [
+      "skills"
+    ],
+    "expect": {
+      "skills": [
+        {
+          "name": "deep63",
+          "description": "Nested.",
+          "content": "Body.",
+          "path": "skills/deep63/SKILL.md",
+          "disable_model_invocation": false
+        },
+        {
+          "name": "deep64",
+          "description": "Nested.",
+          "content": "Body.",
+          "path": "skills/deep64/SKILL.md",
+          "disable_model_invocation": false
+        }
+      ],
+      "diagnostics": []
+    }
+  }
+}

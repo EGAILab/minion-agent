@@ -17,7 +17,7 @@
     "divergences": {
       "$comment": "Empty or absent: the expectation is pinned Pi's own result.",
       "type": "array", "uniqueItems": true,
-      "items": { "enum": ["DIV-004", "DIV-005", "DIV-006", "PP-14-1"] }
+      "items": { "enum": ["DIV-004", "DIV-005", "DIV-006", "DIV-007", "PP-14-1"] }
     },
     "notes": { "type": "string" },
     "skill_discovery": {

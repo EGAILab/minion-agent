@@ -4,6 +4,8 @@ reader/matcher edges that the canonical scenarios cannot reach through a real fi
 
 from __future__ import annotations
 
+import inspect
+import sys
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
@@ -471,4 +473,50 @@ async def test_deep_nesting_in_an_undeclared_root_file_is_skipped_silently(tmp_p
     _write(tmp_path, "root/ok/SKILL.md", SKILL.format(name="ok"))
     result = await load_skills(LocalFileSystem(str(tmp_path)), [str(tmp_path / "root")])
     assert [s.name for s in result.skills] == ["ok"]
+    assert result.diagnostics == []
+
+
+# ---- WP141-R004: directory depth is bounded by the filesystem, not the interpreter stack ----
+
+
+def _deep_tree(base: Path, depth: int) -> Path:
+    """`depth` nested directories named `a`, with one valid SKILL.md at the leaf."""
+    leaf = base.joinpath(*(["a"] * depth))
+    leaf.mkdir(parents=True)
+    (leaf / "SKILL.md").write_text(SKILL.format(name="a"), encoding="utf-8")
+    return leaf
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="Windows MAX_PATH; covered by the next test")
+@pytest.mark.parametrize("depth", [100, 950, 1050])
+async def test_a_deep_acyclic_tree_loads_and_later_roots_still_load(
+    tmp_path: Path, depth: int
+) -> None:
+    """Pinned Pi loads a 1,050-deep acyclic tree (Codex final review, `WP141-R004`); a recursive
+    walk exhausted Python's stack there and lost the later root. 100 and 950 are controls."""
+    _deep_tree(tmp_path / "deep", depth)
+    _write(tmp_path, "good/good/SKILL.md", SKILL.format(name="good"))
+    result = await load_skills(
+        LocalFileSystem(str(tmp_path)), [str(tmp_path / "deep"), str(tmp_path / "good")]
+    )
+    assert [s.name for s in result.skills] == ["a", "good"]
+    assert result.diagnostics == []
+
+
+async def test_the_walk_does_not_grow_the_interpreter_stack_with_directory_depth(
+    tmp_path: Path,
+) -> None:
+    """Every platform: a 60-deep tree under a recursion limit only a few dozen frames above the
+    caller. A walk that recursed per directory level would exceed it; the frame stack does not."""
+    _deep_tree(tmp_path / "deep", 60)
+    _write(tmp_path, "good/good/SKILL.md", SKILL.format(name="good"))
+    fs = LocalFileSystem(str(tmp_path))
+    roots = [str(tmp_path / "deep"), str(tmp_path / "good")]
+    limit = sys.getrecursionlimit()
+    sys.setrecursionlimit(len(inspect.stack(0)) + 40)
+    try:
+        result = await load_skills(fs, roots)
+    finally:
+        sys.setrecursionlimit(limit)
+    assert [s.name for s in result.skills] == ["a", "good"]
     assert result.diagnostics == []

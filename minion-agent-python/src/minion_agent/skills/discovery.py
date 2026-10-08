@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import functools
 import re
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass
 from typing import Final, Literal
 
@@ -191,7 +191,17 @@ def _by_name(a: FileInfo, b: FileInfo) -> int:
     return pinned_collation().compare(a.name, b.name)
 
 
-async def _walk(
+@dataclass(slots=True)
+class _Frame:
+    """One directory being walked: its info, whether root `.md` files load, and its sorted
+    children still to visit."""
+
+    info: FileInfo
+    include_root_files: bool
+    children: Iterator[FileInfo]
+
+
+async def _enter(
     fs: FileSystem,
     directory: str,
     include_root_files: bool,
@@ -199,21 +209,23 @@ async def _walk(
     root: str,
     skills: list[Skill],
     diagnostics: list[SkillDiagnostic],
-) -> None:
-    """Pi `loadSkillsFromDirInternal`, appending in its depth-first emission order."""
+) -> _Frame | None:
+    """The start of Pi `loadSkillsFromDirInternal` for one directory: its own info and kind, its
+    ignore files, its listing and the `SKILL.md` short-circuit. Returns the frame whose children
+    are still to walk, or `None` when the directory is finished here."""
     info = await fs.file_info(directory)
     if isinstance(info, Err):
         if info.error.code != FsErrorCode.NOT_FOUND:
             diagnostics.append(SkillDiagnostic("file_info_failed", info.error.message, directory))
-        return
+        return None
     dir_info = info.value
     if await _resolve_kind(fs, dir_info, diagnostics) != FileKind.DIRECTORY:
-        return
+        return None
     await _add_ignore_rules(fs, matcher, directory, root, diagnostics)
     listing = await fs.list_dir(directory)
     if isinstance(listing, Err):
         diagnostics.append(SkillDiagnostic("list_failed", listing.error.message, directory))
-        return
+        return None
     entries = listing.value
     for entry in entries:
         if entry.name != "SKILL.md":
@@ -223,8 +235,34 @@ async def _walk(
         if _ignored(matcher, _relative(root, entry.path), entry.path, diagnostics):
             continue
         await _load_file(fs, entry.path, dir_info.name, skills, diagnostics)
-        return
-    for entry in sorted(entries, key=functools.cmp_to_key(_by_name)):
+        return None
+    children = iter(sorted(entries, key=functools.cmp_to_key(_by_name)))
+    return _Frame(dir_info, include_root_files, children)
+
+
+async def _walk(
+    fs: FileSystem,
+    directory: str,
+    include_root_files: bool,
+    matcher: Ignore,
+    root: str,
+    skills: list[Skill],
+    diagnostics: list[SkillDiagnostic],
+) -> None:
+    """Pi `loadSkillsFromDirInternal`, appending in its depth-first emission order.
+
+    Pi recurses into each child directory before its next sibling. Here an explicit stack of
+    frames does the same, so the depth of a directory tree is bounded by the filesystem, never by
+    the interpreter's call stack (`WP141-R004`): a child's frame is pushed and fully drained before
+    its parent's iterator advances."""
+    first = await _enter(fs, directory, include_root_files, matcher, root, skills, diagnostics)
+    stack = [first] if first is not None else []
+    while stack:
+        frame = stack[-1]
+        entry = next(frame.children, None)
+        if entry is None:
+            stack.pop()
+            continue
         if entry.name.startswith(".") or entry.name == "node_modules":
             continue
         kind = await _resolve_kind(fs, entry, diagnostics)
@@ -236,11 +274,13 @@ async def _walk(
         ):
             continue
         if kind == FileKind.DIRECTORY:
-            await _walk(fs, entry.path, False, matcher, root, skills, diagnostics)
+            child = await _enter(fs, entry.path, False, matcher, root, skills, diagnostics)
+            if child is not None:
+                stack.append(child)
             continue
-        if not include_root_files or not entry.name.endswith(".md"):
+        if not frame.include_root_files or not entry.name.endswith(".md"):
             continue
-        await _load_file(fs, entry.path, dir_info.name, skills, diagnostics)
+        await _load_file(fs, entry.path, frame.info.name, skills, diagnostics)
 
 
 async def _add_ignore_rules(

@@ -1,0 +1,58 @@
+{
+  "name": "skills-g10-ignore-corpus",
+  "family": "agent",
+  "authority": "minion-agent-docs spec/harness.md WP-14.1 (HAR-001, HAR-010..HAR-013); assurance/layers/14-wp141-characterization.md",
+  "pi_revision": "b7bb00b936dbe21b8e160b3e89efdec361846699",
+  "requirements": [
+    "HAR-001",
+    "HAR-011",
+    "HAR-013"
+  ],
+  "witnesses": [
+    "skill_discovery_g10_ignore_corpus"
+  ],
+  "skill_discovery": {
+    "posix_only": true,
+    "fixture": [
+      {
+        "path": "skills/.gitignore",
+        "text": "a/**\nB\n[!a]*\n"
+      },
+      {
+        "path": "skills/sub/.gitignore",
+        "text": "?b\n"
+      },
+      {
+        "path": "skills/a-x/SKILL.md",
+        "text": "---\ndescription: In a-x.\n---\nBody."
+      },
+      {
+        "path": "skills/b/SKILL.md",
+        "text": "---\ndescription: In b.\n---\nBody."
+      },
+      {
+        "path": "skills/B/SKILL.md",
+        "text": "---\ndescription: In B.\n---\nBody."
+      },
+      {
+        "path": "skills/root.md",
+        "text": "---\nname: skills\ndescription: Root.\n---\nBody."
+      }
+    ],
+    "roots": [
+      "skills"
+    ],
+    "expect": {
+      "skills": [
+        {
+          "name": "skills",
+          "description": "Root.",
+          "content": "Body.",
+          "path": "skills/root.md",
+          "disable_model_invocation": false
+        }
+      ],
+      "diagnostics": []
+    }
+  }
+}

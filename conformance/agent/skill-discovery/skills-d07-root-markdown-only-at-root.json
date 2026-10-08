@@ -1,0 +1,58 @@
+{
+  "name": "skills-d07-root-markdown-only-at-root",
+  "family": "agent",
+  "authority": "minion-agent-docs spec/harness.md WP-14.1 (HAR-001, HAR-010..HAR-013); assurance/layers/14-wp141-characterization.md",
+  "pi_revision": "b7bb00b936dbe21b8e160b3e89efdec361846699",
+  "requirements": [
+    "HAR-001",
+    "HAR-012",
+    "HAR-013"
+  ],
+  "witnesses": [
+    "skill_discovery_d07_root_markdown_only_at_root"
+  ],
+  "skill_discovery": {
+    "fixture": [
+      {
+        "path": "skills/direct.md",
+        "text": "---\nname: direct\ndescription: Use direct.\n---\nBody."
+      },
+      {
+        "path": "skills/sub/nested.md",
+        "text": "---\nname: nested\ndescription: Use nested.\n---\nBody."
+      },
+      {
+        "path": "skills/sub/deeper/SKILL.md",
+        "text": "---\nname: deeper\ndescription: Use deeper.\n---\nBody."
+      }
+    ],
+    "roots": [
+      "skills"
+    ],
+    "expect": {
+      "skills": [
+        {
+          "name": "direct",
+          "description": "Use direct.",
+          "content": "Body.",
+          "path": "skills/direct.md",
+          "disable_model_invocation": false
+        },
+        {
+          "name": "deeper",
+          "description": "Use deeper.",
+          "content": "Body.",
+          "path": "skills/sub/deeper/SKILL.md",
+          "disable_model_invocation": false
+        }
+      ],
+      "diagnostics": [
+        {
+          "code": "invalid_metadata",
+          "path": "skills/direct.md",
+          "message": "name \"direct\" does not match parent directory \"skills\""
+        }
+      ]
+    }
+  }
+}

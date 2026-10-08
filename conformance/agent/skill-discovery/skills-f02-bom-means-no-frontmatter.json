@@ -1,0 +1,35 @@
+{
+  "name": "skills-f02-bom-means-no-frontmatter",
+  "family": "agent",
+  "authority": "minion-agent-docs spec/harness.md WP-14.1 (HAR-001, HAR-010..HAR-013); assurance/layers/14-wp141-characterization.md",
+  "pi_revision": "b7bb00b936dbe21b8e160b3e89efdec361846699",
+  "requirements": [
+    "HAR-001",
+    "HAR-010",
+    "HAR-013"
+  ],
+  "witnesses": [
+    "skill_discovery_f02_bom_means_no_frontmatter"
+  ],
+  "skill_discovery": {
+    "fixture": [
+      {
+        "path": "skills/bom/SKILL.md",
+        "text": "﻿---\nname: bom\ndescription: Use bom.\n---\nBody."
+      }
+    ],
+    "roots": [
+      "skills"
+    ],
+    "expect": {
+      "skills": [],
+      "diagnostics": [
+        {
+          "code": "invalid_metadata",
+          "path": "skills/bom/SKILL.md",
+          "message": "description is required"
+        }
+      ]
+    }
+  }
+}

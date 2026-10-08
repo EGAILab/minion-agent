@@ -1,0 +1,74 @@
+{
+  "name": "skills-g28-ignore-corpus",
+  "family": "agent",
+  "authority": "minion-agent-docs spec/harness.md WP-14.1 (HAR-001, HAR-010..HAR-013); assurance/layers/14-wp141-characterization.md",
+  "pi_revision": "b7bb00b936dbe21b8e160b3e89efdec361846699",
+  "requirements": [
+    "HAR-001",
+    "HAR-011",
+    "HAR-013"
+  ],
+  "witnesses": [
+    "skill_discovery_g28_ignore_corpus"
+  ],
+  "skill_discovery": {
+    "fixture": [
+      {
+        "path": "skills/.gitignore",
+        "text": "/a\n"
+      },
+      {
+        "path": "skills/keep/SKILL.md",
+        "text": "---\ndescription: In keep.\n---\nBody."
+      },
+      {
+        "path": "skills/c/SKILL.md",
+        "text": "---\ndescription: In c.\n---\nBody."
+      },
+      {
+        "path": "skills/a-x/SKILL.md",
+        "text": "---\ndescription: In a-x.\n---\nBody."
+      },
+      {
+        "path": "skills/ab/SKILL.md",
+        "text": "---\ndescription: In ab.\n---\nBody."
+      }
+    ],
+    "roots": [
+      "skills"
+    ],
+    "expect": {
+      "skills": [
+        {
+          "name": "a-x",
+          "description": "In a-x.",
+          "content": "Body.",
+          "path": "skills/a-x/SKILL.md",
+          "disable_model_invocation": false
+        },
+        {
+          "name": "ab",
+          "description": "In ab.",
+          "content": "Body.",
+          "path": "skills/ab/SKILL.md",
+          "disable_model_invocation": false
+        },
+        {
+          "name": "c",
+          "description": "In c.",
+          "content": "Body.",
+          "path": "skills/c/SKILL.md",
+          "disable_model_invocation": false
+        },
+        {
+          "name": "keep",
+          "description": "In keep.",
+          "content": "Body.",
+          "path": "skills/keep/SKILL.md",
+          "disable_model_invocation": false
+        }
+      ],
+      "diagnostics": []
+    }
+  }
+}

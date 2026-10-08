@@ -1,0 +1,72 @@
+{
+  "name": "skills-i05-all-three-ignore-files",
+  "family": "agent",
+  "authority": "minion-agent-docs spec/harness.md WP-14.1 (HAR-001, HAR-010..HAR-013); assurance/layers/14-wp141-characterization.md",
+  "pi_revision": "b7bb00b936dbe21b8e160b3e89efdec361846699",
+  "requirements": [
+    "HAR-001",
+    "HAR-011",
+    "HAR-013"
+  ],
+  "witnesses": [
+    "skill_discovery_i05_all_three_ignore_files"
+  ],
+  "skill_discovery": {
+    "fixture": [
+      {
+        "path": "skills/.gitignore",
+        "text": "a\nc\n"
+      },
+      {
+        "path": "skills/.ignore",
+        "text": "b\n!c\n"
+      },
+      {
+        "path": "skills/.fdignore",
+        "text": "d\n"
+      },
+      {
+        "path": "skills/a/SKILL.md",
+        "text": "---\nname: a\ndescription: Use a.\n---\nBody."
+      },
+      {
+        "path": "skills/b/SKILL.md",
+        "text": "---\nname: b\ndescription: Use b.\n---\nBody."
+      },
+      {
+        "path": "skills/c/SKILL.md",
+        "text": "---\nname: c\ndescription: Use c.\n---\nBody."
+      },
+      {
+        "path": "skills/d/SKILL.md",
+        "text": "---\nname: d\ndescription: Use d.\n---\nBody."
+      },
+      {
+        "path": "skills/e/SKILL.md",
+        "text": "---\nname: e\ndescription: Use e.\n---\nBody."
+      }
+    ],
+    "roots": [
+      "skills"
+    ],
+    "expect": {
+      "skills": [
+        {
+          "name": "c",
+          "description": "Use c.",
+          "content": "Body.",
+          "path": "skills/c/SKILL.md",
+          "disable_model_invocation": false
+        },
+        {
+          "name": "e",
+          "description": "Use e.",
+          "content": "Body.",
+          "path": "skills/e/SKILL.md",
+          "disable_model_invocation": false
+        }
+      ],
+      "diagnostics": []
+    }
+  }
+}

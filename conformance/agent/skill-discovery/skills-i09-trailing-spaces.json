@@ -1,0 +1,67 @@
+{
+  "name": "skills-i09-trailing-spaces",
+  "family": "agent",
+  "authority": "minion-agent-docs spec/harness.md WP-14.1 (HAR-001, HAR-010..HAR-013); assurance/layers/14-wp141-characterization.md",
+  "pi_revision": "b7bb00b936dbe21b8e160b3e89efdec361846699",
+  "requirements": [
+    "HAR-001",
+    "HAR-011",
+    "HAR-013"
+  ],
+  "witnesses": [
+    "skill_discovery_i09_trailing_spaces"
+  ],
+  "skill_discovery": {
+    "posix_only": true,
+    "fixture": [
+      {
+        "path": "skills/.gitignore",
+        "text": "plain \nesc\\ \n"
+      },
+      {
+        "path": "skills/plain/SKILL.md",
+        "text": "---\ndescription: Plain.\n---\nBody."
+      },
+      {
+        "path": "skills/plain /SKILL.md",
+        "text": "---\ndescription: Plain with space.\n---\nBody."
+      },
+      {
+        "path": "skills/esc/SKILL.md",
+        "text": "---\ndescription: Esc.\n---\nBody."
+      },
+      {
+        "path": "skills/esc /SKILL.md",
+        "text": "---\ndescription: Esc with space.\n---\nBody."
+      }
+    ],
+    "roots": [
+      "skills"
+    ],
+    "expect": {
+      "skills": [
+        {
+          "name": "esc",
+          "description": "Esc.",
+          "content": "Body.",
+          "path": "skills/esc/SKILL.md",
+          "disable_model_invocation": false
+        },
+        {
+          "name": "plain ",
+          "description": "Plain with space.",
+          "content": "Body.",
+          "path": "skills/plain /SKILL.md",
+          "disable_model_invocation": false
+        }
+      ],
+      "diagnostics": [
+        {
+          "code": "invalid_metadata",
+          "path": "skills/plain /SKILL.md",
+          "message": "name contains invalid characters (must be lowercase a-z, 0-9, hyphens only)"
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,56 @@
+{
+  "name": "skills-r01-leading-backslash-rejects-after-collected-sibling",
+  "family": "agent",
+  "authority": "minion-agent-docs spec/harness.md WP-14.1 (HAR-001, HAR-010..HAR-013); assurance/layers/14-wp141-characterization.md",
+  "pi_revision": "b7bb00b936dbe21b8e160b3e89efdec361846699",
+  "requirements": [
+    "HAR-001",
+    "HAR-011",
+    "HAR-013"
+  ],
+  "witnesses": [
+    "skill_discovery_r01_leading_backslash_rejects_after_collected_sibling"
+  ],
+  "divergences": [
+    "DIV-005"
+  ],
+  "skill_discovery": {
+    "posix_only": true,
+    "fixture": [
+      {
+        "path": "skills/-a/SKILL.md",
+        "text": "---\ndescription: Collected first.\n---\nBody."
+      },
+      {
+        "path": "skills/\\x.md",
+        "text": "---\nname: x\ndescription: Use x.\n---\nBody."
+      }
+    ],
+    "roots": [
+      "skills"
+    ],
+    "expect": {
+      "skills": [
+        {
+          "name": "-a",
+          "description": "Collected first.",
+          "content": "Body.",
+          "path": "skills/-a/SKILL.md",
+          "disable_model_invocation": false
+        }
+      ],
+      "diagnostics": [
+        {
+          "code": "invalid_metadata",
+          "path": "skills/-a/SKILL.md",
+          "message": "name must not start or end with a hyphen"
+        },
+        {
+          "code": "invalid_path",
+          "path": "skills/\\x.md",
+          "message": "entry path cannot be matched against ignore rules"
+        }
+      ]
+    }
+  }
+}

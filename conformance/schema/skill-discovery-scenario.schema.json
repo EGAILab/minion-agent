@@ -1,0 +1,102 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$comment": "Layer 14 WP-14.1 skill discovery (spec/harness.md WP-14.1: HAR-001, HAR-010..HAR-013) canonical shape, discriminated by a top-level `skill_discovery` key -- another schema for conformance/agent/'s own directory (conformance/agent/skill-discovery/), not a new canonical family. A runner builds `fixture` under a fresh temporary directory, calls the real load_skills over the real local ctx.fs with `roots` (each joined onto that directory), and compares the result. Fixture and expected paths are '/'-separated and relative to that directory; the runner maps them to ctx.fs addressed paths. `divergences` names the approved departures from pinned Pi a scenario's expectation embodies (Pi's own observation is kept in minion-agent-docs assurance/layers/data/14-wp141/out-*.json).",
+  "type": "object",
+  "required": ["name", "family", "authority", "pi_revision", "requirements", "witnesses", "skill_discovery"],
+  "additionalProperties": false,
+  "properties": {
+    "name": { "type": "string", "minLength": 1 },
+    "family": { "const": "agent" },
+    "authority": { "type": "string", "minLength": 1 },
+    "pi_revision": { "type": "string", "minLength": 1 },
+    "requirements": {
+      "type": "array", "minItems": 1, "uniqueItems": true,
+      "items": { "enum": ["HAR-001", "HAR-010", "HAR-011", "HAR-012", "HAR-013"] }
+    },
+    "witnesses": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
+    "divergences": {
+      "$comment": "Empty or absent: the expectation is pinned Pi's own result.",
+      "type": "array", "uniqueItems": true,
+      "items": { "enum": ["DIV-004", "DIV-005", "PP-14-1"] }
+    },
+    "notes": { "type": "string" },
+    "skill_discovery": {
+      "type": "object",
+      "required": ["fixture", "roots", "expect"],
+      "additionalProperties": false,
+      "properties": {
+        "posix_only": { "type": "boolean", "$comment": "true: names Windows cannot create; the scenario is skipped on win32 and must run elsewhere" },
+        "fixture": { "type": "array", "items": { "$ref": "#/$defs/entry" } },
+        "roots": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
+        "expect": {
+          "type": "object",
+          "required": ["skills", "diagnostics"],
+          "additionalProperties": false,
+          "properties": {
+            "skills": { "type": "array", "items": { "$ref": "#/$defs/skill" } },
+            "diagnostics": {
+              "$comment": "Exact, ordered list: the actual diagnostics must match it one-to-one.",
+              "type": "array", "items": { "$ref": "#/$defs/diagnostic" }
+            }
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "entry": {
+      "type": "object",
+      "required": ["path"],
+      "additionalProperties": false,
+      "properties": {
+        "path": { "type": "string", "minLength": 1 },
+        "dir": { "const": true },
+        "symlink": { "type": "string", "$comment": "link target, relative to the link's own directory; may not exist" },
+        "symlink_kind": { "enum": ["file", "dir"], "$comment": "required by Windows symlink creation; ignored elsewhere" },
+        "text": { "type": "string", "$comment": "file content, written as UTF-8" }
+      },
+      "oneOf": [
+        { "required": ["dir"], "not": { "anyOf": [{ "required": ["symlink"] }, { "required": ["text"] }] } },
+        { "required": ["symlink", "symlink_kind"], "not": { "anyOf": [{ "required": ["dir"] }, { "required": ["text"] }] } },
+        { "required": ["text"], "not": { "anyOf": [{ "required": ["dir"] }, { "required": ["symlink"] }] } }
+      ]
+    },
+    "skill": {
+      "type": "object",
+      "required": ["name", "description", "content", "path", "disable_model_invocation"],
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "content": { "type": "string" },
+        "path": { "type": "string", "minLength": 1, "$comment": "the skill's file_path, relative to the fixture directory" },
+        "disable_model_invocation": { "type": "boolean" }
+      }
+    },
+    "diagnostic": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "code": { "enum": ["file_info_failed", "list_failed", "read_failed", "parse_failed", "invalid_metadata", "invalid_path"] },
+        "code_one_of": {
+          "$comment": "PP-14-3 symlink cycle only: the host decides which fs-origin code it carries",
+          "type": "array", "minItems": 2, "uniqueItems": true, "items": { "enum": ["file_info_failed", "list_failed"] }
+        },
+        "path": { "type": "string", "minLength": 1, "$comment": "exact, relative to the fixture directory" },
+        "path_within": { "type": "string", "minLength": 1, "$comment": "PP-14-3 only: the path must start with this relative prefix followed by '/'; its depth is host-defined" },
+        "message": { "type": "string", "$comment": "present exactly when the text is normative: invalid_metadata, parse_failed, invalid_path" }
+      },
+      "oneOf": [
+        { "required": ["code", "path"], "not": { "anyOf": [{ "required": ["code_one_of"] }, { "required": ["path_within"] }] } },
+        { "required": ["code_one_of", "path_within"], "not": { "anyOf": [{ "required": ["code"] }, { "required": ["path"] }, { "required": ["message"] }] } }
+      ],
+      "allOf": [
+        {
+          "if": { "required": ["code"], "properties": { "code": { "enum": ["invalid_metadata", "parse_failed", "invalid_path"] } } },
+          "then": { "required": ["message"] },
+          "else": { "not": { "required": ["message"] } }
+        }
+      ]
+    }
+  }
+}

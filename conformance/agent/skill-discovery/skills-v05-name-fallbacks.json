@@ -1,0 +1,60 @@
+{
+  "name": "skills-v05-name-fallbacks",
+  "family": "agent",
+  "authority": "minion-agent-docs spec/harness.md WP-14.1 (HAR-001, HAR-010..HAR-013); assurance/layers/14-wp141-characterization.md",
+  "pi_revision": "b7bb00b936dbe21b8e160b3e89efdec361846699",
+  "requirements": [
+    "HAR-001",
+    "HAR-010",
+    "HAR-012",
+    "HAR-013"
+  ],
+  "witnesses": [
+    "skill_discovery_v05_name_fallbacks"
+  ],
+  "skill_discovery": {
+    "fixture": [
+      {
+        "path": "skills/numname/SKILL.md",
+        "text": "---\nname: 123\ndescription: d\n---\nBody."
+      },
+      {
+        "path": "skills/emptyname/SKILL.md",
+        "text": "---\nname: ''\ndescription: d\n---\nBody."
+      },
+      {
+        "path": "skills/boolname/SKILL.md",
+        "text": "---\nname: true\ndescription: d\n---\nBody."
+      }
+    ],
+    "roots": [
+      "skills"
+    ],
+    "expect": {
+      "skills": [
+        {
+          "name": "boolname",
+          "description": "d",
+          "content": "Body.",
+          "path": "skills/boolname/SKILL.md",
+          "disable_model_invocation": false
+        },
+        {
+          "name": "emptyname",
+          "description": "d",
+          "content": "Body.",
+          "path": "skills/emptyname/SKILL.md",
+          "disable_model_invocation": false
+        },
+        {
+          "name": "numname",
+          "description": "d",
+          "content": "Body.",
+          "path": "skills/numname/SKILL.md",
+          "disable_model_invocation": false
+        }
+      ],
+      "diagnostics": []
+    }
+  }
+}

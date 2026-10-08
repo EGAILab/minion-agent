@@ -1,0 +1,60 @@
+{
+  "name": "skills-i01-dir-pattern-and-negation",
+  "family": "agent",
+  "authority": "minion-agent-docs spec/harness.md WP-14.1 (HAR-001, HAR-010..HAR-013); assurance/layers/14-wp141-characterization.md",
+  "pi_revision": "b7bb00b936dbe21b8e160b3e89efdec361846699",
+  "requirements": [
+    "HAR-001",
+    "HAR-011",
+    "HAR-013"
+  ],
+  "witnesses": [
+    "skill_discovery_i01_dir_pattern_and_negation"
+  ],
+  "skill_discovery": {
+    "fixture": [
+      {
+        "path": "skills/.gitignore",
+        "text": "build/\n*-tmp\n!keep-tmp\n"
+      },
+      {
+        "path": "skills/build/SKILL.md",
+        "text": "---\nname: build\ndescription: Use build.\n---\nBody."
+      },
+      {
+        "path": "skills/drop-tmp/SKILL.md",
+        "text": "---\nname: drop-tmp\ndescription: Use drop-tmp.\n---\nBody."
+      },
+      {
+        "path": "skills/keep-tmp/SKILL.md",
+        "text": "---\nname: keep-tmp\ndescription: Use keep-tmp.\n---\nBody."
+      },
+      {
+        "path": "skills/ok/SKILL.md",
+        "text": "---\nname: ok\ndescription: Use ok.\n---\nBody."
+      }
+    ],
+    "roots": [
+      "skills"
+    ],
+    "expect": {
+      "skills": [
+        {
+          "name": "keep-tmp",
+          "description": "Use keep-tmp.",
+          "content": "Body.",
+          "path": "skills/keep-tmp/SKILL.md",
+          "disable_model_invocation": false
+        },
+        {
+          "name": "ok",
+          "description": "Use ok.",
+          "content": "Body.",
+          "path": "skills/ok/SKILL.md",
+          "disable_model_invocation": false
+        }
+      ],
+      "diagnostics": []
+    }
+  }
+}

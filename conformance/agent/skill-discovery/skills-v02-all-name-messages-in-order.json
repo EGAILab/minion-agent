@@ -1,0 +1,63 @@
+{
+  "name": "skills-v02-all-name-messages-in-order",
+  "family": "agent",
+  "authority": "minion-agent-docs spec/harness.md WP-14.1 (HAR-001, HAR-010..HAR-013); assurance/layers/14-wp141-characterization.md",
+  "pi_revision": "b7bb00b936dbe21b8e160b3e89efdec361846699",
+  "requirements": [
+    "HAR-001",
+    "HAR-012",
+    "HAR-013"
+  ],
+  "witnesses": [
+    "skill_discovery_v02_all_name_messages_in_order"
+  ],
+  "skill_discovery": {
+    "fixture": [
+      {
+        "path": "skills/dir/SKILL.md",
+        "text": "---\nname: -A--xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx-\ndescription: d\n---\nBody."
+      }
+    ],
+    "roots": [
+      "skills"
+    ],
+    "expect": {
+      "skills": [
+        {
+          "name": "-A--xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx-",
+          "description": "d",
+          "content": "Body.",
+          "path": "skills/dir/SKILL.md",
+          "disable_model_invocation": false
+        }
+      ],
+      "diagnostics": [
+        {
+          "code": "invalid_metadata",
+          "path": "skills/dir/SKILL.md",
+          "message": "name \"-A--xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx-\" does not match parent directory \"dir\""
+        },
+        {
+          "code": "invalid_metadata",
+          "path": "skills/dir/SKILL.md",
+          "message": "name exceeds 64 characters (75)"
+        },
+        {
+          "code": "invalid_metadata",
+          "path": "skills/dir/SKILL.md",
+          "message": "name contains invalid characters (must be lowercase a-z, 0-9, hyphens only)"
+        },
+        {
+          "code": "invalid_metadata",
+          "path": "skills/dir/SKILL.md",
+          "message": "name must not start or end with a hyphen"
+        },
+        {
+          "code": "invalid_metadata",
+          "path": "skills/dir/SKILL.md",
+          "message": "name must not contain consecutive hyphens"
+        }
+      ]
+    }
+  }
+}

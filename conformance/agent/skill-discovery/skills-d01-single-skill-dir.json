@@ -1,0 +1,36 @@
+{
+  "name": "skills-d01-single-skill-dir",
+  "family": "agent",
+  "authority": "minion-agent-docs spec/harness.md WP-14.1 (HAR-001, HAR-010..HAR-013); assurance/layers/14-wp141-characterization.md",
+  "pi_revision": "b7bb00b936dbe21b8e160b3e89efdec361846699",
+  "requirements": [
+    "HAR-001",
+    "HAR-013"
+  ],
+  "witnesses": [
+    "skill_discovery_d01_single_skill_dir"
+  ],
+  "skill_discovery": {
+    "fixture": [
+      {
+        "path": "skills/alpha/SKILL.md",
+        "text": "---\nname: alpha\ndescription: Use alpha.\n---\nBody."
+      }
+    ],
+    "roots": [
+      "skills"
+    ],
+    "expect": {
+      "skills": [
+        {
+          "name": "alpha",
+          "description": "Use alpha.",
+          "content": "Body.",
+          "path": "skills/alpha/SKILL.md",
+          "disable_model_invocation": false
+        }
+      ],
+      "diagnostics": []
+    }
+  }
+}

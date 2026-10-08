@@ -1,0 +1,54 @@
+{
+  "name": "skills-d09-root-markdown-name-mismatch-quirk",
+  "family": "agent",
+  "authority": "minion-agent-docs spec/harness.md WP-14.1 (HAR-001, HAR-010..HAR-013); assurance/layers/14-wp141-characterization.md",
+  "pi_revision": "b7bb00b936dbe21b8e160b3e89efdec361846699",
+  "requirements": [
+    "HAR-001",
+    "HAR-012",
+    "HAR-013"
+  ],
+  "witnesses": [
+    "skill_discovery_d09_root_markdown_name_mismatch_quirk"
+  ],
+  "skill_discovery": {
+    "fixture": [
+      {
+        "path": "skills/other.md",
+        "text": "---\nname: other\ndescription: Use other.\n---\nBody."
+      },
+      {
+        "path": "skills/noname.md",
+        "text": "---\ndescription: No name.\n---\nBody."
+      }
+    ],
+    "roots": [
+      "skills"
+    ],
+    "expect": {
+      "skills": [
+        {
+          "name": "skills",
+          "description": "No name.",
+          "content": "Body.",
+          "path": "skills/noname.md",
+          "disable_model_invocation": false
+        },
+        {
+          "name": "other",
+          "description": "Use other.",
+          "content": "Body.",
+          "path": "skills/other.md",
+          "disable_model_invocation": false
+        }
+      ],
+      "diagnostics": [
+        {
+          "code": "invalid_metadata",
+          "path": "skills/other.md",
+          "message": "name \"other\" does not match parent directory \"skills\""
+        }
+      ]
+    }
+  }
+}

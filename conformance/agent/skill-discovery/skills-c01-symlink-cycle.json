@@ -1,0 +1,53 @@
+{
+  "name": "skills-c01-symlink-cycle",
+  "family": "agent",
+  "authority": "minion-agent-docs spec/harness.md WP-14.1 (HAR-001, HAR-010..HAR-013); assurance/layers/14-wp141-characterization.md",
+  "pi_revision": "b7bb00b936dbe21b8e160b3e89efdec361846699",
+  "requirements": [
+    "HAR-001",
+    "HAR-013"
+  ],
+  "witnesses": [
+    "skill_discovery_c01_symlink_cycle"
+  ],
+  "skill_discovery": {
+    "fixture": [
+      {
+        "path": "skills/a/note.md",
+        "text": "plain"
+      },
+      {
+        "path": "skills/a/loop",
+        "symlink": "..",
+        "symlink_kind": "dir"
+      },
+      {
+        "path": "skills/b.md",
+        "text": "---\nname: skills\ndescription: Kept.\n---\nBody."
+      }
+    ],
+    "roots": [
+      "skills"
+    ],
+    "expect": {
+      "skills": [
+        {
+          "name": "skills",
+          "description": "Kept.",
+          "content": "Body.",
+          "path": "skills/b.md",
+          "disable_model_invocation": false
+        }
+      ],
+      "diagnostics": [
+        {
+          "code_one_of": [
+            "file_info_failed",
+            "list_failed"
+          ],
+          "path_within": "skills/a/loop"
+        }
+      ]
+    }
+  }
+}

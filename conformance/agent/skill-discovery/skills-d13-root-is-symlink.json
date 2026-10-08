@@ -1,0 +1,41 @@
+{
+  "name": "skills-d13-root-is-symlink",
+  "family": "agent",
+  "authority": "minion-agent-docs spec/harness.md WP-14.1 (HAR-001, HAR-010..HAR-013); assurance/layers/14-wp141-characterization.md",
+  "pi_revision": "b7bb00b936dbe21b8e160b3e89efdec361846699",
+  "requirements": [
+    "HAR-001",
+    "HAR-013"
+  ],
+  "witnesses": [
+    "skill_discovery_d13_root_is_symlink"
+  ],
+  "skill_discovery": {
+    "fixture": [
+      {
+        "path": "real/s/SKILL.md",
+        "text": "---\nname: s\ndescription: Use s.\n---\nBody."
+      },
+      {
+        "path": "rootlink",
+        "symlink": "real",
+        "symlink_kind": "dir"
+      }
+    ],
+    "roots": [
+      "rootlink"
+    ],
+    "expect": {
+      "skills": [
+        {
+          "name": "s",
+          "description": "Use s.",
+          "content": "Body.",
+          "path": "rootlink/s/SKILL.md",
+          "disable_model_invocation": false
+        }
+      ],
+      "diagnostics": []
+    }
+  }
+}

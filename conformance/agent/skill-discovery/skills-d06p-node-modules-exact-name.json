@@ -1,0 +1,42 @@
+{
+  "name": "skills-d06p-node-modules-exact-name",
+  "family": "agent",
+  "authority": "minion-agent-docs spec/harness.md WP-14.1 (HAR-001, HAR-010..HAR-013); assurance/layers/14-wp141-characterization.md",
+  "pi_revision": "b7bb00b936dbe21b8e160b3e89efdec361846699",
+  "requirements": [
+    "HAR-001",
+    "HAR-011",
+    "HAR-013"
+  ],
+  "witnesses": [
+    "skill_discovery_d06p_node_modules_exact_name"
+  ],
+  "skill_discovery": {
+    "posix_only": true,
+    "fixture": [
+      {
+        "path": "skills/node_modules/dep/SKILL.md",
+        "text": "---\nname: dep\ndescription: Use dep.\n---\nBody."
+      },
+      {
+        "path": "skills/Node_Modules/dep2/SKILL.md",
+        "text": "---\nname: dep2\ndescription: Use dep2.\n---\nBody."
+      }
+    ],
+    "roots": [
+      "skills"
+    ],
+    "expect": {
+      "skills": [
+        {
+          "name": "dep2",
+          "description": "Use dep2.",
+          "content": "Body.",
+          "path": "skills/Node_Modules/dep2/SKILL.md",
+          "disable_model_invocation": false
+        }
+      ],
+      "diagnostics": []
+    }
+  }
+}

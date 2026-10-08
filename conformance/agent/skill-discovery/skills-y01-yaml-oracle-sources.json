@@ -1,0 +1,924 @@
+{
+  "name": "skills-y01-yaml-oracle-sources",
+  "family": "agent",
+  "authority": "minion-agent-docs spec/harness.md WP-14.1 (HAR-001, HAR-010..HAR-013); assurance/layers/14-wp141-characterization.md",
+  "pi_revision": "b7bb00b936dbe21b8e160b3e89efdec361846699",
+  "requirements": [
+    "HAR-001",
+    "HAR-010",
+    "HAR-012",
+    "HAR-013"
+  ],
+  "witnesses": [
+    "skill_discovery_y01_yaml_oracle_sources"
+  ],
+  "divergences": [
+    "DIV-004",
+    "PP-14-1"
+  ],
+  "skill_discovery": {
+    "fixture": [
+      {
+        "path": "skills/y000/SKILL.md",
+        "text": "---\nname: a\ndescription: d\n---\nBody."
+      },
+      {
+        "path": "skills/y001/SKILL.md",
+        "text": "---\n\n---\nBody."
+      },
+      {
+        "path": "skills/y002/SKILL.md",
+        "text": "---\n~\n---\nBody."
+      },
+      {
+        "path": "skills/y003/SKILL.md",
+        "text": "---\nnull\n---\nBody."
+      },
+      {
+        "path": "skills/y004/SKILL.md",
+        "text": "---\njust a scalar\n---\nBody."
+      },
+      {
+        "path": "skills/y005/SKILL.md",
+        "text": "---\n42\n---\nBody."
+      },
+      {
+        "path": "skills/y006/SKILL.md",
+        "text": "---\n- a\n- b\n---\nBody."
+      },
+      {
+        "path": "skills/y007/SKILL.md",
+        "text": "---\ndescription: true\n---\nBody."
+      },
+      {
+        "path": "skills/y008/SKILL.md",
+        "text": "---\ndescription: True\n---\nBody."
+      },
+      {
+        "path": "skills/y009/SKILL.md",
+        "text": "---\ndescription: TRUE\n---\nBody."
+      },
+      {
+        "path": "skills/y010/SKILL.md",
+        "text": "---\ndescription: yes\n---\nBody."
+      },
+      {
+        "path": "skills/y011/SKILL.md",
+        "text": "---\ndescription: no\n---\nBody."
+      },
+      {
+        "path": "skills/y012/SKILL.md",
+        "text": "---\ndescription: on\n---\nBody."
+      },
+      {
+        "path": "skills/y013/SKILL.md",
+        "text": "---\ndescription: off\n---\nBody."
+      },
+      {
+        "path": "skills/y014/SKILL.md",
+        "text": "---\ndescription: y\n---\nBody."
+      },
+      {
+        "path": "skills/y015/SKILL.md",
+        "text": "---\ndescription: n\n---\nBody."
+      },
+      {
+        "path": "skills/y016/SKILL.md",
+        "text": "---\ndescription: 0o17\n---\nBody."
+      },
+      {
+        "path": "skills/y017/SKILL.md",
+        "text": "---\ndescription: 017\n---\nBody."
+      },
+      {
+        "path": "skills/y018/SKILL.md",
+        "text": "---\ndescription: 0x1F\n---\nBody."
+      },
+      {
+        "path": "skills/y019/SKILL.md",
+        "text": "---\ndescription: 1_000\n---\nBody."
+      },
+      {
+        "path": "skills/y020/SKILL.md",
+        "text": "---\ndescription: 1e3\n---\nBody."
+      },
+      {
+        "path": "skills/y021/SKILL.md",
+        "text": "---\ndescription: .inf\n---\nBody."
+      },
+      {
+        "path": "skills/y022/SKILL.md",
+        "text": "---\ndescription: -.Inf\n---\nBody."
+      },
+      {
+        "path": "skills/y023/SKILL.md",
+        "text": "---\ndescription: .nan\n---\nBody."
+      },
+      {
+        "path": "skills/y024/SKILL.md",
+        "text": "---\ndescription: 12:30:00\n---\nBody."
+      },
+      {
+        "path": "skills/y025/SKILL.md",
+        "text": "---\ndescription: 2001-12-14\n---\nBody."
+      },
+      {
+        "path": "skills/y026/SKILL.md",
+        "text": "---\ndescription: 2001-12-14t21:59:43.10-05:00\n---\nBody."
+      },
+      {
+        "path": "skills/y027/SKILL.md",
+        "text": "---\ndescription: ~\n---\nBody."
+      },
+      {
+        "path": "skills/y028/SKILL.md",
+        "text": "---\ndescription: null\n---\nBody."
+      },
+      {
+        "path": "skills/y029/SKILL.md",
+        "text": "---\ndescription: Null\n---\nBody."
+      },
+      {
+        "path": "skills/y030/SKILL.md",
+        "text": "---\ndescription: ''\n---\nBody."
+      },
+      {
+        "path": "skills/y031/SKILL.md",
+        "text": "---\ndescription: \"\"\n---\nBody."
+      },
+      {
+        "path": "skills/y032/SKILL.md",
+        "text": "---\ndescription: '  x  '\n---\nBody."
+      },
+      {
+        "path": "skills/y033/SKILL.md",
+        "text": "---\ndescription: !!str 123\n---\nBody."
+      },
+      {
+        "path": "skills/y034/SKILL.md",
+        "text": "---\ndescription: !!int '7'\n---\nBody."
+      },
+      {
+        "path": "skills/y035/SKILL.md",
+        "text": "---\ndescription: !!binary aGk=\n---\nBody."
+      },
+      {
+        "path": "skills/y036/SKILL.md",
+        "text": "---\ndescription: !custom x\n---\nBody."
+      },
+      {
+        "path": "skills/y037/SKILL.md",
+        "text": "---\na: &x foo\ndescription: *x\n---\nBody."
+      },
+      {
+        "path": "skills/y038/SKILL.md",
+        "text": "---\nbase: &b {description: d}\n<<: *b\n---\nBody."
+      },
+      {
+        "path": "skills/y039/SKILL.md",
+        "text": "---\n<<: {description: d}\n---\nBody."
+      },
+      {
+        "path": "skills/y040/SKILL.md",
+        "text": "---\ndescription: d\ndescription: e\n---\nBody."
+      },
+      {
+        "path": "skills/y041/SKILL.md",
+        "text": "---\nDescription: a\ndescription: b\n---\nBody."
+      },
+      {
+        "path": "skills/y042/SKILL.md",
+        "text": "---\nname: a\n\tdescription: d\n---\nBody."
+      },
+      {
+        "path": "skills/y043/SKILL.md",
+        "text": "---\ndescription: \"open\n---\nBody."
+      },
+      {
+        "path": "skills/y044/SKILL.md",
+        "text": "---\ndescription: 'open\n---\nBody."
+      },
+      {
+        "path": "skills/y045/SKILL.md",
+        "text": "---\ndescription: d\n...\nx: 1\n---\nBody."
+      },
+      {
+        "path": "skills/y046/SKILL.md",
+        "text": "---\n%YAML 1.1\n---\nBody."
+      },
+      {
+        "path": "skills/y047/SKILL.md",
+        "text": "---\ndescription: d\n  - x\n---\nBody."
+      },
+      {
+        "path": "skills/y048/SKILL.md",
+        "text": "---\ndescription: [a, b\n---\nBody."
+      },
+      {
+        "path": "skills/y049/SKILL.md",
+        "text": "---\n{description: Flow.}\n---\nBody."
+      },
+      {
+        "path": "skills/y050/SKILL.md",
+        "text": "---\n? [a, b]\n: c\ndescription: d\n---\nBody."
+      },
+      {
+        "path": "skills/y051/SKILL.md",
+        "text": "---\n__proto__: {x: 1}\ndescription: d\n---\nBody."
+      },
+      {
+        "path": "skills/y052/SKILL.md",
+        "text": "---\ndescription: >\n  one\n  two\n---\nBody."
+      },
+      {
+        "path": "skills/y053/SKILL.md",
+        "text": "---\ndescription: |\n  one\n  two\n---\nBody."
+      },
+      {
+        "path": "skills/y054/SKILL.md",
+        "text": "---\ndescription: |-\n  one\n---\nBody."
+      },
+      {
+        "path": "skills/y055/SKILL.md",
+        "text": "---\ndescription: >+\n  one\n\n\n---\nBody."
+      },
+      {
+        "path": "skills/y056/SKILL.md",
+        "text": "---\ndescription: \"a\\tb \\u00e9 \\x41 \\U0001F600\"\n---\nBody."
+      },
+      {
+        "path": "skills/y057/SKILL.md",
+        "text": "---\ndescription: \"\\ud800\"\n---\nBody."
+      },
+      {
+        "path": "skills/y058/SKILL.md",
+        "text": "---\ndescription: 'it''s'\n---\nBody."
+      },
+      {
+        "path": "skills/y059/SKILL.md",
+        "text": "---\ndescription: a # comment\n---\nBody."
+      },
+      {
+        "path": "skills/y060/SKILL.md",
+        "text": "---\ndescription: a#b\n---\nBody."
+      },
+      {
+        "path": "skills/y061/SKILL.md",
+        "text": "---\ndescription: 'a: b'\n---\nBody."
+      },
+      {
+        "path": "skills/y062/SKILL.md",
+        "text": "---\ndescription: a: b\n---\nBody."
+      },
+      {
+        "path": "skills/y063/SKILL.md",
+        "text": "---\ndescription: -\n---\nBody."
+      },
+      {
+        "path": "skills/y064/SKILL.md",
+        "text": "---\ndescription: - x\n---\nBody."
+      },
+      {
+        "path": "skills/y065/SKILL.md",
+        "text": "---\ndescription: @x\n---\nBody."
+      },
+      {
+        "path": "skills/y066/SKILL.md",
+        "text": "---\ndescription: `x\n---\nBody."
+      },
+      {
+        "path": "skills/y067/SKILL.md",
+        "text": "---\ndescription: %x\n---\nBody."
+      },
+      {
+        "path": "skills/y068/SKILL.md",
+        "text": "---\ndescription: *undefined\n---\nBody."
+      },
+      {
+        "path": "skills/y069/SKILL.md",
+        "text": "---\ndescription: &a\n---\nBody."
+      },
+      {
+        "path": "skills/y070/SKILL.md",
+        "text": "---\ndescription: d\n'description': e\n---\nBody."
+      },
+      {
+        "path": "skills/y071/SKILL.md",
+        "text": "---\ndisable-model-invocation: true\n---\nBody."
+      },
+      {
+        "path": "skills/y072/SKILL.md",
+        "text": "---\ndisable-model-invocation: 'true'\n---\nBody."
+      },
+      {
+        "path": "skills/y073/SKILL.md",
+        "text": "---\ndisable-model-invocation: 1\n---\nBody."
+      },
+      {
+        "path": "skills/y074/SKILL.md",
+        "text": "---\nname:\n  - list\ndescription: d\n---\nBody."
+      },
+      {
+        "path": "skills/y075/SKILL.md",
+        "text": "---\nname: {a: 1}\ndescription: d\n---\nBody."
+      },
+      {
+        "path": "skills/y076/SKILL.md",
+        "text": "---\ndescription:\n---\nBody."
+      },
+      {
+        "path": "skills/y077/SKILL.md",
+        "text": "---\ndescription: \t\n---\nBody."
+      },
+      {
+        "path": "skills/y078/SKILL.md",
+        "text": "---\n﻿description: d\n---\nBody."
+      },
+      {
+        "path": "skills/y079/SKILL.md",
+        "text": "---\ndescription: café\n---\nBody."
+      },
+      {
+        "path": "skills/y080/SKILL.md",
+        "text": "---\ndescription: x\n---\nBody."
+      },
+      {
+        "path": "skills/y081/SKILL.md",
+        "text": "---\ndescription: a b\n---\nBody."
+      },
+      {
+        "path": "skills/y082/SKILL.md",
+        "text": "---\ndescription: x\u0007\n---\nBody."
+      },
+      {
+        "path": "skills/y083/SKILL.md",
+        "text": "---\ndescription: \"x\\0\"\n---\nBody."
+      },
+      {
+        "path": "skills/y084/SKILL.md",
+        "text": "---\n1: one\ndescription: d\n---\nBody."
+      },
+      {
+        "path": "skills/y085/SKILL.md",
+        "text": "---\ntrue: t\ndescription: d\n---\nBody."
+      },
+      {
+        "path": "skills/y086/SKILL.md",
+        "text": "---\nnull: n\ndescription: d\n---\nBody."
+      },
+      {
+        "path": "skills/y087/SKILL.md",
+        "text": "---\n[a]: b\ndescription: d\n---\nBody."
+      },
+      {
+        "path": "skills/y088/SKILL.md",
+        "text": "---\n__proto__: {description: via-proto, name: proto-name}\n---\nBody."
+      },
+      {
+        "path": "skills/y089/SKILL.md",
+        "text": "---\n__proto__: {disable-model-invocation: true}\ndescription: d\n---\nBody."
+      },
+      {
+        "path": "skills/y090/SKILL.md",
+        "text": "---\nconstructor: x\ndescription: d\n---\nBody."
+      },
+      {
+        "path": "skills/y091/SKILL.md",
+        "text": "---\ndescription: d\nname: [a]\n---\nBody."
+      },
+      {
+        "path": "skills/y092/SKILL.md",
+        "text": "---\n? description\n: d\n---\nBody."
+      }
+    ],
+    "roots": [
+      "skills"
+    ],
+    "expect": {
+      "skills": [
+        {
+          "name": "a",
+          "description": "d",
+          "content": "Body.",
+          "path": "skills/y000/SKILL.md",
+          "disable_model_invocation": false
+        },
+        {
+          "name": "y010",
+          "description": "yes",
+          "content": "Body.",
+          "path": "skills/y010/SKILL.md",
+          "disable_model_invocation": false
+        },
+        {
+          "name": "y011",
+          "description": "no",
+          "content": "Body.",
+          "path": "skills/y011/SKILL.md",
+          "disable_model_invocation": false
+        },
+        {
+          "name": "y012",
+          "description": "on",
+          "content": "Body.",
+          "path": "skills/y012/SKILL.md",
+          "disable_model_invocation": false
+        },
+        {
+          "name": "y013",
+          "description": "off",
+          "content": "Body.",
+          "path": "skills/y013/SKILL.md",
+          "disable_model_invocation": false
+        },
+        {
+          "name": "y014",
+          "description": "y",
+          "content": "Body.",
+          "path": "skills/y014/SKILL.md",
+          "disable_model_invocation": false
+        },
+        {
+          "name": "y015",
+          "description": "n",
+          "content": "Body.",
+          "path": "skills/y015/SKILL.md",
+          "disable_model_invocation": false
+        },
+        {
+          "name": "y019",
+          "description": "1_000",
+          "content": "Body.",
+          "path": "skills/y019/SKILL.md",
+          "disable_model_invocation": false
+        },
+        {
+          "name": "y024",
+          "description": "12:30:00",
+          "content": "Body.",
+          "path": "skills/y024/SKILL.md",
+          "disable_model_invocation": false
+        },
+        {
+          "name": "y025",
+          "description": "2001-12-14",
+          "content": "Body.",
+          "path": "skills/y025/SKILL.md",
+          "disable_model_invocation": false
+        },
+        {
+          "name": "y026",
+          "description": "2001-12-14t21:59:43.10-05:00",
+          "content": "Body.",
+          "path": "skills/y026/SKILL.md",
+          "disable_model_invocation": false
+        },
+        {
+          "name": "y032",
+          "description": "  x  ",
+          "content": "Body.",
+          "path": "skills/y032/SKILL.md",
+          "disable_model_invocation": false
+        },
+        {
+          "name": "y041",
+          "description": "b",
+          "content": "Body.",
+          "path": "skills/y041/SKILL.md",
+          "disable_model_invocation": false
+        },
+        {
+          "name": "y052",
+          "description": "one two\n",
+          "content": "Body.",
+          "path": "skills/y052/SKILL.md",
+          "disable_model_invocation": false
+        },
+        {
+          "name": "y053",
+          "description": "one\ntwo\n",
+          "content": "Body.",
+          "path": "skills/y053/SKILL.md",
+          "disable_model_invocation": false
+        },
+        {
+          "name": "y054",
+          "description": "one",
+          "content": "Body.",
+          "path": "skills/y054/SKILL.md",
+          "disable_model_invocation": false
+        },
+        {
+          "name": "y055",
+          "description": "one\n\n",
+          "content": "Body.",
+          "path": "skills/y055/SKILL.md",
+          "disable_model_invocation": false
+        },
+        {
+          "name": "y056",
+          "description": "a\tb é A 😀",
+          "content": "Body.",
+          "path": "skills/y056/SKILL.md",
+          "disable_model_invocation": false
+        },
+        {
+          "name": "y058",
+          "description": "it's",
+          "content": "Body.",
+          "path": "skills/y058/SKILL.md",
+          "disable_model_invocation": false
+        },
+        {
+          "name": "y059",
+          "description": "a",
+          "content": "Body.",
+          "path": "skills/y059/SKILL.md",
+          "disable_model_invocation": false
+        },
+        {
+          "name": "y060",
+          "description": "a#b",
+          "content": "Body.",
+          "path": "skills/y060/SKILL.md",
+          "disable_model_invocation": false
+        },
+        {
+          "name": "y061",
+          "description": "a: b",
+          "content": "Body.",
+          "path": "skills/y061/SKILL.md",
+          "disable_model_invocation": false
+        },
+        {
+          "name": "y074",
+          "description": "d",
+          "content": "Body.",
+          "path": "skills/y074/SKILL.md",
+          "disable_model_invocation": false
+        },
+        {
+          "name": "y079",
+          "description": "café",
+          "content": "Body.",
+          "path": "skills/y079/SKILL.md",
+          "disable_model_invocation": false
+        },
+        {
+          "name": "y090",
+          "description": "d",
+          "content": "Body.",
+          "path": "skills/y090/SKILL.md",
+          "disable_model_invocation": false
+        }
+      ],
+      "diagnostics": [
+        {
+          "code": "invalid_metadata",
+          "path": "skills/y000/SKILL.md",
+          "message": "name \"a\" does not match parent directory \"y000\""
+        },
+        {
+          "code": "invalid_metadata",
+          "path": "skills/y001/SKILL.md",
+          "message": "description is required"
+        },
+        {
+          "code": "parse_failed",
+          "path": "skills/y002/SKILL.md",
+          "message": "frontmatter is not valid in the supported YAML subset"
+        },
+        {
+          "code": "parse_failed",
+          "path": "skills/y003/SKILL.md",
+          "message": "frontmatter is not valid in the supported YAML subset"
+        },
+        {
+          "code": "parse_failed",
+          "path": "skills/y004/SKILL.md",
+          "message": "frontmatter is not valid in the supported YAML subset"
+        },
+        {
+          "code": "parse_failed",
+          "path": "skills/y005/SKILL.md",
+          "message": "frontmatter is not valid in the supported YAML subset"
+        },
+        {
+          "code": "parse_failed",
+          "path": "skills/y006/SKILL.md",
+          "message": "frontmatter is not valid in the supported YAML subset"
+        },
+        {
+          "code": "invalid_metadata",
+          "path": "skills/y007/SKILL.md",
+          "message": "description is required"
+        },
+        {
+          "code": "invalid_metadata",
+          "path": "skills/y008/SKILL.md",
+          "message": "description is required"
+        },
+        {
+          "code": "invalid_metadata",
+          "path": "skills/y009/SKILL.md",
+          "message": "description is required"
+        },
+        {
+          "code": "invalid_metadata",
+          "path": "skills/y016/SKILL.md",
+          "message": "description is required"
+        },
+        {
+          "code": "invalid_metadata",
+          "path": "skills/y017/SKILL.md",
+          "message": "description is required"
+        },
+        {
+          "code": "invalid_metadata",
+          "path": "skills/y018/SKILL.md",
+          "message": "description is required"
+        },
+        {
+          "code": "invalid_metadata",
+          "path": "skills/y020/SKILL.md",
+          "message": "description is required"
+        },
+        {
+          "code": "invalid_metadata",
+          "path": "skills/y021/SKILL.md",
+          "message": "description is required"
+        },
+        {
+          "code": "invalid_metadata",
+          "path": "skills/y022/SKILL.md",
+          "message": "description is required"
+        },
+        {
+          "code": "invalid_metadata",
+          "path": "skills/y023/SKILL.md",
+          "message": "description is required"
+        },
+        {
+          "code": "invalid_metadata",
+          "path": "skills/y027/SKILL.md",
+          "message": "description is required"
+        },
+        {
+          "code": "invalid_metadata",
+          "path": "skills/y028/SKILL.md",
+          "message": "description is required"
+        },
+        {
+          "code": "invalid_metadata",
+          "path": "skills/y029/SKILL.md",
+          "message": "description is required"
+        },
+        {
+          "code": "invalid_metadata",
+          "path": "skills/y030/SKILL.md",
+          "message": "description is required"
+        },
+        {
+          "code": "invalid_metadata",
+          "path": "skills/y031/SKILL.md",
+          "message": "description is required"
+        },
+        {
+          "code": "parse_failed",
+          "path": "skills/y033/SKILL.md",
+          "message": "frontmatter is not valid in the supported YAML subset"
+        },
+        {
+          "code": "parse_failed",
+          "path": "skills/y034/SKILL.md",
+          "message": "frontmatter is not valid in the supported YAML subset"
+        },
+        {
+          "code": "parse_failed",
+          "path": "skills/y035/SKILL.md",
+          "message": "frontmatter is not valid in the supported YAML subset"
+        },
+        {
+          "code": "parse_failed",
+          "path": "skills/y036/SKILL.md",
+          "message": "frontmatter is not valid in the supported YAML subset"
+        },
+        {
+          "code": "parse_failed",
+          "path": "skills/y037/SKILL.md",
+          "message": "frontmatter is not valid in the supported YAML subset"
+        },
+        {
+          "code": "parse_failed",
+          "path": "skills/y038/SKILL.md",
+          "message": "frontmatter is not valid in the supported YAML subset"
+        },
+        {
+          "code": "parse_failed",
+          "path": "skills/y039/SKILL.md",
+          "message": "frontmatter is not valid in the supported YAML subset"
+        },
+        {
+          "code": "parse_failed",
+          "path": "skills/y040/SKILL.md",
+          "message": "frontmatter is not valid in the supported YAML subset"
+        },
+        {
+          "code": "parse_failed",
+          "path": "skills/y042/SKILL.md",
+          "message": "frontmatter is not valid in the supported YAML subset"
+        },
+        {
+          "code": "parse_failed",
+          "path": "skills/y043/SKILL.md",
+          "message": "frontmatter is not valid in the supported YAML subset"
+        },
+        {
+          "code": "parse_failed",
+          "path": "skills/y044/SKILL.md",
+          "message": "frontmatter is not valid in the supported YAML subset"
+        },
+        {
+          "code": "parse_failed",
+          "path": "skills/y045/SKILL.md",
+          "message": "frontmatter is not valid in the supported YAML subset"
+        },
+        {
+          "code": "parse_failed",
+          "path": "skills/y046/SKILL.md",
+          "message": "frontmatter is not valid in the supported YAML subset"
+        },
+        {
+          "code": "parse_failed",
+          "path": "skills/y047/SKILL.md",
+          "message": "frontmatter is not valid in the supported YAML subset"
+        },
+        {
+          "code": "parse_failed",
+          "path": "skills/y048/SKILL.md",
+          "message": "frontmatter is not valid in the supported YAML subset"
+        },
+        {
+          "code": "parse_failed",
+          "path": "skills/y049/SKILL.md",
+          "message": "frontmatter is not valid in the supported YAML subset"
+        },
+        {
+          "code": "parse_failed",
+          "path": "skills/y050/SKILL.md",
+          "message": "frontmatter is not valid in the supported YAML subset"
+        },
+        {
+          "code": "parse_failed",
+          "path": "skills/y051/SKILL.md",
+          "message": "frontmatter is not valid in the supported YAML subset"
+        },
+        {
+          "code": "parse_failed",
+          "path": "skills/y057/SKILL.md",
+          "message": "frontmatter is not valid in the supported YAML subset"
+        },
+        {
+          "code": "parse_failed",
+          "path": "skills/y062/SKILL.md",
+          "message": "frontmatter is not valid in the supported YAML subset"
+        },
+        {
+          "code": "parse_failed",
+          "path": "skills/y063/SKILL.md",
+          "message": "frontmatter is not valid in the supported YAML subset"
+        },
+        {
+          "code": "parse_failed",
+          "path": "skills/y064/SKILL.md",
+          "message": "frontmatter is not valid in the supported YAML subset"
+        },
+        {
+          "code": "parse_failed",
+          "path": "skills/y065/SKILL.md",
+          "message": "frontmatter is not valid in the supported YAML subset"
+        },
+        {
+          "code": "parse_failed",
+          "path": "skills/y066/SKILL.md",
+          "message": "frontmatter is not valid in the supported YAML subset"
+        },
+        {
+          "code": "parse_failed",
+          "path": "skills/y067/SKILL.md",
+          "message": "frontmatter is not valid in the supported YAML subset"
+        },
+        {
+          "code": "parse_failed",
+          "path": "skills/y068/SKILL.md",
+          "message": "frontmatter is not valid in the supported YAML subset"
+        },
+        {
+          "code": "parse_failed",
+          "path": "skills/y069/SKILL.md",
+          "message": "frontmatter is not valid in the supported YAML subset"
+        },
+        {
+          "code": "parse_failed",
+          "path": "skills/y070/SKILL.md",
+          "message": "frontmatter is not valid in the supported YAML subset"
+        },
+        {
+          "code": "invalid_metadata",
+          "path": "skills/y071/SKILL.md",
+          "message": "description is required"
+        },
+        {
+          "code": "invalid_metadata",
+          "path": "skills/y072/SKILL.md",
+          "message": "description is required"
+        },
+        {
+          "code": "invalid_metadata",
+          "path": "skills/y073/SKILL.md",
+          "message": "description is required"
+        },
+        {
+          "code": "parse_failed",
+          "path": "skills/y075/SKILL.md",
+          "message": "frontmatter is not valid in the supported YAML subset"
+        },
+        {
+          "code": "invalid_metadata",
+          "path": "skills/y076/SKILL.md",
+          "message": "description is required"
+        },
+        {
+          "code": "invalid_metadata",
+          "path": "skills/y077/SKILL.md",
+          "message": "description is required"
+        },
+        {
+          "code": "parse_failed",
+          "path": "skills/y078/SKILL.md",
+          "message": "frontmatter is not valid in the supported YAML subset"
+        },
+        {
+          "code": "parse_failed",
+          "path": "skills/y080/SKILL.md",
+          "message": "frontmatter is not valid in the supported YAML subset"
+        },
+        {
+          "code": "parse_failed",
+          "path": "skills/y081/SKILL.md",
+          "message": "frontmatter is not valid in the supported YAML subset"
+        },
+        {
+          "code": "parse_failed",
+          "path": "skills/y082/SKILL.md",
+          "message": "frontmatter is not valid in the supported YAML subset"
+        },
+        {
+          "code": "parse_failed",
+          "path": "skills/y083/SKILL.md",
+          "message": "frontmatter is not valid in the supported YAML subset"
+        },
+        {
+          "code": "parse_failed",
+          "path": "skills/y084/SKILL.md",
+          "message": "frontmatter is not valid in the supported YAML subset"
+        },
+        {
+          "code": "parse_failed",
+          "path": "skills/y085/SKILL.md",
+          "message": "frontmatter is not valid in the supported YAML subset"
+        },
+        {
+          "code": "parse_failed",
+          "path": "skills/y086/SKILL.md",
+          "message": "frontmatter is not valid in the supported YAML subset"
+        },
+        {
+          "code": "parse_failed",
+          "path": "skills/y087/SKILL.md",
+          "message": "frontmatter is not valid in the supported YAML subset"
+        },
+        {
+          "code": "parse_failed",
+          "path": "skills/y088/SKILL.md",
+          "message": "frontmatter is not valid in the supported YAML subset"
+        },
+        {
+          "code": "parse_failed",
+          "path": "skills/y089/SKILL.md",
+          "message": "frontmatter is not valid in the supported YAML subset"
+        },
+        {
+          "code": "parse_failed",
+          "path": "skills/y091/SKILL.md",
+          "message": "frontmatter is not valid in the supported YAML subset"
+        },
+        {
+          "code": "parse_failed",
+          "path": "skills/y092/SKILL.md",
+          "message": "frontmatter is not valid in the supported YAML subset"
+        }
+      ]
+    }
+  }
+}

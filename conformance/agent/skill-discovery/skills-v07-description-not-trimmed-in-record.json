@@ -1,0 +1,38 @@
+{
+  "name": "skills-v07-description-not-trimmed-in-record",
+  "family": "agent",
+  "authority": "minion-agent-docs spec/harness.md WP-14.1 (HAR-001, HAR-010..HAR-013); assurance/layers/14-wp141-characterization.md",
+  "pi_revision": "b7bb00b936dbe21b8e160b3e89efdec361846699",
+  "requirements": [
+    "HAR-001",
+    "HAR-010",
+    "HAR-012",
+    "HAR-013"
+  ],
+  "witnesses": [
+    "skill_discovery_v07_description_not_trimmed_in_record"
+  ],
+  "skill_discovery": {
+    "fixture": [
+      {
+        "path": "skills/pad/SKILL.md",
+        "text": "---\nname: pad\ndescription: '  padded  '\n---\nBody."
+      }
+    ],
+    "roots": [
+      "skills"
+    ],
+    "expect": {
+      "skills": [
+        {
+          "name": "pad",
+          "description": "  padded  ",
+          "content": "Body.",
+          "path": "skills/pad/SKILL.md",
+          "disable_model_invocation": false
+        }
+      ],
+      "diagnostics": []
+    }
+  }
+}

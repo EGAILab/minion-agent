@@ -1,0 +1,52 @@
+{
+  "name": "skills-r03-earlier-root-lost",
+  "family": "agent",
+  "authority": "minion-agent-docs spec/harness.md WP-14.1 (HAR-001, HAR-010..HAR-013); assurance/layers/14-wp141-characterization.md",
+  "pi_revision": "b7bb00b936dbe21b8e160b3e89efdec361846699",
+  "requirements": [
+    "HAR-001",
+    "HAR-011",
+    "HAR-013"
+  ],
+  "witnesses": [
+    "skill_discovery_r03_earlier_root_lost"
+  ],
+  "divergences": [
+    "DIV-005"
+  ],
+  "skill_discovery": {
+    "posix_only": true,
+    "fixture": [
+      {
+        "path": "first/a/SKILL.md",
+        "text": "---\nname: a\ndescription: Use a.\n---\nBody."
+      },
+      {
+        "path": "second/\\bad.md",
+        "text": "---\nname: bad\ndescription: Use bad.\n---\nBody."
+      }
+    ],
+    "roots": [
+      "first",
+      "second"
+    ],
+    "expect": {
+      "skills": [
+        {
+          "name": "a",
+          "description": "Use a.",
+          "content": "Body.",
+          "path": "first/a/SKILL.md",
+          "disable_model_invocation": false
+        }
+      ],
+      "diagnostics": [
+        {
+          "code": "invalid_path",
+          "path": "second/\\bad.md",
+          "message": "entry path cannot be matched against ignore rules"
+        }
+      ]
+    }
+  }
+}

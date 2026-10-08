@@ -76,6 +76,7 @@ source = [
     "src/minion_agent/agent",
     "src/minion_agent/agent_loop",
     "src/minion_agent/tools",
+    "src/minion_agent/skills",
 ]
 
 [tool.coverage.report]

@@ -653,6 +653,59 @@ def _libc_access() -> Callable[[bytes, int], int]:  # pragma: no cover -- POSIX-
     return access
 
 
+def _libc_realpath() -> tuple[
+    Callable[[bytes, Any], Any], Callable[[Any], None]
+]:  # pragma: no cover -- POSIX-only (libc)
+    """The host C library's `realpath(3)` and `free(3)`, with `use_errno`."""
+    import ctypes
+
+    libc = ctypes.CDLL(None, use_errno=True)
+    realpath = libc.realpath
+    realpath.argtypes = [ctypes.c_char_p, ctypes.c_char_p]
+    realpath.restype = ctypes.c_void_p
+    free = libc.free
+    free.argtypes = [ctypes.c_void_p]
+    free.restype = None
+    return realpath, free
+
+
+def _realpath_posix(path: str) -> str:
+    """`canonical_path` on POSIX (`L12-D004`): ONE call to the OS `realpath(3)` -- the call pinned
+    Pi's `canonicalPath` makes through `fs/promises.realpath` (libuv `uv_fs_realpath`). The kernel
+    counts every symlink traversed while resolving the path, so a cycle or a chain of more than
+    `MAXSYMLINKS` links fails with `ELOOP`, as in Pi. `os.path.realpath(strict=True)` resolved
+    component by component in userspace and never reached that limit, so it succeeded where Pi
+    fails. The errno is kept and classified by `to_fs_error`.
+
+    A path containing NUL never reaches the C call (`L12D004-R001`): a C string would end at the
+    NUL and resolve a different, shorter path. Such a path keeps the previous resolution,
+    `os.path.realpath(strict=True)`, unchanged -- NUL disposition is `minion-agent#133`'s, not this
+    delta's."""
+    import ctypes
+
+    encoded = os.fsencode(path)
+    if b"\0" in encoded:
+        return os.path.realpath(path, strict=True)
+    realpath, free = _libc_realpath()
+    pointer = realpath(encoded, None)
+    if not pointer:
+        code = ctypes.get_errno()
+        raise OSError(code, os.strerror(code), path)
+    try:
+        return os.fsdecode(ctypes.string_at(pointer))
+    finally:
+        free(pointer)
+
+
+def _realpath(path: str) -> str:
+    """`canonical_path`'s resolution. Windows keeps `os.path.realpath(strict=True)`, which already
+    uses `GetFinalPathNameByHandleW` as libuv does (`L12-D004` characterization: Windows resolution
+    unchanged)."""
+    if os.name == "nt":
+        return os.path.realpath(path, strict=True)
+    return _realpath_posix(path)
+
+
 def _check_readable_posix(path: str) -> None:
     """`EXEC-008` on POSIX, spec section 12.4: exactly one `access(path, R_OK)` -- the call Node's
     `fs.access` makes -- evaluated with the process's real user/group IDs and following symlinks.
@@ -1208,7 +1261,7 @@ class LocalFileSystem:
         resolved = resolve_local_path(self.cwd, path)
         native = native_path(resolved)
         try:
-            real = await asyncio.to_thread(os.path.realpath, native, strict=True)
+            real = await asyncio.to_thread(_realpath, native)
         except OSError as exc:
             return Err(to_fs_error(exc, native))
         return Ok(real)

@@ -7,11 +7,15 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
+import pytest
+
 from minion_agent.agent import AGENT_PRE_STEP, AGENT_PREPARE_NEXT_TURN
 from minion_agent.agent.decisions import Enter, PreStepReason, RunConfigUpdate, RunContext
+from minion_agent.agent.identity import AgentStatus
 from minion_agent.agent_loop.driver import AgentLoop
-from minion_agent.llm import TextBlock, ToolCallBlock, UserMessage
+from minion_agent.llm import ModelId, TextBlock, ToolCallBlock, UserMessage
 from minion_agent.llm.adapters.mock import ScriptedResponse
+from minion_agent.llm.errors import UnknownModelError
 from minion_agent.llm.messages import StopReason
 from minion_agent.session import EventKind, reconstruct_header
 from minion_agent.tools.definition import ToolDefinition
@@ -325,3 +329,43 @@ def test_the_factory_installs_the_assembler_or_leaves_it_absent() -> None:
         factory.for_instance(loop.instance, prompt_assembler=recorder).prompt_assembler is recorder
     )
     assert factory.for_instance(loop.instance).prompt_assembler is None
+
+
+# ---- L08D001-R001: the error's class never changes the seam's failure settlement ----
+
+
+@pytest.mark.parametrize("failing_call", [1, 2])
+async def test_an_assembler_raising_unknown_model_error_still_settles_as_failed(
+    failing_call: int,
+) -> None:
+    """`UnknownModelError` is eagerly propagated when the *model* cannot be resolved; raised by
+    the assembler it is that seam's failure like any other: nothing sent for the failing request,
+    the earlier header kept, and a settled `failed` run."""
+    loop, adapter = _loop_with_adapter(_call("echo"), _done())
+    loop.tools.register(_tool("echo"))
+    calls = 0
+
+    def assemble(base: str, tools: tuple[ToolDefinition, ...]) -> str:
+        nonlocal calls
+        calls += 1
+        if calls == failing_call:
+            raise UnknownModelError("raised by the assembler")
+        return base
+
+    _install(loop, assemble)
+    await loop.prompt(_say("hi"))
+    assert len(adapter.requests) == failing_call - 1
+    assert len(_headers(loop)) == failing_call - 1
+    failures = _failed(loop)
+    assert len(failures) == 1 and "raised by the assembler" in (failures[0].error_message or "")
+    assert _agent_end_reasons(loop) == ["failed"]
+    assert loop.instance.status is AgentStatus.IDLE
+
+
+async def test_a_genuinely_unknown_model_still_propagates_eagerly_with_an_assembler() -> None:
+    """The certified eager path is untouched: an unresolvable model raises, assembler or not."""
+    loop, _ = _loop_with_adapter(_done())
+    _install(loop, _Recorder())
+    loop.instance.model = ModelId("nobody", "nothing")
+    with pytest.raises(UnknownModelError):
+        await loop.prompt(_say("hi"))

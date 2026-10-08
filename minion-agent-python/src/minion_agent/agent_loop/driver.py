@@ -160,6 +160,11 @@ snapshot -- the tuple whose schemas the request carries -- so prompt and schemas
 The assembler must derive tool-dependent text from `tools` only, never from the live registry."""
 
 
+class PromptAssemblyError(Exception):
+    """An ordinary exception raised by the `L08-D001` prompt assembler, carrying its text. The run
+    settles as failed through the certified run-failure path, whatever the original class."""
+
+
 def _snapshot_tool_registry(tools: tuple[ToolDefinition, ...]) -> ToolRegistry:
     """A fresh, unscoped `ToolRegistry` holding exactly `tools` -- the
     execution-time counterpart of `RunContext.tools` (`L08-R001`). Pinned
@@ -1030,7 +1035,14 @@ class AgentLoop:
             return decision.system_override
         if self.prompt_assembler is None:
             return context.system_prompt
-        text = self.prompt_assembler(context.system_prompt, context.tools)
+        try:
+            text = self.prompt_assembler(context.system_prompt, context.tools)
+        except Exception as error:
+            # `L08D001-R001`: whatever the assembler raises is this seam's run-executor failure.
+            # Re-raised as `PromptAssemblyError` (same text, original as `__cause__`) so no
+            # exemption meant for another origin -- `UnknownModelError`'s eager propagation of
+            # genuine model resolution -- can capture it. `BaseException`s pass unchanged.
+            raise PromptAssemblyError(str(error)) from error
         if not isinstance(text, str):
             raise TypeError(
                 f"prompt assembler returned {type(text).__name__}, not a string (L08-D001)"

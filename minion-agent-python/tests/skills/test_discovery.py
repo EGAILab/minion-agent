@@ -480,9 +480,13 @@ async def test_deep_nesting_in_an_undeclared_root_file_is_skipped_silently(tmp_p
 
 
 def _deep_tree(base: Path, depth: int) -> Path:
-    """`depth` nested directories named `a`, with one valid SKILL.md at the leaf."""
-    leaf = base.joinpath(*(["a"] * depth))
-    leaf.mkdir(parents=True)
+    """`depth` nested directories named `a`, with one valid SKILL.md at the leaf. Built one level
+    at a time: `Path.mkdir(parents=True)` itself recurses per missing parent."""
+    leaf = base
+    leaf.mkdir()
+    for _ in range(depth):
+        leaf = leaf / "a"
+        leaf.mkdir()
     (leaf / "SKILL.md").write_text(SKILL.format(name="a"), encoding="utf-8")
     return leaf
 
@@ -492,8 +496,9 @@ def _deep_tree(base: Path, depth: int) -> Path:
 async def test_a_deep_acyclic_tree_loads_and_later_roots_still_load(
     tmp_path: Path, depth: int
 ) -> None:
-    """Pinned Pi loads a 1,050-deep acyclic tree (Codex final review, `WP141-R004`); a recursive
-    walk exhausted Python's stack there and lost the later root. 100 and 950 are controls."""
+    """Pinned Pi loads 100-, 950- and 1,050-deep acyclic trees with the later root (Codex final
+    review, `WP141-R004`); a per-level recursive walk exhausted Python's stack and lost the later
+    root. Depth 100 is the shallow control that loaded before the fix too."""
     _deep_tree(tmp_path / "deep", depth)
     _write(tmp_path, "good/good/SKILL.md", SKILL.format(name="good"))
     result = await load_skills(

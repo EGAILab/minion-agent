@@ -482,8 +482,40 @@
       "properties": {
         "name": { "type": "string" },
         "description": { "type": "string" },
-        "parameters": { "type": "object" }
+        "parameters": { "type": "object" },
+        "constrained_sampling": { "$ref": "#/$defs/constrainedSamplingInput" }
       }
+    },
+    "constrainedSamplingInput": {
+      "$comment": "L03-D001: the same four-state domain as tool-registry-scenario.schema.json's constrainedSamplingInput (spec/tools.md, L05-R001/L05-R006). Absent omits the key; explicit null is not an alias. Used for both a recorded tool and an expected reconstructed tool, so a reconstruction that loses the field is visible as a missing key.",
+      "oneOf": [
+        { "const": false },
+        {
+          "type": "object",
+          "required": ["type", "strict"],
+          "additionalProperties": false,
+          "properties": {
+            "type": { "const": "json_schema" },
+            "strict": { "enum": ["prefer", "require"] }
+          }
+        },
+        {
+          "type": "object",
+          "required": ["type", "variants"],
+          "additionalProperties": false,
+          "properties": {
+            "type": { "const": "grammar" },
+            "variants": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "openai_lark": { "type": "string" },
+                "openai_regex": { "type": "string" }
+              }
+            }
+          }
+        }
+      ]
     },
     "userDetail": {
       "type": "object",

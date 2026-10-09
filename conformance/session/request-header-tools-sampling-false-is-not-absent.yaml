@@ -1,0 +1,44 @@
+name: request-header-tools-sampling-false-is-not-absent
+description: >
+  L03-D001: absent and false are different constrained-sampling states, both
+  stored and reconstructed. Two headers record the same tool, first with no
+  sampling preference and then with sampling explicitly disabled. The tool sets
+  must be stored as two different artifacts (one component plus two tool
+  payloads), and reconstructing the later header must return false, not absent.
+steps:
+  - record_header:
+      components:
+        system_base: "base"
+      model: mock-1
+      tools:
+        - name: echo
+          description: "repeat"
+          parameters:
+            type: object
+            properties:
+              text: { type: string }
+  - record_header:
+      components:
+        system_base: "base"
+      model: mock-1
+      tools:
+        - name: echo
+          description: "repeat"
+          parameters:
+            type: object
+            properties:
+              text: { type: string }
+          constrained_sampling: false
+expect_messages: []
+expect_reconstructed_header:
+  components:
+    system_base: "base"
+  tools:
+    - name: echo
+      description: "repeat"
+      parameters:
+        type: object
+        properties:
+          text: { type: string }
+      constrained_sampling: false
+expect_artifact_count: 3

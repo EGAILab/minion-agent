@@ -1,0 +1,160 @@
+name: request-header-tools-constrained-sampling-states
+description: >
+  L03-D001: reconstructing a request header's tool schemas returns every
+  model-facing field the header recorded, constrained_sampling included. One
+  header carries eight tools, one per certified constrained-sampling state
+  (spec/tools.md: absent, false, json_schema prefer/require, grammar with
+  openai_lark only, openai_regex only, both, and neither), each with nested
+  parameters and a distinct description. The reconstruction must return all
+  eight, in recorded order, with each state unchanged: false stays false and is
+  never read as absent, and a grammar keeps exactly the formats it had. A
+  reconstruction that drops, replaces or conflates the field shows up as a
+  missing or different key.
+steps:
+  - record_header:
+      components:
+        system_base: "you are a helpful assistant"
+      model: mock-1
+      tools:
+        - name: s-absent
+          description: "no constrained-sampling preference"
+          parameters:
+            type: object
+            properties:
+              text: { type: string }
+              opts:
+                type: object
+                properties:
+                  depth: { type: integer }
+            required: [text]
+        - name: s-false
+          description: "constrained sampling explicitly disabled"
+          parameters:
+            type: object
+            properties:
+              text: { type: string }
+            required: [text]
+          constrained_sampling: false
+        - name: s-json-prefer
+          description: "json_schema, prefer"
+          parameters:
+            type: object
+            properties:
+              count: { type: integer, minimum: 0 }
+          constrained_sampling: { type: json_schema, strict: prefer }
+        - name: s-json-require
+          description: "json_schema, require"
+          parameters:
+            type: object
+            properties:
+              count: { type: integer, minimum: 0 }
+          constrained_sampling: { type: json_schema, strict: require }
+        - name: s-grammar-lark
+          description: "grammar, openai_lark only"
+          parameters:
+            type: object
+            properties:
+              text: { type: string, enum: [a, b] }
+          constrained_sampling:
+            type: grammar
+            variants: { openai_lark: "start: WORD" }
+        - name: s-grammar-regex
+          description: "grammar, openai_regex only"
+          parameters:
+            type: object
+            properties:
+              text: { type: string }
+          constrained_sampling:
+            type: grammar
+            variants: { openai_regex: "[a-z]+" }
+        - name: s-grammar-both
+          description: "grammar, both formats"
+          parameters:
+            type: object
+            properties:
+              text: { type: string }
+          constrained_sampling:
+            type: grammar
+            variants: { openai_lark: "start: WORD", openai_regex: "[a-z]+" }
+        - name: s-grammar-neither
+          description: "grammar, neither format"
+          parameters:
+            type: object
+            properties: {}
+          constrained_sampling:
+            type: grammar
+            variants: {}
+expect_messages: []
+expect_reconstructed_header:
+  components:
+    system_base: "you are a helpful assistant"
+  tools:
+    - name: s-absent
+      description: "no constrained-sampling preference"
+      parameters:
+        type: object
+        properties:
+          text: { type: string }
+          opts:
+            type: object
+            properties:
+              depth: { type: integer }
+        required: [text]
+    - name: s-false
+      description: "constrained sampling explicitly disabled"
+      parameters:
+        type: object
+        properties:
+          text: { type: string }
+        required: [text]
+      constrained_sampling: false
+    - name: s-json-prefer
+      description: "json_schema, prefer"
+      parameters:
+        type: object
+        properties:
+          count: { type: integer, minimum: 0 }
+      constrained_sampling: { type: json_schema, strict: prefer }
+    - name: s-json-require
+      description: "json_schema, require"
+      parameters:
+        type: object
+        properties:
+          count: { type: integer, minimum: 0 }
+      constrained_sampling: { type: json_schema, strict: require }
+    - name: s-grammar-lark
+      description: "grammar, openai_lark only"
+      parameters:
+        type: object
+        properties:
+          text: { type: string, enum: [a, b] }
+      constrained_sampling:
+        type: grammar
+        variants: { openai_lark: "start: WORD" }
+    - name: s-grammar-regex
+      description: "grammar, openai_regex only"
+      parameters:
+        type: object
+        properties:
+          text: { type: string }
+      constrained_sampling:
+        type: grammar
+        variants: { openai_regex: "[a-z]+" }
+    - name: s-grammar-both
+      description: "grammar, both formats"
+      parameters:
+        type: object
+        properties:
+          text: { type: string }
+      constrained_sampling:
+        type: grammar
+        variants: { openai_lark: "start: WORD", openai_regex: "[a-z]+" }
+    - name: s-grammar-neither
+      description: "grammar, neither format"
+      parameters:
+        type: object
+        properties: {}
+      constrained_sampling:
+        type: grammar
+        variants: {}
+expect_artifact_count: 2

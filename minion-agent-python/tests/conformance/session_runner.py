@@ -31,7 +31,12 @@ from minion_agent.llm.messages import (
     text_of,
 )
 from minion_agent.llm.service import ModelId
-from minion_agent.llm.tools import ToolSchema
+from minion_agent.llm.tools import (
+    ConstrainedSampling,
+    GrammarConstrainedSampling,
+    JsonSchemaConstrainedSampling,
+    ToolSchema,
+)
 from minion_agent.llm.transform_messages import TargetModel, transform_messages
 from minion_agent.session.artifacts import ArtifactStore
 from minion_agent.session.derive import derive_messages, encode_message
@@ -45,6 +50,26 @@ _KIND = {
     "assistant": EventKind.ASSISTANT_MESSAGE,
     "tool_result": EventKind.TOOL_RESULT,
 }
+
+
+def _constrained_sampling(raw: Any) -> ConstrainedSampling | bool | None:
+    """A scenario's constrained-sampling input (absent, false or a config) as the real value."""
+    if raw is None or raw is False:
+        return raw
+    if raw["type"] == "json_schema":
+        return JsonSchemaConstrainedSampling(strict=raw["strict"])
+    variants = raw["variants"]
+    return GrammarConstrainedSampling(
+        openai_lark=variants.get("openai_lark"), openai_regex=variants.get("openai_regex")
+    )
+
+
+def _tool_observation(schema: ToolSchema) -> dict[str, Any]:
+    """The schema's own model-facing JSON, with an absent sampling preference omitted."""
+    observed = schema.as_json()
+    if observed["constrained_sampling"] is None:
+        del observed["constrained_sampling"]
+    return observed
 
 
 def _block(spec: dict[str, Any]) -> ContentBlock:
@@ -351,7 +376,10 @@ def run_session_scenario(document: dict[str, Any]) -> dict[str, Any]:
                 spec = step["record_header"]
                 tools = tuple(
                     ToolSchema(
-                        name=t["name"], description=t["description"], parameters=t["parameters"]
+                        name=t["name"],
+                        description=t["description"],
+                        parameters=t["parameters"],
+                        constrained_sampling=_constrained_sampling(t.get("constrained_sampling")),
                     )
                     for t in spec.get("tools", ())
                 )
@@ -394,10 +422,9 @@ def run_session_scenario(document: dict[str, Any]) -> dict[str, Any]:
         event, header_store = last_header
         result["reconstructed_header"] = {
             "components": reconstruct_header(event, header_store),
-            "tools": [
-                {"name": t.name, "description": t.description, "parameters": t.parameters}
-                for t in reconstruct_tools(event, header_store)
-            ],
+            # Every model-facing field of the real reconstructed schema, in the scenario's
+            # input form: absent sampling omits the key (L05-R006), as the input does (L03-D001).
+            "tools": [_tool_observation(t) for t in reconstruct_tools(event, header_store)],
         }
     if "transform_target" in document and error is None:
         # Session reconstruction feeds the real transform_messages() seam directly -- Session does

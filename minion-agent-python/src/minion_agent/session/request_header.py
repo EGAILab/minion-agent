@@ -15,8 +15,14 @@ recorded matches what we recorded".
 from __future__ import annotations
 
 import json
+from typing import Any, Literal
 
-from ..llm import ToolSchema
+from ..llm import (
+    ConstrainedSampling,
+    GrammarConstrainedSampling,
+    JsonSchemaConstrainedSampling,
+    ToolSchema,
+)
 from .artifacts import ArtifactStore
 from .events import EventKind, SessionEvent
 from .log import SessionLog
@@ -59,14 +65,49 @@ def reconstruct_header(event: SessionEvent, store: ArtifactStore) -> dict[str, s
     return {name: store.get(ref).decode("utf-8") for name, ref in references.items()}
 
 
+def _constrained_sampling(value: Any) -> ConstrainedSampling | Literal[False] | None:
+    """Invert `ToolSchema.as_json`'s `constrained_sampling` (`L03-D001`).
+
+    `null` and a missing key are both absent: headers recorded before Layer 05
+    added the field carry no key at all. Anything outside the four certified
+    states is rejected rather than read as absent -- dropping it would be the
+    same silent loss this function exists to stop.
+    """
+    if value is None or value is False:
+        return value
+    if isinstance(value, dict):
+        if value.keys() == {"type", "strict"} and value["type"] == "json_schema":
+            if value["strict"] == "prefer":
+                return JsonSchemaConstrainedSampling(strict="prefer")
+            if value["strict"] == "require":
+                return JsonSchemaConstrainedSampling(strict="require")
+        if value.keys() == {"type", "variants"} and value["type"] == "grammar":
+            variants = value["variants"]
+            if (
+                isinstance(variants, dict)
+                and variants.keys() <= {"openai_lark", "openai_regex"}
+                and all(isinstance(text, str) for text in variants.values())
+            ):
+                return GrammarConstrainedSampling(
+                    openai_lark=variants.get("openai_lark"),
+                    openai_regex=variants.get("openai_regex"),
+                )
+    raise ValueError(f"stored constrained_sampling is not a certified state: {value!r}")
+
+
 def reconstruct_tools(event: SessionEvent, store: ArtifactStore) -> tuple[ToolSchema, ...]:
-    """Resolve a logged header's tool reference back to its schemas."""
+    """Resolve a logged header's tool reference back to its schemas.
+
+    Every model-facing field comes back, `constrained_sampling` included, so a
+    reconstructed schema equals the one recorded (`L03-D001`).
+    """
     raw = json.loads(store.get(event.data["tools"]).decode("utf-8"))
     return tuple(
         ToolSchema(
             name=entry["name"],
             description=entry["description"],
             parameters=entry["parameters"],
+            constrained_sampling=_constrained_sampling(entry.get("constrained_sampling")),
         )
         for entry in raw
     )

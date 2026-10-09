@@ -5692,7 +5692,7 @@ rows:
   phase: 2
   pi: N/A — Minion artifact architecture
   surface: content-addressed immutable request artifacts
-  rule: 'stronger storage representation; identical model-visible bytes. L03-D001 (contract APPROVED and merged; implementation candidate, minion-agent#174;
+  rule: 'stronger storage representation; identical model-visible bytes. L03-D001 (CERTIFIED and cross-language closed, minion-agent#174;
     Owner decision on L08D002-R002, minion-agent#171 issuecomment-6071887505): reconstructing a
     request header''s tool schemas returns every model-facing field recorded, constrained_sampling included -- all
     four states (absent, false, json_schema prefer/require, grammar with any subset of openai_lark/openai_regex),
@@ -5706,10 +5706,12 @@ rows:
   - request-header-tools-sampling-false-is-not-absent
   - minion-agent-python/tests/session/test_request_header_tools.py (8-state round trips, historical entry, 13 malformed
     shapes, stored-form hash pin); tests/agent_loop/test_request_tools.py (real provider-request witness)
-  python: 'src/minion_agent/session/artifacts (retain). L03-D001 implementation candidate:
+  python: 'src/minion_agent/session/artifacts (retain). L03-D001 CERTIFIED (Codex implementation review 1 APPROVED,
+    #174 issuecomment-6072735798; #178 @ a4e60580 merged as 9b91dad8, docs #270 merged as 09c8c499):
     src/minion_agent/session/request_header.py::reconstruct_tools (private constrained_sampling decoder).'
-  rust: 'Phase 2 artifact store. L03-D001: no production change (typed serde ToolSchema already round-trips every
-    state); tests/session_conformance.rs scenario counts 20 -> 22 pending (Rust owner).'
+  rust: 'Phase 2 artifact store. L03-D001: conforms with no production change (typed serde ToolSchema round-trips every
+    state); tests/session_conformance.rs runs all 22 Session scenarios (#179 @ ce38fdf5 merged as f8a68702, Claude
+    review #174 issuecomment-6072903044).'
   disposition: intentional divergence
 - id: HAR-001
   phase: 7

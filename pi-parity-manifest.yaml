@@ -6360,8 +6360,10 @@ rows:
     unchanged; a concurrently vanished entry counts as removed; POSIX permission semantics unchanged; non-recursive directory
     remove stays with #125. spec/execution.md section 17. conformance/agent/fs-remove-readonly/
     (fs-remove-readonly-scenario.schema.json; 21 cases generated from pinned Pi on Windows and Linux);
-    tests/conformance/test_fs_remove_readonly_conformance.py. Python fails the read-only cases (strict xfail at
-    the contract stage); Rust fails the read-only directory cases.'
+    tests/conformance/test_fs_remove_readonly_conformance.py, plus binding concurrency witnesses
+    tests/execution/test_filesystem_readonly_remove.py. Python implements it (own-entry read-only attribute
+    cleared through a FILE_FLAG_OPEN_REPARSE_POINT handle, one retry); Rust fails the read-only directory
+    cases (pending).'
   python: 'minion-agent-python/src/minion_agent/execution/filesystem.py; integration evidence in
     minion-agent-python/tests/execution/test_filesystem.py. L12-D004 (minion-agent#163; PI_PARITY_DEFECT,
     Owner-authorized targeted correction; independently approved, merged at #162 -> 5477eaeb): canonical_path

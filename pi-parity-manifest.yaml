@@ -5724,7 +5724,7 @@ rows:
     one fs-origin diagnostic, depth and code host-defined. DIV-005 for invalid ignore paths (row HAR-001-DIV-005).'
   tests:
   - conformance/agent/skill-discovery/ (shape skill-discovery-scenario.schema.json; 96 cases)
-  python: 'Implementation candidate (WP-14.1, minion-agent#161): minion-agent-python/src/minion_agent/skills/ (discovery.py, _frontmatter.py, _ignore.py).'
+  python: 'CERTIFIED (WP-14.1; minion-agent#158 issuecomment-6061090810, Codex complete final review 3, APPROVED): code #161 @ 9f4da713 merged as 97ec5687; docs #258 @ 76f12da8 merged as 6ec91692. minion-agent-python/src/minion_agent/skills/ (discovery.py, _frontmatter.py, _ignore.py).'
   rust: 'CERTIFIED (WP-14.1; minion-agent#158 issuecomment-6072026200, independent Claude approval): code #173 @ ba6c2a022e017b4d2520f5c537fedb2221c10ef9 merged as d37171d716fe8fc44b5c16fec9c69705f8c74760; docs #267 @ a71f98d5943efde7419f4771923d3372d2d734bc merged as 2420ff378cbfbdc105ea52ff02e5ec9a78cfb46d. minion-agent-rust/crates/minion-agent/src/skills/; tests/skill_discovery.rs; shared frontmatter/ignore corpus unit tests; scripts/wp141_negative_controls.py. Assurance: assurance/layers/14-wp141-rust-implementation.md. Certification status-sync closure review pending; cross-language WP-14.1 not yet closed.'
   disposition: adopted
 - id: HAR-001-DIV-005
@@ -5739,7 +5739,7 @@ rows:
   tests:
   - conformance/agent/skill-discovery/skills-r0*.json (divergences DIV-005; Pi rejection kept in minion-agent-docs
     assurance/layers/data/14-wp141/out-linux.json)
-  python: 'Implementation candidate (WP-14.1, minion-agent#161): minion-agent-python/src/minion_agent/skills/ (discovery.py, _frontmatter.py, _ignore.py).'
+  python: 'CERTIFIED (WP-14.1; minion-agent#158 issuecomment-6061090810, Codex complete final review 3, APPROVED): code #161 @ 9f4da713 merged as 97ec5687; docs #258 @ 76f12da8 merged as 6ec91692. minion-agent-python/src/minion_agent/skills/ (discovery.py, _frontmatter.py, _ignore.py).'
   rust: 'CERTIFIED (WP-14.1; minion-agent#158 issuecomment-6072026200, independent Claude approval): code #173 @ ba6c2a022e017b4d2520f5c537fedb2221c10ef9 merged as d37171d716fe8fc44b5c16fec9c69705f8c74760; docs #267 @ a71f98d5943efde7419f4771923d3372d2d734bc merged as 2420ff378cbfbdc105ea52ff02e5ec9a78cfb46d. minion-agent-rust/crates/minion-agent/src/skills/; tests/skill_discovery.rs; shared frontmatter/ignore corpus unit tests; scripts/wp141_negative_controls.py. Assurance: assurance/layers/14-wp141-rust-implementation.md. Certification status-sync closure review pending; cross-language WP-14.1 not yet closed.'
   disposition: intentional divergence
 - id: HAR-002
@@ -5893,7 +5893,7 @@ rows:
   tests:
   - conformance/agent/skill-discovery/ (shape skill-discovery-scenario.schema.json; 96 cases)
   - minion-agent-docs assurance/layers/data/14-wp141/subset-diff.mjs (1,500,000 generated / 1,374,031 distinct inputs soundness fuzz), fuzz-controls.mjs, subset-realistic.mjs
-  python: 'Implementation candidate (WP-14.1, minion-agent#161): minion-agent-python/src/minion_agent/skills/ (discovery.py, _frontmatter.py, _ignore.py).'
+  python: 'CERTIFIED (WP-14.1; minion-agent#158 issuecomment-6061090810, Codex complete final review 3, APPROVED): code #161 @ 9f4da713 merged as 97ec5687; docs #258 @ 76f12da8 merged as 6ec91692. minion-agent-python/src/minion_agent/skills/ (discovery.py, _frontmatter.py, _ignore.py).'
   rust: 'CERTIFIED (WP-14.1; minion-agent#158 issuecomment-6072026200, independent Claude approval): code #173 @ ba6c2a022e017b4d2520f5c537fedb2221c10ef9 merged as d37171d716fe8fc44b5c16fec9c69705f8c74760; docs #267 @ a71f98d5943efde7419f4771923d3372d2d734bc merged as 2420ff378cbfbdc105ea52ff02e5ec9a78cfb46d. minion-agent-rust/crates/minion-agent/src/skills/; tests/skill_discovery.rs; shared frontmatter/ignore corpus unit tests; scripts/wp141_negative_controls.py. Assurance: assurance/layers/14-wp141-rust-implementation.md. Certification status-sync closure review pending; cross-language WP-14.1 not yet closed.'
   disposition: adopted
 - id: HAR-010-DIV-004
@@ -5909,7 +5909,7 @@ rows:
   tests:
   - conformance/agent/skill-discovery/skills-{f04,f05,v04,y01,y03}-*.json (divergences DIV-004 / PP-14-1; Pi results
     kept in minion-agent-docs assurance/layers/data/14-wp141/out-linux.json)
-  python: 'Implementation candidate (WP-14.1, minion-agent#161): minion-agent-python/src/minion_agent/skills/ (discovery.py, _frontmatter.py, _ignore.py).'
+  python: 'CERTIFIED (WP-14.1; minion-agent#158 issuecomment-6061090810, Codex complete final review 3, APPROVED): code #161 @ 9f4da713 merged as 97ec5687; docs #258 @ 76f12da8 merged as 6ec91692. minion-agent-python/src/minion_agent/skills/ (discovery.py, _frontmatter.py, _ignore.py).'
   rust: 'CERTIFIED (WP-14.1; minion-agent#158 issuecomment-6072026200, independent Claude approval): code #173 @ ba6c2a022e017b4d2520f5c537fedb2221c10ef9 merged as d37171d716fe8fc44b5c16fec9c69705f8c74760; docs #267 @ a71f98d5943efde7419f4771923d3372d2d734bc merged as 2420ff378cbfbdc105ea52ff02e5ec9a78cfb46d. minion-agent-rust/crates/minion-agent/src/skills/; tests/skill_discovery.rs; shared frontmatter/ignore corpus unit tests; scripts/wp141_negative_controls.py. Assurance: assurance/layers/14-wp141-rust-implementation.md. Certification status-sync closure review pending; cross-language WP-14.1 not yet closed.'
   disposition: intentional divergence
 - id: HAR-010-DIV-007
@@ -5927,7 +5927,7 @@ rows:
     DIV-007; Pi acceptance recorded in assurance/layers/data/14-wp141/out-*.json)
   - minion-agent-python/tests/skills/test_discovery.py (63/64/65 boundaries, sequences, 100/500, lifted-bound
     containment)
-  python: 'Implementation candidate (WP-14.1, minion-agent#161).'
+  python: 'CERTIFIED (WP-14.1; minion-agent#158 issuecomment-6061090810, Codex complete final review 3, APPROVED): code #161 @ 9f4da713 merged as 97ec5687; docs #258 @ 76f12da8 merged as 6ec91692. minion-agent-python/src/minion_agent/skills/ (discovery.py, _frontmatter.py, _ignore.py).'
   rust: 'CERTIFIED (WP-14.1; minion-agent#158 issuecomment-6072026200, independent Claude approval): code #173 @ ba6c2a022e017b4d2520f5c537fedb2221c10ef9 merged as d37171d716fe8fc44b5c16fec9c69705f8c74760; docs #267 @ a71f98d5943efde7419f4771923d3372d2d734bc merged as 2420ff378cbfbdc105ea52ff02e5ec9a78cfb46d. minion-agent-rust/crates/minion-agent/src/skills/; tests/skill_discovery.rs; shared frontmatter/ignore corpus unit tests; scripts/wp141_negative_controls.py. Assurance: assurance/layers/14-wp141-rust-implementation.md. Certification status-sync closure review pending; cross-language WP-14.1 not yet closed.'
   disposition: intentional divergence
 - id: HAR-011
@@ -5941,7 +5941,7 @@ rows:
     DIV-006 for patterns whose RegExp pinned ignore rejects (row HAR-011-DIV-006).'
   tests:
   - conformance/agent/skill-discovery/ (shape skill-discovery-scenario.schema.json; 96 cases)
-  python: 'Implementation candidate (WP-14.1, minion-agent#161): minion-agent-python/src/minion_agent/skills/ (discovery.py, _frontmatter.py, _ignore.py).'
+  python: 'CERTIFIED (WP-14.1; minion-agent#158 issuecomment-6061090810, Codex complete final review 3, APPROVED): code #161 @ 9f4da713 merged as 97ec5687; docs #258 @ 76f12da8 merged as 6ec91692. minion-agent-python/src/minion_agent/skills/ (discovery.py, _frontmatter.py, _ignore.py).'
   rust: 'CERTIFIED (WP-14.1; minion-agent#158 issuecomment-6072026200, independent Claude approval): code #173 @ ba6c2a022e017b4d2520f5c537fedb2221c10ef9 merged as d37171d716fe8fc44b5c16fec9c69705f8c74760; docs #267 @ a71f98d5943efde7419f4771923d3372d2d734bc merged as 2420ff378cbfbdc105ea52ff02e5ec9a78cfb46d. minion-agent-rust/crates/minion-agent/src/skills/; tests/skill_discovery.rs; shared frontmatter/ignore corpus unit tests; scripts/wp141_negative_controls.py. Assurance: assurance/layers/14-wp141-rust-implementation.md. Certification status-sync closure review pending; cross-language WP-14.1 not yet closed.'
   disposition: adopted
 - id: HAR-011-DIV-006
@@ -5960,7 +5960,7 @@ rows:
   - conformance/agent/skill-discovery/skills-i10-*.json, skills-i11-*.json (divergences DIV-006), skills-i12-*.json
     (positive control, identical to Pi)
   - minion-agent-python/tests/skills (positive, negative and mixed-pattern regressions)
-  python: 'Implementation candidate (WP-14.1, minion-agent#161).'
+  python: 'CERTIFIED (WP-14.1; minion-agent#158 issuecomment-6061090810, Codex complete final review 3, APPROVED): code #161 @ 9f4da713 merged as 97ec5687; docs #258 @ 76f12da8 merged as 6ec91692. minion-agent-python/src/minion_agent/skills/ (discovery.py, _frontmatter.py, _ignore.py).'
   rust: 'CERTIFIED (WP-14.1; minion-agent#158 issuecomment-6072026200, independent Claude approval): code #173 @ ba6c2a022e017b4d2520f5c537fedb2221c10ef9 merged as d37171d716fe8fc44b5c16fec9c69705f8c74760; docs #267 @ a71f98d5943efde7419f4771923d3372d2d734bc merged as 2420ff378cbfbdc105ea52ff02e5ec9a78cfb46d. minion-agent-rust/crates/minion-agent/src/skills/; tests/skill_discovery.rs; shared frontmatter/ignore corpus unit tests; scripts/wp141_negative_controls.py. Assurance: assurance/layers/14-wp141-rust-implementation.md. Certification status-sync closure review pending; cross-language WP-14.1 not yet closed.'
   disposition: intentional divergence
 - id: HAR-012
@@ -5973,7 +5973,7 @@ rows:
     Minion-defined; fs-origin messages are ctx.fs FsError.message, non-normative (PP-14-8).'
   tests:
   - conformance/agent/skill-discovery/ (shape skill-discovery-scenario.schema.json; 96 cases)
-  python: 'Implementation candidate (WP-14.1, minion-agent#161): minion-agent-python/src/minion_agent/skills/ (discovery.py, _frontmatter.py, _ignore.py).'
+  python: 'CERTIFIED (WP-14.1; minion-agent#158 issuecomment-6061090810, Codex complete final review 3, APPROVED): code #161 @ 9f4da713 merged as 97ec5687; docs #258 @ 76f12da8 merged as 6ec91692. minion-agent-python/src/minion_agent/skills/ (discovery.py, _frontmatter.py, _ignore.py).'
   rust: 'CERTIFIED (WP-14.1; minion-agent#158 issuecomment-6072026200, independent Claude approval): code #173 @ ba6c2a022e017b4d2520f5c537fedb2221c10ef9 merged as d37171d716fe8fc44b5c16fec9c69705f8c74760; docs #267 @ a71f98d5943efde7419f4771923d3372d2d734bc merged as 2420ff378cbfbdc105ea52ff02e5ec9a78cfb46d. minion-agent-rust/crates/minion-agent/src/skills/; tests/skill_discovery.rs; shared frontmatter/ignore corpus unit tests; scripts/wp141_negative_controls.py. Assurance: assurance/layers/14-wp141-rust-implementation.md. Certification status-sync closure review pending; cross-language WP-14.1 not yet closed.'
   disposition: adopted
 - id: HAR-013
@@ -5987,7 +5987,7 @@ rows:
     are within Layer 12''s certified path domain (#133 exclusions unchanged). WP-14.2 consumes this shape.'
   tests:
   - conformance/agent/skill-discovery/ (shape skill-discovery-scenario.schema.json; 96 cases)
-  python: 'Implementation candidate (WP-14.1, minion-agent#161): minion-agent-python/src/minion_agent/skills/ (discovery.py, _frontmatter.py, _ignore.py).'
+  python: 'CERTIFIED (WP-14.1; minion-agent#158 issuecomment-6061090810, Codex complete final review 3, APPROVED): code #161 @ 9f4da713 merged as 97ec5687; docs #258 @ 76f12da8 merged as 6ec91692. minion-agent-python/src/minion_agent/skills/ (discovery.py, _frontmatter.py, _ignore.py).'
   rust: 'CERTIFIED (WP-14.1; minion-agent#158 issuecomment-6072026200, independent Claude approval): code #173 @ ba6c2a022e017b4d2520f5c537fedb2221c10ef9 merged as d37171d716fe8fc44b5c16fec9c69705f8c74760; docs #267 @ a71f98d5943efde7419f4771923d3372d2d734bc merged as 2420ff378cbfbdc105ea52ff02e5ec9a78cfb46d. minion-agent-rust/crates/minion-agent/src/skills/; tests/skill_discovery.rs; shared frontmatter/ignore corpus unit tests; scripts/wp141_negative_controls.py. Assurance: assurance/layers/14-wp141-rust-implementation.md. Certification status-sync closure review pending; cross-language WP-14.1 not yet closed.'
   disposition: adopted
 - id: EXEC-001

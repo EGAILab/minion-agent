@@ -14,8 +14,6 @@ so these witnesses do not depend on `L03-D001`.
 import json
 from typing import Any
 
-import pytest
-
 from minion_agent.agent.events import AGENT_TRANSFORM_CONTEXT
 from minion_agent.llm import StopReason, ToolCallBlock
 from minion_agent.llm.adapters.mock import ScriptedResponse
@@ -127,9 +125,6 @@ async def test_header_and_request_carry_the_same_complete_schemas_in_order() -> 
     assert _stored_tools(loop) == _sent_tools(adapter)
 
 
-@pytest.mark.xfail(
-    strict=True, reason="L08D002-R003: Python schema value snapshot pending implementation"
-)
 async def test_a_transform_time_mutation_reaches_neither_the_published_header_nor_its_request() -> (
     None
 ):

@@ -1453,6 +1453,342 @@ mod tests {
     }
 
     #[test]
+    fn wp142_composer_publishes_exact_prompt_and_retained_configuration() {
+        run(async {
+            use crate::{
+                skills::Skill,
+                system_prompt::{
+                    PromptConfiguration, SystemPromptComposer, format_skill_invocation,
+                    format_skills_block,
+                },
+            };
+            use parking_lot::RwLock;
+            let runtime = Runtime::new();
+            let read = tool("read")
+                .with_prompt_snippet(" \u{feff}read\nfiles ")
+                .with_prompt_guidelines(vec![" obey \u{feff}".into()]);
+            let _registration = runtime
+                .tools()
+                .register_for_scope(None, read.clone())
+                .unwrap();
+            let retained = Arc::new(RwLock::new(Skill {
+                name: "astral😀".into(),
+                description: "<description>&".into(),
+                content: "body😀".into(),
+                file_path: "C:\\skills\\😀\\SKILL.md".into(),
+                disable_model_invocation: false,
+            }));
+            let mut supplied = PromptConfiguration {
+                skills: vec![retained.clone()],
+                tools_section: true,
+                sections: vec!["contributed😀".into()],
+            };
+            let composer = Arc::new(SystemPromptComposer::new(&supplied));
+            supplied.skills.clear();
+            supplied.sections.clear();
+            let adapter = Arc::new(ScriptedAdapter::new([
+                text_turn("a"),
+                text_turn("b"),
+                text_turn("c"),
+            ]));
+            let llm = Arc::new(LlmService::new());
+            llm.register(identity(), adapter.clone());
+            let session = Session::new("wp142-persistence", [] as [&str; 0]).unwrap();
+            let (mut driver, agent) = loop_for_with_llm(&runtime, session.clone(), llm);
+            driver.set_prompt_assembler(Some(composer.clone()));
+            let invocation = format_skill_invocation(&retained.read(), Some("additional😀"));
+            driver
+                .prompt(PromptInput::Message(user(&invocation)))
+                .await
+                .unwrap();
+            let expected_first = format!(
+                "system\n\nAvailable tools:\n- read: read files\n\nGuidelines:\n- obey\n\ncontributed😀\n\n{}",
+                format_skills_block(&[retained.read().clone()])
+            );
+            assert_eq!(
+                adapter.requests()[0].context.system_prompt.as_deref(),
+                Some(expected_first.as_str())
+            );
+            retained.write().description = "changed retained record".into();
+            driver
+                .prompt(PromptInput::Message(user("next")))
+                .await
+                .unwrap();
+            assert!(
+                adapter.requests()[1]
+                    .context
+                    .system_prompt
+                    .as_ref()
+                    .unwrap()
+                    .contains("changed retained record")
+            );
+            composer.replace_configuration(&PromptConfiguration {
+                skills: vec![retained.clone()],
+                tools_section: false,
+                sections: vec!["replacement".into()],
+            });
+            driver
+                .prompt(PromptInput::Message(user("replacement")))
+                .await
+                .unwrap();
+            let expected_last = format!(
+                "system\n\nreplacement\n\n{}",
+                format_skills_block(&[retained.read().clone()])
+            );
+            assert_eq!(
+                adapter.requests()[2].context.system_prompt.as_deref(),
+                Some(expected_last.as_str())
+            );
+            let requests = adapter.requests();
+            let events = session.events();
+            let headers: Vec<_> = events
+                .iter()
+                .filter(|event| event.kind.as_str() == "request/header")
+                .collect();
+            assert_eq!(headers.len(), 3);
+            for (header, request) in headers.into_iter().zip(&requests) {
+                let reconstructed = session.reconstruct_header(header).unwrap();
+                assert_eq!(
+                    Some(reconstructed.assembled_system),
+                    request.context.system_prompt
+                );
+                assert_eq!(
+                    reconstructed.tools,
+                    *request.context.tools.as_ref().unwrap()
+                );
+                assert!(
+                    !serde_json::to_string(&reconstructed.tools)
+                        .unwrap()
+                        .contains("prompt_snippet")
+                );
+            }
+            assert!(
+                session
+                    .derive_messages()
+                    .unwrap()
+                    .iter()
+                    .any(|message| message == &user(&invocation))
+            );
+            let stored = events
+                .iter()
+                .find(|event| event.kind.as_str() == "user/message")
+                .unwrap()
+                .data
+                .get("message")
+                .unwrap()
+                .as_message()
+                .unwrap();
+            let reloaded: Message =
+                serde_json::from_str(&serde_json::to_string(stored).unwrap()).unwrap();
+            let replay = Session::new("wp142-invocation-reload", [] as [&str; 0]).unwrap();
+            replay.append_message(reloaded).unwrap();
+            assert_eq!(replay.derive_messages().unwrap(), vec![user(&invocation)]);
+            assert_eq!(agent.system_prompt(), "system");
+        });
+    }
+
+    #[test]
+    fn wp142_composer_follows_growth_and_replacement_not_live_registry() {
+        run(async {
+            use crate::system_prompt::{PromptConfiguration, SystemPromptComposer};
+            let runtime = Runtime::new();
+            let echo = ToolDefinition::new(
+                "echo",
+                "echo",
+                serde_json::from_value(json!({})).unwrap(),
+                "echo",
+                |_| {
+                    Box::pin(async {
+                        Ok(AgentToolResult {
+                            content: vec![],
+                            details: Value::Null.into(),
+                            usage: None,
+                            added_tool_names: Some(vec!["read".into()]),
+                            terminate: None,
+                        })
+                    })
+                },
+            );
+            let _echo = runtime.tools().register_for_scope(None, echo).unwrap();
+            let adapter = Arc::new(ScriptedAdapter::new([
+                text_turn("a"),
+                text_turn("b"),
+                text_turn("c"),
+            ]));
+            let llm = Arc::new(LlmService::new());
+            llm.register(identity(), adapter.clone());
+            let composer = Arc::new(SystemPromptComposer::new(&PromptConfiguration {
+                tools_section: true,
+                ..PromptConfiguration::default()
+            }));
+            let (mut driver, _) = loop_for_with_llm(
+                &runtime,
+                Session::new("wp142-snapshot", [] as [&str; 0]).unwrap(),
+                llm,
+            );
+            driver.set_prompt_assembler(Some(composer));
+            let mut prepared = driver
+                .prepare_prompt_run(PromptInput::Message(user("q")))
+                .await
+                .unwrap();
+            let _late = runtime
+                .tools()
+                .register_for_scope(None, tool("late").with_prompt_snippet("must not leak"))
+                .unwrap();
+            driver.run_provider_turn(&mut prepared).await.unwrap();
+            assert_eq!(
+                adapter.requests()[0].context.system_prompt.as_deref(),
+                Some("system")
+            );
+            let _read = runtime
+                .tools()
+                .register_for_scope(None, tool("read").with_prompt_snippet("growth"))
+                .unwrap();
+            let assistant = AssistantMessage::new(
+                identity(),
+                vec![AssistantContentBlock::ToolCall(ToolCall::new(
+                    "grow",
+                    "echo",
+                    BTreeMap::new(),
+                ))],
+                Usage::default(),
+                StopReason::ToolUse,
+                2.0,
+            );
+            driver
+                .run_tool_calls(&mut prepared, &assistant)
+                .await
+                .unwrap();
+            driver.run_provider_turn(&mut prepared).await.unwrap();
+            assert_eq!(
+                adapter.requests()[1].context.system_prompt.as_deref(),
+                Some("system\n\nAvailable tools:\n- read: growth")
+            );
+            prepared.context.system_prompt = "replaced base".into();
+            prepared.context.tools = vec![Arc::new(
+                tool("replacement").with_prompt_snippet("replacement"),
+            )];
+            driver.run_provider_turn(&mut prepared).await.unwrap();
+            assert_eq!(
+                adapter.requests()[2].context.system_prompt.as_deref(),
+                Some("replaced base\n\nAvailable tools:\n- replacement: replacement")
+            );
+            let requests = adapter.requests();
+            for request in requests {
+                let names: Vec<_> = request
+                    .context
+                    .tools
+                    .unwrap()
+                    .into_iter()
+                    .map(|schema| schema.name)
+                    .collect();
+                assert!(!names.iter().any(|name| name == "late"));
+            }
+        });
+    }
+
+    #[test]
+    fn wp142_prepare_next_turn_replaces_one_configuration_and_tool_snapshot() {
+        run(async {
+            use crate::{
+                skills::Skill,
+                system_prompt::{PromptConfiguration, SystemPromptComposer, format_skills_block},
+            };
+            use parking_lot::RwLock;
+            let runtime = Runtime::new();
+            let _echo = runtime
+                .tools()
+                .register_for_scope(None, tool("echo"))
+                .unwrap();
+            let skill = Arc::new(RwLock::new(Skill {
+                name: "skill".into(),
+                description: "original".into(),
+                content: "body".into(),
+                file_path: "/skill/SKILL.md".into(),
+                disable_model_invocation: false,
+            }));
+            let composer = Arc::new(SystemPromptComposer::new(&PromptConfiguration {
+                skills: vec![skill.clone()],
+                tools_section: true,
+                sections: vec!["old section".into()],
+            }));
+            let changed = composer.clone();
+            let changed_skill = skill.clone();
+            let plugin = decision_plugin(
+                move |current| {
+                    changed_skill.write().description = "new description".into();
+                    changed.replace_configuration(&PromptConfiguration {
+                        skills: vec![changed_skill.clone()],
+                        tools_section: true,
+                        sections: vec!["new section".into()],
+                    });
+                    let mut context = current.context;
+                    context.system_prompt = "new base".into();
+                    context.tools = vec![Arc::new(tool("read").with_prompt_snippet("new snippet"))];
+                    RunConfigUpdate {
+                        context: Some(context),
+                        ..RunConfigUpdate::default()
+                    }
+                },
+                |_| TurnStopping::Continue,
+            );
+            runtime.mount(&plugin, json!({})).unwrap();
+            runtime.reconcile().await.unwrap();
+            let adapter = Arc::new(ScriptedAdapter::new([
+                tool_turn("first", "echo"),
+                text_turn("done"),
+            ]));
+            let llm = Arc::new(LlmService::new());
+            llm.register(identity(), adapter.clone());
+            let session = Session::new("wp142-next-turn", [] as [&str; 0]).unwrap();
+            let (mut driver, agent) = loop_for_with_llm(&runtime, session.clone(), llm);
+            driver.set_prompt_assembler(Some(composer));
+            driver
+                .prompt(PromptInput::Message(user("question")))
+                .await
+                .unwrap();
+            let requests = adapter.requests();
+            assert_eq!(requests.len(), 2);
+            assert_eq!(
+                requests[0].context.system_prompt.as_deref(),
+                Some("system\n\nold section")
+            );
+            assert_eq!(
+                requests[1].context.system_prompt,
+                Some(format!(
+                    "new base\n\nAvailable tools:\n- read: new snippet\n\nnew section\n\n{}",
+                    format_skills_block(&[skill.read().clone()])
+                ))
+            );
+            assert_eq!(
+                requests[1]
+                    .context
+                    .tools
+                    .as_ref()
+                    .unwrap()
+                    .iter()
+                    .map(|schema| schema.name.as_str())
+                    .collect::<Vec<_>>(),
+                vec!["read"]
+            );
+            for (header, request) in session
+                .events()
+                .iter()
+                .filter(|event| event.kind.as_str() == "request/header")
+                .zip(requests)
+            {
+                let reconstructed = session.reconstruct_header(header).unwrap();
+                assert_eq!(
+                    Some(reconstructed.assembled_system),
+                    request.context.system_prompt
+                );
+                assert_eq!(reconstructed.tools, request.context.tools.unwrap());
+            }
+            assert_eq!(agent.system_prompt(), "system");
+        });
+    }
+
+    #[test]
     fn prompt_assembler_empty_override_bypasses_callback() {
         run(async {
             let runtime = Runtime::new();

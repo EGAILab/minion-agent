@@ -114,6 +114,9 @@ async def test_agent_scenario(scenario: Path) -> None:
     if "expect_headers" in document:
         assert outcome["headers"] == document["expect_headers"]
 
+    if "expect_request_schemas" in document:
+        assert outcome["request_schemas"] == document["expect_request_schemas"]
+
     if "expect_request_tools" in document:
         assert outcome["request_tools"] == document["expect_request_tools"]
 

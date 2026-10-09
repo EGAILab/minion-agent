@@ -39,15 +39,22 @@ expect_headers:
   - system_base
   model: mock-1
   tools:
-  - echo
+  - &id001
+    name: echo
+    description: echo
+    parameters:
+      type: object
+      properties: {}
 - system: base
   components:
   - system_base
   model: mock-1
   tools:
-  - echo
+  - *id001
 expect_request_tools:
 - - echo
+expect_request_schemas:
+- - *id001
 expect_assistant_stop_reasons:
 - tool_use
 - error

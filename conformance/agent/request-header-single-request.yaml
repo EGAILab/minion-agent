@@ -20,3 +20,5 @@ expect_headers:
   - system_base
   model: mock-1
   tools: []
+expect_request_schemas:
+- []

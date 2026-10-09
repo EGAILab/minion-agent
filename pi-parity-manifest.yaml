@@ -2455,10 +2455,20 @@ rows:
     logged and the system text, model and schemas are final, before transformContext and the provider call: a
     failure before that point (assembler, schema computation, pre-step Reject) records none; a later failure
     (transformContext, eager unknown model, provider error/abort) keeps it. Log-only; no new format, store or API;
-    historical logs unchanged. Python already conforms; Rust gains the integration.'
+    historical logs unchanged. Python already conforms; Rust gains the integration. Remediation 1 (contract review 1,
+    #171): the header and the provider request carry one schema value snapshot taken at publication (L08D002-R003,
+    Owner decision #171 issuecomment-6071887505) -- every model-facing field, nested parameters independent of
+    application-owned objects; a later request may see a later mutation; run-start shallow snapshot and Layer 05/07/03
+    semantics unchanged. Headers and requests are observed as complete schemas (L08D002-R001); constrained_sampling
+    reconstruction is L03-D001 (#174), a dependency.'
   tests:
-  - conformance/agent/request-header-*.yaml (expect_request_log, expect_headers; agent-scenario.schema.json)
-  python: 'Conforms (pre-existing driver integration; runner support in tests/conformance/agent_runner.py).'
+  - conformance/agent/request-header-*.yaml (expect_request_log, expect_headers with complete schemas, expect_request_schemas;
+    agent-scenario.schema.json); request-header-full-schema-identity (two ordered tools, nested parameters, sampling)
+  - minion-agent-python/tests/agent_loop/test_request_schema_snapshot.py (R003 transform-time mutation witness; strict
+    xfail until the Python snapshot correction lands)
+  python: 'Conforms on header presence/timing (pre-existing driver integration; runner support in
+    tests/conformance/agent_runner.py). Needs the R003 schema value snapshot (narrow driver correction, after contract
+    approval) and L03-D001 for constrained_sampling reconstruction.'
   rust: 'NOT_IMPLEMENTED (L08-D002 contract draft; the certified Rust driver records no request header).'
   disposition: adopted
 - id: AG-011

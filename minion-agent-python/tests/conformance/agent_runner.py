@@ -40,6 +40,12 @@ from minion_agent.llm import (
 from minion_agent.llm.adapters.mock import MockAdapter, ScriptedResponse
 from minion_agent.llm.messages import StopReason, Usage
 from minion_agent.llm.plugin import llm_plugin
+from minion_agent.llm.tools import (
+    ConstrainedSampling,
+    GrammarConstrainedSampling,
+    JsonSchemaConstrainedSampling,
+    ToolSchema,
+)
 from minion_agent.runtime import Context
 from minion_agent.session import EventKind, derive_messages, reconstruct_header, reconstruct_tools
 from minion_agent.session.service import session_plugin
@@ -399,6 +405,26 @@ def _request_log(log: Any) -> list[str]:
     return [_REQUEST_LOG_KINDS[e.kind] for e in log.events if e.kind in _REQUEST_LOG_KINDS]
 
 
+def _constrained_sampling(raw: Any) -> ConstrainedSampling | bool | None:
+    """A scenario's constrained-sampling input (absent, false or a config) as the real value."""
+    if raw is None or raw is False:
+        return raw
+    if raw["type"] == "json_schema":
+        return JsonSchemaConstrainedSampling(strict=raw["strict"])
+    variants = raw["variants"]
+    return GrammarConstrainedSampling(
+        openai_lark=variants.get("openai_lark"), openai_regex=variants.get("openai_regex")
+    )
+
+
+def _schema_observation(schema: ToolSchema) -> dict[str, Any]:
+    """L08D002-R001: a real schema's own model-facing JSON, absent sampling omitted."""
+    observed = schema.as_json()
+    if observed["constrained_sampling"] is None:
+        del observed["constrained_sampling"]
+    return observed
+
+
 def _header(event: Any, store: Any) -> dict[str, Any]:
     """L08-D002: one request/header reconstructed through the real Session artifact store."""
     components = reconstruct_header(event, store)
@@ -406,7 +432,7 @@ def _header(event: Any, store: Any) -> dict[str, Any]:
         "system": components.get("system_base"),
         "components": sorted(components),
         "model": event.data["model"],
-        "tools": [tool.name for tool in reconstruct_tools(event, store)],
+        "tools": [_schema_observation(tool) for tool in reconstruct_tools(event, store)],
     }
 
 
@@ -506,8 +532,9 @@ async def run_agent_scenario(document: dict[str, Any]) -> dict[str, Any]:
         ctx.tools.register(
             ToolDefinition(
                 name=name,
-                description=name,
+                description=stub.get("description", name),
                 parameters=_parameters(stub.get("parameters")),
+                constrained_sampling=_constrained_sampling(stub.get("constrained_sampling")),
                 execute=_stub(stub, ctx.tools, name, late_updates, trace),
                 prepare_arguments=_prepare_arguments(stub.get("prepare_arguments")),
                 label=name,
@@ -637,6 +664,9 @@ async def run_agent_scenario(document: dict[str, Any]) -> dict[str, Any]:
             )
         ],
         "request_tools": [[tool.name for tool in request.tools] for request in adapter.requests],
+        "request_schemas": [
+            [_schema_observation(tool) for tool in request.tools] for request in adapter.requests
+        ],
         "request_log": _request_log(handle.instance.log),
         "headers": [
             _header(event, ctx.sessions.artifacts)

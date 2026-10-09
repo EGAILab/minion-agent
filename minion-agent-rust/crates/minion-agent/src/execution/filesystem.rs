@@ -1340,6 +1340,10 @@ async fn abortable_io<T>(
 }
 
 #[cfg(test)]
+#[path = "filesystem_other_tests.rs"]
+mod other_classification;
+
+#[cfg(test)]
 mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
 

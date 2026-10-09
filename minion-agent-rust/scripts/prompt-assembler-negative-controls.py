@@ -13,6 +13,9 @@ parser.add_argument("--tree", type=Path, required=True)
 parser.add_argument("--logs", type=Path, required=True)
 args = parser.parse_args()
 tree = args.tree.resolve()
+for required in ["tests/execution/data/r002_ada_oracle/systematic_ada292.txt", "tests/skills/data/frontmatter-corpus.json", "tests/skills/data/ignore-corpus.json"]:
+    if not (tree.parent / "minion-agent-python" / required).is_file():
+        raise RuntimeError(f"INVALID scratch tree: missing compiled fixture {required}")
 source = tree / "crates/minion-agent/src/agent_loop/driver.rs"
 original = source.read_text(encoding="utf-8")
 args.logs.mkdir(parents=True, exist_ok=True)

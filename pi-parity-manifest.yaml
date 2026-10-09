@@ -2450,7 +2450,7 @@ rows:
   phase: 3
   pi: 'none (MINION-003 integration; Minion artifact architecture)'
   surface: Layer 08 delta L08-D002 -- one request/header per provider request in both drivers
-  rule: 'CONTRACT_DRAFT (L08-D002, minion-agent#171; Owner decision on L08D001-RUST-C001, #166 issuecomment-6068630928;
+  rule: 'CERTIFIED and cross-language closed (L08-D002, minion-agent#171; Owner decision on L08D001-RUST-C001, #166 issuecomment-6068630928;
     spec/agent.md Layer 08 "Request header per provider request"). Each provider request build records exactly one
     request/header through the existing Layer 03 record_header: components {system_base: the request system text --
     override verbatim, else the L08-D001 assembler result, else RunContext.system_prompt}, model = the request
@@ -2469,16 +2469,18 @@ rows:
     agent-scenario.schema.json); request-header-full-schema-identity (two ordered tools, nested parameters, sampling)
   - minion-agent-python/tests/agent_loop/test_request_schema_snapshot.py (R003 transform-time mutation witness; full
     schema identity)
-  python: 'Implementation candidate (L08-D002, #171): header presence/timing pre-existing; R003 schema value snapshot in
+  python: 'CERTIFIED (L08-D002; Codex implementation review 1 APPROVED, #171 issuecomment-6073237153; #181 @ 4d951443
+    merged as 3de4b75d, docs #271 merged as 52945167): header presence/timing pre-existing; R003 schema value snapshot in
     src/minion_agent/agent_loop/driver.py (_schema_snapshot, used once per request build for both the header and the
     provider request). constrained_sampling reconstruction via L03-D001 (CLOSED, #174).'
-  rust: 'IMPLEMENTATION CANDIDATE (L08-D002, #171): agent_loop/driver.rs captures one owned ordered schema vector,
+  rust: 'CERTIFIED (L08-D002; Claude closure review 1 APPROVED, #171 issuecomment-6076366261; #182 @ 689e2e1b merged as
+    c99be8e2, docs #273 merged as db3c8934): agent_loop/driver.rs captures one owned ordered schema vector,
     records Session::record_header after schema computation and before transform_context, and moves the same
     snapshot into the provider request. agent_loop_conformance.rs observes all eight request-header scenarios,
     complete reconstructed headers and provider schemas; binding witnesses cover failed schema computation,
     pre-step rejection and transform-time header visibility/abort. scripts/request-header-negative-controls.py
-    requires selected green intended witnesses before counting assertion-failure kills. Independent Rust review
-    pending; not certified. See assurance/layers/08-l08-d002-rust-implementation.md.'
+    requires selected green intended witnesses before counting assertion-failure kills. See
+    assurance/layers/08-l08-d002-rust-implementation.md.'
   disposition: adopted
 - id: AG-011
   phase: 3

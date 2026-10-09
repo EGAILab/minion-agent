@@ -54,7 +54,8 @@ def run(name, target, witness, mutant=False):
     result = subprocess.run(cmd, cwd=tree, text=True, encoding="utf-8", stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     (args.logs / f"{name}-{'mutant' if mutant else 'baseline'}.log").write_text(result.stdout, encoding="utf-8")
     passed = result.returncode == 0 and f"test {qualified} ... ok" in result.stdout and "1 passed" in result.stdout
-    failed = result.returncode == 101 and f"test {qualified} ... FAILED" in result.stdout and "1 failed" in result.stdout and "panicked at" in result.stdout and "assertion" in result.stdout
+    signature = "unpaired surrogate must fail the document" if name == "preflight-sanitizes-surrogates" else "assertion"
+    failed = result.returncode == 101 and f"test {qualified} ... FAILED" in result.stdout and "1 failed" in result.stdout and "panicked at" in result.stdout and signature in result.stdout
     if not (failed if mutant else passed):
         raise RuntimeError(f"INVALID {name}: exit {result.returncode}, intended witness {qualified}; see log")
 

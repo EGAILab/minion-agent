@@ -1,0 +1,21 @@
+name: request-header-provider-error-keeps-the-header
+description: 'The provider returns an error: the request was built and sent, so its header stays.'
+config:
+  system: base
+provider_script:
+- content: []
+  stop_reason: error
+  error_message: provider failed
+steps:
+- followup: hi
+- await_idle: true
+expect_request_log:
+- user
+- header
+- assistant
+expect_headers:
+- system: base
+  components:
+  - system_base
+  model: mock-1
+  tools: []

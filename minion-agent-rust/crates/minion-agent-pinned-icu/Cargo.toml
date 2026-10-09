@@ -8,6 +8,7 @@ version.workspace = true
 [dependencies]
 rust_icu_ucol.workspace = true
 rust_icu_sys.workspace = true
+rust_icu_ustring.workspace = true
 sha2.workspace = true
 
 [dev-dependencies]

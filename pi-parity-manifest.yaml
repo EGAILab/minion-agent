@@ -2441,7 +2441,44 @@ rows:
     raising / non-string / later-turn failures, header reconstruction, factory)'
   python: 'Implementation candidate (L08-D001, minion-agent#166): minion-agent-python/src/minion_agent/agent_loop/driver.py
     (AgentLoop.prompt_assembler, _system_text) and agent_loop/__init__.py (AgentLoopFactory.for_instance).'
-  rust: 'NOT_IMPLEMENTED (L08-D001 contract draft).'
+  rust: 'Implementation candidate (L08-D001, minion-agent#166): minion-agent-rust/crates/minion-agent/src/agent_loop/driver.rs
+    (PromptAssembler, set_prompt_assembler, request-time assembly before the L08-D002 owned header/request snapshot)
+    and agent_loop/error.rs (PromptAssemblyError). Evidence: driver prompt_assembler_* tests, added_tool_names_extend_only_the_run_local_snapshot_in_order,
+    scripts/prompt-assembler-negative-controls.py; assurance/layers/08-l08-d001-rust-implementation.md. Independent Rust closure review pending; NOT CERTIFIED.'
+  disposition: adopted
+- id: AG-025
+  phase: 3
+  pi: 'none (MINION-003 integration; Minion artifact architecture)'
+  surface: Layer 08 delta L08-D002 -- one request/header per provider request in both drivers
+  rule: 'CONTRACT_DRAFT (L08-D002, minion-agent#171; Owner decision on L08D001-RUST-C001, #166 issuecomment-6068630928;
+    spec/agent.md Layer 08 "Request header per provider request"). Each provider request build records exactly one
+    request/header through the existing Layer 03 record_header: components {system_base: the request system text --
+    override verbatim, else the L08-D001 assembler result, else RunContext.system_prompt}, model = the request
+    ModelId.model, tools = the request tool-snapshot schemas in order. Published after the entering messages are
+    logged and the system text, model and schemas are final, before transformContext and the provider call: a
+    failure before that point (assembler, schema computation, pre-step Reject) records none; a later failure
+    (transformContext, eager unknown model, provider error/abort) keeps it. Log-only; no new format, store or API;
+    historical logs unchanged. Python already recorded headers at this point (but needed the R003 snapshot below); Rust gains the integration. Remediation 1 (contract review 1,
+    #171): the header and the provider request carry one schema value snapshot taken at publication (L08D002-R003,
+    Owner decision #171 issuecomment-6071887505) -- every model-facing field, nested parameters independent of
+    application-owned objects; a later request may see a later mutation; run-start shallow snapshot and Layer 05/07/03
+    semantics unchanged. Headers and requests are observed as complete schemas (L08D002-R001); constrained_sampling
+    reconstruction is L03-D001 (#174), a dependency.'
+  tests:
+  - conformance/agent/request-header-*.yaml (expect_request_log, expect_headers with complete schemas, expect_request_schemas;
+    agent-scenario.schema.json); request-header-full-schema-identity (two ordered tools, nested parameters, sampling)
+  - minion-agent-python/tests/agent_loop/test_request_schema_snapshot.py (R003 transform-time mutation witness; full
+    schema identity)
+  python: 'Implementation candidate (L08-D002, #171): header presence/timing pre-existing; R003 schema value snapshot in
+    src/minion_agent/agent_loop/driver.py (_schema_snapshot, used once per request build for both the header and the
+    provider request). constrained_sampling reconstruction via L03-D001 (CLOSED, #174).'
+  rust: 'IMPLEMENTATION CANDIDATE (L08-D002, #171): agent_loop/driver.rs captures one owned ordered schema vector,
+    records Session::record_header after schema computation and before transform_context, and moves the same
+    snapshot into the provider request. agent_loop_conformance.rs observes all eight request-header scenarios,
+    complete reconstructed headers and provider schemas; binding witnesses cover failed schema computation,
+    pre-step rejection and transform-time header visibility/abort. scripts/request-header-negative-controls.py
+    requires selected green intended witnesses before counting assertion-failure kills. Independent Rust review
+    pending; not certified. See assurance/layers/08-l08-d002-rust-implementation.md.'
   disposition: adopted
 - id: AG-011
   phase: 3
@@ -5692,12 +5729,26 @@ rows:
   phase: 2
   pi: N/A — Minion artifact architecture
   surface: content-addressed immutable request artifacts
-  rule: stronger storage representation; identical model-visible bytes
+  rule: 'stronger storage representation; identical model-visible bytes. L03-D001 (CERTIFIED and cross-language closed, minion-agent#174;
+    Owner decision on L08D002-R002, minion-agent#171 issuecomment-6071887505): reconstructing a
+    request header''s tool schemas returns every model-facing field recorded, constrained_sampling included -- all
+    four states (absent, false, json_schema prefer/require, grammar with any subset of openai_lark/openai_regex),
+    absent and false kept distinct, tool order kept; a header stored without the field reconstructs it as absent; a
+    stored value outside the four states fails reconstruction and is never read as absent. Artifact bytes and hashes
+    stay binding-private and unchanged.'
   tests:
   - request-reconstruction-with-artifacts
   - request-header-component-reuse
-  python: src/minion_agent/session/artifacts (retain)
-  rust: Phase 2 artifact store
+  - request-header-tools-constrained-sampling-states
+  - request-header-tools-sampling-false-is-not-absent
+  - minion-agent-python/tests/session/test_request_header_tools.py (8-state round trips, historical entry, 13 malformed
+    shapes, stored-form hash pin); tests/agent_loop/test_request_tools.py (real provider-request witness)
+  python: 'src/minion_agent/session/artifacts (retain). L03-D001 CERTIFIED (Codex implementation review 1 APPROVED,
+    #174 issuecomment-6072735798; #178 @ a4e60580 merged as 9b91dad8, docs #270 merged as 09c8c499):
+    src/minion_agent/session/request_header.py::reconstruct_tools (private constrained_sampling decoder).'
+  rust: 'Phase 2 artifact store. L03-D001: conforms with no production change (typed serde ToolSchema round-trips every
+    state); tests/session_conformance.rs runs all 22 Session scenarios (#179 @ ce38fdf5 merged as f8a68702, Claude
+    review #174 issuecomment-6072903044).'
   disposition: intentional divergence
 - id: HAR-001
   phase: 7
@@ -5712,8 +5763,8 @@ rows:
     one fs-origin diagnostic, depth and code host-defined. DIV-005 for invalid ignore paths (row HAR-001-DIV-005).'
   tests:
   - conformance/agent/skill-discovery/ (shape skill-discovery-scenario.schema.json; 96 cases)
-  python: 'Implementation candidate (WP-14.1, minion-agent#161): minion-agent-python/src/minion_agent/skills/ (discovery.py, _frontmatter.py, _ignore.py).'
-  rust: 'NOT_IMPLEMENTED (WP-14.1 contract draft, minion-agent#158).'
+  python: 'CERTIFIED (WP-14.1; minion-agent#158 issuecomment-6061090810, Codex complete final review 3, APPROVED): code #161 @ 9f4da713 merged as 97ec5687; docs #258 @ 76f12da8 merged as 6ec91692. minion-agent-python/src/minion_agent/skills/ (discovery.py, _frontmatter.py, _ignore.py).'
+  rust: 'CERTIFIED (WP-14.1; minion-agent#158 issuecomment-6072026200, independent Claude approval): code #173 @ ba6c2a022e017b4d2520f5c537fedb2221c10ef9 merged as d37171d716fe8fc44b5c16fec9c69705f8c74760; docs #267 @ a71f98d5943efde7419f4771923d3372d2d734bc merged as 2420ff378cbfbdc105ea52ff02e5ec9a78cfb46d. minion-agent-rust/crates/minion-agent/src/skills/; tests/skill_discovery.rs; shared frontmatter/ignore corpus unit tests; scripts/wp141_negative_controls.py. Assurance: assurance/layers/14-wp141-rust-implementation.md. Certification status-sync closure review pending; cross-language WP-14.1 not yet closed.'
   disposition: adopted
 - id: HAR-001-DIV-005
   phase: 7
@@ -5727,8 +5778,8 @@ rows:
   tests:
   - conformance/agent/skill-discovery/skills-r0*.json (divergences DIV-005; Pi rejection kept in minion-agent-docs
     assurance/layers/data/14-wp141/out-linux.json)
-  python: 'Implementation candidate (WP-14.1, minion-agent#161): minion-agent-python/src/minion_agent/skills/ (discovery.py, _frontmatter.py, _ignore.py).'
-  rust: 'NOT_IMPLEMENTED (WP-14.1 contract draft, minion-agent#158).'
+  python: 'CERTIFIED (WP-14.1; minion-agent#158 issuecomment-6061090810, Codex complete final review 3, APPROVED): code #161 @ 9f4da713 merged as 97ec5687; docs #258 @ 76f12da8 merged as 6ec91692. minion-agent-python/src/minion_agent/skills/ (discovery.py, _frontmatter.py, _ignore.py).'
+  rust: 'CERTIFIED (WP-14.1; minion-agent#158 issuecomment-6072026200, independent Claude approval): code #173 @ ba6c2a022e017b4d2520f5c537fedb2221c10ef9 merged as d37171d716fe8fc44b5c16fec9c69705f8c74760; docs #267 @ a71f98d5943efde7419f4771923d3372d2d734bc merged as 2420ff378cbfbdc105ea52ff02e5ec9a78cfb46d. minion-agent-rust/crates/minion-agent/src/skills/; tests/skill_discovery.rs; shared frontmatter/ignore corpus unit tests; scripts/wp141_negative_controls.py. Assurance: assurance/layers/14-wp141-rust-implementation.md. Certification status-sync closure review pending; cross-language WP-14.1 not yet closed.'
   disposition: intentional divergence
 - id: HAR-002
   phase: 7
@@ -5740,8 +5791,9 @@ rows:
     sorting, no dedupe) with name, description and location (= the addressed file_path) each escaped for exactly
     & < > " '' in that order, joined by \n with no leading or trailing newline.'
   tests:
+  - 'minion-agent-python/tests/system_prompt/test_formatting.py; tests/conformance/test_prompt_assembly_conformance.py'
   - conformance/agent/prompt-assembly/prompt-b*.json (pinned-harness oracle; prompt-assembly-scenario.schema.json)
-  python: 'NOT_IMPLEMENTED (WP-14.2 contract draft, minion-agent#159). Target: src/minion_agent/system_prompt/.'
+  python: 'Implementation candidate (WP-14.2, minion-agent#159): minion-agent-python/src/minion_agent/system_prompt/formatting.py (format_skills_block).'
   rust: 'NOT_IMPLEMENTED (WP-14.2 contract draft, minion-agent#159).'
   disposition: adopted
 - id: HAR-014
@@ -5754,8 +5806,9 @@ rows:
     trailing / and \; i = the last index of / or \; i == 2 with unit 1 == ":" -> the first 3 units; else i <= 0 ->
     "/"; else the first i units.'
   tests:
+  - 'minion-agent-python/tests/system_prompt/test_formatting.py (UTF-16 dirname); test_integration.py (persisted invocation message)'
   - conformance/agent/prompt-assembly/prompt-v*.json (pinned-harness oracle)
-  python: 'NOT_IMPLEMENTED (WP-14.2 contract draft, minion-agent#159).'
+  python: 'Implementation candidate (WP-14.2, minion-agent#159): minion-agent-python/src/minion_agent/system_prompt/formatting.py (format_skill_invocation).'
   rust: 'NOT_IMPLEMENTED (WP-14.2 contract draft, minion-agent#159).'
   disposition: adopted
 - id: HAR-015
@@ -5769,8 +5822,9 @@ rows:
     Non-empty sections joined by \n\n; no leading or trailing separator; no cwd line, context files or Pi product
     text.'
   tests:
+  - 'minion-agent-python/tests/conformance/test_prompt_assembly_conformance.py; tests/system_prompt/test_integration.py'
   - conformance/agent/prompt-assembly/prompt-c*.json
-  python: 'NOT_IMPLEMENTED (WP-14.2 contract draft, minion-agent#159).'
+  python: 'Implementation candidate (WP-14.2, minion-agent#159): minion-agent-python/src/minion_agent/system_prompt/composer.py (compose_prompt).'
   rust: 'NOT_IMPLEMENTED (WP-14.2 contract draft, minion-agent#159).'
   disposition: adopted
 - id: HAR-016
@@ -5784,8 +5838,9 @@ rows:
     request schemas derive from one snapshot. The prompt configuration (skills, tools_section, sections) changes
     only by whole-value replacement, taking effect at the next request build; the override bypasses the composer.'
   tests:
+  - 'minion-agent-python/tests/system_prompt/test_integration.py (read gate and tools section from the request snapshot; whole-value replacement; retained-record mutation; override bypass)'
   - planned driver-level witnesses (spec/harness.md WP-14.2 conformance evidence), after L08-D001
-  python: 'NOT_IMPLEMENTED (WP-14.2 contract draft, minion-agent#159).'
+  python: 'Implementation candidate (WP-14.2, minion-agent#159): minion-agent-python/src/minion_agent/system_prompt/composer.py (PromptComposer, the L08-D001 assembler).'
   rust: 'NOT_IMPLEMENTED (WP-14.2 contract draft, minion-agent#159).'
   disposition: adopted
 - id: HAR-017
@@ -5797,8 +5852,9 @@ rows:
     reconstruction yields byte-identical model-visible text. Multi-component decomposition is a storage detail,
     not adopted.'
   tests:
+  - 'minion-agent-python/tests/system_prompt/test_integration.py (header persistence and reconstruction; exact provider prompt)'
   - planned header round-trip witnesses (spec/harness.md WP-14.2), after L08-D001
-  python: 'NOT_IMPLEMENTED (WP-14.2 contract draft, minion-agent#159).'
+  python: 'Implementation candidate (WP-14.2, minion-agent#159): the composed prompt is the system_base component of the request header (Layer 03, unchanged).'
   rust: 'NOT_IMPLEMENTED (WP-14.2 contract draft, minion-agent#159).'
   disposition: adopted
 - id: HAR-018
@@ -5814,8 +5870,9 @@ rows:
     none) and "Guidelines:" + "- g" lines deduplicated across tools (omitted when none), joined by \n\n; empty or
     disabled -> absent. Pi product text ((none), preamble, bash bullet, fixed bullets) is not adopted.'
   tests:
+  - 'minion-agent-python/tests/system_prompt/test_formatting.py; tests/conformance/test_prompt_assembly_conformance.py'
   - conformance/agent/prompt-assembly/prompt-t*.json (Minion model of pinned Pi; pi_reference recorded)
-  python: 'NOT_IMPLEMENTED (WP-14.2 contract draft, minion-agent#159). Layer 05 additive fields.'
+  python: 'Implementation candidate (WP-14.2, minion-agent#159): minion-agent-python/src/minion_agent/system_prompt/formatting.py (normalize_*, format_tools_section); tools/definition.py prompt_snippet / prompt_guidelines.'
   rust: 'NOT_IMPLEMENTED (WP-14.2 contract draft, minion-agent#159). Layer 05 additive fields.'
   disposition: adopted
 - id: HAR-003
@@ -5875,8 +5932,8 @@ rows:
   tests:
   - conformance/agent/skill-discovery/ (shape skill-discovery-scenario.schema.json; 96 cases)
   - minion-agent-docs assurance/layers/data/14-wp141/subset-diff.mjs (1,500,000 generated / 1,374,031 distinct inputs soundness fuzz), fuzz-controls.mjs, subset-realistic.mjs
-  python: 'Implementation candidate (WP-14.1, minion-agent#161): minion-agent-python/src/minion_agent/skills/ (discovery.py, _frontmatter.py, _ignore.py).'
-  rust: 'NOT_IMPLEMENTED (WP-14.1 contract draft, minion-agent#158).'
+  python: 'CERTIFIED (WP-14.1; minion-agent#158 issuecomment-6061090810, Codex complete final review 3, APPROVED): code #161 @ 9f4da713 merged as 97ec5687; docs #258 @ 76f12da8 merged as 6ec91692. minion-agent-python/src/minion_agent/skills/ (discovery.py, _frontmatter.py, _ignore.py).'
+  rust: 'CERTIFIED (WP-14.1; minion-agent#158 issuecomment-6072026200, independent Claude approval): code #173 @ ba6c2a022e017b4d2520f5c537fedb2221c10ef9 merged as d37171d716fe8fc44b5c16fec9c69705f8c74760; docs #267 @ a71f98d5943efde7419f4771923d3372d2d734bc merged as 2420ff378cbfbdc105ea52ff02e5ec9a78cfb46d. minion-agent-rust/crates/minion-agent/src/skills/; tests/skill_discovery.rs; shared frontmatter/ignore corpus unit tests; scripts/wp141_negative_controls.py. Assurance: assurance/layers/14-wp141-rust-implementation.md. Certification status-sync closure review pending; cross-language WP-14.1 not yet closed.'
   disposition: adopted
 - id: HAR-010-DIV-004
   phase: 7
@@ -5891,8 +5948,8 @@ rows:
   tests:
   - conformance/agent/skill-discovery/skills-{f04,f05,v04,y01,y03}-*.json (divergences DIV-004 / PP-14-1; Pi results
     kept in minion-agent-docs assurance/layers/data/14-wp141/out-linux.json)
-  python: 'Implementation candidate (WP-14.1, minion-agent#161): minion-agent-python/src/minion_agent/skills/ (discovery.py, _frontmatter.py, _ignore.py).'
-  rust: 'NOT_IMPLEMENTED (WP-14.1 contract draft, minion-agent#158).'
+  python: 'CERTIFIED (WP-14.1; minion-agent#158 issuecomment-6061090810, Codex complete final review 3, APPROVED): code #161 @ 9f4da713 merged as 97ec5687; docs #258 @ 76f12da8 merged as 6ec91692. minion-agent-python/src/minion_agent/skills/ (discovery.py, _frontmatter.py, _ignore.py).'
+  rust: 'CERTIFIED (WP-14.1; minion-agent#158 issuecomment-6072026200, independent Claude approval): code #173 @ ba6c2a022e017b4d2520f5c537fedb2221c10ef9 merged as d37171d716fe8fc44b5c16fec9c69705f8c74760; docs #267 @ a71f98d5943efde7419f4771923d3372d2d734bc merged as 2420ff378cbfbdc105ea52ff02e5ec9a78cfb46d. minion-agent-rust/crates/minion-agent/src/skills/; tests/skill_discovery.rs; shared frontmatter/ignore corpus unit tests; scripts/wp141_negative_controls.py. Assurance: assurance/layers/14-wp141-rust-implementation.md. Certification status-sync closure review pending; cross-language WP-14.1 not yet closed.'
   disposition: intentional divergence
 - id: HAR-010-DIV-007
   phase: 7
@@ -5909,8 +5966,8 @@ rows:
     DIV-007; Pi acceptance recorded in assurance/layers/data/14-wp141/out-*.json)
   - minion-agent-python/tests/skills/test_discovery.py (63/64/65 boundaries, sequences, 100/500, lifted-bound
     containment)
-  python: 'Implementation candidate (WP-14.1, minion-agent#161).'
-  rust: 'NOT_IMPLEMENTED (WP-14.1 contract draft, minion-agent#158).'
+  python: 'CERTIFIED (WP-14.1; minion-agent#158 issuecomment-6061090810, Codex complete final review 3, APPROVED): code #161 @ 9f4da713 merged as 97ec5687; docs #258 @ 76f12da8 merged as 6ec91692. minion-agent-python/src/minion_agent/skills/ (discovery.py, _frontmatter.py, _ignore.py).'
+  rust: 'CERTIFIED (WP-14.1; minion-agent#158 issuecomment-6072026200, independent Claude approval): code #173 @ ba6c2a022e017b4d2520f5c537fedb2221c10ef9 merged as d37171d716fe8fc44b5c16fec9c69705f8c74760; docs #267 @ a71f98d5943efde7419f4771923d3372d2d734bc merged as 2420ff378cbfbdc105ea52ff02e5ec9a78cfb46d. minion-agent-rust/crates/minion-agent/src/skills/; tests/skill_discovery.rs; shared frontmatter/ignore corpus unit tests; scripts/wp141_negative_controls.py. Assurance: assurance/layers/14-wp141-rust-implementation.md. Certification status-sync closure review pending; cross-language WP-14.1 not yet closed.'
   disposition: intentional divergence
 - id: HAR-011
   phase: 7
@@ -5923,8 +5980,8 @@ rows:
     DIV-006 for patterns whose RegExp pinned ignore rejects (row HAR-011-DIV-006).'
   tests:
   - conformance/agent/skill-discovery/ (shape skill-discovery-scenario.schema.json; 96 cases)
-  python: 'Implementation candidate (WP-14.1, minion-agent#161): minion-agent-python/src/minion_agent/skills/ (discovery.py, _frontmatter.py, _ignore.py).'
-  rust: 'NOT_IMPLEMENTED (WP-14.1 contract draft, minion-agent#158).'
+  python: 'CERTIFIED (WP-14.1; minion-agent#158 issuecomment-6061090810, Codex complete final review 3, APPROVED): code #161 @ 9f4da713 merged as 97ec5687; docs #258 @ 76f12da8 merged as 6ec91692. minion-agent-python/src/minion_agent/skills/ (discovery.py, _frontmatter.py, _ignore.py).'
+  rust: 'CERTIFIED (WP-14.1; minion-agent#158 issuecomment-6072026200, independent Claude approval): code #173 @ ba6c2a022e017b4d2520f5c537fedb2221c10ef9 merged as d37171d716fe8fc44b5c16fec9c69705f8c74760; docs #267 @ a71f98d5943efde7419f4771923d3372d2d734bc merged as 2420ff378cbfbdc105ea52ff02e5ec9a78cfb46d. minion-agent-rust/crates/minion-agent/src/skills/; tests/skill_discovery.rs; shared frontmatter/ignore corpus unit tests; scripts/wp141_negative_controls.py. Assurance: assurance/layers/14-wp141-rust-implementation.md. Certification status-sync closure review pending; cross-language WP-14.1 not yet closed.'
   disposition: adopted
 - id: HAR-011-DIV-006
   phase: 7
@@ -5942,8 +5999,8 @@ rows:
   - conformance/agent/skill-discovery/skills-i10-*.json, skills-i11-*.json (divergences DIV-006), skills-i12-*.json
     (positive control, identical to Pi)
   - minion-agent-python/tests/skills (positive, negative and mixed-pattern regressions)
-  python: 'Implementation candidate (WP-14.1, minion-agent#161).'
-  rust: 'NOT_IMPLEMENTED (WP-14.1 contract draft, minion-agent#158).'
+  python: 'CERTIFIED (WP-14.1; minion-agent#158 issuecomment-6061090810, Codex complete final review 3, APPROVED): code #161 @ 9f4da713 merged as 97ec5687; docs #258 @ 76f12da8 merged as 6ec91692. minion-agent-python/src/minion_agent/skills/ (discovery.py, _frontmatter.py, _ignore.py).'
+  rust: 'CERTIFIED (WP-14.1; minion-agent#158 issuecomment-6072026200, independent Claude approval): code #173 @ ba6c2a022e017b4d2520f5c537fedb2221c10ef9 merged as d37171d716fe8fc44b5c16fec9c69705f8c74760; docs #267 @ a71f98d5943efde7419f4771923d3372d2d734bc merged as 2420ff378cbfbdc105ea52ff02e5ec9a78cfb46d. minion-agent-rust/crates/minion-agent/src/skills/; tests/skill_discovery.rs; shared frontmatter/ignore corpus unit tests; scripts/wp141_negative_controls.py. Assurance: assurance/layers/14-wp141-rust-implementation.md. Certification status-sync closure review pending; cross-language WP-14.1 not yet closed.'
   disposition: intentional divergence
 - id: HAR-012
   phase: 7
@@ -5955,8 +6012,8 @@ rows:
     Minion-defined; fs-origin messages are ctx.fs FsError.message, non-normative (PP-14-8).'
   tests:
   - conformance/agent/skill-discovery/ (shape skill-discovery-scenario.schema.json; 96 cases)
-  python: 'Implementation candidate (WP-14.1, minion-agent#161): minion-agent-python/src/minion_agent/skills/ (discovery.py, _frontmatter.py, _ignore.py).'
-  rust: 'NOT_IMPLEMENTED (WP-14.1 contract draft, minion-agent#158).'
+  python: 'CERTIFIED (WP-14.1; minion-agent#158 issuecomment-6061090810, Codex complete final review 3, APPROVED): code #161 @ 9f4da713 merged as 97ec5687; docs #258 @ 76f12da8 merged as 6ec91692. minion-agent-python/src/minion_agent/skills/ (discovery.py, _frontmatter.py, _ignore.py).'
+  rust: 'CERTIFIED (WP-14.1; minion-agent#158 issuecomment-6072026200, independent Claude approval): code #173 @ ba6c2a022e017b4d2520f5c537fedb2221c10ef9 merged as d37171d716fe8fc44b5c16fec9c69705f8c74760; docs #267 @ a71f98d5943efde7419f4771923d3372d2d734bc merged as 2420ff378cbfbdc105ea52ff02e5ec9a78cfb46d. minion-agent-rust/crates/minion-agent/src/skills/; tests/skill_discovery.rs; shared frontmatter/ignore corpus unit tests; scripts/wp141_negative_controls.py. Assurance: assurance/layers/14-wp141-rust-implementation.md. Certification status-sync closure review pending; cross-language WP-14.1 not yet closed.'
   disposition: adopted
 - id: HAR-013
   phase: 7
@@ -5969,8 +6026,8 @@ rows:
     are within Layer 12''s certified path domain (#133 exclusions unchanged). WP-14.2 consumes this shape.'
   tests:
   - conformance/agent/skill-discovery/ (shape skill-discovery-scenario.schema.json; 96 cases)
-  python: 'Implementation candidate (WP-14.1, minion-agent#161): minion-agent-python/src/minion_agent/skills/ (discovery.py, _frontmatter.py, _ignore.py).'
-  rust: 'NOT_IMPLEMENTED (WP-14.1 contract draft, minion-agent#158).'
+  python: 'CERTIFIED (WP-14.1; minion-agent#158 issuecomment-6061090810, Codex complete final review 3, APPROVED): code #161 @ 9f4da713 merged as 97ec5687; docs #258 @ 76f12da8 merged as 6ec91692. minion-agent-python/src/minion_agent/skills/ (discovery.py, _frontmatter.py, _ignore.py).'
+  rust: 'CERTIFIED (WP-14.1; minion-agent#158 issuecomment-6072026200, independent Claude approval): code #173 @ ba6c2a022e017b4d2520f5c537fedb2221c10ef9 merged as d37171d716fe8fc44b5c16fec9c69705f8c74760; docs #267 @ a71f98d5943efde7419f4771923d3372d2d734bc merged as 2420ff378cbfbdc105ea52ff02e5ec9a78cfb46d. minion-agent-rust/crates/minion-agent/src/skills/; tests/skill_discovery.rs; shared frontmatter/ignore corpus unit tests; scripts/wp141_negative_controls.py. Assurance: assurance/layers/14-wp141-rust-implementation.md. Certification status-sync closure review pending; cross-language WP-14.1 not yet closed.'
   disposition: adopted
 - id: EXEC-001
   phase: 6

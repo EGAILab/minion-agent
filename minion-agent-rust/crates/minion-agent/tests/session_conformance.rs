@@ -310,7 +310,7 @@ fn all_current_layer_session_scenarios_drive_the_real_typed_rust_session() {
         .filter(|p| p.extension().is_some_and(|e| e == "yaml"))
         .collect::<Vec<_>>();
     files.sort();
-    assert_eq!(files.len(), 20);
+    assert_eq!(files.len(), 22);
     let mut executed = 0;
     for path in files {
         let document: Value = serde_yaml::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
@@ -518,5 +518,5 @@ fn all_current_layer_session_scenarios_drive_the_real_typed_rust_session() {
         }
         executed += 1;
     }
-    assert_eq!(executed, 20);
+    assert_eq!(executed, 22);
 }

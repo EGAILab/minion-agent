@@ -1,0 +1,54 @@
+name: request-header-one-per-request-in-order
+description: 'A tool call makes two requests: each has its own header, after its entering messages, with
+  that request''s tool schemas.'
+config:
+  system: base
+provider_script:
+- content:
+  - type: tool_call
+    id: t1
+    name: echo
+    arguments: {}
+  stop_reason: tool_use
+- content:
+  - type: text
+    text: done
+  stop_reason: stop
+tools:
+  echo:
+    result:
+      text: ok
+steps:
+- followup: go
+- await_idle: true
+expect_request_log:
+- user
+- header
+- assistant
+- toolResult
+- header
+- assistant
+expect_headers:
+- system: base
+  components:
+  - system_base
+  model: mock-1
+  tools:
+  - &id001
+    name: echo
+    description: echo
+    parameters:
+      type: object
+      properties: {}
+- system: base
+  components:
+  - system_base
+  model: mock-1
+  tools:
+  - *id001
+expect_request_tools:
+- - echo
+- - echo
+expect_request_schemas:
+- - *id001
+- - *id001

@@ -15,7 +15,9 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
+from minion_agent.agent.decisions import Enter
 from minion_agent.agent.envelope import ClaimPolicy
+from minion_agent.agent.events import AGENT_PRE_STEP, AGENT_TRANSFORM_CONTEXT
 from minion_agent.agent.identity import AgentDefinition
 from minion_agent.agent.plugin import agents_plugin
 from minion_agent.agent.projection import AgentEnd, event_names, project
@@ -38,8 +40,14 @@ from minion_agent.llm import (
 from minion_agent.llm.adapters.mock import MockAdapter, ScriptedResponse
 from minion_agent.llm.messages import StopReason, Usage
 from minion_agent.llm.plugin import llm_plugin
+from minion_agent.llm.tools import (
+    ConstrainedSampling,
+    GrammarConstrainedSampling,
+    JsonSchemaConstrainedSampling,
+    ToolSchema,
+)
 from minion_agent.runtime import Context
-from minion_agent.session import EventKind, derive_messages
+from minion_agent.session import EventKind, derive_messages, reconstruct_header, reconstruct_tools
 from minion_agent.session.service import session_plugin
 from minion_agent.tools.decisions import AfterToolCallOverride, Block, Proceed
 from minion_agent.tools.definition import ExecutionMode, ToolDefinition
@@ -384,6 +392,74 @@ def _assistant_detail(message: AssistantMessage) -> dict[str, Any]:
     }
 
 
+_REQUEST_LOG_KINDS = {
+    EventKind.USER_MESSAGE: "user",
+    EventKind.ASSISTANT_MESSAGE: "assistant",
+    EventKind.TOOL_RESULT: "toolResult",
+    EventKind.REQUEST_HEADER: "header",
+}
+
+
+def _request_log(log: Any) -> list[str]:
+    """L08-D002: the log's surface messages interleaved with request/header events, in order."""
+    return [_REQUEST_LOG_KINDS[e.kind] for e in log.events if e.kind in _REQUEST_LOG_KINDS]
+
+
+def _constrained_sampling(raw: Any) -> ConstrainedSampling | bool | None:
+    """A scenario's constrained-sampling input (absent, false or a config) as the real value."""
+    if raw is None or raw is False:
+        return raw
+    if raw["type"] == "json_schema":
+        return JsonSchemaConstrainedSampling(strict=raw["strict"])
+    variants = raw["variants"]
+    return GrammarConstrainedSampling(
+        openai_lark=variants.get("openai_lark"), openai_regex=variants.get("openai_regex")
+    )
+
+
+def _schema_observation(schema: ToolSchema) -> dict[str, Any]:
+    """L08D002-R001: a real schema's own model-facing JSON, absent sampling omitted."""
+    observed = schema.as_json()
+    if observed["constrained_sampling"] is None:
+        del observed["constrained_sampling"]
+    return observed
+
+
+def _header(event: Any, store: Any) -> dict[str, Any]:
+    """L08-D002: one request/header reconstructed through the real Session artifact store."""
+    components = reconstruct_header(event, store)
+    return {
+        "system": components.get("system_base"),
+        "components": sorted(components),
+        "model": event.data["model"],
+        "tools": [_schema_observation(tool) for tool in reconstruct_tools(event, store)],
+    }
+
+
+def _agent_listener(spec: dict[str, Any]) -> Any:
+    """L08-D002 vocabulary: agent/pre-step `system_override`, agent/transform-context `raise` on
+    the `on_request`-th provider request. Total: anything else raises."""
+    event, action = spec["event"], spec["action"]
+    if event == AGENT_PRE_STEP and action == "system_override":
+        override = spec["system_override"]
+
+        async def pre_step(instance: Any, reason: Any, messages: Any, next_: Any) -> Any:
+            return Enter(messages=messages, system_override=override)
+
+        return pre_step
+    if event == AGENT_TRANSFORM_CONTEXT and action == "raise":
+        target, message, seen = spec["on_request"], spec["message"], [0]
+
+        async def transform(instance: Any, messages: Any, signal: Any, next_: Any) -> Any:
+            seen[0] += 1
+            if seen[0] == target:
+                raise RuntimeError(message)
+            return await next_()
+
+        return transform
+    raise ValueError(f"unsupported agent listener {event}/{action}")
+
+
 def _listener(spec: dict[str, Any]) -> Any:
     """Build a declarative listener for the tools pipeline.
 
@@ -456,8 +532,9 @@ async def run_agent_scenario(document: dict[str, Any]) -> dict[str, Any]:
         ctx.tools.register(
             ToolDefinition(
                 name=name,
-                description=name,
+                description=stub.get("description", name),
                 parameters=_parameters(stub.get("parameters")),
+                constrained_sampling=_constrained_sampling(stub.get("constrained_sampling")),
                 execute=_stub(stub, ctx.tools, name, late_updates, trace),
                 prepare_arguments=_prepare_arguments(stub.get("prepare_arguments")),
                 label=name,
@@ -485,7 +562,12 @@ async def run_agent_scenario(document: dict[str, Any]) -> dict[str, Any]:
 
     ctx.events.on(TOOLS_PRE_EXECUTE, _trace_before, prepend=True)
 
+    agent_listeners = [
+        spec for spec in document.get("listeners", []) if spec["event"].startswith("agent/")
+    ]
     for spec in document.get("listeners", []):
+        if spec in agent_listeners:
+            continue
         if spec["event"] == TOOLS_POST_EXECUTE:
             register_after_tool_call_hook(ctx, _listener(spec))
         else:
@@ -514,6 +596,8 @@ async def run_agent_scenario(document: dict[str, Any]) -> dict[str, Any]:
         ),
     )
     loop = ctx.agent_loop.for_instance(handle.instance)
+    for spec in agent_listeners:
+        handle.instance.ctx.events.on(spec["event"], _agent_listener(spec))
     if "next_turn_policy" in config:
         loop.next_turn_policy = ClaimPolicy(config["next_turn_policy"])
 
@@ -580,6 +664,15 @@ async def run_agent_scenario(document: dict[str, Any]) -> dict[str, Any]:
             )
         ],
         "request_tools": [[tool.name for tool in request.tools] for request in adapter.requests],
+        "request_schemas": [
+            [_schema_observation(tool) for tool in request.tools] for request in adapter.requests
+        ],
+        "request_log": _request_log(handle.instance.log),
+        "headers": [
+            _header(event, ctx.sessions.artifacts)
+            for event in handle.instance.log.events
+            if event.kind == EventKind.REQUEST_HEADER
+        ],
         "updates": seen_updates,
         "tool_trace": trace,
         "error": None if error is None else {"type": type(error).__name__, "message": str(error)},

@@ -26,6 +26,9 @@ FORBIDDEN = {
     # Skills (Layer 14) sit above tools: discovery reads ctx.fs and reuses builtin JS-string and
     # collation helpers, but owns no session/agent state.
     "skills": ("session", "telemetry", "agent", "agent_loop"),
+    # Prompt assembly (Layer 14, WP-14.2) formats skills and tool metadata; the driver reaches it
+    # only through the generic L08-D001 assembler seam, so it never imports the agent or loop.
+    "system_prompt": ("session", "telemetry", "agent", "agent_loop"),
     "agent": ("agent_loop",),
     "agent_loop": (),
 }

@@ -72,9 +72,10 @@ narrower-tool-event-seam carve-out language PASS 5 left in place, now false.
 
 from __future__ import annotations
 
+import copy
 import time
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from ..agent.decisions import (
     Enter,
@@ -132,6 +133,7 @@ from ..llm import (
     ToolCallDelta,
     ToolCallEnd,
     ToolCallStart,
+    ToolSchema,
     UnknownModelError,
     Usage,
     UserContentBlock,
@@ -158,6 +160,15 @@ type PromptAssembler = Callable[[str, tuple[ToolDefinition, ...]], str]
 synchronous, returning the system text of one provider request. `tools` is that request's own tool
 snapshot -- the tuple whose schemas the request carries -- so prompt and schemas cannot disagree.
 The assembler must derive tool-dependent text from `tools` only, never from the live registry."""
+
+
+def _schema_snapshot(schema: ToolSchema) -> ToolSchema:
+    """`L08D002-R003`: an independent value snapshot of one model-facing schema. A request's header
+    records it and the provider request carries the very same snapshot, so a later change to an
+    application-owned `parameters` mapping reaches neither. `name`, `description` and
+    `constrained_sampling` are immutable values already; only the nested `parameters` mapping can
+    alias application state, so it alone is copied."""
+    return replace(schema, parameters=copy.deepcopy(schema.parameters))
 
 
 class PromptAssemblyError(Exception):
@@ -1082,7 +1093,7 @@ class AgentLoop:
             await self._dispatch_agent_event(TurnStart())
 
         components = {"system_base": self._system_text(decision, context)}
-        schemas = tuple(definition.schema() for definition in context.tools)
+        schemas = tuple(_schema_snapshot(definition.schema()) for definition in context.tools)
         record_header(
             log,
             self.artifacts,

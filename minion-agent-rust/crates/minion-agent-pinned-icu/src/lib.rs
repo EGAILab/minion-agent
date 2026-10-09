@@ -219,6 +219,35 @@ pub fn upper_unicode16_batch(inputs: &[&str]) -> Result<Vec<String>, String> {
         .collect()
 }
 
+/// Internal ignore@7 binding: ECMA-262's non-Unicode Canonicalize table.
+/// No host Rust Unicode version participates in the certified matcher.
+#[doc(hidden)]
+pub fn ignore_canonicalize_table() -> Result<Vec<u16>, String> {
+    sort_names(Vec::new())?;
+    static TABLE: std::sync::OnceLock<Vec<u16>> = std::sync::OnceLock::new();
+    if let Some(table) = TABLE.get() {
+        return Ok(table.clone());
+    }
+    let table: Vec<_> = (0..=u16::MAX)
+        .map(|unit| {
+            let Some(c) = char::from_u32(u32::from(unit)) else {
+                return Ok(unit);
+            };
+            let upper = root_upper_unicode16(&c.to_string())?;
+            let mut units = upper.encode_utf16();
+            let first = units.next().expect("uppercase cannot be empty");
+            Ok(if units.next().is_some() || (unit >= 128 && first < 128) {
+                unit
+            } else {
+                first
+            })
+        })
+        .collect::<Result<_, String>>()?;
+    // Identity is reverified on every call; only the immutable table for that
+    // exact certified engine is cached, never a pin-verification result.
+    Ok(TABLE.get_or_init(|| table).clone())
+}
+
 fn root_upper_unicode16(input: &str) -> Result<String, String> {
     let mut output = String::new();
     for c in input.chars() {
@@ -356,6 +385,62 @@ pub fn sort_names(names: Vec<String>) -> Result<Vec<String>, String> {
             .ok_or_else(|| failed("MINION_AGENT_ICU_IDENTITY is not set"))?;
         Ok((loaded_modules()?, std::path::PathBuf::from(identity)))
     })
+}
+
+/// Internal harness binding: stable raw-name permutation, not an application
+/// comparator API. Uses the same certified profile, without ls's lowercase view.
+#[doc(hidden)]
+pub fn skill_name_order(names: &[&[u16]]) -> Result<Vec<usize>, String> {
+    SkillNameOrder::begin()?.order(names)
+}
+
+/// Private-to-the-harness transaction binding, never a configurable public
+/// comparator. The core crate does not re-export this type. It retains no ICU
+/// pointer or lock across filesystem calls and is renewed for every discovery.
+#[doc(hidden)]
+pub struct SkillNameOrder {
+    _verified: (),
+}
+impl SkillNameOrder {
+    pub fn begin() -> Result<Self, String> {
+        sort_names(Vec::new())?;
+        Ok(Self { _verified: () })
+    }
+    pub fn order(&self, names: &[&[u16]]) -> Result<Vec<usize>, String> {
+        let collator = UCollator::try_from("en-001").map_err(|e| failed(e.to_string()))?;
+        for (attribute, value) in [
+            (
+                sys::UColAttribute::UCOL_STRENGTH,
+                sys::UColAttributeValue::UCOL_TERTIARY,
+            ),
+            (
+                sys::UColAttribute::UCOL_NUMERIC_COLLATION,
+                sys::UColAttributeValue::UCOL_OFF,
+            ),
+            (
+                sys::UColAttribute::UCOL_CASE_FIRST,
+                sys::UColAttributeValue::UCOL_OFF,
+            ),
+            (
+                sys::UColAttribute::UCOL_NORMALIZATION_MODE,
+                sys::UColAttributeValue::UCOL_ON,
+            ),
+        ] {
+            collator
+                .set_attribute(attribute, value)
+                .map_err(|e| failed(e.to_string()))?;
+        }
+        let names: Vec<_> = names
+            .iter()
+            .map(|name| {
+                i32::try_from(name.len()).map_err(|_| failed("skill name is too long"))?;
+                Ok(rust_icu_ustring::UChar::from(name.to_vec()))
+            })
+            .collect::<Result<_, String>>()?;
+        let mut indices: Vec<_> = (0..names.len()).collect();
+        indices.sort_by(|&a, &b| collator.strcoll(&names[a], &names[b]));
+        Ok(indices)
+    }
 }
 
 fn sort_names_with_inventory(

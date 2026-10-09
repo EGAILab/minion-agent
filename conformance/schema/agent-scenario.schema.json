@@ -129,6 +129,31 @@
       "items": { "$ref": "#/$defs/traceEntry" },
       "description": "Language-neutral execution-order evidence (IR-L06-001): each entry names a stage (`start`/`before`/`execute`/`end`) and the tool_call_id it belongs to, in the exact order production actually emitted them. `start`/`end` correspond to tool_execution_start/tool_execution_end; `before` marks the moment a call's before-hook waterfall has fully settled (Proceed or Block), regardless of registered listeners; `execute` marks the moment a prepared call's execute() body begins running. Proves the sequential-preflight-then-concurrent-execute barrier directly against the real production executor -- the runner does not construct this ordering, only observes it."
     },
+    "expect_request_log": {
+      "type": "array",
+      "description": "L08-D002: the session log's surface messages (user, assistant, toolResult) interleaved with request/header events, in log order. Each binding maps its own log kinds; only this projection is compared.",
+      "items": { "enum": ["user", "assistant", "toolResult", "header"] }
+    },
+    "expect_headers": {
+      "type": "array",
+      "description": "L08-D002: every request/header in log order, reconstructed through the binding's Session (reconstruct_header / reconstruct_tools).",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["system", "components", "model", "tools"],
+        "properties": {
+          "system": { "type": "string", "description": "the system_base component text" },
+          "components": { "type": "array", "items": { "type": "string" }, "description": "component names, sorted" },
+          "model": { "type": "string" },
+          "tools": { "type": "array", "items": { "$ref": "#/$defs/toolSchemaObservation" }, "description": "the complete reconstructed tool schemas, in order (L08D002-R001)" }
+        }
+      }
+    },
+    "expect_request_schemas": {
+      "type": "array",
+      "description": "L08D002-R001: per provider request, in request order, the complete tool schemas the request actually carried -- observed at the provider boundary, never derived. Compared against the same literal schemas as expect_headers, so a header that differs from what was sent is visible.",
+      "items": { "type": "array", "items": { "$ref": "#/$defs/toolSchemaObservation" } }
+    },
     "expect_error": {
       "type": "object",
       "required": [
@@ -149,6 +174,43 @@
     }
   },
   "$defs": {
+    "toolSchemaObservation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "description", "parameters"],
+      "description": "L08D002-R001: one model-facing tool schema. constrained_sampling is omitted when absent (L05-R006 input form).",
+      "properties": {
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "parameters": { "type": "object" },
+        "constrained_sampling": { "$ref": "#/$defs/constrainedSamplingInput" }
+      }
+    },
+    "constrainedSamplingInput": {
+      "$comment": "The four-state domain of spec/tools.md (L05-R001/L05-R006), as in tool-registry-scenario.schema.json: absent omits the key; explicit null is not an alias.",
+      "oneOf": [
+        { "const": false },
+        {
+          "type": "object",
+          "required": ["type", "strict"],
+          "additionalProperties": false,
+          "properties": { "type": { "const": "json_schema" }, "strict": { "enum": ["prefer", "require"] } }
+        },
+        {
+          "type": "object",
+          "required": ["type", "variants"],
+          "additionalProperties": false,
+          "properties": {
+            "type": { "const": "grammar" },
+            "variants": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": { "openai_lark": { "type": "string" }, "openai_regex": { "type": "string" } }
+            }
+          }
+        }
+      ]
+    },
     "toolUpdate": {
       "type": "object",
       "required": ["tool_call_id", "tool_name", "arguments", "partial"],
@@ -200,9 +262,11 @@
       "required": ["event", "action"],
       "additionalProperties": false,
       "properties": {
-        "event": { "enum": ["tools/pre-execute", "tools/post-execute"] },
+        "event": {
+          "enum": ["tools/pre-execute", "tools/post-execute", "agent/pre-step", "agent/transform-context"]
+        },
         "action": {
-          "enum": ["block", "narrow_arguments", "annotate_result", "abstain", "raise"]
+          "enum": ["block", "narrow_arguments", "annotate_result", "abstain", "raise", "system_override"]
         },
         "message": {
           "type": "string",
@@ -215,6 +279,15 @@
         "only_tool": {
           "type": "string",
           "description": "Apply to calls naming this tool only. Without it a policy listener would have to be written per scenario."
+        },
+        "system_override": {
+          "type": "string",
+          "description": "L08-D002: an agent/pre-step listener with action system_override enters every step with this per-step system override."
+        },
+        "on_request": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "L08-D002: an agent/transform-context listener with action raise raises (with `message`) on this provider request only (1 = the first); other requests pass through unchanged."
         }
       }
     },
@@ -482,6 +555,8 @@
         },
         "terminate": { "type": "boolean", "default": false },
         "adds_tools": { "type": "array", "items": { "type": "string" } },
+        "description": { "type": "string", "description": "L08D002-R001: the tool's description; omitted means the tool's name." },
+        "constrained_sampling": { "$ref": "#/$defs/constrainedSamplingInput" },
         "parameters": {
           "$comment": "The actual Layer-05 shared ToolDefinition.parameters representation -- a plain, object-valued JSON Schema mapping -- passed straight through to the production validator, never a Python-specific shorthand (L06-R001). Omitted defaults to the explicit empty-object schema.",
           "type": "object"

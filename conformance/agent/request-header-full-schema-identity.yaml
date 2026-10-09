@@ -1,0 +1,108 @@
+name: request-header-full-schema-identity
+description: 'L08D002-R001: two distinguishable tools, nested parameters and model-facing metadata. Each
+  request''s header reconstructs exactly the complete schemas, in order, that the provider request carried
+  -- description, parameters and constrained_sampling included (constrained_sampling reconstruction is
+  L03-D001).'
+config:
+  system: base
+provider_script:
+- content:
+  - type: tool_call
+    id: t1
+    name: alpha
+    arguments:
+      path: a
+  stop_reason: tool_use
+- content:
+  - type: text
+    text: done
+  stop_reason: stop
+tools:
+  alpha:
+    result:
+      text: ok
+    description: Read a path.
+    parameters: &id001
+      type: object
+      properties:
+        path:
+          type: string
+          enum:
+          - a
+          - b
+        opts:
+          type: object
+          properties:
+            depth:
+              type: integer
+              minimum: 0
+      required:
+      - path
+    constrained_sampling:
+      type: json_schema
+      strict: require
+  beta:
+    result:
+      text: ok
+    description: Write a grammar-shaped line.
+    parameters: &id002
+      type: object
+      properties:
+        line:
+          type: string
+      required:
+      - line
+    constrained_sampling:
+      type: grammar
+      variants:
+        openai_lark: 'start: WORD'
+        openai_regex: '[a-z]+'
+steps:
+- followup: go
+- await_idle: true
+expect_request_log:
+- user
+- header
+- assistant
+- toolResult
+- header
+- assistant
+expect_headers:
+- system: base
+  components:
+  - system_base
+  model: mock-1
+  tools:
+  - &id003
+    name: alpha
+    description: Read a path.
+    parameters: *id001
+    constrained_sampling:
+      type: json_schema
+      strict: require
+  - &id004
+    name: beta
+    description: Write a grammar-shaped line.
+    parameters: *id002
+    constrained_sampling:
+      type: grammar
+      variants:
+        openai_lark: 'start: WORD'
+        openai_regex: '[a-z]+'
+- system: base
+  components:
+  - system_base
+  model: mock-1
+  tools:
+  - *id003
+  - *id004
+expect_request_tools:
+- - alpha
+  - beta
+- - alpha
+  - beta
+expect_request_schemas:
+- - *id003
+  - *id004
+- - *id003
+  - *id004

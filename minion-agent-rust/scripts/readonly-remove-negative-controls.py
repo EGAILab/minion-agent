@@ -61,3 +61,16 @@ try:
 finally:
     for p, content in originals.items():
         p.write_text(content, encoding="utf-8")
+    # Worktrees share the required single Cargo target. A restored file in one
+    # copy can be older than another copy's last compiled mutant: source restore
+    # alone is not sufficient. Invalidate the tiny native package and prove a
+    # rebuilt, restored baseline before another worktree consumes that target.
+    clean = subprocess.run(["cargo", "clean", "-p", "minion-agent-native-fs"], cwd=tree, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    (args.logs / "restore-clean.log").write_text(clean.stdout, encoding="utf-8")
+    if clean.returncode:
+        raise RuntimeError("INVALID restoration: native package clean failed")
+    restored = subprocess.run(["cargo", "test", "-p", "minion-agent", "--all-features", "--lib", "readonly_", "--", "--nocapture"], cwd=tree, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    (args.logs / "restored-baseline.log").write_text(restored.stdout, encoding="utf-8")
+    if restored.returncode or any(f"test {prefix + witness} ... ok" not in restored.stdout for _, _, _, _, witness, _ in controls):
+        raise RuntimeError("INVALID restoration: every intended witness must pass again")
+    print("RESTORED: sources and compiled baseline verified green", flush=True)

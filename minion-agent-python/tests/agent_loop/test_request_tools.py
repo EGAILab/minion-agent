@@ -3,6 +3,7 @@
 from minion_agent.llm import TextBlock, UserMessage
 from minion_agent.llm.adapters.mock import ScriptedResponse
 from minion_agent.llm.messages import StopReason
+from minion_agent.llm.tools import GrammarConstrainedSampling, JsonSchemaConstrainedSampling
 from minion_agent.session import ArtifactStore, EventKind, reconstruct_tools
 from minion_agent.tools.definition import ToolDefinition
 
@@ -73,3 +74,39 @@ async def test_the_logged_header_reconstructs_the_dispatched_tools() -> None:
 
     header = next(e for e in loop.instance.log.events if e.kind == EventKind.REQUEST_HEADER)
     assert reconstruct_tools(header, store) == adapter.requests[0].tools
+
+
+async def test_the_logged_header_reconstructs_every_sampling_state_dispatched() -> None:
+    """L03-D001, at the real provider-request boundary: eight registered tools, one per certified
+    constrained-sampling state. The header reconstructs exactly the schemas the provider request
+    carried -- every field, in order -- not merely their names."""
+    states = (
+        None,
+        False,
+        JsonSchemaConstrainedSampling(strict="prefer"),
+        JsonSchemaConstrainedSampling(strict="require"),
+        GrammarConstrainedSampling(openai_lark="start: WORD"),
+        GrammarConstrainedSampling(openai_regex="[a-z]+"),
+        GrammarConstrainedSampling(openai_lark="start: WORD", openai_regex="[a-z]+"),
+        GrammarConstrainedSampling(),
+    )
+    loop, adapter = _loop_with_adapter(ScriptedResponse((), StopReason.STOP))
+    for index, sampling in enumerate(states):
+        loop.tools.register(
+            ToolDefinition(
+                name=f"tool-{index}",
+                description=f"state {index}",
+                parameters={"type": "object", "properties": {"text": {"type": "string"}}},
+                execute=lambda tool_call_id, args: "ok",
+                label=f"tool-{index}",
+                constrained_sampling=sampling,
+            )
+        )
+    loop.instance.inbox.followup(_say("hello"))
+
+    await loop.run_until_idle()
+
+    header = next(e for e in loop.instance.log.events if e.kind == EventKind.REQUEST_HEADER)
+    sent = adapter.requests[0].tools
+    assert [schema.constrained_sampling for schema in sent] == list(states)
+    assert reconstruct_tools(header, loop.artifacts) == sent

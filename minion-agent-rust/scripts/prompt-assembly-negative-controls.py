@@ -22,7 +22,7 @@ def control(name, witness, old, new, source=module, target="prompt_assembly_conf
 
 controls = [
     control("metadata-alters-schema", "metadata_is_additive_and_uses_js_not_rust_whitespace", "description: self.description.clone(),", "description: self.prompt_snippet.clone().unwrap_or_else(|| self.description.clone()),", source="crates/minion-agent/src/tools/definition.rs", target="lib"),
-    control("preflight-sanitizes-surrogates", "scalar_domain_preflight", "serde_json::from_str(text)", 'serde_json::from_str(&text.replace(r"\ud800", "x"))', source="crates/minion-agent/tests/prompt_assembly_conformance.rs"),
+    control("preflight-sanitizes-surrogates", "scalar_domain_preflight", "serde_json::from_str(text)", r'serde_json::from_str(&text.replace(r"\ud800", "x"))', source="crates/minion-agent/tests/prompt_assembly_conformance.rs"),
     control("disabled-visible", "canonical_skills_block", ".filter(|skill| !skill.disable_model_invocation)", ".filter(|_skill| true)"),
     control("ampersand-unescaped", "canonical_skills_block", "text.replace('&', \"&amp;\")", "text.to_owned()"),
     control("drive-root-separator-lost", "canonical_invocation", "Some(2) if units.get(1) == Some(&58) => 3,", "Some(2) if units.get(1) == Some(&58) => 2,"),

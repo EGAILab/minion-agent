@@ -1,0 +1,26 @@
+name: request-header-unknown-model-recorded-before-eager-failure
+description: 'Eager unknown-model failure at the provider boundary happens after publication: the header
+  names the requested model and the error propagates as before.'
+config:
+  system: base
+  model: no-such-model
+provider_script:
+- content:
+  - type: text
+    text: done
+  stop_reason: stop
+steps:
+- followup: hi
+- await_idle: true
+expect_error:
+  type: UnknownModelError
+expect_request_log:
+- user
+- header
+expect_headers:
+- system: base
+  components:
+  - system_base
+  model: no-such-model
+  tools: []
+expect_request_tools: []

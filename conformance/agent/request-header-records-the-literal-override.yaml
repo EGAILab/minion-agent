@@ -1,0 +1,26 @@
+name: request-header-records-the-literal-override
+description: A per-step system override is the request's system text, recorded verbatim.
+config:
+  system: base
+provider_script:
+- content:
+  - type: text
+    text: done
+  stop_reason: stop
+listeners:
+- event: agent/pre-step
+  action: system_override
+  system_override: one-off
+steps:
+- followup: hi
+- await_idle: true
+expect_request_log:
+- user
+- header
+- assistant
+expect_headers:
+- system: one-off
+  components:
+  - system_base
+  model: mock-1
+  tools: []

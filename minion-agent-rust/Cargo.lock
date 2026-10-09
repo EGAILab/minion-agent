@@ -1299,6 +1299,7 @@ version = "0.1.0"
 dependencies = [
  "rust_icu_sys",
  "rust_icu_ucol",
+ "rust_icu_ustring",
  "sha2",
  "tempfile",
 ]

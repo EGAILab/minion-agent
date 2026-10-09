@@ -2428,7 +2428,7 @@ rows:
   pi: 'none (MINION_EXTENSION). Reference only: packages/coding-agent/src/core/agent-session.ts
     _rebuildSystemPrompt / _installAgentNextTurnRefresh (C-11) keep Pi''s prompt consistent with its tools'
   surface: Layer 08 delta L08-D001 -- optional prompt assembler invoked while each provider request is built
-  rule: 'CONTRACT APPROVED and merged (L08-D001, #165 -> b1f8108b, #260 -> 142d0491; Owner decision PP-14-9 Option A, minion-agent#159 issuecomment-6057640884;
+  rule: 'CERTIFIED and cross-language closed (L08-D001, minion-agent#166; contract #165 -> b1f8108b, #260 -> 142d0491; Owner decision PP-14-9 Option A, minion-agent#159 issuecomment-6057640884;
     spec/agent.md Layer 08 "Optional prompt assembler"). A driver may have at most one synchronous assembler
     assemble(base, tools) -> string. For every provider request without a per-step system override, the system
     text is assemble(RunContext.system_prompt, RunContext.tools) -- the very tool snapshot whose schemas that
@@ -2439,12 +2439,14 @@ rows:
   - 'minion-agent-python/tests/agent_loop/test_prompt_assembler.py (13 witnesses -- no assembler, run start, mid-run
     registration, prepareNextTurn replacement, added_tool_names growth, override bypass, concurrent churn identity,
     raising / non-string / later-turn failures, header reconstruction, factory)'
-  python: 'Implementation candidate (L08-D001, minion-agent#166): minion-agent-python/src/minion_agent/agent_loop/driver.py
+  python: 'CERTIFIED (L08-D001; Codex complete final review 3 APPROVED #168 @ 3ca9308e / #262 @ 926308fa; merged as
+    db63adcf / 31847c60): minion-agent-python/src/minion_agent/agent_loop/driver.py
     (AgentLoop.prompt_assembler, _system_text) and agent_loop/__init__.py (AgentLoopFactory.for_instance).'
-  rust: 'Implementation candidate (L08-D001, minion-agent#166): minion-agent-rust/crates/minion-agent/src/agent_loop/driver.rs
+  rust: 'CERTIFIED (L08-D001; Claude closure review 1 APPROVED, #166 issuecomment-6079997740; #169 @ 8fad9d3b merged as
+    584ca1a7, docs #264 merged as 797cf1ac): minion-agent-rust/crates/minion-agent/src/agent_loop/driver.rs
     (PromptAssembler, set_prompt_assembler, request-time assembly before the L08-D002 owned header/request snapshot)
     and agent_loop/error.rs (PromptAssemblyError). Evidence: driver prompt_assembler_* tests, added_tool_names_extend_only_the_run_local_snapshot_in_order,
-    scripts/prompt-assembler-negative-controls.py; assurance/layers/08-l08-d001-rust-implementation.md. Independent Rust closure review pending; NOT CERTIFIED.'
+    scripts/prompt-assembler-negative-controls.py; assurance/layers/08-l08-d001-rust-implementation.md.'
   disposition: adopted
 - id: AG-025
   phase: 3

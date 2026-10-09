@@ -5692,10 +5692,18 @@ rows:
   phase: 2
   pi: N/A — Minion artifact architecture
   surface: content-addressed immutable request artifacts
-  rule: stronger storage representation; identical model-visible bytes
+  rule: 'stronger storage representation; identical model-visible bytes. L03-D001 (CONTRACT_DRAFT, minion-agent#174;
+    Owner decision on L08D002-R002, minion-agent#171 issuecomment-6071887505): reconstructing a
+    request header''s tool schemas returns every model-facing field recorded, constrained_sampling included -- all
+    four states (absent, false, json_schema prefer/require, grammar with any subset of openai_lark/openai_regex),
+    absent and false kept distinct, tool order kept; a header stored without the field reconstructs it as absent; a
+    stored value outside the four states fails reconstruction and is never read as absent. Artifact bytes and hashes
+    stay binding-private and unchanged.'
   tests:
   - request-reconstruction-with-artifacts
   - request-header-component-reuse
+  - request-header-tools-constrained-sampling-states
+  - request-header-tools-sampling-false-is-not-absent
   python: src/minion_agent/session/artifacts (retain)
   rust: Phase 2 artifact store
   disposition: intentional divergence

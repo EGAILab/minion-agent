@@ -8,10 +8,28 @@ import yaml
 from .placeholder import is_placeholder
 from .session_runner import run_session_scenario
 
-SCENARIOS = sorted((Path(__file__).resolve().parents[3] / "conformance" / "session").glob("*.yaml"))
+# L03-D001 contract candidate: the certified Python reconstruct_tools still drops
+# constrained_sampling, so these cases fail until the Python correction lands. Strict,
+# so the defect is demonstrated, and the marker cannot outlive the fix.
+L03_D001_PENDING = {
+    "request-header-tools-constrained-sampling-states",
+    "request-header-tools-sampling-false-is-not-absent",
+}
+SCENARIOS = [
+    pytest.param(
+        path,
+        id=path.stem,
+        marks=pytest.mark.xfail(strict=True, reason="L03-D001: Python correction pending")
+        if path.stem in L03_D001_PENDING
+        else (),
+    )
+    for path in sorted(
+        (Path(__file__).resolve().parents[3] / "conformance" / "session").glob("*.yaml")
+    )
+]
 
 
-@pytest.mark.parametrize("scenario", SCENARIOS, ids=lambda path: path.stem)
+@pytest.mark.parametrize("scenario", SCENARIOS)
 def test_session_scenario(scenario: Path) -> None:
     document = yaml.safe_load(scenario.read_text(encoding="utf-8"))
     if is_placeholder(document):

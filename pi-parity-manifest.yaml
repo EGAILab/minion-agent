@@ -6357,9 +6357,9 @@ rows:
     read-only attribute as pinned Pi (libuv 1.49.2 unlink/rmdir, FILE_DISPOSITION_IGNORE_READONLY_ATTRIBUTE):
     read-only files recursive and non-recursive, read-only-attributed directories when recursive, a read-only
     link itself; never the link target; ACL/sharing/other failures, codes and section-14.8 origin paths
-    unchanged; a concurrently vanished entry counts as removed; POSIX unchanged; non-recursive directory
+    unchanged; a concurrently vanished entry counts as removed; POSIX permission semantics unchanged; non-recursive directory
     remove stays with #125. spec/execution.md section 17. conformance/agent/fs-remove-readonly/
-    (fs-remove-readonly-scenario.schema.json; 20 cases generated from pinned Pi on Windows and Linux);
+    (fs-remove-readonly-scenario.schema.json; 21 cases generated from pinned Pi on Windows and Linux);
     tests/conformance/test_fs_remove_readonly_conformance.py. Python fails the read-only cases (strict xfail at
     the contract stage); Rust fails the read-only directory cases.'
   python: 'minion-agent-python/src/minion_agent/execution/filesystem.py; integration evidence in

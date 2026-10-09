@@ -33,7 +33,7 @@ L12_D005_PENDING_WIN32 = {
 
 
 def test_the_fs_remove_readonly_corpus_is_complete() -> None:
-    assert len(DOCUMENTS) == 20
+    assert len(DOCUMENTS) == 21
     assert {d["name"] for d in DOCUMENTS} >= L12_D005_PENDING_WIN32
 
 

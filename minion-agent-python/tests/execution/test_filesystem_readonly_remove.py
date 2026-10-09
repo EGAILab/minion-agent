@@ -4,6 +4,7 @@ as removed, as pinned Node treats `ENOENT` during `rimraf` and during its attrib
 
 from __future__ import annotations
 
+import errno
 import os
 import stat
 import sys
@@ -169,3 +170,36 @@ def test_the_removal_handler_treats_a_vanished_tree_entry_as_removed(tmp_path: P
         filesystem_module._name_the_failing_path(os.unlink, missing, FileNotFoundError(missing))
         is None
     )
+
+
+@windows_only
+async def test_a_tree_entry_retry_failure_reports_the_retry_error_not_the_first(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`L12D005-I001`: the first `unlink` fails on the read-only attribute (`permission_denied`);
+    the attribute is really cleared, and the retried `unlink` of the same entry fails DIFFERENTLY
+    (`not_directory`). The result is the RETRY's error, mapped, naming the entry (section 14.8),
+    as pinned Node's `fixWinEPERM` returns the retried call's error, never the first one."""
+    target = tmp_path / "t" / "f"
+    target.parent.mkdir()
+    target.write_text("x")
+    _readonly(target)
+    real_unlink = os.unlink
+    attempts: list[str] = []
+
+    def unlink(path: Any, *args: Any, **kwargs: Any) -> None:
+        if os.fspath(path) == str(target):
+            attempts.append(os.fspath(path))
+            if len(attempts) == 2:
+                raise NotADirectoryError(errno.ENOTDIR, "retry failed differently", os.fspath(path))
+        real_unlink(path, *args, **kwargs)
+
+    monkeypatch.setattr(os, "unlink", unlink)
+
+    result = await LocalFileSystem(str(tmp_path)).remove("t", recursive=True)
+
+    assert attempts == [str(target), str(target)]
+    assert result.error.code.value == "not_directory"  # type: ignore[union-attr]
+    assert result.error.path == str(target)  # type: ignore[union-attr]
+    assert target.exists()
+    assert not os.stat(target).st_file_attributes & stat.FILE_ATTRIBUTE_READONLY

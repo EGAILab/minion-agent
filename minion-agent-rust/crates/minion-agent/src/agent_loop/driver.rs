@@ -1,4 +1,5 @@
 use std::{
+    collections::BTreeMap,
     fmt,
     sync::Arc,
     time::{SystemTime, UNIX_EPOCH},
@@ -381,6 +382,23 @@ impl AgentLoop {
         let first_visible = decision.history_window.map_or(0, |window| {
             prepared.context.messages.len().saturating_sub(window)
         });
+        let system_prompt = decision
+            .system_override
+            .clone()
+            .unwrap_or_else(|| prepared.context.system_prompt.clone());
+        // ToolSchema owns all model-facing values, including nested parameters.
+        // Capture once: publication and the provider consume this same snapshot.
+        let schemas = prepared
+            .context
+            .tools
+            .iter()
+            .map(|tool| tool.schema())
+            .collect::<Result<Vec<_>, _>>()?;
+        prepared.agent.session().record_header(
+            BTreeMap::from([("system_base".to_owned(), system_prompt.clone())]),
+            prepared.config.model.model_id(),
+            schemas.clone(),
+        )?;
         let request_messages = transform_context(
             &self.context,
             TransformContext {
@@ -393,21 +411,9 @@ impl AgentLoop {
         let request = LlmRequest {
             model: prepared.config.model.clone(),
             context: LlmContext {
-                system_prompt: Some(
-                    decision
-                        .system_override
-                        .clone()
-                        .unwrap_or_else(|| prepared.context.system_prompt.clone()),
-                ),
+                system_prompt: Some(system_prompt),
                 messages: request_messages,
-                tools: Some(
-                    prepared
-                        .context
-                        .tools
-                        .iter()
-                        .map(|tool| tool.schema())
-                        .collect::<Result<_, _>>()?,
-                ),
+                tools: Some(schemas),
             },
             options: SimpleStreamOptions {
                 reasoning: provider_thinking_level(prepared.config.thinking_level),
@@ -979,6 +985,172 @@ mod tests {
 
     fn user(text: &str) -> Message {
         Message::User(UserMessage::new(UserContent::Text(text.into()), 1.0))
+    }
+
+    #[test]
+    fn request_header_schema_failure_precedes_publication_and_transform() {
+        run(async {
+            let runtime = Runtime::new();
+            let observed = Arc::new(AtomicUsize::new(0));
+            let count = observed.clone();
+            let plugin = PluginSpec::<Value>::new(
+                "schema-failure",
+                vec![],
+                || json!({}),
+                move |context, _| {
+                    let count = count.clone();
+                    async move {
+                        register_transform_context_listener(&context, move |_| {
+                            count.fetch_add(1, Ordering::SeqCst);
+                            async { Ok(TransformContextAction::Next(None)) }
+                        })
+                        .map_err(|error| PluginInitError::new(error.to_string()))?;
+                        Ok(())
+                    }
+                },
+            )
+            .erase();
+            runtime.mount(&plugin, json!({})).unwrap();
+            runtime.reconcile().await.unwrap();
+            let llm = Arc::new(LlmService::new());
+            llm.register(
+                identity(),
+                Arc::new(ScriptedAdapter::new([text_turn("done")])),
+            );
+            let (driver, agent) = loop_for_with_llm(
+                &runtime,
+                Session::new("schema-failure", [] as [&str; 0]).unwrap(),
+                llm,
+            );
+            let value = crate::tools::PreparedValue::from(json!({"type":"object"}));
+            value.set(
+                "title",
+                crate::tools::PreparedValue::String(crate::tools::PreparedString::from_code_units(
+                    vec![0xd800],
+                )),
+            );
+            let tool = ToolDefinition::new_with_runtime_schema(
+                "lossless",
+                "lossless",
+                crate::tools::RuntimeSchemaObject::try_from(value).unwrap(),
+                "lossless",
+                |_| Box::pin(async { Ok(tool_output("ok")) }),
+            );
+            runtime.tools().register_for_scope(None, tool).unwrap();
+            driver
+                .prompt(PromptInput::Message(user("hello")))
+                .await
+                .unwrap();
+            assert_eq!(observed.load(Ordering::SeqCst), 0);
+            assert!(
+                agent
+                    .session()
+                    .events()
+                    .iter()
+                    .all(|event| event.kind.as_str() != "request/header")
+            );
+            assert_eq!(agent.messages().unwrap().len(), 2);
+            assert!(
+                matches!(agent.messages().unwrap().last(), Some(Message::Assistant(message)) if message.stop_reason == StopReason::Error)
+            );
+        });
+    }
+
+    #[test]
+    fn request_header_is_visible_to_transform_and_survives_abort() {
+        run(async {
+            let runtime = Runtime::new();
+            let plugin = PluginSpec::<Value>::new(
+                "header-at-transform",
+                vec![],
+                || json!({}),
+                |context, _| async move {
+                    register_transform_context_listener(&context, |current| async move {
+                        let events = current.agent.session().events();
+                        let header = events.last().unwrap();
+                        assert_eq!(header.kind.as_str(), "request/header");
+                        let reconstructed =
+                            current.agent.session().reconstruct_header(header).unwrap();
+                        assert_eq!(reconstructed.model, "model");
+                        assert_eq!(reconstructed.assembled_system, "system");
+                        current.agent.abort();
+                        Ok(TransformContextAction::Next(None))
+                    })
+                    .map_err(|error| PluginInitError::new(error.to_string()))?;
+                    Ok(())
+                },
+            )
+            .erase();
+            runtime.mount(&plugin, json!({})).unwrap();
+            runtime.reconcile().await.unwrap();
+            let adapter = Arc::new(ScriptedAdapter::new([text_turn("done")]));
+            let llm = Arc::new(LlmService::new());
+            llm.register(identity(), adapter.clone());
+            let (driver, agent) = loop_for_with_llm(
+                &runtime,
+                Session::new("header-abort", [] as [&str; 0]).unwrap(),
+                llm,
+            );
+            driver
+                .prompt(PromptInput::Message(user("hello")))
+                .await
+                .unwrap();
+            let events = agent.session().events();
+            assert_eq!(
+                events
+                    .iter()
+                    .filter(|event| event.kind.as_str() == "request/header")
+                    .count(),
+                1
+            );
+            assert!(events.windows(2).all(|pair| pair[1].seq == pair[0].seq + 1));
+            assert_eq!(agent.messages().unwrap().len(), 2);
+            assert!(adapter.requests()[0].signal.as_ref().unwrap().aborted());
+        });
+    }
+
+    #[test]
+    fn request_header_rejected_step_publishes_nothing() {
+        run(async {
+            let runtime = Runtime::new();
+            let plugin = PluginSpec::<Value>::new(
+                "reject-header",
+                vec![],
+                || json!({}),
+                |context, _| async move {
+                    register_pre_step_listener(&context, |_current, _next| async {
+                        Ok(PreStepDecision::Reject(crate::agent_loop::Reject {
+                            reason: "declined".to_owned(),
+                        }))
+                    })
+                    .map_err(|error| PluginInitError::new(error.to_string()))?;
+                    Ok(())
+                },
+            )
+            .erase();
+            runtime.mount(&plugin, json!({})).unwrap();
+            runtime.reconcile().await.unwrap();
+            let adapter = Arc::new(ScriptedAdapter::new([text_turn("done")]));
+            let llm = Arc::new(LlmService::new());
+            llm.register(identity(), adapter.clone());
+            let (driver, agent) = loop_for_with_llm(
+                &runtime,
+                Session::new("reject-header", [] as [&str; 0]).unwrap(),
+                llm,
+            );
+            driver
+                .prompt(PromptInput::Message(user("hello")))
+                .await
+                .unwrap();
+            assert!(adapter.requests().is_empty());
+            assert!(
+                agent
+                    .session()
+                    .events()
+                    .iter()
+                    .all(|event| event.kind.as_str() != "request/header")
+            );
+        });
     }
 
     fn assistant(text: &str) -> Message {

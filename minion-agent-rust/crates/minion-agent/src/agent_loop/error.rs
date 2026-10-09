@@ -5,6 +5,21 @@ use crate::{
     tools::ToolExecutionError,
 };
 
+/// Request composition failure, kept distinct from eager model lookup failures.
+#[derive(Clone, Debug, Eq, Error, PartialEq)]
+#[error("{message}")]
+pub struct PromptAssemblyError {
+    message: String,
+}
+
+impl PromptAssemblyError {
+    pub fn new(message: impl Into<String>) -> Self {
+        Self {
+            message: message.into(),
+        }
+    }
+}
+
 /// Failure returned by a public Agent lifecycle listener.
 #[derive(Clone, Debug, Eq, Error, PartialEq)]
 #[error("agent listener failed: {message}")]
@@ -26,6 +41,8 @@ impl AgentListenerError {
 
 #[derive(Debug, Error)]
 pub enum AgentLoopError {
+    #[error(transparent)]
+    PromptAssembly(#[from] PromptAssemblyError),
     #[error(
         "Agent is already processing a prompt. Use steer() or followUp() to queue messages, or wait for completion."
     )]
@@ -58,7 +75,8 @@ impl AgentLoopError {
     pub fn listener_error(&self) -> Option<&AgentListenerError> {
         match self {
             Self::Listener(error) => Some(error),
-            Self::PromptActive
+            Self::PromptAssembly(_)
+            | Self::PromptActive
             | Self::ContinueActive
             | Self::NoMessagesToContinue
             | Self::CannotContinueFromAssistant
@@ -82,7 +100,8 @@ impl AgentLoopError {
             Self::Event(EventError::Waterfall(crate::WaterfallError::ListenerFailed(message))) => {
                 message.clone()
             }
-            Self::PromptActive
+            Self::PromptAssembly(_)
+            | Self::PromptActive
             | Self::ContinueActive
             | Self::NoMessagesToContinue
             | Self::CannotContinueFromAssistant

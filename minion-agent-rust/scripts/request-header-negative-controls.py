@@ -13,6 +13,9 @@ parser.add_argument("--tree", type=Path, required=True)
 parser.add_argument("--logs", type=Path, required=True)
 args = parser.parse_args()
 tree = args.tree.resolve()
+for required in ["tests/execution/data/r002_ada_oracle/systematic_ada292.txt", "tests/skills/data/frontmatter-corpus.json", "tests/skills/data/ignore-corpus.json"]:
+    if not (tree.parent / "minion-agent-python" / required).is_file():
+        raise RuntimeError(f"INVALID scratch tree: missing compiled fixture {required}")
 source = tree / "crates/minion-agent/src/agent_loop/driver.rs"
 original = source.read_text(encoding="utf-8")
 args.logs.mkdir(parents=True, exist_ok=True)
@@ -27,7 +30,7 @@ controls = [
     ("first-request-only", "request_header_request_order", header, "        if prepared.new_messages.len() <= 1 {\n" + header + "        }\n"),
     ("wrong-model", "request_header_single_request", "            prepared.config.model.model_id(),", '            "wrong-model",'),
     ("wrong-component", "request_header_single_request", '("system_base".to_owned(), system_prompt.clone())', '("wrong_component".to_owned(), system_prompt.clone())'),
-    ("override-ignored", "request_header_literal_override", '.system_override\n            .clone()', '.system_override\n            .clone().filter(|_| false)'),
+    ("override-ignored", "request_header_literal_override", 'match &decision.system_override {', 'match &None::<String> {'),
     ("empty-header-tools", "request_header_full_schema_identity", "            schemas.clone(),", "            Vec::new(),"),
     ("reversed-header-tools", "request_header_full_schema_identity", "            schemas.clone(),", "            schemas.iter().rev().cloned().collect(),"),
     ("empty-provider-tools", "request_header_full_schema_identity", "                tools: Some(schemas),", "                tools: Some(Vec::new()),"),
@@ -49,11 +52,17 @@ def run(name, witness, mutant):
 
 
 try:
+    # Validate the complete intended-witness selection before any mutation.
+    for label, target in [("canonical", ["--test", "agent_loop_conformance"]), ("schema", ["--lib", "agent_loop::driver::tests::request_header_schema_failure_precedes_publication_and_transform", "--", "--exact"])]:
+        baseline = subprocess.run(["cargo", "test", "-p", "minion-agent", "--all-features", *target], cwd=tree, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        (args.logs / f"baseline-{label}.log").write_text(baseline.stdout, encoding="utf-8")
+        witnesses = [witness for _, witness, _, _ in controls if witness.startswith("agent_loop::") == (label == "schema")]
+        if baseline.returncode != 0 or any(f"test {witness} ... ok" not in baseline.stdout for witness in witnesses):
+            raise RuntimeError(f"INVALID {label} baseline: exit {baseline.returncode}; every intended witness must pass")
     for name, witness, old, new in controls:
         if original.count(old) != 1:
             raise RuntimeError(f"INVALID {name}: anchor count {original.count(old)}")
         source.write_text(original, encoding="utf-8")
-        run(name, witness, False)
         source.write_text(original.replace(old, new, 1), encoding="utf-8")
         run(name, witness, True)
         print(f"KILLED {name} by {witness}", flush=True)

@@ -19,7 +19,8 @@ use crate::{
         ThinkingLevel as LlmThinkingLevel, UserContent, UserContentBlock, UserMessage,
     },
     tools::{
-        ToolExecutionBatchResult, ToolExecutionOptions, ToolLifecycleError, execute_tool_calls,
+        ToolDefinition, ToolExecutionBatchResult, ToolExecutionOptions, ToolLifecycleError,
+        execute_tool_calls,
     },
 };
 
@@ -52,6 +53,30 @@ pub struct AgentLoop {
     llm: Arc<LlmService>,
     next_step_policy: ClaimPolicy,
     next_turn_policy: ClaimPolicy,
+    prompt_assembler: Option<Arc<dyn PromptAssembler>>,
+}
+
+/// Synchronous request-time composition over the request's ordered tool snapshot.
+/// Implementations must derive tool-dependent text from this slice, not the live registry.
+pub trait PromptAssembler: Send + Sync {
+    fn assemble(
+        &self,
+        base: &str,
+        tools: &[Arc<ToolDefinition>],
+    ) -> Result<String, super::PromptAssemblyError>;
+}
+
+impl<F> PromptAssembler for F
+where
+    F: Fn(&str, &[Arc<ToolDefinition>]) -> Result<String, super::PromptAssemblyError> + Send + Sync,
+{
+    fn assemble(
+        &self,
+        base: &str,
+        tools: &[Arc<ToolDefinition>],
+    ) -> Result<String, super::PromptAssemblyError> {
+        self(base, tools)
+    }
 }
 
 struct PreparedRun {
@@ -131,11 +156,17 @@ impl AgentLoop {
             llm,
             next_step_policy: ClaimPolicy::OneAtATime,
             next_turn_policy: ClaimPolicy::OneAtATime,
+            prompt_assembler: None,
         }
     }
 
     pub fn set_next_step_policy(&mut self, policy: ClaimPolicy) {
         self.next_step_policy = policy;
+    }
+
+    /// Installs at most one assembler; `None` restores the certified base-prompt path.
+    pub fn set_prompt_assembler(&mut self, assembler: Option<Arc<dyn PromptAssembler>>) {
+        self.prompt_assembler = assembler;
     }
 
     pub fn set_next_turn_policy(&mut self, policy: ClaimPolicy) {
@@ -382,10 +413,15 @@ impl AgentLoop {
         let first_visible = decision.history_window.map_or(0, |window| {
             prepared.context.messages.len().saturating_sub(window)
         });
-        let system_prompt = decision
-            .system_override
-            .clone()
-            .unwrap_or_else(|| prepared.context.system_prompt.clone());
+        let system_prompt = match &decision.system_override {
+            Some(text) => text.clone(),
+            None => match &self.prompt_assembler {
+                Some(assembler) => {
+                    assembler.assemble(&prepared.context.system_prompt, &prepared.context.tools)?
+                }
+                None => prepared.context.system_prompt.clone(),
+            },
+        };
         // ToolSchema owns all model-facing values, including nested parameters.
         // Capture once: publication and the provider consume this same snapshot.
         let schemas = prepared
@@ -1337,6 +1373,447 @@ mod tests {
 
     fn loop_for(runtime: &Runtime, session: Session) -> (AgentLoop, Arc<AgentInstance>) {
         loop_for_with_llm(runtime, session, Arc::new(LlmService::new()))
+    }
+
+    #[test]
+    fn prompt_assembler_uses_snapshot_order_without_mutating_base() {
+        run(async {
+            let runtime = Runtime::new();
+            let _z = runtime.tools().register_for_scope(None, tool("z")).unwrap();
+            let _a = runtime.tools().register_for_scope(None, tool("a")).unwrap();
+            let adapter = Arc::new(ScriptedAdapter::new([text_turn("answer")]));
+            let llm = Arc::new(LlmService::new());
+            llm.register(identity(), adapter.clone());
+            let (mut driver, agent) = loop_for_with_llm(
+                &runtime,
+                Session::new("assembler", [] as [&str; 0]).unwrap(),
+                llm,
+            );
+            let calls = Arc::new(Mutex::new(Vec::new()));
+            let observed = calls.clone();
+            driver.set_prompt_assembler(Some(Arc::new(
+                move |base: &str, tools: &[Arc<ToolDefinition>]| {
+                    let names = tools
+                        .iter()
+                        .map(|tool| tool.name().to_owned())
+                        .collect::<Vec<_>>();
+                    observed.lock().push((base.to_owned(), names.clone()));
+                    Ok(format!("{base}:{}", names.join(",")))
+                },
+            )));
+            let mut prepared = driver
+                .prepare_prompt_run(PromptInput::Message(user("question")))
+                .await
+                .unwrap();
+            let snapshot = prepared
+                .context
+                .tools
+                .iter()
+                .map(|tool| tool.name().to_owned())
+                .collect::<Vec<_>>();
+            let _late = runtime
+                .tools()
+                .register_for_scope(None, tool("late"))
+                .unwrap();
+            driver.run_provider_turn(&mut prepared).await.unwrap();
+            assert_eq!(*calls.lock(), vec![("system".to_owned(), snapshot.clone())]);
+            let requests = adapter.requests();
+            assert_eq!(
+                requests[0].context.system_prompt,
+                Some(format!("system:{}", snapshot.join(",")))
+            );
+            assert_eq!(
+                requests[0]
+                    .context
+                    .tools
+                    .as_ref()
+                    .unwrap()
+                    .iter()
+                    .map(|tool| tool.name.clone())
+                    .collect::<Vec<_>>(),
+                snapshot
+            );
+            assert_eq!(prepared.context.system_prompt, "system");
+            assert_eq!(agent.system_prompt(), "system");
+            let headers = agent.session().events();
+            let header = headers
+                .iter()
+                .find(|event| event.kind.as_str() == "request/header")
+                .unwrap();
+            let reconstructed = agent.session().reconstruct_header(header).unwrap();
+            assert_eq!(
+                Some(reconstructed.assembled_system),
+                requests[0].context.system_prompt
+            );
+            assert_eq!(
+                reconstructed.tools,
+                *requests[0].context.tools.as_ref().unwrap()
+            );
+        });
+    }
+
+    #[test]
+    fn prompt_assembler_empty_override_bypasses_callback() {
+        run(async {
+            let runtime = Runtime::new();
+            let adapter = Arc::new(ScriptedAdapter::new([
+                text_turn("answer"),
+                text_turn("again"),
+            ]));
+            let llm = Arc::new(LlmService::new());
+            llm.register(identity(), adapter.clone());
+            let (mut driver, _) = loop_for_with_llm(
+                &runtime,
+                Session::new("override", [] as [&str; 0]).unwrap(),
+                llm,
+            );
+            driver.set_prompt_assembler(Some(Arc::new(|_: &str, _: &[Arc<ToolDefinition>]| {
+                Err(super::super::PromptAssemblyError::new("must not run"))
+            })));
+            let mut prepared = driver
+                .prepare_prompt_run(PromptInput::Message(user("question")))
+                .await
+                .unwrap();
+            let decision = Enter {
+                messages: vec![],
+                system_override: Some(String::new()),
+                history_window: None,
+            };
+            driver
+                .run_provider_turn_with_decision(&mut prepared, &decision)
+                .await
+                .unwrap();
+            assert_eq!(
+                adapter.requests()[0].context.system_prompt.as_deref(),
+                Some("")
+            );
+            let literal = Enter {
+                system_override: Some("literal\n\n  text".to_owned()),
+                ..decision
+            };
+            driver
+                .run_provider_turn_with_decision(&mut prepared, &literal)
+                .await
+                .unwrap();
+            assert_eq!(
+                adapter.requests()[1].context.system_prompt.as_deref(),
+                Some("literal\n\n  text")
+            );
+            let events = prepared.agent.session().events();
+            let reconstructed = events
+                .iter()
+                .filter(|event| event.kind.as_str() == "request/header")
+                .map(|event| {
+                    prepared
+                        .agent
+                        .session()
+                        .reconstruct_header(event)
+                        .unwrap()
+                        .assembled_system
+                })
+                .collect::<Vec<_>>();
+            assert_eq!(reconstructed, vec!["", "literal\n\n  text"]);
+        });
+    }
+
+    #[test]
+    fn prompt_assembler_failure_settles_without_provider_request() {
+        run(async {
+            let runtime = Runtime::new();
+            let adapter = Arc::new(ScriptedAdapter::new([text_turn("unused")]));
+            let llm = Arc::new(LlmService::new());
+            llm.register(identity(), adapter.clone());
+            let (mut driver, agent) = loop_for_with_llm(
+                &runtime,
+                Session::new("failed", [] as [&str; 0]).unwrap(),
+                llm,
+            );
+            driver.set_prompt_assembler(Some(Arc::new(|_: &str, _: &[Arc<ToolDefinition>]| {
+                Err(super::super::PromptAssemblyError::new(
+                    "unknown model from assembler",
+                ))
+            })));
+            driver
+                .prompt(PromptInput::Message(user("question")))
+                .await
+                .unwrap();
+            assert!(adapter.requests().is_empty());
+            assert!(
+                agent
+                    .session()
+                    .events()
+                    .iter()
+                    .all(|event| event.kind.as_str() != "request/header")
+            );
+            assert_eq!(agent.status(), AgentStatus::Idle);
+            assert_eq!(
+                agent.error_message().as_deref(),
+                Some("unknown model from assembler")
+            );
+        });
+    }
+
+    #[test]
+    fn prompt_assembler_absent_keeps_corrected_header() {
+        run(async {
+            let runtime = Runtime::new();
+            let adapter = Arc::new(ScriptedAdapter::new([text_turn("answer")]));
+            let llm = Arc::new(LlmService::new());
+            llm.register(identity(), adapter.clone());
+            let session = Session::new("header-gap", [] as [&str; 0]).unwrap();
+            let (driver, _) = loop_for_with_llm(&runtime, session.clone(), llm);
+            driver
+                .prompt(PromptInput::Message(user("question")))
+                .await
+                .unwrap();
+            assert_eq!(adapter.requests().len(), 1);
+            let headers = session
+                .events()
+                .into_iter()
+                .filter(|event| event.kind.as_str() == "request/header")
+                .count();
+            assert_eq!(headers, 1);
+            let events = session.events();
+            let header = events
+                .iter()
+                .find(|event| event.kind.as_str() == "request/header")
+                .unwrap();
+            assert_eq!(
+                session.reconstruct_header(header).unwrap().assembled_system,
+                "system"
+            );
+        });
+    }
+
+    #[test]
+    fn prompt_assembler_later_failure_keeps_only_the_prior_header() {
+        run(async {
+            let runtime = Runtime::new();
+            let _tool = runtime
+                .tools()
+                .register_for_scope(None, tool("echo"))
+                .unwrap();
+            let adapter = Arc::new(ScriptedAdapter::new([
+                tool_turn("call", "echo"),
+                text_turn("unused"),
+            ]));
+            let llm = Arc::new(LlmService::new());
+            llm.register(identity(), adapter.clone());
+            let session = Session::new("later-assembly-failure", [] as [&str; 0]).unwrap();
+            let (mut driver, agent) = loop_for_with_llm(&runtime, session.clone(), llm);
+            let calls = AtomicUsize::new(0);
+            driver.set_prompt_assembler(Some(Arc::new(
+                move |_: &str, _: &[Arc<ToolDefinition>]| {
+                    if calls.fetch_add(1, Ordering::SeqCst) == 0 {
+                        Ok("assembled-first".to_owned())
+                    } else {
+                        Err(super::super::PromptAssemblyError::new(
+                            "later assembly failed",
+                        ))
+                    }
+                },
+            )));
+            driver
+                .prompt(PromptInput::Message(user("question")))
+                .await
+                .unwrap();
+            assert_eq!(adapter.requests().len(), 1);
+            assert_eq!(agent.status(), AgentStatus::Idle);
+            assert_eq!(
+                agent.error_message().as_deref(),
+                Some("later assembly failed")
+            );
+            let events = session.events();
+            let headers = events
+                .iter()
+                .filter(|event| event.kind.as_str() == "request/header")
+                .collect::<Vec<_>>();
+            assert_eq!(headers.len(), 1);
+            assert_eq!(
+                session
+                    .reconstruct_header(headers[0])
+                    .unwrap()
+                    .assembled_system,
+                "assembled-first"
+            );
+            assert!(
+                matches!(agent.messages().unwrap().last(), Some(Message::Assistant(message)) if message.stop_reason == StopReason::Error)
+            );
+        });
+    }
+
+    #[test]
+    fn prompt_assembler_preserves_genuine_eager_model_failure() {
+        run(async {
+            let runtime = Runtime::new();
+            let session = Session::new("assembly-eager-failure", [] as [&str; 0]).unwrap();
+            let (mut driver, agent) = loop_for(&runtime, session.clone());
+            driver.set_prompt_assembler(Some(Arc::new(|_: &str, _: &[Arc<ToolDefinition>]| {
+                Ok("assembled".to_owned())
+            })));
+            let error = driver
+                .prompt(PromptInput::Message(user("question")))
+                .await
+                .unwrap_err();
+            assert!(error.is_eager());
+            assert_eq!(agent.status(), AgentStatus::Idle);
+            assert!(agent.error_message().is_none());
+            assert_eq!(
+                session
+                    .events()
+                    .iter()
+                    .filter(|event| event.kind.as_str() == "request/header")
+                    .count(),
+                1
+            );
+        });
+    }
+
+    #[test]
+    fn prompt_assembler_seven_requests_follow_context_snapshots_not_registry_churn() {
+        run(async {
+            let runtime = Runtime::new();
+            let _echo = runtime
+                .tools()
+                .register_for_scope(None, tool("echo"))
+                .unwrap();
+            let count = Arc::new(AtomicUsize::new(0));
+            let churn = Arc::new(Mutex::new(Vec::new()));
+            let registry_context = runtime.context();
+            let observed_churn = churn.clone();
+            let observed_count = count.clone();
+            let plugin = decision_plugin(
+                move |current| {
+                    let index = observed_count.fetch_add(1, Ordering::SeqCst) + 1;
+                    observed_churn.lock().push(
+                        registry_context
+                            .tools()
+                            .unwrap()
+                            .register_for_scope(None, tool(&format!("late-{index}")))
+                            .unwrap(),
+                    );
+                    let mut context = current.context;
+                    context.system_prompt = format!("base-{index}");
+                    context.tools = if index.is_multiple_of(2) {
+                        vec![Arc::new(tool("echo")), Arc::new(tool("z"))]
+                    } else {
+                        vec![Arc::new(tool("z")), Arc::new(tool("echo"))]
+                    };
+                    RunConfigUpdate {
+                        context: Some(context),
+                        ..RunConfigUpdate::default()
+                    }
+                },
+                |_| TurnStopping::Continue,
+            );
+            runtime.mount(&plugin, json!({})).unwrap();
+            runtime.reconcile().await.unwrap();
+            let churn_context = runtime.context();
+            let transform_plugin = PluginSpec::<Value>::new(
+                "assembly-concurrent-churn",
+                vec![],
+                || json!({}),
+                move |context, _| {
+                    let churn_context = churn_context.clone();
+                    async move {
+                        register_transform_context_listener(&context, move |_current| {
+                            let churn_context = churn_context.clone();
+                            async move {
+                                tokio::spawn(async move {
+                                    let registration = churn_context
+                                        .tools()
+                                        .unwrap()
+                                        .register_for_scope(None, tool("ephemeral"))
+                                        .unwrap();
+                                    tokio::task::yield_now().await;
+                                    registration.withdraw();
+                                })
+                                .await
+                                .unwrap();
+                                Ok(TransformContextAction::Next(None))
+                            }
+                        })
+                        .map_err(|error| PluginInitError::new(error.to_string()))?;
+                        Ok(())
+                    }
+                },
+            )
+            .erase();
+            runtime.mount(&transform_plugin, json!({})).unwrap();
+            runtime.reconcile().await.unwrap();
+            let scripts = (0..6)
+                .map(|index| tool_turn(&format!("call-{index}"), "echo"))
+                .chain([text_turn("done")]);
+            let adapter = Arc::new(ScriptedAdapter::new(scripts));
+            let llm = Arc::new(LlmService::new());
+            llm.register(identity(), adapter.clone());
+            let session = Session::new("seven-assembly-requests", [] as [&str; 0]).unwrap();
+            let (mut driver, agent) = loop_for_with_llm(&runtime, session.clone(), llm);
+            let calls = Arc::new(Mutex::new(Vec::new()));
+            let observed = calls.clone();
+            driver.set_prompt_assembler(Some(Arc::new(
+                move |base: &str, tools: &[Arc<ToolDefinition>]| {
+                    let names = tools
+                        .iter()
+                        .map(|tool| tool.name().to_owned())
+                        .collect::<Vec<_>>();
+                    observed.lock().push((base.to_owned(), names.clone()));
+                    Ok(format!("{base}:{}", names.join(",")))
+                },
+            )));
+            driver
+                .prompt(PromptInput::Message(user("question")))
+                .await
+                .unwrap();
+            let requests = adapter.requests();
+            let events = session.events();
+            let headers = events
+                .iter()
+                .filter(|event| event.kind.as_str() == "request/header")
+                .collect::<Vec<_>>();
+            assert_eq!(requests.len(), 7);
+            assert_eq!(headers.len(), 7);
+            assert_eq!(calls.lock().len(), 7);
+            for (index, (request, header)) in requests.iter().zip(headers).enumerate() {
+                let names = request
+                    .context
+                    .tools
+                    .as_ref()
+                    .unwrap()
+                    .iter()
+                    .map(|schema| schema.name.clone())
+                    .collect::<Vec<_>>();
+                let expected_names = if index == 0 {
+                    vec!["echo".to_owned()]
+                } else if index.is_multiple_of(2) {
+                    vec!["echo".to_owned(), "z".to_owned()]
+                } else {
+                    vec!["z".to_owned(), "echo".to_owned()]
+                };
+                assert_eq!(names, expected_names);
+                let base = if index == 0 {
+                    "system".to_owned()
+                } else {
+                    format!("base-{index}")
+                };
+                assert_eq!(calls.lock()[index], (base.clone(), names.clone()));
+                assert_eq!(
+                    request.context.system_prompt,
+                    Some(format!("{base}:{}", names.join(",")))
+                );
+                let reconstructed = session.reconstruct_header(header).unwrap();
+                assert_eq!(
+                    Some(reconstructed.assembled_system),
+                    request.context.system_prompt
+                );
+                assert_eq!(
+                    reconstructed.tools,
+                    *request.context.tools.as_ref().unwrap()
+                );
+            }
+            assert_eq!(agent.system_prompt(), "system");
+            assert_eq!(agent.status(), AgentStatus::Idle);
+        });
     }
 
     fn loop_for_with_llm(
@@ -2613,8 +3090,29 @@ mod tests {
                     ),
                 )
                 .unwrap();
-            let (driver, agent) =
-                loop_for(&runtime, Session::new("room-a", [] as [&str; 0]).unwrap());
+            let adapter = Arc::new(ScriptedAdapter::new([
+                text_turn("before"),
+                text_turn("after"),
+            ]));
+            let llm = Arc::new(LlmService::new());
+            llm.register(identity(), adapter.clone());
+            let (mut driver, agent) = loop_for_with_llm(
+                &runtime,
+                Session::new("room-a", [] as [&str; 0]).unwrap(),
+                llm,
+            );
+            driver.set_prompt_assembler(Some(Arc::new(
+                |base: &str, tools: &[Arc<ToolDefinition>]| {
+                    Ok(format!(
+                        "{base}:{}",
+                        tools
+                            .iter()
+                            .map(|tool| tool.name())
+                            .collect::<Vec<_>>()
+                            .join(",")
+                    ))
+                },
+            )));
             let mut prepared = driver
                 .prepare_prompt_run(PromptInput::Message(user("prompt")))
                 .await
@@ -2648,10 +3146,33 @@ mod tests {
                 2.0,
             );
 
+            driver.run_provider_turn(&mut prepared).await.unwrap();
             driver
                 .run_tool_calls(&mut prepared, &assistant)
                 .await
                 .unwrap();
+
+            driver.run_provider_turn(&mut prepared).await.unwrap();
+            let requests = adapter.requests();
+            assert_eq!(
+                requests[0].context.system_prompt.as_deref(),
+                Some("system:initial")
+            );
+            assert_eq!(
+                requests[1].context.system_prompt.as_deref(),
+                Some("system:initial,introduced")
+            );
+            assert_eq!(
+                requests[1]
+                    .context
+                    .tools
+                    .as_ref()
+                    .unwrap()
+                    .iter()
+                    .map(|tool| tool.name.as_str())
+                    .collect::<Vec<_>>(),
+                vec!["initial", "introduced"]
+            );
 
             assert_eq!(
                 prepared

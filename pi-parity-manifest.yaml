@@ -2441,7 +2441,10 @@ rows:
     raising / non-string / later-turn failures, header reconstruction, factory)'
   python: 'Implementation candidate (L08-D001, minion-agent#166): minion-agent-python/src/minion_agent/agent_loop/driver.py
     (AgentLoop.prompt_assembler, _system_text) and agent_loop/__init__.py (AgentLoopFactory.for_instance).'
-  rust: 'NOT_IMPLEMENTED (L08-D001 contract draft).'
+  rust: 'Implementation candidate (L08-D001, minion-agent#166): minion-agent-rust/crates/minion-agent/src/agent_loop/driver.rs
+    (PromptAssembler, set_prompt_assembler, request-time assembly before the L08-D002 owned header/request snapshot)
+    and agent_loop/error.rs (PromptAssemblyError). Evidence: driver prompt_assembler_* tests, added_tool_names_extend_only_the_run_local_snapshot_in_order,
+    scripts/prompt-assembler-negative-controls.py; assurance/layers/08-l08-d001-rust-implementation.md. Independent Rust closure review pending; NOT CERTIFIED.'
   disposition: adopted
 - id: AG-025
   phase: 3

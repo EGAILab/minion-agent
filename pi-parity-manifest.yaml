@@ -5798,7 +5798,7 @@ rows:
   - 'minion-agent-python/tests/system_prompt/test_formatting.py; tests/conformance/test_prompt_assembly_conformance.py'
   - conformance/agent/prompt-assembly/prompt-b*.json (pinned-harness oracle; prompt-assembly-scenario.schema.json)
   python: 'Implementation candidate (WP-14.2, minion-agent#159): minion-agent-python/src/minion_agent/system_prompt/formatting.py (format_skills_block).'
-  rust: 'NOT_IMPLEMENTED (WP-14.2 contract draft, minion-agent#159).'
+  rust: 'Implementation candidate (WP-14.2, minion-agent#159): minion-agent-rust/crates/minion-agent/src/system_prompt.rs; tests/prompt_assembly_conformance.rs (66 documents); agent_loop/driver.rs wp142_ integration witnesses; scripts/prompt-assembly-negative-controls.py. Independent closure review pending; not certified. Assurance: assurance/layers/14-wp142-rust-implementation.md.'
   disposition: adopted
 - id: HAR-014
   phase: 7
@@ -5813,7 +5813,7 @@ rows:
   - 'minion-agent-python/tests/system_prompt/test_formatting.py (UTF-16 dirname); test_integration.py (persisted invocation message)'
   - conformance/agent/prompt-assembly/prompt-v*.json (pinned-harness oracle)
   python: 'Implementation candidate (WP-14.2, minion-agent#159): minion-agent-python/src/minion_agent/system_prompt/formatting.py (format_skill_invocation).'
-  rust: 'NOT_IMPLEMENTED (WP-14.2 contract draft, minion-agent#159).'
+  rust: 'Implementation candidate (WP-14.2, minion-agent#159): minion-agent-rust/crates/minion-agent/src/system_prompt.rs; tests/prompt_assembly_conformance.rs (66 documents); agent_loop/driver.rs wp142_ integration witnesses; scripts/prompt-assembly-negative-controls.py. Independent closure review pending; not certified. Assurance: assurance/layers/14-wp142-rust-implementation.md.'
   disposition: adopted
 - id: HAR-015
   phase: 7
@@ -5829,7 +5829,7 @@ rows:
   - 'minion-agent-python/tests/conformance/test_prompt_assembly_conformance.py; tests/system_prompt/test_integration.py'
   - conformance/agent/prompt-assembly/prompt-c*.json
   python: 'Implementation candidate (WP-14.2, minion-agent#159): minion-agent-python/src/minion_agent/system_prompt/composer.py (compose_prompt).'
-  rust: 'NOT_IMPLEMENTED (WP-14.2 contract draft, minion-agent#159).'
+  rust: 'Implementation candidate (WP-14.2, minion-agent#159): minion-agent-rust/crates/minion-agent/src/system_prompt.rs; tests/prompt_assembly_conformance.rs (66 documents); agent_loop/driver.rs wp142_ integration witnesses; scripts/prompt-assembly-negative-controls.py. Independent closure review pending; not certified. Assurance: assurance/layers/14-wp142-rust-implementation.md.'
   disposition: adopted
 - id: HAR-016
   phase: 7
@@ -5845,7 +5845,7 @@ rows:
   - 'minion-agent-python/tests/system_prompt/test_integration.py (read gate and tools section from the request snapshot; whole-value replacement; retained-record mutation; override bypass)'
   - planned driver-level witnesses (spec/harness.md WP-14.2 conformance evidence), after L08-D001
   python: 'Implementation candidate (WP-14.2, minion-agent#159): minion-agent-python/src/minion_agent/system_prompt/composer.py (PromptComposer, the L08-D001 assembler).'
-  rust: 'NOT_IMPLEMENTED (WP-14.2 contract draft, minion-agent#159).'
+  rust: 'Implementation candidate (WP-14.2, minion-agent#159): minion-agent-rust/crates/minion-agent/src/system_prompt.rs; tests/prompt_assembly_conformance.rs (66 documents); agent_loop/driver.rs wp142_ integration witnesses; scripts/prompt-assembly-negative-controls.py. Independent closure review pending; not certified. Assurance: assurance/layers/14-wp142-rust-implementation.md.'
   disposition: adopted
 - id: HAR-017
   phase: 7
@@ -5859,7 +5859,7 @@ rows:
   - 'minion-agent-python/tests/system_prompt/test_integration.py (header persistence and reconstruction; exact provider prompt)'
   - planned header round-trip witnesses (spec/harness.md WP-14.2), after L08-D001
   python: 'Implementation candidate (WP-14.2, minion-agent#159): the composed prompt is the system_base component of the request header (Layer 03, unchanged).'
-  rust: 'NOT_IMPLEMENTED (WP-14.2 contract draft, minion-agent#159).'
+  rust: 'Implementation candidate (WP-14.2, minion-agent#159): minion-agent-rust/crates/minion-agent/src/system_prompt.rs; tests/prompt_assembly_conformance.rs (66 documents); agent_loop/driver.rs wp142_ integration witnesses; scripts/prompt-assembly-negative-controls.py. Independent closure review pending; not certified. Assurance: assurance/layers/14-wp142-rust-implementation.md.'
   disposition: adopted
 - id: HAR-018
   phase: 7
@@ -5877,7 +5877,7 @@ rows:
   - 'minion-agent-python/tests/system_prompt/test_formatting.py; tests/conformance/test_prompt_assembly_conformance.py'
   - conformance/agent/prompt-assembly/prompt-t*.json (Minion model of pinned Pi; pi_reference recorded)
   python: 'Implementation candidate (WP-14.2, minion-agent#159): minion-agent-python/src/minion_agent/system_prompt/formatting.py (normalize_*, format_tools_section); tools/definition.py prompt_snippet / prompt_guidelines.'
-  rust: 'NOT_IMPLEMENTED (WP-14.2 contract draft, minion-agent#159). Layer 05 additive fields.'
+  rust: 'Implementation candidate (WP-14.2, minion-agent#159): minion-agent-rust/crates/minion-agent/src/tools/definition.rs additive prompt metadata; system_prompt.rs format_tools_section; tests/prompt_assembly_conformance.rs; agent_loop/driver.rs schema-isolation witness; scripts/prompt-assembly-negative-controls.py. Independent closure review pending; not certified. Assurance: assurance/layers/14-wp142-rust-implementation.md.'
   disposition: adopted
 - id: HAR-003
   phase: 7

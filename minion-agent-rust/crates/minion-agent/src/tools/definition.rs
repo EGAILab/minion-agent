@@ -164,6 +164,8 @@ pub struct ToolDefinition {
     prepare_arguments: Option<PrepareArguments>,
     execute: ExecuteTool,
     execution_mode: Option<ExecutionMode>,
+    prompt_snippet: Option<String>,
+    prompt_guidelines: Option<Vec<String>>,
 }
 
 impl ToolDefinition {
@@ -211,6 +213,8 @@ impl ToolDefinition {
             prepare_arguments: None,
             execute: Arc::new(execute),
             execution_mode: None,
+            prompt_snippet: None,
+            prompt_guidelines: None,
         }
     }
 
@@ -263,6 +267,25 @@ impl ToolDefinition {
     pub fn with_execution_mode(mut self, mode: ExecutionMode) -> Self {
         self.execution_mode = Some(mode);
         self
+    }
+
+    /// Optional model-facing prose; never part of the executable tool schema.
+    pub fn with_prompt_snippet(mut self, snippet: impl Into<String>) -> Self {
+        self.prompt_snippet = Some(snippet.into());
+        self
+    }
+
+    pub fn with_prompt_guidelines(mut self, guidelines: Vec<String>) -> Self {
+        self.prompt_guidelines = Some(guidelines);
+        self
+    }
+
+    pub fn prompt_snippet(&self) -> Option<&str> {
+        self.prompt_snippet.as_deref()
+    }
+
+    pub fn prompt_guidelines(&self) -> Option<&[String]> {
+        self.prompt_guidelines.as_deref()
     }
 
     pub fn name(&self) -> &str {

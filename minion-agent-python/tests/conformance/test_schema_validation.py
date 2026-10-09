@@ -1336,3 +1336,50 @@ def test_prompt_assembly_preflight_accepts_supplementary_characters() -> None:
     assert paired == "x\U0001f600y"
     assert _prompt_preflight(paired) == []
     assert _prompt_preflight(json.loads('"x\\ud83dy"')) == ["/"]
+
+
+# --- L12-D005 (minion-agent#188): fs-remove-readonly corpus ------------------------------------
+
+FS_REMOVE_READONLY_SCHEMA = CONFORMANCE / "schema" / "fs-remove-readonly-scenario.schema.json"
+FS_REMOVE_READONLY_DIR = CONFORMANCE / "agent" / "fs-remove-readonly"
+
+
+def _fs_remove_validator() -> Draft202012Validator:
+    return Draft202012Validator(json.loads(FS_REMOVE_READONLY_SCHEMA.read_text(encoding="utf-8")))
+
+
+def test_fs_remove_readonly_schema_is_wellformed() -> None:
+    Draft202012Validator.check_schema(
+        json.loads(FS_REMOVE_READONLY_SCHEMA.read_text(encoding="utf-8"))
+    )
+
+
+@pytest.mark.parametrize(
+    "scenario", sorted(FS_REMOVE_READONLY_DIR.glob("*.json")), ids=lambda value: value.stem
+)
+def test_fs_remove_readonly_scenario_validates(scenario: Path) -> None:
+    assert not list(
+        _fs_remove_validator().iter_errors(json.loads(scenario.read_text(encoding="utf-8")))
+    )
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        lambda d: d["fs_remove"].pop("expect_left"),
+        lambda d: d["fs_remove"]["remove"].pop("recursive"),
+        lambda d: d["fs_remove"]["fixture"].append({"chmod": "f"}),
+        lambda d: d["fs_remove"].__setitem__("expect", {"ok": True, "error": "unknown"}),
+        lambda d: d["fs_remove"].__setitem__("expect", {"error": "busy", "path": ["f"]}),
+        lambda d: d.__setitem__("platforms", ["darwin"]),
+        lambda d: d["fs_remove"]["remove"].__setitem__("path", "../escape"),
+    ],
+)
+def test_fs_remove_readonly_schema_rejects_malformed_documents(mutation: Any) -> None:
+    document = json.loads(
+        (FS_REMOVE_READONLY_DIR / "fs-remove-readonly-rec-readonly-child-file.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    mutation(document)
+    assert list(_fs_remove_validator().iter_errors(document))

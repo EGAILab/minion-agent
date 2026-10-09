@@ -213,10 +213,21 @@ async def test_control_a_native_typed_rebuild_fails_the_typed_witness(
     assert seen["blocked"]
 
 
-async def test_control_ordering_the_shim_graph_without_adopting_fails_the_prepare_witness(
+def _plain_clone(value: Any) -> Any:
+    """A structured clone into PLAIN containers: no graph seams on what observers receive."""
+    if isinstance(value, dict):
+        return {key: _plain_clone(item) for key, item in dict.items(value)}
+    if isinstance(value, list):
+        return [_plain_clone(item) for item in list.__iter__(value)]
+    return value
+
+
+async def test_control_a_clone_without_graph_seams_fails_the_prepare_witness(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(execute_module, "adopt", order_in_place)  # pre-R007 `_prepare`
+    # `L0506-D005`: observers receive the validated clone, so R007's seams are carried by the clone;
+    # the former `adopt -> order_in_place` mutant is equivalent at every observer and is re-pointed.
+    monkeypatch.setattr(execute_module, "structured_clone", _plain_clone)
     seen = await _prepared()
     assert seen["order"] != ORDERED
     assert seen["blocked"]
@@ -272,7 +283,10 @@ async def _crossing(retained_first: bool) -> dict[str, Any]:
 @pytest.mark.parametrize("retained_first", [True, False])
 async def test_a_reference_crossing_the_frontier_stays_one_object(retained_first: bool) -> None:
     seen = await _crossing(retained_first)
-    assert seen == {"equal": True, "kept": True, "through_old": ["changed"]}
+    # `L0506-D005` (spec/tools.md, rule 2; spec/llm.md R4-C001 correction): observers receive pinned
+    # Pi's structured clone, so the crossing container is ONE container there (`equal`), but no
+    # longer the raw arguments' own object (`kept` is False).
+    assert seen == {"equal": True, "kept": False, "through_old": ["changed"]}
 
 
 def _single_pass_adopt(value: Any, memo: dict[int, Any] | None = None) -> Any:

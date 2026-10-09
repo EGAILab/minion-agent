@@ -182,6 +182,39 @@ def order_in_place(value: Any) -> Any:
     return value
 
 
+def structured_clone(value: Any) -> Any:
+    """`L0506-D005` (`TOOL-003`): pinned Pi's `structuredClone` of the prepared arguments. Every
+    object and array reachable from `value` is copied exactly once -- a container reached twice
+    becomes ONE copy, so aliases and cycles inside the graph survive -- as a `JsObject` / `JsArray`
+    enumerating as its source does. Every other value is carried as is. The copy shares no
+    container with `value`. Iterative, so nesting depth is not bounded by the interpreter stack."""
+
+    def fresh(item: Any) -> Any:
+        return JsObject() if isinstance(item, dict) else JsArray()
+
+    if not isinstance(value, (dict, list)):
+        return value
+    memo: dict[int, Any] = {id(value): fresh(value)}
+    pending = [value]
+    while pending:
+        source = pending.pop()
+        target = memo[id(source)]
+        children = (
+            dict.items(source) if isinstance(source, dict) else enumerate(list.__iter__(source))
+        )
+        for key, child in children:
+            if isinstance(child, (dict, list)):
+                if id(child) not in memo:
+                    memo[id(child)] = fresh(child)
+                    pending.append(child)
+                child = memo[id(child)]
+            if isinstance(target, dict):
+                dict.__setitem__(target, key, child)
+            else:
+                list.append(target, child)
+    return order_in_place(memo[id(value)])
+
+
 def order_raw(arguments: Any) -> Any:
     """`L0206-D001-R004`: order a call's RAW arguments object where it is observed or serialized
     (session encoding, the session tool-call record, the execution-start and update payloads). The

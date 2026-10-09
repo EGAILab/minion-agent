@@ -2948,8 +2948,10 @@ rows:
     validation is not cycle-safe). spec/tools.md L0506-D005; assurance/layers/l0506-d005-feasibility-matrix.md.
     conformance/agent/arg-isolation/ (arg-isolation-scenario.schema.json; 21 cases generated from pinned Pi);
     tests/conformance/test_arg_isolation_conformance.py and test_arg_isolation_runner_numbers.py. Python
-    raw-schema path fails 12 cases (strict xfail at the contract stage); the pydantic path is AUDITED -- NO
-    CHANGE (model_dump already rebuilds). Rust: acyclic conformance to be confirmed through the real preflight.'
+    raw-schema path failed 17 cases at the contract stage (N001: earlier notes said 12); it now implements
+    the clone (llm/js_object.py structured_clone; tools/execute.py _validate), and the pydantic path is
+    AUDITED -- NO CHANGE (model_dump already rebuilds). Binding witnesses tests/tools/test_validated_argument_isolation.py.
+    Rust: acyclic conformance to be confirmed through the real preflight.'
   python: src/minion_agent/tools/execute.py::_prepare, _validate, ArgumentValidationError, execute_call
   rust: 'minion-agent-rust/crates/minion-agent/src/tools/execution.rs::execute_tool_calls;
     minion-agent-rust/crates/minion-agent/tests/tool_execution.rs;

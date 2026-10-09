@@ -2469,7 +2469,13 @@ rows:
   python: 'Implementation candidate (L08-D002, #171): header presence/timing pre-existing; R003 schema value snapshot in
     src/minion_agent/agent_loop/driver.py (_schema_snapshot, used once per request build for both the header and the
     provider request). constrained_sampling reconstruction via L03-D001 (CLOSED, #174).'
-  rust: 'NOT_IMPLEMENTED (L08-D002 contract draft; the certified Rust driver records no request header).'
+  rust: 'IMPLEMENTATION CANDIDATE (L08-D002, #171): agent_loop/driver.rs captures one owned ordered schema vector,
+    records Session::record_header after schema computation and before transform_context, and moves the same
+    snapshot into the provider request. agent_loop_conformance.rs observes all eight request-header scenarios,
+    complete reconstructed headers and provider schemas; binding witnesses cover failed schema computation,
+    pre-step rejection and transform-time header visibility/abort. scripts/request-header-negative-controls.py
+    requires selected green intended witnesses before counting assertion-failure kills. Independent Rust review
+    pending; not certified. See assurance/layers/08-l08-d002-rust-implementation.md.'
   disposition: adopted
 - id: AG-011
   phase: 3

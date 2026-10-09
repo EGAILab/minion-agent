@@ -6,7 +6,9 @@ use minion_agent::{
     PluginInitError, PluginSpec, RegistrationHandle, Runtime,
     agent::{AgentDefinition, AgentInstance, ClaimPolicy},
     agent_loop::{
-        AgentEvent, AgentListenerError, AgentLoop, AgentLoopError, register_agent_listener,
+        AgentEvent, AgentListenerError, AgentLoop, AgentLoopError, PreStepDecision,
+        TransformContextAction, register_agent_listener, register_pre_step_listener,
+        register_transform_context_listener,
     },
     llm::{
         AssistantContentBlock, AssistantMessage, AssistantMessageDiagnostic, Cost, DeferredHandle,
@@ -422,7 +424,9 @@ fn scripted_tool(
     let late = raw.get("late_update").map(partial_result);
     let mut tool = ToolDefinition::new(
         name,
-        name,
+        raw.get("description")
+            .and_then(Value::as_str)
+            .unwrap_or(name),
         parameters,
         name,
         move |request: ToolExecutionRequest| {
@@ -507,6 +511,14 @@ fn scripted_tool(
             Ok(arguments)
         });
     }
+    if let Some(sampling) = raw
+        .get("constrained_sampling")
+        .filter(|value| !value.is_null())
+    {
+        tool = tool.with_constrained_sampling(
+            serde_json::from_value(sampling.clone()).map_err(|error| error.to_string())?,
+        );
+    }
     Ok(tool)
 }
 
@@ -547,6 +559,9 @@ struct Observation {
     assistant_details: Vec<Value>,
     tool_completion_order: Vec<String>,
     request_tools: Vec<Vec<String>>,
+    request_schemas: Vec<Value>,
+    request_log: Vec<String>,
+    headers: Vec<Value>,
     updates: Vec<Value>,
     tool_trace: Vec<Value>,
     error: Option<Value>,
@@ -888,6 +903,9 @@ fn compare_observation(document: &Value, actual: &Observation) -> Result<(), Str
             json!(actual.tool_completion_order),
         ),
         ("expect_request_tools", json!(actual.request_tools)),
+        ("expect_request_schemas", json!(actual.request_schemas)),
+        ("expect_request_log", json!(actual.request_log)),
+        ("expect_headers", json!(actual.headers)),
         ("expect_updates", json!(actual.updates)),
         ("expect_tool_trace", json!(actual.tool_trace)),
     ];
@@ -1023,6 +1041,57 @@ async fn run_scenario(document: &Value) -> Result<(), String> {
                 let listeners = listeners.clone();
                 async move {
                     for listener in &listeners {
+                        match listener.get("event").and_then(Value::as_str) {
+                            Some("agent/pre-step") => {
+                                let system_override = string(listener, "system_override")
+                                    .map_err(PluginInitError::new)?
+                                    .to_owned();
+                                register_pre_step_listener(
+                                    &plugin_context,
+                                    move |current, next| {
+                                        let system_override = system_override.clone();
+                                        async move {
+                                            let mut decision = next.call(Some(current)).await?;
+                                            if let PreStepDecision::Enter(enter) = &mut decision {
+                                                enter.system_override = Some(system_override);
+                                            }
+                                            Ok(decision)
+                                        }
+                                    },
+                                )
+                                .map_err(|error| PluginInitError::new(error.to_string()))?;
+                                continue;
+                            }
+                            Some("agent/transform-context") => {
+                                let message = string(listener, "message")
+                                    .map_err(PluginInitError::new)?
+                                    .to_owned();
+                                let on_request = listener
+                                    .get("on_request")
+                                    .and_then(Value::as_u64)
+                                    .unwrap_or(1);
+                                let count = Arc::new(Mutex::new(0_u64));
+                                register_transform_context_listener(
+                                    &plugin_context,
+                                    move |_current| {
+                                        let message = message.clone();
+                                        let mut count = count.lock();
+                                        *count += 1;
+                                        let fail = *count == on_request;
+                                        async move {
+                                            if fail {
+                                                Err(AgentListenerError::new(message))
+                                            } else {
+                                                Ok(TransformContextAction::Next(None))
+                                            }
+                                        }
+                                    },
+                                )
+                                .map_err(|error| PluginInitError::new(error.to_string()))?;
+                                continue;
+                            }
+                            _ => {}
+                        }
                         install_tool_listener(
                             &plugin_context,
                             listener,
@@ -1146,6 +1215,36 @@ async fn run_scenario(document: &Value) -> Result<(), String> {
                 .collect::<Vec<_>>()
         })
         .collect();
+    let request_schemas = adapter
+        .requests()
+        .iter()
+        .map(|request| {
+            serde_json::to_value(request.context.tools.as_deref().unwrap_or_default()).unwrap()
+        })
+        .collect();
+    let mut request_log = Vec::new();
+    let mut headers = Vec::new();
+    for event in agent.session().events() {
+        match event.kind.as_str() {
+            "user/message" => request_log.push("user".to_owned()),
+            "assistant/message" => request_log.push("assistant".to_owned()),
+            "tool/result" => request_log.push("toolResult".to_owned()),
+            "request/header" => {
+                request_log.push("header".to_owned());
+                let header = agent
+                    .session()
+                    .reconstruct_header(&event)
+                    .map_err(|error| error.to_string())?;
+                headers.push(json!({
+                    "system": header.assembled_system,
+                    "components": header.components.keys().collect::<Vec<_>>(),
+                    "model": header.model,
+                    "tools": header.tools,
+                }));
+            }
+            _ => {}
+        }
+    }
     let error = run_error.map(|error| {
         let error_type = if matches!(
             error,
@@ -1172,6 +1271,9 @@ async fn run_scenario(document: &Value) -> Result<(), String> {
             .collect(),
         tool_completion_order: seen_completion.lock().clone(),
         request_tools,
+        request_schemas,
+        request_log,
+        headers,
         updates: seen_updates.lock().clone(),
         tool_trace: trace.lock().clone(),
         error,
@@ -1230,3 +1332,39 @@ fn all_layer_08_scenarios_drive_the_real_rust_agent_loop() {
             .unwrap_or_else(|error| panic!("{}: {error}", path.display()));
     }
 }
+
+macro_rules! request_header_case {
+    ($test:ident, $name:literal) => {
+        #[test]
+        fn $test() {
+            let path = root().join(concat!("conformance/agent/request-header-", $name, ".yaml"));
+            let document = serde_yaml::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+            run_scenario_through_real_agent_loop(&document)
+                .unwrap_or_else(|error| panic!("{}: {error}", path.display()));
+        }
+    };
+}
+
+request_header_case!(request_header_single_request, "single-request");
+request_header_case!(request_header_request_order, "one-per-request-in-order");
+request_header_case!(
+    request_header_provider_error,
+    "provider-error-keeps-the-header"
+);
+request_header_case!(
+    request_header_unknown_model,
+    "unknown-model-recorded-before-eager-failure"
+);
+request_header_case!(
+    request_header_literal_override,
+    "records-the-literal-override"
+);
+request_header_case!(
+    request_header_transform_first,
+    "transform-failure-first-request"
+);
+request_header_case!(
+    request_header_transform_later,
+    "transform-failure-later-request"
+);
+request_header_case!(request_header_full_schema_identity, "full-schema-identity");

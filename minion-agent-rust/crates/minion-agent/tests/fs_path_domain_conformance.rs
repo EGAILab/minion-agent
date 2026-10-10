@@ -19,7 +19,8 @@ use std::{
     path::{Path, PathBuf},
     sync::Arc,
 };
-use uuid::Uuid;
+#[path = "support/fs_containment.rs"]
+mod containment;
 
 fn units(value: &Value) -> Vec<u16> {
     value
@@ -68,6 +69,15 @@ fn error_observation(error: FsError, root: &Path) -> Value {
 }
 async fn step(fs: &LocalFileSystem, root: &Path, spec: &Value) -> Result<Value, FsError> {
     let path = input(&spec["path"], root);
+    if matches!(
+        spec["op"].as_str().unwrap(),
+        "write_file" | "append_file" | "create_dir" | "remove" | "rename_file"
+    ) {
+        containment::argument(fs, root, &path).await;
+        if spec["op"] == "rename_file" {
+            containment::argument(fs, root, &input(&spec["to"], root)).await;
+        }
+    }
     let content = spec
         .get("content")
         .map(units)
@@ -133,7 +143,10 @@ fn raw(value: &Value) -> RawValue {
         }
     }
 }
-async fn tools(fs: Arc<LocalFileSystem>, spec: &Value) -> Value {
+async fn tools(fs: Arc<LocalFileSystem>, root: &Path, spec: &Value) -> Value {
+    if matches!(spec["tool"].as_str().unwrap(), "write" | "edit") {
+        containment::argument(&fs, root, &input(&spec["arguments"]["path"], root)).await;
+    }
     let runtime = Runtime::new();
     for tool in [
         create_write_tool(fs.clone()),
@@ -189,13 +202,12 @@ async fn full_accepted_fs_path_domain_corpus() {
                 skipped += 1;
                 continue;
             }
-            let temp = std::env::temp_dir().join(format!("minion-fs-domain-{}", Uuid::new_v4()));
-            std::fs::create_dir(&temp).unwrap();
+            let temp = containment::sandbox("minion-fs-domain");
             let root = PathBuf::from(scalar_path(&std::fs::canonicalize(&temp).unwrap()));
             let fs = Arc::new(LocalFileSystem::new(&root));
             for (i, spec) in case["steps"].as_array().unwrap().iter().enumerate() {
                 let actual = if family == "fs_path_tools" {
-                    tools(fs.clone(), spec).await
+                    tools(fs.clone(), &root, spec).await
                 } else {
                     step(&fs, &root, spec)
                         .await
@@ -210,7 +222,7 @@ async fn full_accepted_fs_path_domain_corpus() {
                     doc["name"], case["id"]
                 );
             }
-            std::fs::remove_dir_all(temp).unwrap();
+            containment::cleanup(&temp);
             count += 1;
         }
         ran.insert(doc["name"].as_str().unwrap().to_owned(), count);

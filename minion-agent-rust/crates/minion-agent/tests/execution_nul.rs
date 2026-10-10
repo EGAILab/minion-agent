@@ -12,17 +12,17 @@ use minion_agent::{
     },
 };
 use std::{path::PathBuf, sync::Arc};
+#[path = "support/fs_containment.rs"]
+mod containment;
 
 fn root() -> PathBuf {
-    let root = std::env::temp_dir().join(format!("minion-nul-{}", uuid::Uuid::new_v4()));
-    std::fs::create_dir(&root).unwrap();
-    root
+    containment::sandbox("minion-nul")
 }
 
 #[tokio::test]
 async fn nul_is_unknown_and_the_fallback_is_lossless() {
     let root = root();
-    let fs = LocalFileSystem::new(&root);
+    let fs = containment::GuardedFs::new(&root);
     let path = FsPath::from_code_units(vec![102, 0xd800, 0, 120]);
     let error = fs.read_binary_file(&path, None).await.unwrap_err();
     assert_eq!(error.code, FsErrorCode::Unknown, "L12-D006 NUL is unknown");
@@ -31,13 +31,13 @@ async fn nul_is_unknown_and_the_fallback_is_lossless() {
         Some(fs.absolute_path(&path, None).await.unwrap()),
         "L12-D006 fallback stays logical"
     );
-    std::fs::remove_dir_all(root).unwrap();
+    containment::cleanup(&root);
 }
 
 #[tokio::test]
 async fn the_resolved_file_url_is_the_nul_argument() {
     let root = root();
-    let fs = LocalFileSystem::new(&root);
+    let fs = containment::GuardedFs::new(&root);
     let url = format!("{}f%00x", url::Url::from_directory_path(&root).unwrap());
     assert!(!url.contains('\0'));
     let error = fs.read_binary_file(&url, None).await.unwrap_err();
@@ -56,13 +56,13 @@ async fn the_resolved_file_url_is_the_nul_argument() {
         rename.path,
         Some(fs.absolute_path("source", None).await.unwrap())
     );
-    std::fs::remove_dir_all(root).unwrap();
+    containment::cleanup(&root);
 }
 
 #[tokio::test]
 async fn a_final_nul_keeps_the_parent_creation_effect() {
     let root = root();
-    let fs = LocalFileSystem::new(&root);
+    let fs = containment::GuardedFs::new(&root);
     for (name, append) in [("write", false), ("append", true)] {
         let path = format!("{name}/f\0x");
         let error = if append {
@@ -77,13 +77,13 @@ async fn a_final_nul_keeps_the_parent_creation_effect() {
             "L12-D006 parent exists before NUL leaf rejection"
         );
     }
-    std::fs::remove_dir_all(root).unwrap();
+    containment::cleanup(&root);
 }
 
 #[tokio::test]
 async fn canonical_path_checks_the_whole_argument_before_a_missing_prefix() {
     let root = root();
-    let fs = LocalFileSystem::new(&root);
+    let fs = containment::GuardedFs::new(&root);
     let path = "missing/f\0x";
     let error = fs.canonical_path(path, None).await.unwrap_err();
     assert_eq!(
@@ -97,12 +97,19 @@ async fn canonical_path_checks_the_whole_argument_before_a_missing_prefix() {
     );
     let error = fs.resolve(path, None).await.unwrap_err();
     assert_eq!(error.code, FsErrorCode::Unknown);
-    std::fs::remove_dir_all(root).unwrap();
+    containment::cleanup(&root);
 }
 
 #[tokio::test]
 async fn temporary_creation_keeps_each_operation_fallback() {
-    let fs = LocalFileSystem::new(std::env::temp_dir());
+    let temp_base = containment::base();
+    assert_eq!(
+        std::env::temp_dir(),
+        temp_base,
+        "explicit contained temp API configuration"
+    );
+    containment::check(&temp_base, &temp_base.join("p\0x"));
+    let fs = LocalFileSystem::new(&temp_base);
     let error = fs.create_temp_dir("p\0x", None).await.unwrap_err();
     assert_eq!(
         error.code,
@@ -111,6 +118,10 @@ async fn temporary_creation_keeps_each_operation_fallback() {
     );
     assert_eq!(error.path, None, "L12-D006 temp dir has no fallback");
     for (prefix, suffix) in [("p\0x", ""), ("p", "s\0x")] {
+        containment::check(
+            &temp_base,
+            &temp_base.join(format!("tmp-probe/{prefix}probe{suffix}")),
+        );
         let error = fs.create_temp_file(prefix, suffix, None).await.unwrap_err();
         assert_eq!(error.code, FsErrorCode::Unknown);
         let path = error.path.expect("L12-D006 temp file names would-be file");
@@ -123,7 +134,7 @@ async fn temporary_creation_keeps_each_operation_fallback() {
             parent.is_dir(),
             "L12-D006 temp directory created before file rejection"
         );
-        std::fs::remove_dir_all(parent).unwrap();
+        containment::cleanup(&parent);
     }
 }
 
@@ -166,6 +177,10 @@ async fn the_real_tools_render_the_certified_nul_failure() {
             format!("Path not found: {}", logical.as_str().unwrap()),
         ),
     ] {
+        if matches!(name, "write" | "edit") {
+            let path: FsPath = arguments["path"].as_str().unwrap().into();
+            containment::argument(&fs, &root, &path).await;
+        }
         let call = ToolCall::new_raw("nul", name, RawValue::from(arguments));
         let batch = execute_tool_calls(
             &runtime.context(),
@@ -189,5 +204,5 @@ async fn the_real_tools_render_the_certified_nul_failure() {
         !root.join("new").exists(),
         "mutation queue fails before parent creation"
     );
-    std::fs::remove_dir_all(root).unwrap();
+    containment::cleanup(&root);
 }

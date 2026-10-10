@@ -2956,8 +2956,13 @@ rows:
   rust: 'minion-agent-rust/crates/minion-agent/src/tools/execution.rs::execute_tool_calls;
     minion-agent-rust/crates/minion-agent/tests/tool_execution.rs;
     minion-agent-rust/crates/minion-agent/tests/tool_execution_conformance.rs.
-    K1 L0206-D001 implementation candidate (not yet independently certified): tools/prepared.rs::structured_clone
-    preserves aliases within the validated graph while isolating shim-owned containers;
+    tools/prepared.rs::structured_clone preserves aliases within the validated graph while isolating
+    shim-owned containers. L0506-D005 Rust acyclic audit candidate: tests/arg_isolation_conformance.rs
+    runs all 21 canonical documents through real preflight, waterfall, execute and update emit/delivery;
+    permanent identity witnesses cover one graph across listeners/execute and object/array aliases.
+    scripts/argument-isolation-negative-controls.py exercises six intended-witness source controls.
+    No production or validation change; cyclic validation remains excluded under Owner Q001 / #193.
+    Independent Rust closure review pending; not certified by this audit candidate.
     tests/key_order_conformance.rs and tests/argument_graph_identity.rs cover prepared/replacement ordering,
     listener mutation and cross-frontier object/array sharing. Existing coercion/diagnostic dispositions unchanged.'
   disposition: adopted

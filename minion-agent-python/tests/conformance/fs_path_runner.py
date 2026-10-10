@@ -16,14 +16,15 @@ plus the tail
 
 from __future__ import annotations
 
-import contextlib
 import os
+import stat
 import struct
 import sys
 from pathlib import Path
 from typing import Any
 
 from minion_agent.execution import LocalFileSystem
+from minion_agent.execution.filesystem import native_path, resolve_local_path
 from minion_agent.execution.result import Ok
 from minion_agent.runtime.signal import RunAbortController, RunSignal
 
@@ -82,14 +83,78 @@ def _inside(base: str, path: str) -> bool:
         return False
 
 
-def _fixture_target(cwd: str, p: str, start: str | None = None) -> str:
-    """L12-D007 fixture steps build an OS condition natively; their target must stay strictly
-    inside the case directory (Owner containment rule, 2026-10-10) -- lexically AND through every
-    link met on the way, existing or dangling (each link's text is followed and re-checked).
-    `start` is where a relative `p` resolves from (a symlink's text: the link's own directory).
-    String concatenation, never `os.path.join`, which would let an `X:` component (a drive)
-    replace the base."""
-    # The Owner's prohibited raw forms are refused BEFORE any normalization.
+# CE-L12D007-01 (AGREED FOR IMPLEMENTATION, revision 3): the containment proof is chosen by the
+# OPERATION CLASS. REFERENT (follows the final link) proves the whole effective native path; ENTRY
+# (a verified no-follow operation on the entry itself) proves the containing directory and never
+# dereferences the final component. The R2 proof succeeds only at a completed traversal, a
+# proven-missing component (R3) or a repeated, fully checked state; an exhausted budget, an
+# outward hop, an unknown inspection outcome or a readlink failure REFUSE.
+_BUDGET = 64
+_MISSING_WIN32 = frozenset({2, 3, 123, 161, 267})
+
+
+def _project(text: str) -> str:
+    """Section 14.1's native projection, identical on Linux and Windows."""
+    return text.encode("utf-16-le", "surrogatepass").decode("utf-16-le", "replace")
+
+
+def _inspect(path: str) -> os.stat_result | None:
+    try:
+        return os.lstat(path)
+    except (FileNotFoundError, NotADirectoryError):
+        return None
+    except OSError as exc:
+        if getattr(exc, "winerror", None) in _MISSING_WIN32:
+            return None
+        raise AssertionError(f"containment: cannot inspect {path!r} ({exc}); refused") from exc
+
+
+def _is_link(st: os.stat_result) -> bool:
+    if stat.S_ISLNK(st.st_mode):
+        return True
+    return bool(getattr(st, "st_file_attributes", 0) & 0x400) and getattr(
+        st, "st_reparse_tag", 0
+    ) in (0xA000000C, 0xA0000003)
+
+
+def _prove(target: str, boundary: str, what: str) -> None:
+    pending = os.path.abspath(_project(target))
+    seen: set[str] = set()
+    for _ in range(_BUDGET):
+        if not (
+            _inside(boundary, pending) or os.path.normcase(pending) == os.path.normcase(boundary)
+        ):
+            raise AssertionError(f"containment: {what} reaches {pending!r}, outside the case")
+        if os.path.normcase(pending) in seen:
+            return  # a repeated, fully checked state: a contained cycle
+        seen.add(os.path.normcase(pending))
+        drive, rest = os.path.splitdrive(pending)
+        parts = [part for part in rest.replace("/", os.sep).split(os.sep) if part]
+        current, redirected = drive, None
+        for i, part in enumerate(parts):
+            current = current + os.sep + part
+            st = _inspect(current)
+            if st is None:
+                break  # proven missing
+            if _is_link(st):
+                try:
+                    text = os.readlink(current)
+                except OSError as exc:
+                    raise AssertionError(f"containment: cannot read link {current!r}") from exc
+                text = text[4:] if text.startswith("\\\\?\\") else text
+                base = text if os.path.isabs(text) else os.path.dirname(current) + os.sep + text
+                redirected = os.path.abspath(os.sep.join([base, *parts[i + 1 :]]))
+                break
+        if redirected is None:
+            return  # completed traversal, or proven missing
+        if not _inside(boundary, redirected):
+            raise AssertionError(f"containment: {what} reaches {redirected!r} through a link")
+        pending = redirected
+    raise AssertionError(f"containment: {what}: budget exhausted without a repeated state")
+
+
+def _raw_form(p: str) -> None:
+    """The Owner's prohibited raw forms, refused BEFORE any normalization."""
     if (
         not p
         or (len(p) >= 2 and p[0].isalpha() and p[1] == ":")
@@ -97,47 +162,85 @@ def _fixture_target(cwd: str, p: str, start: str | None = None) -> str:
         or ".." in p.replace("\\", "/").split("/")
     ):
         raise AssertionError(f"fixture target {p!r} is a prohibited raw form")
+
+
+def _fixture_target(cwd: str, p: str, start: str | None = None) -> str:
+    """REFERENT proof for a fixture step's target (or a symlink's text, resolved from `start`, the
+    link's own directory). String concatenation, never `os.path.join` (an `X:` component would
+    be a drive)."""
+    _raw_form(p)
     target = os.path.abspath((start or cwd) + os.sep + p)
     if not _inside(cwd, target):
         raise AssertionError(f"fixture target {p!r} escapes the case directory")
-    pending = target
-    for _ in range(41):
-        drive, rest = os.path.splitdrive(pending)
-        parts = [part for part in rest.replace("/", os.sep).split(os.sep) if part]
-        current, redirected = drive, None
-        for i, part in enumerate(parts):
-            current = current + os.sep + part
-            if not os.path.lexists(current):
-                break
-            if os.path.islink(current) or os.path.isjunction(current):
-                text = os.readlink(current)
-                base = text if os.path.isabs(text) else os.path.dirname(current) + os.sep + text
-                redirected = os.path.abspath(os.sep.join([base, *parts[i + 1 :]]))
-                break
-        if redirected is None:
-            break
-        if not _inside(cwd, redirected):
-            raise AssertionError(f"fixture target {p!r} reaches {redirected} through a link")
-        pending = redirected
+    _prove(target, cwd, repr(p))
     return target
 
 
-def _deny_access(target: str) -> Any:
+def _fixture_entry(cwd: str, p: str) -> str:
+    """ENTRY proof for a no-follow operation on the entry itself (link creation): the containing
+    directory is proven, the final component is not dereferenced."""
+    _raw_form(p)
+    target = os.path.abspath(cwd + os.sep + p)
+    if not _inside(cwd, target):
+        raise AssertionError(f"fixture entry {p!r} escapes the case directory")
+    parent = os.path.dirname(target)
+    if os.path.normcase(parent) != os.path.normcase(cwd):
+        _prove(parent, cwd, f"parent of {p!r}")
+    return target
+
+
+# R5: provider operations under test. Their ORIGINAL argument goes to the provider unchanged; the
+# native path the provider will touch (Pi's logical resolution, then the section-14.1 projection) is
+# proven by the operation's class. Read-only operations mutate nothing and need no proof.
+_PROVIDER_REFERENT = frozenset({"write_file", "append_file", "create_dir"})
+_PROVIDER_ENTRY = frozenset({"remove", "rename_file"})
+
+
+def _provider_target(cwd: str, argument: str, op: str) -> None:
+    native = native_path(resolve_local_path(cwd, argument))
+    if not _inside(cwd, native):
+        raise AssertionError(f"containment: provider {op} target {native!r} is outside the case")
+    if op in _PROVIDER_REFERENT:
+        _prove(native, cwd, f"provider {op}")
+    else:
+        parent = os.path.dirname(native)
+        if os.path.normcase(parent) != os.path.normcase(cwd):
+            _prove(parent, cwd, f"provider {op} parent")
+
+
+def _restore_access(cwd: str, rel: str, kind: str, restore: Any) -> None:
+    """R6: undo a deny only on an EXISTING, NON-LINK entry of the recorded kind, re-proven now;
+    otherwise skip (the case directory is then left as is)."""
+    try:
+        target = _fixture_target(cwd, rel)
+    except AssertionError:
+        return
+    st = _inspect(target)
+    if st is None or _is_link(st) or (kind == "directory") != stat.S_ISDIR(st.st_mode):
+        return
+    restore(target)
+
+
+def _deny_access(cwd: str, rel: str, target: str) -> Any:
     """L12D007-C002 `deny_access`: Windows denies Everyone read (`icacls /deny *S-1-1-0:(R)`); POSIX
-    removes every mode bit (meaningful for a non-root user). Undone at case end so cleanup works."""
+    removes every mode bit (meaningful for a non-root user). Undone at case end by
+    `_restore_access`."""
+    kind = "directory" if os.path.isdir(target) else "file"
     if sys.platform == "win32":  # pragma: no cover -- per-platform fixture
         import subprocess
 
         subprocess.run(["icacls", target, "/deny", "*S-1-1-0:(R)"], check=True, capture_output=True)
-        return lambda: subprocess.run(
-            ["icacls", target, "/remove:d", "*S-1-1-0"], check=False, capture_output=True
+        return lambda: _restore_access(
+            cwd,
+            rel,
+            kind,
+            lambda t: subprocess.run(["icacls", t, "/remove:d", "*S-1-1-0"], capture_output=True),
         )
     mode = os.stat(target).st_mode & 0o777  # pragma: no cover -- per-platform fixture
     os.chmod(target, 0)  # pragma: no cover
 
     def restore() -> None:  # pragma: no cover
-        with contextlib.suppress(OSError):
-            os.chmod(target, mode)
+        _restore_access(cwd, rel, kind, lambda t: os.chmod(t, mode))
 
     return restore  # pragma: no cover
 
@@ -187,7 +290,7 @@ async def _run_steps(case: dict[str, Any], root: Path, releases: list[Any]) -> l
         p = path_argument(cwd, step["path"])
         op = step["op"]
         if op == "make_symlink":
-            link = _fixture_target(cwd, p)
+            link = _fixture_entry(cwd, p)  # ENTRY: creating a link writes only its entry
             _fixture_target(cwd, string(step["to"]["utf16"]), os.path.dirname(link))
             os.symlink(string(step["to"]["utf16"]), link)
             observed.append({"ok": None})
@@ -197,9 +300,13 @@ async def _run_steps(case: dict[str, Any], root: Path, releases: list[Any]) -> l
             observed.append({"ok": None})
             continue
         if op == "deny_access":
-            releases.append(_deny_access(_fixture_target(cwd, p)))
+            releases.append(_deny_access(cwd, p, _fixture_target(cwd, p)))
             observed.append({"ok": None})
             continue
+        if op in _PROVIDER_REFERENT or op in _PROVIDER_ENTRY:  # R5: prove what the provider touches
+            _provider_target(cwd, p, op)
+            if op == "rename_file":
+                _provider_target(cwd, path_argument(cwd, step["to"]), op)
         # L12-D006: `aborted` hands the operation an already-aborted signal (fixture construction).
         signal = _aborted_signal() if step.get("aborted") else None
         if op == "write_file":

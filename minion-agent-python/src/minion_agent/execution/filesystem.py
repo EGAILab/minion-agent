@@ -35,6 +35,7 @@ import os
 import re
 import shutil
 import stat as _stat
+import sys
 import tempfile
 import uuid
 from collections.abc import Callable, Coroutine, Sequence
@@ -868,11 +869,129 @@ class _RemovalFailure(Exception):
         self.error = error
 
 
+def _clear_own_readonly_windows(path: str) -> bool:
+    """Clear the entry's OWN `FILE_ATTRIBUTE_READONLY` through a handle opened with
+    `FILE_FLAG_OPEN_REPARSE_POINT`: a symlink or junction is changed itself, never its target. True
+    only when the attribute was set and is now cleared; raises `FileNotFoundError` when the entry is
+    gone. Any other failure (an ACL denying `WRITE_ATTRIBUTES`, ...) is False: the caller then
+    reports the original deletion error, as pinned Node does."""
+    import ctypes
+    from ctypes import wintypes
+
+    class _FileBasicInfo(ctypes.Structure):
+        _fields_ = [
+            ("CreationTime", ctypes.c_int64),
+            ("LastAccessTime", ctypes.c_int64),
+            ("LastWriteTime", ctypes.c_int64),
+            ("ChangeTime", ctypes.c_int64),
+            ("FileAttributes", wintypes.DWORD),
+        ]
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.CreateFileW.restype = wintypes.HANDLE
+    kernel32.CreateFileW.argtypes = [
+        wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD, ctypes.c_void_p,
+        wintypes.DWORD, wintypes.DWORD, wintypes.HANDLE,
+    ]  # fmt: skip
+    kernel32.GetFileInformationByHandleEx.argtypes = [
+        wintypes.HANDLE,
+        ctypes.c_int,
+        ctypes.c_void_p,
+        wintypes.DWORD,
+    ]
+    kernel32.SetFileInformationByHandle.argtypes = [
+        wintypes.HANDLE,
+        ctypes.c_int,
+        ctypes.c_void_p,
+        wintypes.DWORD,
+    ]
+    kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+    file_read_attributes, file_write_attributes = 0x80, 0x100
+    share_all = 0x1 | 0x2 | 0x4
+    open_existing = 3
+    open_reparse_point, backup_semantics = 0x00200000, 0x02000000
+    file_basic_info = 0
+    handle = kernel32.CreateFileW(
+        path,
+        file_read_attributes | file_write_attributes,
+        share_all,
+        None,
+        open_existing,
+        open_reparse_point | backup_semantics,
+        None,
+    )
+    if handle in (None, wintypes.HANDLE(-1).value):
+        if ctypes.get_last_error() in (2, 3):  # ERROR_FILE_NOT_FOUND, ERROR_PATH_NOT_FOUND
+            raise FileNotFoundError(path)
+        return False
+    try:
+        info = _FileBasicInfo()
+        if not kernel32.GetFileInformationByHandleEx(
+            handle, file_basic_info, ctypes.byref(info), ctypes.sizeof(info)
+        ):  # pragma: no cover -- defensive: the handle was opened for FILE_READ_ATTRIBUTES
+            return False
+        if not info.FileAttributes & _stat.FILE_ATTRIBUTE_READONLY:
+            return False
+        # Zero times mean "unchanged"; an attribute value of 0 would also mean "unchanged", so
+        # an entry left with no attribute at all gets FILE_ATTRIBUTE_NORMAL.
+        attributes = info.FileAttributes & ~_stat.FILE_ATTRIBUTE_READONLY
+        update = _FileBasicInfo(0, 0, 0, 0, attributes or _stat.FILE_ATTRIBUTE_NORMAL)
+        return bool(
+            kernel32.SetFileInformationByHandle(
+                handle, file_basic_info, ctypes.byref(update), ctypes.sizeof(update)
+            )
+        )
+    finally:
+        kernel32.CloseHandle(handle)
+
+
+def _clear_readonly(path: str) -> bool:
+    """`L12-D005` (`spec/execution.md` section 17): pinned Pi's Windows deletion (Node v22.15.1's
+    libuv 1.49.2 `unlink`/`rmdir`, `FILE_DISPOSITION_IGNORE_READONLY_ATTRIBUTE`) ignores an entry's
+    own read-only attribute. True when one retry of a failed deletion is due: the attribute was
+    cleared, or the entry vanished meanwhile (which counts as removed)."""
+    if sys.platform != "win32":  # pragma: no cover -- POSIX unlinking never depends on a mode
+        return False
+    try:
+        return _clear_own_readonly_windows(path)
+    except FileNotFoundError:
+        return True
+
+
+def _delete_ignoring_readonly(function: Callable[[str], Any], path: str) -> None:
+    """Delete once; on `PermissionError`, retry once if the entry's own read-only attribute was the
+    obstacle. Otherwise the original error stands; a failed retry raises the retry's error."""
+    try:
+        function(path)
+    except PermissionError:
+        if not _clear_readonly(path):
+            raise
+        with suppress(FileNotFoundError):
+            function(path)
+
+
 def _name_the_failing_path(function: Callable[..., Any], path: str, exc: BaseException) -> None:
     """`CE-L12-D001-01`: a recursive removal's failure names the path of the call that failed,
     as pinned Node's `rimraf` (v22.15.1 `lib/internal/fs/rimraf.js`, git blob
     `24bf3f46b878e711beadcdc8e1b08700d10aa3c5`) reports it -- an entry INSIDE the tree, not the
-    removal's own target. `rmtree` passes that path here; its fd-relative calls name only a part."""
+    removal's own target. `rmtree` passes that path here; its fd-relative calls name only a part.
+    `L12-D005`: an entry whose only obstacle was its own read-only attribute is still deleted, and
+    an entry that vanished concurrently counts as removed (`rimraf` ignores `ENOENT`; Python 3.12's
+    `rmtree` reports it here, 3.13+ skips it itself)."""
+    if isinstance(exc, FileNotFoundError):
+        return
+    if (
+        isinstance(exc, PermissionError)
+        and getattr(function, "__name__", "") in ("unlink", "remove", "rmdir")
+        and _clear_readonly(path)
+    ):
+        try:
+            function(path)
+            return
+        except FileNotFoundError:
+            return
+        except OSError as retry:
+            exc = retry
     if isinstance(exc, OSError):
         exc.filename = path
         raise _RemovalFailure(exc) from exc
@@ -890,7 +1009,7 @@ def _remove_sync(path: str, recursive: bool, force: bool) -> None:
         # Never follows: removes the addressed symlink's own directory entry regardless of
         # what it points to (spec section 3.2) -- matches Node's raw rm(), which unlinks a
         # symlink rather than recursing into its target.
-        os.remove(path)
+        _delete_ignoring_readonly(os.remove, path)
         return
     if _stat.S_ISDIR(st.st_mode):
         if not recursive:
@@ -902,7 +1021,7 @@ def _remove_sync(path: str, recursive: bool, force: bool) -> None:
         except _RemovalFailure as failure:
             raise failure.error from None
         return
-    os.remove(path)
+    _delete_ignoring_readonly(os.remove, path)
 
 
 class FileSystem(Protocol):

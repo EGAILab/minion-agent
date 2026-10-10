@@ -36,6 +36,7 @@ nix.workspace = true
 [target.'cfg(windows)'.dependencies]
 windows-sys.workspace = true
 minion-agent-native-env = { path = "../minion-agent-native-env" }
+minion-agent-native-fs = { path = "../minion-agent-native-fs" }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util"] }

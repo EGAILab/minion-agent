@@ -32,6 +32,7 @@ from __future__ import annotations
 import asyncio
 import errno as _errno
 import functools
+import inspect
 import os
 import re
 import shutil
@@ -43,7 +44,7 @@ from collections.abc import Callable, Coroutine, Sequence
 from contextlib import suppress
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import Any, Concatenate, Protocol
+from typing import Any, Protocol
 from urllib.parse import urlparse
 
 from ada_url import URL as _AdaURL
@@ -1141,27 +1142,31 @@ def _nul_failure(exc: ValueError, logical: str | None) -> FsError:
 
 
 def _contain_nul[**P, T](
-    method: Callable[Concatenate[LocalFileSystem, str, P], Coroutine[Any, Any, Result[T, FsError]]],
-) -> Callable[Concatenate[LocalFileSystem, str, P], Coroutine[Any, Any, Result[T, FsError]]]:
+    method: Callable[P, Coroutine[Any, Any, Result[T, FsError]]],
+) -> Callable[P, Coroutine[Any, Any, Result[T, FsError]]]:
     """`L12-D006` (spec section 18): the native call whose path argument carries a NUL fails, at
     that call -- earlier calls of the same operation keep their effects (`write_file`'s parent
-    creation) -- as `unknown` naming the operation's logical path (`rename_file`: the source)."""
+    creation) -- as `unknown` naming the operation's logical path (`rename_file`: the source).
 
-    async def contained(
-        self: LocalFileSystem, path: str, /, *args: P.args, **kwargs: P.kwargs
-    ) -> Result[T, FsError]:
+    The wrapper keeps the operation's own signature (`L12D006-I001`): positional, keyword and
+    mixed calls bind exactly as they do without it; the path arguments are read by NAME from that
+    binding (`path`, or `rename_file`'s `source` and `destination`)."""
+    signature = inspect.signature(method)
+
+    async def contained(*args: P.args, **kwargs: P.kwargs) -> Result[T, FsError]:
         try:
-            return await method(self, path, *args, **kwargs)
+            return await method(*args, **kwargs)
         except ValueError as exc:
+            bound = signature.bind(*args, **kwargs).arguments
+            cwd = bound["self"].cwd
+            source = bound["source"] if "source" in bound else bound["path"]
             # The RESOLVED path arguments (L12D006-C001): a `file://` URL's `%00` decodes to the NUL
             # the native call rejects, with no literal NUL in the caller's string. `rename_file` has
             # a second path, its destination; every other operation's other arguments are not paths.
-            logical = resolve_local_path(self.cwd, path)
+            logical = resolve_local_path(cwd, source)
             resolved = [logical]
-            if method.__name__ == "rename_file":
-                destination = args[0] if args else kwargs.get("destination")
-                if isinstance(destination, str):
-                    resolved.append(resolve_local_path(self.cwd, destination))
+            if isinstance(bound.get("destination"), str):
+                resolved.append(resolve_local_path(cwd, bound["destination"]))
             if not _nul_rejected(exc, *resolved):
                 raise
             return Err(_nul_failure(exc, logical))

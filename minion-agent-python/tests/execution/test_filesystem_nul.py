@@ -138,3 +138,100 @@ async def test_an_unrelated_value_error_in_temp_file_creation_still_raises(
     monkeypatch.setattr(filesystem_module, "_write_file_sync", broken_write)
     with pytest.raises(ValueError, match="embedded null"):
         await LocalFileSystem(str(tmp_path)).create_temp_file(prefix="plain")
+
+
+# L12D006-I001: the containment wrapper keeps every decorated operation's own call forms.
+KEYWORD_CALLS: dict[str, Any] = {
+    "read_text_file": lambda fs, p: fs.read_text_file(path=p),
+    "read_text_lines": lambda fs, p: fs.read_text_lines(path=p, max_lines=None),
+    "read_binary_file": lambda fs, p: fs.read_binary_file(path=p),
+    "write_file": lambda fs, p: fs.write_file(path=p, content="w"),
+    "append_file": lambda fs, p: fs.append_file(path=p, content="w"),
+    "file_info": lambda fs, p: fs.file_info(path=p),
+    "list_dir": lambda fs, p: fs.list_dir(path=p),
+    "list_dir_raw": lambda fs, p: fs.list_dir_raw(path=p),
+    "probe_dir_entry": lambda fs, p: fs.probe_dir_entry(path=p),
+    "check_readable": lambda fs, p: fs.check_readable(path=p),
+    "check_read_write": lambda fs, p: fs.check_read_write(path=p),
+    "canonical_path": lambda fs, p: fs.canonical_path(path=p),
+    "create_dir": lambda fs, p: fs.create_dir(path=p, recursive=True),
+    "remove": lambda fs, p: fs.remove(path=p, recursive=True, force=False),
+    "rename_file": lambda fs, p: fs.rename_file(source=p, destination=p + "-renamed"),
+}
+POSITIONAL_CALLS: dict[str, Any] = {
+    "read_text_file": lambda fs, p: fs.read_text_file(p),
+    "read_text_lines": lambda fs, p: fs.read_text_lines(p, None),
+    "read_binary_file": lambda fs, p: fs.read_binary_file(p),
+    "write_file": lambda fs, p: fs.write_file(p, "w"),
+    "append_file": lambda fs, p: fs.append_file(p, "w"),
+    "file_info": lambda fs, p: fs.file_info(p),
+    "list_dir": lambda fs, p: fs.list_dir(p),
+    "list_dir_raw": lambda fs, p: fs.list_dir_raw(p),
+    "probe_dir_entry": lambda fs, p: fs.probe_dir_entry(p),
+    "check_readable": lambda fs, p: fs.check_readable(p),
+    "check_read_write": lambda fs, p: fs.check_read_write(p),
+    "canonical_path": lambda fs, p: fs.canonical_path(p),
+    "create_dir": lambda fs, p: fs.create_dir(p, True),
+    "remove": lambda fs, p: fs.remove(p, True, False),
+    "rename_file": lambda fs, p: fs.rename_file(p, p + "-renamed"),
+}
+
+
+def _target(operation: str) -> str:
+    return "d" if operation in {"list_dir", "list_dir_raw", "create_dir"} else "f"
+
+
+def _shape(result: Any, root: Path) -> Any:
+    if isinstance(result, Err):
+        return ("err", result.error.code, result.error.path)
+    value = result.value
+    if isinstance(value, str):
+        return ("ok", os.path.relpath(value, root) if os.path.isabs(value) else value)
+    if isinstance(value, list):
+        return ("ok", sorted(getattr(item, "name", item) for item in value))
+    return ("ok", type(value).__name__)
+
+
+@pytest.mark.parametrize("operation", sorted(KEYWORD_CALLS))
+async def test_a_keyword_call_behaves_exactly_like_the_positional_call(
+    tmp_path: Path, operation: str
+) -> None:
+    """Ordinary paths: the keyword form gives the same Result as the positional form."""
+    outcomes = []
+    for name, calls in (("keyword", KEYWORD_CALLS), ("positional", POSITIONAL_CALLS)):
+        root = (tmp_path / name).resolve()
+        (root / "d").mkdir(parents=True)
+        (root / "f").write_text("x")
+        outcomes.append(
+            _shape(await calls[operation](LocalFileSystem(str(root)), _target(operation)), root)
+        )
+    assert outcomes[0] == outcomes[1]
+
+
+@pytest.mark.parametrize("operation", sorted(KEYWORD_CALLS))
+@pytest.mark.parametrize("spelling", ["literal", "file-url"])
+async def test_a_keyword_call_with_a_nul_path_is_contained(
+    tmp_path: Path, operation: str, spelling: str
+) -> None:
+    root = tmp_path.resolve()
+    (root / "f").write_text("x")
+    if spelling == "literal":
+        argument, logical = f"f{NUL}x", os.path.join(str(root), f"f{NUL}x")
+    else:
+        argument, logical = f"{root.as_uri()}/f%00x", os.path.join(str(root), f"f{NUL}x")
+    result = await KEYWORD_CALLS[operation](LocalFileSystem(str(root)), argument)
+    assert isinstance(result, Err)
+    assert result.error.code == FsErrorCode.UNKNOWN
+    assert result.error.path == logical
+
+
+async def test_a_keyword_rename_with_a_nul_destination_names_the_source(tmp_path: Path) -> None:
+    root = tmp_path.resolve()
+    (root / "f").write_text("x")
+    result = await LocalFileSystem(str(root)).rename_file(
+        source="f", destination=f"{root.as_uri()}/g%00x"
+    )
+    assert isinstance(result, Err)
+    assert result.error.code == FsErrorCode.UNKNOWN
+    assert result.error.path == os.path.join(str(root), "f")
+    assert (root / "f").read_text() == "x"

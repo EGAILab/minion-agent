@@ -26,7 +26,7 @@ from minion_agent.tools import builtin
 from minion_agent.tools.builtin.paths import BuiltinToolError
 
 from ..conformance import fs_path_runner as runner
-from ..conformance.test_fs_path_conformance import CASES, TOOL_CASES, _l12_d006_pending
+from ..conformance.test_fs_path_conformance import CASES, TOOL_CASES
 
 LONE = range(0xD800, 0xE000)
 
@@ -40,8 +40,6 @@ async def _failures(tmp_path: Path) -> list[str]:
     for index, case in enumerate([*CASES, *TOOL_CASES]):
         if not runner.applies(case):
             continue
-        if _l12_d006_pending(case["id"]):
-            continue  # L12-D006 contract stage: strict xfail in the corpus (removed with the fix)
         root = tmp_path / str(index)
         root.mkdir()
         try:

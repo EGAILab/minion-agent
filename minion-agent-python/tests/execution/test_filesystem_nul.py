@@ -6,7 +6,6 @@ and the Owner's "do not catch every ValueError" requirement."""
 from __future__ import annotations
 
 import os
-import sys
 from pathlib import Path
 from typing import Any
 
@@ -27,10 +26,8 @@ from minion_agent.tools.execute import execute_call
 from minion_agent.tools.registry import ToolRegistry
 
 NUL = "\x00"
-PENDING = pytest.mark.xfail(strict=True, reason="L12-D006 contract candidate: Python pending")
 
 
-@PENDING
 async def test_a_nul_temp_dir_prefix_is_unknown_without_a_path(tmp_path: Path) -> None:
     result = await LocalFileSystem(str(tmp_path)).create_temp_dir(f"t{NUL}x")
     assert isinstance(result, Err)
@@ -38,7 +35,6 @@ async def test_a_nul_temp_dir_prefix_is_unknown_without_a_path(tmp_path: Path) -
     assert result.error.path is None
 
 
-@PENDING
 @pytest.mark.parametrize("where", ["prefix", "suffix"])
 async def test_a_nul_temp_file_name_is_unknown_naming_the_would_be_file(
     tmp_path: Path, where: str
@@ -91,11 +87,6 @@ async def test_read_with_a_nul_path_reports_unknown_at_the_access_site(tmp_path:
     )
 
 
-@pytest.mark.xfail(
-    sys.platform != "win32",
-    strict=True,
-    reason="L12-D006 contract candidate: the Linux canonical_path component walk",
-)
 @pytest.mark.parametrize(
     ("name", "arguments"),
     [
@@ -115,7 +106,6 @@ async def test_write_and_edit_with_a_nul_path_fail_at_the_queue_key_before_any_p
     assert not (root / "new").exists()  # Pi's getMutationQueueKey fails before mkdir
 
 
-@PENDING
 async def test_ls_with_a_nul_path_is_path_not_found(tmp_path: Path) -> None:
     root = tmp_path.resolve()
     absolute = os.path.join(str(root), f"d{NUL}x")
@@ -126,3 +116,25 @@ async def test_a_lexical_operation_keeps_the_nul_string(tmp_path: Path) -> None:
     result = await LocalFileSystem(str(tmp_path)).absolute_path(f"f{NUL}x")
     assert isinstance(result, Ok)
     assert result.value == os.path.join(str(tmp_path), f"f{NUL}x")
+
+
+async def test_an_unrelated_value_error_in_temp_creation_still_raises(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def broken_mkdtemp(*args: Any, **kwargs: Any) -> str:
+        raise ValueError("embedded null character")
+
+    monkeypatch.setattr(filesystem_module.tempfile, "mkdtemp", broken_mkdtemp)
+    with pytest.raises(ValueError, match="embedded null"):
+        await LocalFileSystem(str(tmp_path)).create_temp_dir("plain-")
+
+
+async def test_an_unrelated_value_error_in_temp_file_creation_still_raises(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def broken_write(*args: Any, **kwargs: Any) -> None:
+        raise ValueError("embedded null character")
+
+    monkeypatch.setattr(filesystem_module, "_write_file_sync", broken_write)
+    with pytest.raises(ValueError, match="embedded null"):
+        await LocalFileSystem(str(tmp_path)).create_temp_file(prefix="plain")

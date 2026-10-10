@@ -5,7 +5,6 @@ domain) against the real `LocalFileSystem`."""
 from __future__ import annotations
 
 import json
-import sys
 from pathlib import Path
 from typing import Any
 
@@ -35,35 +34,7 @@ def test_the_fs_path_corpus_is_complete() -> None:
     )
 
 
-def _l12_d006_pending(case_id: str) -> bool:
-    """L12-D006 contract candidate (minion-agent#65 + #133-F1): the NUL-path cases the certified
-    binding does not meet yet -- an escaped `ValueError`, the Linux `canonical_path`/`resolve`
-    component walk, and a projected logical fallback. Removed with the Python correction."""
-    if not case_id.startswith("nul/") or case_id.startswith("nul/aborted/"):
-        return False
-    where, op = case_id.split("/")[1], case_id.rsplit("/", 1)[1]
-    if where == "url-control":  # L12D006-C001 controls: only the rename to a `%00` URL is pending
-        return op == "rename_file-to-url-nul"
-    if op in {"absolute_path", "read_text_lines-max0", "check_readable", "check_read_write"}:
-        return False
-    if op in {"canonical_path", "target_key"}:
-        return sys.platform != "win32" or where == "lone-surrogate-and-nul"
-    return True
-
-
-@pytest.mark.parametrize(
-    "case",
-    [
-        pytest.param(
-            case,
-            id=case["id"],
-            marks=[pytest.mark.xfail(strict=True, reason="L12-D006 pending")]
-            if _l12_d006_pending(case["id"])
-            else [],
-        )
-        for case in CASES
-    ],
-)
+@pytest.mark.parametrize("case", CASES, ids=[case["id"] for case in CASES])
 async def test_fs_path_domain_case(case: dict[str, Any], tmp_path: Path) -> None:
     if not applies(case):
         pytest.skip(case["platform_note"])

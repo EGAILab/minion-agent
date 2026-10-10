@@ -13,7 +13,6 @@ from __future__ import annotations
 import ctypes
 import os
 import sys
-from collections.abc import Awaitable, Callable
 from pathlib import Path
 
 import pytest
@@ -101,38 +100,20 @@ def test_posix_branch_never_passes_a_nul_path_to_libc(monkeypatch: pytest.Monkey
     assert fake.freed == []
 
 
-async def _previous_canonical_path(cwd: Path, name: str) -> object:
-    """The pre-`L12-D004` body: `os.path.realpath(strict=True)`; an `OSError` becomes `Err`."""
-    native = filesystem_module.native_path(filesystem_module.resolve_local_path(str(cwd), name))
-    try:
-        return Ok(os.path.realpath(native, strict=True))
-    except OSError as exc:
-        return Err(filesystem_module.to_fs_error(exc, native))
-
-
-async def _outcome(call: Callable[[], Awaitable[object]]) -> object:
-    try:
-        result = await call()
-    except ValueError as exc:  # the previous POSIX rejection: embedded null character
-        return ("raises", type(exc), str(exc))
-    if isinstance(result, Err):  # the `cause` exception objects compare by identity
-        return ("err", result.error.code, result.error.message, result.error.path)
-    return result
-
-
 @pytest.mark.parametrize("name", ["file\0missing", "missing\0file", "file\0"])
-async def test_a_nul_path_keeps_the_previous_outcome_and_never_answers_for_its_prefix(
+async def test_a_nul_path_is_unknown_and_never_answers_for_its_prefix(
     tmp_path: Path, name: str
 ) -> None:
-    """`L12D004-R001` real-host witness, with an existing prefix `file`: the outcome is exactly the
-    previous resolution's on this host (POSIX: `ValueError`, embedded null character; Windows:
-    unchanged), and never `file`'s canonical path. NUL's disposition is `minion-agent#133`'s and is
-    not decided here."""
+    """`L12D004-R001` real-host witness, with an existing prefix `file`: the outcome is never
+    `file`'s canonical path. Its disposition, left to `minion-agent#133` when this was written, is
+    now `L12-D006` (spec/execution.md section 18): `unknown`, naming the logical path, on every host
+    (the previous POSIX `ValueError` was the corrected defect)."""
     (tmp_path / "file").write_text("x")
     fs = LocalFileSystem(cwd=str(tmp_path))
-    candidate = await _outcome(lambda: fs.canonical_path(name))
-    previous = await _outcome(lambda: _previous_canonical_path(tmp_path, name))
-    assert candidate == previous
+    candidate = await fs.canonical_path(name)
+    assert isinstance(candidate, Err)
+    assert candidate.error.code == FsErrorCode.UNKNOWN
+    assert candidate.error.path == filesystem_module.resolve_local_path(str(tmp_path), name)
     assert candidate != Ok(os.path.realpath(tmp_path / "file"))
 
 

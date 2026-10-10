@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import asyncio
 import errno as _errno
+import functools
 import os
 import re
 import shutil
@@ -42,7 +43,7 @@ from collections.abc import Callable, Coroutine, Sequence
 from contextlib import suppress
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import Any, Protocol
+from typing import Any, Concatenate, Protocol
 from urllib.parse import urlparse
 
 from ada_url import URL as _AdaURL
@@ -1122,6 +1123,53 @@ class FsTarget:
     _provider: object
 
 
+_NUL = "\x00"
+
+
+def _nul_rejected(exc: ValueError, *arguments: object) -> bool:
+    """`L12-D006`: a host rejection of a NUL-containing path argument -- CPython's `ValueError`
+    "embedded null character / byte" -- and nothing else: an unrelated `ValueError` still raises."""
+    return "embedded null" in str(exc) and any(
+        isinstance(argument, str) and _NUL in argument for argument in arguments
+    )
+
+
+def _nul_failure(exc: ValueError, logical: str | None) -> FsError:
+    """Pinned Node rejects the argument with `ERR_INVALID_ARG_VALUE`, which carries no `err.path`,
+    so Pi's `toFileError` answers `unknown` with its LOGICAL fallback path (never projected)."""
+    return FsError(FsErrorCode.UNKNOWN, str(exc), logical, exc)
+
+
+def _contain_nul[**P, T](
+    method: Callable[Concatenate[LocalFileSystem, str, P], Coroutine[Any, Any, Result[T, FsError]]],
+) -> Callable[Concatenate[LocalFileSystem, str, P], Coroutine[Any, Any, Result[T, FsError]]]:
+    """`L12-D006` (spec section 18): the native call whose path argument carries a NUL fails, at
+    that call -- earlier calls of the same operation keep their effects (`write_file`'s parent
+    creation) -- as `unknown` naming the operation's logical path (`rename_file`: the source)."""
+
+    async def contained(
+        self: LocalFileSystem, path: str, /, *args: P.args, **kwargs: P.kwargs
+    ) -> Result[T, FsError]:
+        try:
+            return await method(self, path, *args, **kwargs)
+        except ValueError as exc:
+            # The RESOLVED path arguments (L12D006-C001): a `file://` URL's `%00` decodes to the NUL
+            # the native call rejects, with no literal NUL in the caller's string. `rename_file` has
+            # a second path, its destination; every other operation's other arguments are not paths.
+            logical = resolve_local_path(self.cwd, path)
+            resolved = [logical]
+            if method.__name__ == "rename_file":
+                destination = args[0] if args else kwargs.get("destination")
+                if isinstance(destination, str):
+                    resolved.append(resolve_local_path(self.cwd, destination))
+            if not _nul_rejected(exc, *resolved):
+                raise
+            return Err(_nul_failure(exc, logical))
+
+    functools.update_wrapper(contained, method)
+    return contained
+
+
 class LocalFileSystem:
     """The local filesystem provider (`EXEC-002`/`EXEC-003`/spec section 8) -- `DIRECT_PI_PARITY`
     for `ctx.fs`'s own observable behavior, `MINION_ARCHITECTURAL_MAPPING` for the `FsTarget`
@@ -1159,6 +1207,7 @@ class LocalFileSystem:
             return Ok(".")
         return Ok(os.path.normpath(os.sep.join(p for p in parts if p)))
 
+    @_contain_nul
     async def read_text_file(
         self, path: str, signal: RunSignal | None = None
     ) -> Result[str, FsError]:
@@ -1179,6 +1228,7 @@ class LocalFileSystem:
             return Err(to_fs_error(exc, native))
         return Ok(content)
 
+    @_contain_nul
     async def read_text_lines(
         self, path: str, max_lines: int | None = None, signal: RunSignal | None = None
     ) -> Result[list[str], FsError]:
@@ -1197,6 +1247,7 @@ class LocalFileSystem:
             return Err(to_fs_error(exc, native))
         return Ok(lines)
 
+    @_contain_nul
     async def read_binary_file(
         self, path: str, signal: RunSignal | None = None
     ) -> Result[bytes, FsError]:
@@ -1217,6 +1268,7 @@ class LocalFileSystem:
             return Err(to_fs_error(exc, native))
         return Ok(content)
 
+    @_contain_nul
     async def write_file(
         self, path: str, content: str | bytes, signal: RunSignal | None = None
     ) -> Result[None, FsError]:
@@ -1240,6 +1292,7 @@ class LocalFileSystem:
             return Err(to_fs_error(exc, native))
         return Ok(None)
 
+    @_contain_nul
     async def append_file(
         self, path: str, content: str | bytes, signal: RunSignal | None = None
     ) -> Result[None, FsError]:
@@ -1257,6 +1310,7 @@ class LocalFileSystem:
             return Err(to_fs_error(exc, native))
         return Ok(None)
 
+    @_contain_nul
     async def rename_file(
         self, source: str, destination: str, signal: RunSignal | None = None
     ) -> Result[None, FsError]:
@@ -1276,6 +1330,7 @@ class LocalFileSystem:
             return Err(to_fs_error(exc, native_path(src)))
         return Ok(None)
 
+    @_contain_nul
     async def file_info(
         self, path: str, signal: RunSignal | None = None
     ) -> Result[FileInfo, FsError]:
@@ -1289,6 +1344,7 @@ class LocalFileSystem:
             return Err(to_fs_error(exc, native))
         return Ok(info)
 
+    @_contain_nul
     async def list_dir(
         self, path: str, signal: RunSignal | None = None
     ) -> Result[list[FileInfo], FsError]:
@@ -1305,6 +1361,7 @@ class LocalFileSystem:
             return Err(to_fs_error(exc, exc.filename if exc.filename is not None else native))
         return Ok(infos)
 
+    @_contain_nul
     async def list_dir_raw(
         self, path: str, signal: RunSignal | None = None
     ) -> Result[list[str], FsError]:
@@ -1320,6 +1377,7 @@ class LocalFileSystem:
             return Err(to_fs_error(exc, native))
         return Ok(names)
 
+    @_contain_nul
     async def probe_dir_entry(
         self, path: str, signal: RunSignal | None = None
     ) -> Result[DirEntryProbe, FsError]:
@@ -1335,6 +1393,7 @@ class LocalFileSystem:
             return Err(to_fs_error(exc, native))
         return Ok(probe)
 
+    @_contain_nul
     async def check_readable(
         self, path: str, signal: RunSignal | None = None
     ) -> Result[None, FsError]:
@@ -1354,6 +1413,7 @@ class LocalFileSystem:
             return Err(FsError(FsErrorCode.UNKNOWN, str(exc), resolved, exc))
         return Ok(None)
 
+    @_contain_nul
     async def check_read_write(
         self, path: str, signal: RunSignal | None = None
     ) -> Result[None, FsError]:
@@ -1374,10 +1434,13 @@ class LocalFileSystem:
             return Err(FsError(FsErrorCode.UNKNOWN, str(exc), resolved, exc))
         return Ok(None)
 
+    @_contain_nul
     async def canonical_path(
         self, path: str, signal: RunSignal | None = None
     ) -> Result[str, FsError]:
         resolved = resolve_local_path(self.cwd, path)
+        if _NUL in resolved:
+            return Err(_nul_failure(ValueError("embedded null character in path"), resolved))
         native = native_path(resolved)
         try:
             real = await asyncio.to_thread(_realpath, native)
@@ -1393,6 +1456,7 @@ class LocalFileSystem:
             return Ok(False)
         return info
 
+    @_contain_nul
     async def create_dir(
         self, path: str, recursive: bool = True, signal: RunSignal | None = None
     ) -> Result[None, FsError]:
@@ -1407,6 +1471,7 @@ class LocalFileSystem:
             return Err(_mkdir_error(exc))
         return Ok(None)
 
+    @_contain_nul
     async def remove(
         self,
         path: str,
@@ -1433,6 +1498,10 @@ class LocalFileSystem:
             path = await asyncio.to_thread(tempfile.mkdtemp, prefix=prefix)
         except OSError as exc:
             return Err(to_fs_error(exc))
+        except ValueError as exc:
+            if not _nul_rejected(exc, prefix):
+                raise
+            return Err(_nul_failure(exc, None))
         return Ok(path)
 
     async def create_temp_file(
@@ -1446,6 +1515,10 @@ class LocalFileSystem:
             await asyncio.to_thread(_write_file_sync, file_path, "")
         except OSError as exc:
             return Err(to_fs_error(exc, file_path))
+        except ValueError as exc:
+            if not _nul_rejected(exc, file_path):
+                raise
+            return Err(_nul_failure(exc, file_path))
         return Ok(file_path)
 
     async def cleanup(self) -> None:

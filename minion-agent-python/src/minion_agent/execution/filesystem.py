@@ -35,7 +35,6 @@ import functools
 import inspect
 import os
 import re
-import shutil
 import stat as _stat
 import sys
 import tempfile
@@ -897,16 +896,6 @@ def _check_read_write_sync(path: str) -> None:
         _check_read_write_posix(path)
 
 
-class _RemovalFailure(Exception):
-    """Carries a recursive removal's FIRST failure out of `shutil.rmtree`, which would otherwise
-    catch a re-raised `OSError` at the enclosing directory and report it again as that directory's
-    own `scandir` failure."""
-
-    def __init__(self, error: OSError) -> None:
-        super().__init__(error)
-        self.error = error
-
-
 def _clear_own_readonly_windows(path: str) -> bool:
     """Clear the entry's OWN `FILE_ATTRIBUTE_READONLY` through a handle opened with
     `FILE_FLAG_OPEN_REPARSE_POINT`: a symlink or junction is changed itself, never its target. True
@@ -1008,34 +997,6 @@ def _delete_ignoring_readonly(function: Callable[[str], Any], path: str) -> None
             function(path)
 
 
-def _name_the_failing_path(function: Callable[..., Any], path: str, exc: BaseException) -> None:
-    """`CE-L12-D001-01`: a recursive removal's failure names the path of the call that failed,
-    as pinned Node's `rimraf` (v22.15.1 `lib/internal/fs/rimraf.js`, git blob
-    `24bf3f46b878e711beadcdc8e1b08700d10aa3c5`) reports it -- an entry INSIDE the tree, not the
-    removal's own target. `rmtree` passes that path here; its fd-relative calls name only a part.
-    `L12-D005`: an entry whose only obstacle was its own read-only attribute is still deleted, and
-    an entry that vanished concurrently counts as removed (`rimraf` ignores `ENOENT`; Python 3.12's
-    `rmtree` reports it here, 3.13+ skips it itself)."""
-    if isinstance(exc, FileNotFoundError):
-        return
-    if (
-        isinstance(exc, PermissionError)
-        and getattr(function, "__name__", "") in ("unlink", "remove", "rmdir")
-        and _clear_readonly(path)
-    ):
-        try:
-            function(path)
-            return
-        except FileNotFoundError:
-            return
-        except OSError as retry:
-            exc = retry
-    if isinstance(exc, OSError):
-        exc.filename = path
-        raise _RemovalFailure(exc) from exc
-    raise exc
-
-
 def _remove_sync(path: str, recursive: bool, force: bool) -> None:
     try:
         st = os.lstat(path)
@@ -1056,13 +1017,7 @@ def _remove_sync(path: str, recursive: bool, force: bool) -> None:
             # Matches pinned Pi's own fs.rm exactly: ANY directory (even an empty one)
             # requires recursive=true, unlike POSIX rmdir's own more lenient default.
             raise _RmDirectoryRefusal(f"Path is a directory: {path}")
-        if sys.platform == "win32":
-            _rimraf_windows(path)
-        else:  # pragma: no cover -- POSIX only (Windows removes through libuv, above)
-            try:
-                shutil.rmtree(path, onexc=_name_the_failing_path)
-            except _RemovalFailure as failure:
-                raise failure.error from None
+        _rimraf(path)
         return
     _unlink_entry(path)
 
@@ -1076,44 +1031,91 @@ def _unlink_entry(path: str) -> None:
     if sys.platform == "win32":
         _delete_ignoring_readonly(_libuv_unlink, path)
         return
-    _delete_ignoring_readonly(os.remove, path)  # pragma: no cover -- POSIX only
+    _delete_ignoring_readonly(os.unlink, path)  # pragma: no cover -- POSIX only
 
 
 def _libuv_unlink(path: str) -> None:  # pragma: no cover -- win32 only
-    from . import _libuv_win32
+    if sys.platform == "win32":  # scopes the Win32-only module to its platform
+        from . import _libuv_win32
 
-    _libuv_win32.unlink_like_libuv(path, isrmdir=False)
+        _libuv_win32.unlink_like_libuv(path, isrmdir=False)
 
 
 def _libuv_rmdir(path: str) -> None:  # pragma: no cover -- win32 only
-    from . import _libuv_win32
+    if sys.platform == "win32":  # scopes the Win32-only module to its platform
+        from . import _libuv_win32
 
-    _libuv_win32.unlink_like_libuv(path, isrmdir=True)
-
-
-_VANISHED_WIN32 = frozenset({2, 3})  # ERROR_FILE_NOT_FOUND / ERROR_PATH_NOT_FOUND
+        _libuv_win32.unlink_like_libuv(path, isrmdir=True)
 
 
-def _rimraf_windows(path: str) -> None:
-    """Pinned Node's recursive `rm` on Windows reaches libuv's `unlink` / `rmdir` for every entry
-    (`lib/internal/fs/rimraf.js`), each through `fs__unlink_rmdir`'s own handle: depth first, links
-    and junctions removed as themselves (never followed), the directory last. A failure names the
-    entry whose call failed (`CE-L12-D001-01`); an entry that vanished meanwhile counts as removed
-    (rimraf ignores ENOENT)."""
-    with os.scandir(path) as listing:
-        entries = list(listing)
+_RMDIR_DESCENDS = frozenset({_errno.ENOTEMPTY, _errno.EEXIST, _errno.EPERM})
+# The Win32 codes pinned libuv 1.49.2 `uv_translate_sys_error` (src/win/error.c, blob
+# 7abf906bb5c82312aeb9f3f30f39ab2cadc07eae) sends to ENOTEMPTY (145 ERROR_DIR_NOT_EMPTY), EEXIST
+# (80 ERROR_FILE_EXISTS, 183 ERROR_ALREADY_EXISTS) and EPERM (5 ERROR_ACCESS_DENIED, 1314
+# ERROR_PRIVILEGE_NOT_HELD).
+_RMDIR_DESCENDS_WIN32 = frozenset({145, 80, 183, 5, 1314})
+
+
+def _node_rmdir(path: str) -> None:
+    if sys.platform == "win32":
+        _libuv_rmdir(path)
+    else:  # pragma: no cover -- POSIX only
+        os.rmdir(path)
+
+
+def _rmdir_descends(exc: OSError) -> bool:
+    """rimraf `_rmdir`: an `rmdir` failing ENOTEMPTY / EEXIST / EPERM removes the children."""
+    if sys.platform == "win32":
+        return getattr(exc, "winerror", None) in _RMDIR_DESCENDS_WIN32
+    return exc.errno in _RMDIR_DESCENDS  # pragma: no cover -- POSIX only
+
+
+def _vanished(exc: OSError) -> bool:
+    """rimraf ignores ENOENT at every step: on Windows libuv's, which includes 123 / 161 / 267."""
+    return to_pi_fs_error(exc).code is FsErrorCode.NOT_FOUND
+
+
+def _rimraf(path: str) -> None:
+    """Pinned Node's recursive `rm` of a directory (v22.15.1 `lib/internal/fs/rimraf.js`, git blob
+    `24bf3f46b878e711beadcdc8e1b08700d10aa3c5`, `_rmdir` / `_rmchildren`). `rmdir` comes FIRST, so
+    an empty directory is removed even when it cannot be listed (L12-D007,
+    `errors/directory-denied/remove-recursive`). Only an ENOTEMPTY / EEXIST / EPERM failure lists
+    the directory, removes each child -- a directory by this same walk, anything else (links and
+    junctions included, never followed) by `unlink` with the `fixWinEPERM` retry -- and `rmdir`s
+    it again. ENOENT anywhere counts as removed; a POSIX `rmdir` ENOTDIR answers `lstat`'s own
+    (absent) error, i.e. success. A failure names the entry whose call failed
+    (`CE-L12-D001-01`). Windows reaches libuv's `unlink` / `rmdir` (`fs__unlink_rmdir`), POSIX
+    `unlink(2)` / `rmdir(2)`. Pinned Node removes the children concurrently and reports the first
+    failure to settle; this walk is sequential, in enumeration order."""
+    try:
+        _node_rmdir(path)
+        return
+    except OSError as exc:
+        if _vanished(exc) or (sys.platform != "win32" and exc.errno == _errno.ENOTDIR):
+            return
+        if not _rmdir_descends(exc):
+            raise
+    try:
+        with os.scandir(path) as listing:
+            entries = list(listing)
+    except OSError as exc:
+        if _vanished(exc):
+            return
+        raise
     for entry in entries:
         try:
-            tree = entry.is_dir(follow_symlinks=False) and not entry.is_junction()
-            if tree:
-                _rimraf_windows(entry.path)
+            if entry.is_dir(follow_symlinks=False) and not entry.is_junction():
+                _rimraf(entry.path)
             else:
-                _delete_ignoring_readonly(_libuv_unlink, entry.path)
+                _unlink_entry(entry.path)
         except OSError as exc:
-            if getattr(exc, "winerror", None) in _VANISHED_WIN32:
-                continue
+            if not _vanished(exc):
+                raise
+    try:
+        _node_rmdir(path)
+    except OSError as exc:
+        if not _vanished(exc):
             raise
-    _delete_ignoring_readonly(_libuv_rmdir, path)
 
 
 class FileSystem(Protocol):

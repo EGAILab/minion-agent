@@ -100,15 +100,9 @@ async def test_an_entry_vanishing_during_the_recursive_walk_counts_as_removed(
     real_scandir = os.scandir
     fired: list[bool] = []
 
-    def listed_name(path: Any) -> str:
-        # POSIX `rmtree` walks by directory fd; Windows by path.
-        if isinstance(path, int):
-            return Path(os.readlink(f"/proc/self/fd/{path}")).name
-        return Path(path if path is not None else ".").name
-
     def scandir_then_vanish(path: Any = None) -> Any:
         listing = real_scandir(path) if path is not None else real_scandir()
-        if fired or listed_name(path) != "t":
+        if fired or Path(path if path is not None else ".").name != "t":
             return listing
         entries = list(listing)
         listing.close()
@@ -187,17 +181,6 @@ async def test_a_tree_entry_vanishing_before_its_retry_counts_as_removed(
 
     assert await LocalFileSystem(str(tmp_path)).remove("t", recursive=True) == Ok(None)
     assert not (tmp_path / "t").exists()
-
-
-def test_the_removal_handler_treats_a_vanished_tree_entry_as_removed(tmp_path: Path) -> None:
-    """Python 3.12's `rmtree` hands a concurrently vanished entry's `FileNotFoundError` to the
-    handler (3.13+ skips it before the handler); either way the entry counts as removed."""
-    missing = str(tmp_path / "gone")
-
-    assert (
-        filesystem_module._name_the_failing_path(os.unlink, missing, FileNotFoundError(missing))
-        is None
-    )
 
 
 @windows_only

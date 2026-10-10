@@ -1,5 +1,4 @@
-"""L12-D007 (spec/execution.md section 19.2): the libuv-equivalent Win32 seam's own branches, and
-the recursive-removal retry of `_name_the_failing_path`.
+"""L12-D007 (spec/execution.md section 19.2): the libuv-equivalent Win32 seam's own branches.
 
 The `_libuv_win32` failure branches a real host cannot be made to produce on demand (a
 `GetFileInformationByHandle` failure on an open handle, a volume without POSIX delete semantics)
@@ -17,42 +16,6 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-
-from minion_agent.execution import filesystem as fs_module
-
-# ---------------------------------------------------------------------------
-# `_name_the_failing_path`: the retry after clearing a read-only attribute (all platforms)
-# ---------------------------------------------------------------------------
-
-
-def _unlink_like(outcome: BaseException | None) -> Callable[[str], None]:
-    def unlink(path: str) -> None:
-        if outcome is not None:
-            raise outcome
-
-    return unlink
-
-
-def test_retry_after_clearing_readonly_succeeds(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(fs_module, "_clear_readonly", lambda path: True)
-    fs_module._name_the_failing_path(_unlink_like(None), "p", PermissionError(13, "denied"))
-
-
-def test_retry_finding_the_entry_gone_counts_as_removed(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(fs_module, "_clear_readonly", lambda path: True)
-    retry = _unlink_like(FileNotFoundError(2, "gone"))
-    fs_module._name_the_failing_path(retry, "p", PermissionError(13, "denied"))
-
-
-def test_retry_failure_is_reported_naming_the_entry(monkeypatch: pytest.MonkeyPatch) -> None:
-    """`L12D005-I001`: the RETRY's error is the one reported, with the failing entry's path."""
-    monkeypatch.setattr(fs_module, "_clear_readonly", lambda path: True)
-    retry = _unlink_like(OSError(16, "busy"))
-    with pytest.raises(fs_module._RemovalFailure) as caught:
-        fs_module._name_the_failing_path(retry, "inner", PermissionError(13, "denied"))
-    assert caught.value.error.errno == 16
-    assert caught.value.error.filename == "inner"
-
 
 # ---------------------------------------------------------------------------
 # `_libuv_win32` (Windows only)

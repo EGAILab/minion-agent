@@ -23,8 +23,11 @@ import ctypes
 import errno as _errno
 import io
 import os
+import sys
 from ctypes import wintypes
 from typing import IO, Any
+
+assert sys.platform == "win32"  # imported only on Windows; also scopes type checking to it
 
 _k32 = ctypes.WinDLL("kernel32", use_last_error=True)
 _k32.CreateFileW.argtypes = [

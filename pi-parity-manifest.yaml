@@ -2943,10 +2943,13 @@ rows:
     tools/pre-execute listeners and execute share that validated graph; no hook or execute mutation reaches the
     raw ToolCall.arguments or the tools/update payload through a nested alias. Aliases and cycles inside the
     prepared graph survive in the clone; key order, -0, non-finite numbers and lone surrogates survive unchanged.
-    Validation failure and blocked calls keep their semantics. spec/tools.md L0506-D005.
-    conformance/agent/arg-isolation/ (arg-isolation-scenario.schema.json; 14 cases generated from pinned Pi);
-    tests/conformance/test_arg_isolation_conformance.py. Python raw-schema path fails 10 cases (strict xfail at the
-    contract stage); the pydantic path is AUDITED -- NO CHANGE (model_dump already rebuilds). Rust: audit pending.'
+    Validation failure and blocked calls keep their semantics. Certified domain: ACYCLIC prepared graphs (Owner
+    decision L0506D005-Q001 on #190); cyclic graphs through validation are out of scope (finding #193; Rust
+    validation is not cycle-safe). spec/tools.md L0506-D005; assurance/layers/l0506-d005-feasibility-matrix.md.
+    conformance/agent/arg-isolation/ (arg-isolation-scenario.schema.json; 16 cases generated from pinned Pi);
+    tests/conformance/test_arg_isolation_conformance.py and test_arg_isolation_runner_numbers.py. Python
+    raw-schema path fails 12 cases (strict xfail at the contract stage); the pydantic path is AUDITED -- NO
+    CHANGE (model_dump already rebuilds). Rust: acyclic conformance to be confirmed through the real preflight.'
   python: src/minion_agent/tools/execute.py::_prepare, _validate, ArgumentValidationError, execute_call
   rust: 'minion-agent-rust/crates/minion-agent/src/tools/execution.rs::execute_tool_calls;
     minion-agent-rust/crates/minion-agent/tests/tool_execution.rs;

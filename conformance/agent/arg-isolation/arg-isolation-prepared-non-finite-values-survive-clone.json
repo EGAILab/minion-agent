@@ -49,7 +49,7 @@
       [
        "inf",
        {
-        "n": "Infinity"
+        "n": "+Infinity"
        }
       ],
       [
@@ -102,7 +102,7 @@
      [
       "inf",
       {
-       "n": "Infinity"
+       "n": "+Infinity"
       }
      ],
      [

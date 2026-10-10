@@ -19,13 +19,15 @@ from typing import Any
 
 from minion_agent.llm import TextBlock, ToolCallBlock
 from minion_agent.runtime import Context
-from minion_agent.tools.builtin._js import number_to_string
 from minion_agent.tools.decisions import Block
 from minion_agent.tools.definition import ToolDefinition
 from minion_agent.tools.events import TOOLS_PRE_EXECUTE, TOOLS_UPDATE, declare_tools_events
 from minion_agent.tools.execute import execute_call
 from minion_agent.tools.registry import ToolRegistry
 from minion_agent.tools.result import ToolPartialResult, ToolResult
+
+from .prepared_runtime_runner import render
+from .raw_arguments_runner import is_binary64_int, number
 
 
 def _units(value: str) -> list[int]:
@@ -39,12 +41,12 @@ def observe(value: Any, stack: list[Any] | None = None) -> Any:
     stack = [] if stack is None else stack
     if isinstance(value, bool) or value is None:
         return value
-    if isinstance(value, float) and value == 0 and math.copysign(1.0, value) < 0:
-        return {"n": "-0"}
-    if isinstance(value, float):
-        return {"n": number_to_string(value)}
-    if isinstance(value, int):
-        return {"n": str(value)}
+    if isinstance(value, int) and not is_binary64_int(value):
+        # Strict and total (CE-L0206-D002-01 N3'): never rounded into a matching token.
+        return {"non_binary64_int": hex(value)}
+    if isinstance(value, int | float):
+        # The certified prepared-runtime token: Number::toString, -0/NaN/+-Infinity named.
+        return {"n": render(value)}
     if isinstance(value, str):
         return {"u": _units(value)}
     for depth, ancestor in enumerate(stack):
@@ -62,11 +64,8 @@ def build(value: Any) -> Any:
     if not isinstance(value, dict):
         return value
     if "n" in value:
-        token = value["n"]
-        if token == "-0":
-            return -0.0
-        number = float(token)
-        return int(number) if math.isfinite(number) and number.is_integer() else number
+        # The certified binary64 decoder (raw_arguments_runner.number); NaN: prepared domain.
+        return math.nan if value["n"] == "NaN" else number(value["n"])
     if "u" in value:
         return struct.pack(f"<{len(value['u'])}H", *value["u"]).decode("utf-16-le", "surrogatepass")
     if "a" in value:
@@ -122,8 +121,10 @@ SHIMS = {
 
 
 def parse_raw(text: str) -> Any:
-    """`JSON.parse`'s value: a `-0` literal is the float -0.0 (D001's named token)."""
-    return json.loads(text, parse_int=lambda token: -0.0 if token == "-0" else int(token))
+    """`JSON.parse`'s value (fixture construction): every number literal through binary64 with the
+    certified decoder (`raw_arguments_runner.number`), so `-0` stays a float and an integral literal
+    is its binary64 value's exact integer, never the spelled digits."""
+    return json.loads(text, parse_int=number, parse_float=number)
 
 
 async def run_case(scenario: dict[str, Any]) -> dict[str, Any]:

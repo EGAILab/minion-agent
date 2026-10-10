@@ -6364,6 +6364,16 @@ rows:
     tests/execution/test_filesystem_readonly_remove.py. Python implements it (own-entry read-only attribute
     cleared through a FILE_FLAG_OPEN_REPARSE_POINT handle, one retry); Rust fails the read-only directory
     cases (pending).'
+  - 'fs_path_nul_unknown -- L12-D006 (minion-agent#194; provenance #65 + #133-F1; Owner decision recorded on
+    both; CONTRACT_DRAFT): a NUL-containing path. In each filesystem-touching operation the native call whose
+    path argument carries the NUL fails as unknown with Pi''s logical fallback path (rename: the source; temp
+    creation: none / the would-be file path), in that operation''s own call order (write/append create the
+    parent first; canonical_path / resolve reject before any component walk); never invalid, never a host
+    exception. Lexical absolute_path/join_path, max_lines <= 0 and abort keep their precedence; the logical path
+    is never projected (lone surrogates kept). EXEC-007/008/009 operations follow their Node primitive.
+    spec/execution.md section 18. conformance/agent/fs-path-domain/fs-path-nul.json (158 cases generated
+    from pinned Pi, identical on Windows and Linux); tests/conformance/test_fs_path_conformance.py. Python:
+    116 (Windows) / 126 (Linux) cases strict xfail at the contract stage. Rust: invalid today (pending).'
   python: 'minion-agent-python/src/minion_agent/execution/filesystem.py; integration evidence in
     minion-agent-python/tests/execution/test_filesystem.py. L12-D004 (minion-agent#163; PI_PARITY_DEFECT,
     Owner-authorized targeted correction; independently approved, merged at #162 -> 5477eaeb): canonical_path

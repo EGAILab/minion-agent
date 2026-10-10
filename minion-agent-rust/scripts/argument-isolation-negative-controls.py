@@ -50,7 +50,7 @@ a.logs.mkdir(parents=True, exist_ok=True)
 
 def run(label, witness, signature=None):
     r = subprocess.run(["cargo", "test", "--offline", "-p", "minion-agent", "--all-features",
-                        "--test", "arg_isolation_conformance", witness, "--", "--exact", "--nocapture"],
+                        "--test", "arg_isolation_conformance", witness, "--", "--exact", "--nocapture", "--test-threads=1"],
                        cwd=tree, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
     (a.logs / (label + ".log")).write_text(r.stdout, encoding="utf-8")
     if signature is None:
@@ -64,7 +64,7 @@ def run(label, witness, signature=None):
 
 def baseline(label):
     r = subprocess.run(["cargo", "test", "--offline", "-p", "minion-agent", "--all-features",
-                        "--test", "arg_isolation_conformance", "--", "--nocapture"], cwd=tree,
+                        "--test", "arg_isolation_conformance", "--", "--nocapture", "--test-threads=1"], cwd=tree,
                        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
     (a.logs / (label + ".log")).write_text(r.stdout, encoding="utf-8")
     if r.returncode or "8 passed" not in r.stdout or any(

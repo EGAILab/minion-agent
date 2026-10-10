@@ -2938,6 +2938,20 @@ rows:
   - test_a_raw_object_schema_rejects_invalid_arguments
   - test_prepare_arguments_repairs_raw_schema_arguments_before_validation
   - test_prepare_arguments_can_invalidate_previously_valid_raw_schema_arguments
+  - 'arg_isolation -- L0506-D005 (minion-agent#190, provenance #129; Owner decision recorded on #129; CONTRACT_DRAFT): validation
+    works on pinned Pi''s structuredClone of the prepared arguments (validation.ts validateToolArguments). The
+    tools/pre-execute listeners and execute share that validated graph; no hook or execute mutation reaches the
+    raw ToolCall.arguments or the tools/update payload through a nested alias. Aliases and cycles inside the
+    prepared graph survive in the clone; key order, -0, non-finite numbers and lone surrogates survive unchanged.
+    Validation failure and blocked calls keep their semantics. Certified domain: ACYCLIC prepared graphs (Owner
+    decision L0506D005-Q001 on #190); cyclic graphs through validation are out of scope (finding #193; Rust
+    validation is not cycle-safe). spec/tools.md L0506-D005; assurance/layers/l0506-d005-feasibility-matrix.md.
+    conformance/agent/arg-isolation/ (arg-isolation-scenario.schema.json; 21 cases generated from pinned Pi);
+    tests/conformance/test_arg_isolation_conformance.py and test_arg_isolation_runner_numbers.py. Python
+    raw-schema path failed 17 cases at the contract stage (N001: earlier notes said 12); it now implements
+    the clone (llm/js_object.py structured_clone; tools/execute.py _validate), and the pydantic path is
+    AUDITED -- NO CHANGE (model_dump already rebuilds). Binding witnesses tests/tools/test_validated_argument_isolation.py.
+    Rust: acyclic conformance to be confirmed through the real preflight.'
   python: src/minion_agent/tools/execute.py::_prepare, _validate, ArgumentValidationError, execute_call
   rust: 'minion-agent-rust/crates/minion-agent/src/tools/execution.rs::execute_tool_calls;
     minion-agent-rust/crates/minion-agent/tests/tool_execution.rs;
@@ -6353,7 +6367,7 @@ rows:
   - minion-agent-rust/crates/minion-agent/tests/execution_filesystem.rs
   - minion-agent-python/tests/execution/test_filesystem.py
   - 'fs_remove_readonly_windows -- L12-D005 (minion-agent#188, provenance #126; Owner decision #126
-    issuecomment-6086596348 amended by issuecomment-6087116283; CONTRACT_DRAFT): on Windows, remove ignores the
+    issuecomment-6086596348 amended by issuecomment-6087116283; CERTIFIED_CLOSED cross-language): on Windows, remove ignores the
     read-only attribute as pinned Pi (libuv 1.49.2 unlink/rmdir, FILE_DISPOSITION_IGNORE_READONLY_ATTRIBUTE):
     read-only files recursive and non-recursive, read-only-attributed directories when recursive, a read-only
     link itself; never the link target; ACL/sharing/other failures, codes and section-14.8 origin paths
@@ -6362,18 +6376,20 @@ rows:
     (fs-remove-readonly-scenario.schema.json; 21 cases generated from pinned Pi on Windows and Linux);
     tests/conformance/test_fs_remove_readonly_conformance.py, plus binding concurrency witnesses
     tests/execution/test_filesystem_readonly_remove.py. Python implements it (own-entry read-only attribute
-    cleared through a FILE_FLAG_OPEN_REPARSE_POINT handle, one retry); Rust fails the read-only directory
-    cases (pending).'
+    cleared through a FILE_FLAG_OPEN_REPARSE_POINT handle, one retry); Rust implements the read-only-directory correction
+    and platform-neutral recursive disappearance (code #192 -> fd6c025f; closure #188 issuecomment-6093795761).'
   - 'fs_path_nul_unknown -- L12-D006 (minion-agent#194; provenance #65 + #133-F1; Owner decision recorded on
-    both; CONTRACT_DRAFT): a NUL-containing path. In each filesystem-touching operation the native call whose
-    path argument carries the NUL fails as unknown with Pi''s logical fallback path (rename: the source; temp
-    creation: none / the would-be file path), in that operation''s own call order (write/append create the
-    parent first; canonical_path / resolve reject before any component walk); never invalid, never a host
-    exception. Lexical absolute_path/join_path, max_lines <= 0 and abort keep their precedence; the logical path
-    is never projected (lone surrogates kept). EXEC-007/008/009 operations follow their Node primitive.
-    spec/execution.md section 18. conformance/agent/fs-path-domain/fs-path-nul.json (158 cases generated
-    from pinned Pi, identical on Windows and Linux); tests/conformance/test_fs_path_conformance.py. Python:
-    116 (Windows) / 126 (Linux) cases strict xfail at the contract stage. Rust: invalid today (pending).'
+    both): a NUL-containing path. In each filesystem-touching operation the native call whose path argument --
+    after L12-D001 resolution, so including a file:// URL decoding %00 -- carries the NUL fails as unknown with
+    Pi''s logical (decoded) fallback path (rename: the source; temp creation: none / the would-be file path), in
+    that operation''s own call order (write/append create the parent first; canonical_path / resolve reject
+    before any component walk); never invalid, never a host exception. Lexical absolute_path/join_path,
+    max_lines <= 0 and abort keep their precedence; the logical path is never projected (lone surrogates kept).
+    EXEC-007/008/009 operations follow their Node primitive. spec/execution.md section 18.
+    conformance/agent/fs-path-domain/fs-path-nul.json (237 cases generated from pinned Pi, identical on Windows
+    and Linux); tests/conformance/test_fs_path_conformance.py; binding witnesses
+    tests/execution/test_filesystem_nul.py. Python implements it (execution/filesystem.py _contain_nul on the
+    resolved path arguments; canonical_path whole-argument check; temp creation). Rust: invalid today (pending).'
   python: 'minion-agent-python/src/minion_agent/execution/filesystem.py; integration evidence in
     minion-agent-python/tests/execution/test_filesystem.py. L12-D004 (minion-agent#163; PI_PARITY_DEFECT,
     Owner-authorized targeted correction; independently approved, merged at #162 -> 5477eaeb): canonical_path
@@ -6383,7 +6399,13 @@ rows:
     minion-agent-docs assurance/layers/12-l12-d004-canonical-path.md.'
   rust: 'minion-agent-rust/crates/minion-agent/src/execution/filesystem.rs (`ada-url = 3.1.0`,
     whose bundled core is exact Ada 2.9.2); 8,246-case direct-oracle gate in that module''s unit
-    tests; integration evidence in minion-agent-rust/crates/minion-agent/tests/execution_filesystem.rs'
+    tests; integration evidence in minion-agent-rust/crates/minion-agent/tests/execution_filesystem.rs.
+    L12-D005 candidate (not certified): own-entry Windows readonly-directory correction and one retry;
+    no-follow binding in crates/minion-agent-native-fs; tests/fs_remove_readonly_conformance.rs (21 shared
+    documents), src/execution/filesystem/readonly_tests.rs (retry-error origin, correction failure,
+    concurrent vanish, one retry and external-target protection); scripts/readonly-remove-negative-controls.py.
+    Assurance: minion-agent-docs assurance/layers/12-l12-d005-rust-implementation.md. POSIX and #125 unchanged;
+    independent Rust closure review pending.'
   disposition: adopted
 - id: EXEC-003
   phase: 6

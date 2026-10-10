@@ -1,0 +1,9 @@
+[package]
+name = "minion-agent-native-fs"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+version.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+windows-sys.workspace = true

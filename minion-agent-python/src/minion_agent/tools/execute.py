@@ -65,7 +65,7 @@ from pydantic import (
 from pydantic import ValidationError as PydanticValidationError
 
 from ..llm import ToolCallBlock
-from ..llm.js_object import JsArray, JsObject, adopt, order_in_place, order_raw
+from ..llm.js_object import JsArray, JsObject, adopt, order_in_place, order_raw, structured_clone
 from ..runtime import Context, RunSignal, Scope, ScopeKey
 from .decisions import AfterToolCallOverride, Block, PreExecuteDecision, Proceed
 from .definition import ToolContextProvider, ToolDefinition
@@ -172,13 +172,14 @@ def _validate(definition: ToolDefinition, arguments: dict[str, Any]) -> dict[str
     its arguments unchanged when they already validate.
     """
     if isinstance(definition.parameters, dict):
+        # `L0506-D005`: validation works on pinned Pi's `structuredClone` of the prepared arguments,
+        # so a hook's or `execute`'s mutation never reaches the raw object through a nested alias.
+        # `L0206-D001` (K1): the clone enumerates as its input did; no schema order is imposed.
+        validated: dict[str, Any] = structured_clone(arguments)
         try:
-            PreparedArgumentsValidator(definition.parameters).validate(arguments)
+            PreparedArgumentsValidator(definition.parameters).validate(validated)
         except JsonSchemaValidationError as error:
             raise ArgumentValidationError(error.message) from error
-        # `L0206-D001` (K1): validation never reorders -- the validated object enumerates as its
-        # input did (pinned Pi's `structuredClone` + `Value.Convert`); no schema order is imposed.
-        validated: dict[str, Any] = order_in_place(JsObject(arguments))
         return validated
     try:
         model = definition.parameters.model_validate(arguments)

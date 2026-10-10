@@ -1,0 +1,89 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$comment": "Post-certification delta L0506-D005 (TOOL-003; Owner decision minion-agent#129): isolation between a tool call's RAW arguments and the VALIDATED arguments the tools/pre-execute hooks and execute receive. Documents live in conformance/agent/arg-isolation/*.json, GENERATED from pinned Pi (assurance/layers/data/l0506-d005/gen). A case builds ONE tool call whose raw arguments are JSON.parse(raw_text), and a tool with the given JSON-Schema `schema` (default: an open object schema) and, when `prepare` is present, the named prepare_arguments shim (alias, cycle, non-finite, reuse-raw-child; defined in spec/tools.md L0506-D005). Each `hooks` program runs in its own tools/pre-execute listener, in order, on the arguments that listener receives; a listener records the arguments at entry BEFORE running its program, the first one also evaluates `facts` (same: the two paths reach one object; distinct_from_raw: the path's object is not the raw arguments' object at the same path) before any program. `block` makes the last listener block. The tool's execute observes its arguments and reports one partial result; each tools/update payload's arguments are observed. Finally the raw arguments are observed. Observation grammar: {o:[[key,v]...]} object in enumeration order, {a:[...]} array, {n:token} number (the certified prepared-runtime token: ECMAScript Number::toString, with -0, NaN, +Infinity and -Infinity named), {u:[UTF-16 code units]} string, {cycle:k} a reference to the ancestor k levels up, true/false/null. The same grammar (without cycle) gives values a program inserts.",
+  "type": "object",
+  "required": ["name", "authority", "pi_revision", "requirements", "notes", "arg_isolation"],
+  "additionalProperties": false,
+  "properties": {
+    "name": {"type": "string", "pattern": "^arg-isolation-[a-z0-9-]+$"},
+    "authority": {"type": "string", "minLength": 1},
+    "pi_revision": {"const": "b7bb00b936dbe21b8e160b3e89efdec361846699"},
+    "requirements": {"type": "array", "minItems": 1, "items": {"type": "string", "pattern": "^[A-Z]+-[0-9]{3}$"}},
+    "notes": {"type": "string"},
+    "arg_isolation": {
+      "type": "object",
+      "required": ["raw_text", "hooks", "expect"],
+      "additionalProperties": false,
+      "properties": {
+        "raw_text": {"type": "string", "minLength": 2},
+        "schema": {"type": "object"},
+        "prepare": {"enum": ["alias", "cycle", "non-finite", "reuse-raw-child"]},
+        "hooks": {"type": "array", "minItems": 1, "items": {"type": "array", "items": {"$ref": "#/$defs/op"}}},
+        "block": {"const": true},
+        "facts": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/fact"}},
+        "expect": {
+          "type": "object",
+          "required": ["outcome", "hook_entries", "facts", "execute", "updates", "raw_after"],
+          "additionalProperties": false,
+          "properties": {
+            "outcome": {"enum": ["executed", "immediate_error"]},
+            "hook_entries": {"type": "array", "items": {"$ref": "#/$defs/observed"}},
+            "facts": {"oneOf": [{"type": "null"}, {"type": "array", "items": {"type": "boolean"}}]},
+            "execute": {"oneOf": [{"type": "null"}, {"type": "object", "required": ["o"], "$ref": "#/$defs/observed"}]},
+            "updates": {"type": "array", "items": {"$ref": "#/$defs/observed"}},
+            "raw_after": {"$ref": "#/$defs/observed"}
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "path": {"type": "array", "items": {"oneOf": [{"type": "string"}, {"type": "integer", "minimum": 0}]}},
+    "op": {
+      "oneOf": [
+        {"type": "object", "required": ["op", "path", "key", "value"], "additionalProperties": false,
+         "properties": {"op": {"const": "set"}, "path": {"$ref": "#/$defs/path"}, "key": {"type": "string"}, "value": {"$ref": "#/$defs/value"}}},
+        {"type": "object", "required": ["op", "path", "value"], "additionalProperties": false,
+         "properties": {"op": {"const": "push"}, "path": {"$ref": "#/$defs/path"}, "value": {"$ref": "#/$defs/value"}}},
+        {"type": "object", "required": ["op", "path", "key"], "additionalProperties": false,
+         "properties": {"op": {"const": "delete"}, "path": {"$ref": "#/$defs/path"}, "key": {"type": "string"}}}
+      ]
+    },
+    "fact": {
+      "oneOf": [
+        {"type": "object", "required": ["same"], "additionalProperties": false,
+         "properties": {"same": {"type": "array", "minItems": 2, "maxItems": 2, "items": {"$ref": "#/$defs/path"}}}},
+        {"type": "object", "required": ["distinct_from_raw"], "additionalProperties": false,
+         "properties": {"distinct_from_raw": {"$ref": "#/$defs/path"}}}
+      ]
+    },
+    "number": {"type": "object", "required": ["n"], "additionalProperties": false,
+               "properties": {"n": {"type": "string", "pattern": "^(-0|NaN|[+-]Infinity|-?(0|[1-9][0-9]*)(\\.[0-9]+)?(e[+-][0-9]+)?)$"}}},
+    "string": {"type": "object", "required": ["u"], "additionalProperties": false,
+               "properties": {"u": {"type": "array", "items": {"type": "integer", "minimum": 0, "maximum": 65535}}}},
+    "value": {
+      "oneOf": [
+        {"type": ["boolean", "null"]},
+        {"$ref": "#/$defs/number"},
+        {"$ref": "#/$defs/string"},
+        {"type": "object", "required": ["a"], "additionalProperties": false,
+         "properties": {"a": {"type": "array", "items": {"$ref": "#/$defs/value"}}}},
+        {"type": "object", "required": ["o"], "additionalProperties": false,
+         "properties": {"o": {"type": "array", "items": {"type": "array", "prefixItems": [{"type": "string"}, {"$ref": "#/$defs/value"}], "minItems": 2, "maxItems": 2}}}}
+      ]
+    },
+    "observed": {
+      "oneOf": [
+        {"type": ["boolean", "null"]},
+        {"$ref": "#/$defs/number"},
+        {"$ref": "#/$defs/string"},
+        {"type": "object", "required": ["cycle"], "additionalProperties": false,
+         "properties": {"cycle": {"type": "integer", "minimum": 1}}},
+        {"type": "object", "required": ["a"], "additionalProperties": false,
+         "properties": {"a": {"type": "array", "items": {"$ref": "#/$defs/observed"}}}},
+        {"type": "object", "required": ["o"], "additionalProperties": false,
+         "properties": {"o": {"type": "array", "items": {"type": "array", "prefixItems": [{"type": "string"}, {"$ref": "#/$defs/observed"}], "minItems": 2, "maxItems": 2}}}}
+      ]
+    }
+  }
+}

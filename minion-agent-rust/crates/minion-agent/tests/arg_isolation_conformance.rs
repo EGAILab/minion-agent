@@ -365,10 +365,10 @@ async fn run(case: &Value) {
             "one validated graph across listeners and execute"
         );
     }
-    if let Some(source) = &seen.shim_source {
-        if let Some(first) = seen.handles.first() {
-            assert!(!same(source, first), "clone isolates prepared source root");
-        }
+    if let Some(source) = &seen.shim_source
+        && let Some(first) = seen.handles.first()
+    {
+        assert!(!same(source, first), "clone isolates prepared source root");
     }
 }
 

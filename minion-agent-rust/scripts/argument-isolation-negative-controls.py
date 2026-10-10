@@ -23,7 +23,7 @@ controls = [
     ("shallow-copy-restored", execution,
      "let params = params.structured_clone();",
      "let params = match params { PreparedValue::Object(o) => PreparedValue::Object(o.iter().collect()), other => other };",
-     "reused_child_is_isolated_from_the_prepared_source", "canonical isolation observation"),
+     "reused_child_is_isolated_from_the_prepared_source", "clone isolates retained shim child"),
     ("clone-forgets-aliases", prepared,
      "if let Some(value) = memo.get(&id) {\n                        return value.clone();\n                    }",
      "if let Some(value) = memo.get(&id) {\n                        let _ = value;\n                    }",

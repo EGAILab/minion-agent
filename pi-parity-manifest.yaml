@@ -6395,7 +6395,8 @@ rows:
     conformance/agent/fs-path-domain/fs-path-nul.json (237 cases generated from pinned Pi, identical on Windows
     and Linux); tests/conformance/test_fs_path_conformance.py; binding witnesses
     tests/execution/test_filesystem_nul.py. Python implements it (execution/filesystem.py _contain_nul on the
-    resolved path arguments; canonical_path whole-argument check; temp creation). Rust: invalid today (pending).'
+    resolved path arguments; canonical_path whole-argument check; temp creation). Rust candidate evidence
+    is recorded below; independent Rust closure review is pending.'
   python: 'minion-agent-python/src/minion_agent/execution/filesystem.py; integration evidence in
     minion-agent-python/tests/execution/test_filesystem.py. L12-D004 (minion-agent#163; PI_PARITY_DEFECT,
     Owner-authorized targeted correction; independently approved, merged at #162 -> 5477eaeb): canonical_path
@@ -6411,7 +6412,13 @@ rows:
     documents), src/execution/filesystem/readonly_tests.rs (retry-error origin, correction failure,
     concurrent vanish, one retry and external-target protection); scripts/readonly-remove-negative-controls.py.
     Assurance: minion-agent-docs assurance/layers/12-l12-d005-rust-implementation.md. POSIX and #125 unchanged;
-    independent Rust closure review pending.'
+    independent Rust closure review pending. L12-D006 candidate (not certified): only the interior-NUL
+    validation failure is unknown; other InvalidInput errors stay invalid. Logical decoded fallback,
+    rename source, temp creation and operation ordering are preserved; canonical_path checks the whole
+    resolved argument before any walk. tests/fs_path_domain_conformance.rs runs all 237 shared NUL cases;
+    tests/execution_nul.rs covers the real tool and provider boundaries; the private non-NUL mapper
+    witness and scripts/nul-path-negative-controls.py discriminate six faults. Assurance:
+    minion-agent-docs assurance/layers/12-l12-d006-rust-implementation.md. Independent closure review pending.'
   disposition: adopted
 - id: EXEC-003
   phase: 6

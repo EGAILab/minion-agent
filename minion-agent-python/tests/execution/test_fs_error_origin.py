@@ -11,6 +11,7 @@ import errno
 import os
 import shutil
 import stat
+import sys
 from collections.abc import Callable
 from pathlib import Path
 
@@ -282,6 +283,17 @@ def _deny_inner_unlink(monkeypatch: pytest.MonkeyPatch) -> None:
         original(path, *args, **kwargs)  # type: ignore[arg-type]
 
     monkeypatch.setattr(os, "unlink", unlink)
+    if sys.platform == "win32":
+        # L12-D007: Windows removal goes through libuv's own unlink (`_libuv_unlink`), not
+        # `os.unlink`; refuse it there with libuv's Win32 error (5, ACCESS_DENIED).
+        libuv_original = fs_module._libuv_unlink
+
+        def libuv_unlink(path: str) -> None:
+            if os.path.basename(path) == "f":
+                raise OSError(0, "Access is denied", path, 5)
+            libuv_original(path)
+
+        monkeypatch.setattr(fs_module, "_libuv_unlink", libuv_unlink)
 
 
 async def _remove_failing_inside(

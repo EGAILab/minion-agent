@@ -131,13 +131,6 @@ def test_windows_branch_keeps_os_path_realpath(monkeypatch: pytest.MonkeyPatch) 
 
 # ---- real-host regressions (Owner: self-referential, multi-node cycle, valid chains) ------------
 
-WINDOWS_CYCLE_CODE = pytest.mark.xfail(
-    sys.platform == "win32",
-    strict=True,
-    reason="pre-existing Windows classification gap (#69): Pi reports `unknown` (ELOOP), Python "
-    "`invalid`; out of L12-D004 scope (Windows resolution unchanged)",
-)
-
 
 def _chain(base: Path, links: int) -> Path:
     """`base/0 -> 1 -> ... -> links-1 -> end`: `links` symlinks before a regular file."""
@@ -148,14 +141,12 @@ def _chain(base: Path, links: int) -> Path:
     return base / "0"
 
 
-@WINDOWS_CYCLE_CODE
 async def test_a_self_referential_symlink_is_unknown(tmp_path: Path) -> None:
     os.symlink("self", tmp_path / "self")
     result = await LocalFileSystem(cwd=str(tmp_path)).canonical_path("self")
     assert isinstance(result, Err) and result.error.code == FsErrorCode.UNKNOWN
 
 
-@WINDOWS_CYCLE_CODE
 async def test_a_multi_node_cycle_is_unknown(tmp_path: Path) -> None:
     os.symlink("b", tmp_path / "a")
     os.symlink("c", tmp_path / "b")

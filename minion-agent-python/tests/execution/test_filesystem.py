@@ -262,12 +262,8 @@ def test_file_url_punycode_host_decodes_symbol_codepoints(tmp_path: Path) -> Non
     `00afd5178d5c1bed4ec5175eea873061a9928fb1`) resolves this witness (and the discriminating
     bidi/combining-mark/assignment-boundary witnesses above and below it) as a SINGLE
     delegated primitive, not a category-by-category patched validity table."""
-    assert (
-        resolve_local_path("C:\\cwd", "file://%E2%98%83.com/share") == "\\\\☃.com\\share\\"
-    )
-    assert (
-        resolve_local_path("C:\\cwd", "file://%F0%9F%92%A9.com/share") == "\\\\💩.com\\share\\"
-    )
+    assert resolve_local_path("C:\\cwd", "file://%E2%98%83.com/share") == "\\\\☃.com\\share\\"
+    assert resolve_local_path("C:\\cwd", "file://%F0%9F%92%A9.com/share") == "\\\\💩.com\\share\\"
 
 
 @pytest.mark.skipif(os.name != "nt", reason="UNC host resolution is Windows-specific")
@@ -697,12 +693,14 @@ async def test_remove_missing_with_force_succeeds(tmp_path: Path) -> None:
 
 async def test_remove_directory_without_recursive_fails(tmp_path: Path) -> None:
     """Matches pinned Pi's own `fs.rm` exactly: ANY directory requires `recursive=True`, even
-    an empty one -- narrower than POSIX `rmdir`'s own leniency."""
+    an empty one -- narrower than POSIX `rmdir`'s own leniency. L12-D007 (#125): the refusal is
+    Node's `ERR_FS_EISDIR`, which pinned Pi's `toFileError` answers `unknown` (formerly asserted
+    `is_directory` here)."""
     fs = LocalFileSystem(cwd=str(tmp_path))
     await fs.create_dir("empty")
     result = await fs.remove("empty")
     assert isinstance(result, Err)
-    assert result.error.code == FsErrorCode.IS_DIRECTORY
+    assert result.error.code == FsErrorCode.UNKNOWN
 
 
 async def test_remove_directory_recursive_removes_contents(tmp_path: Path) -> None:
@@ -1718,9 +1716,7 @@ async def test_list_dir_raw_not_found(tmp_path: Path) -> None:
     assert result.error.code == FsErrorCode.NOT_FOUND
 
 
-async def test_list_dir_raw_pre_aborted(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+async def test_list_dir_raw_pre_aborted(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """section 11.6 DIRECT-OPERATION CANCELLATION RULES, setup A: `list_dir_raw`'s own single
     pre-aborted checkpoint fires BEFORE the underlying directory read, not merely alongside it.
     `WP12E1-I002` (independent review, minion-agent#53): asserting only the final `Err(aborted)`

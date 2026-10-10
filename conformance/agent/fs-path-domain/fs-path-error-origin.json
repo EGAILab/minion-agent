@@ -1455,10 +1455,6 @@
    },
    {
     "id": "error/scalar/self-dir/write",
-    "platforms": [
-     "linux"
-    ],
-    "platform_note": "win32 excluded: opening a directory as a file is refused on Windows before Node's own EISDIR, the recorded Layer-12 finding minion-agent#67 (code and, where Node's error has no path, path)",
     "steps": [
      {
       "op": "create_dir",
@@ -1497,10 +1493,6 @@
    },
    {
     "id": "error/scalar/self-dir/append",
-    "platforms": [
-     "linux"
-    ],
-    "platform_note": "win32 excluded: opening a directory as a file is refused on Windows before Node's own EISDIR, the recorded Layer-12 finding minion-agent#67 (code and, where Node's error has no path, path)",
     "steps": [
      {
       "op": "create_dir",
@@ -1539,10 +1531,6 @@
    },
    {
     "id": "error/scalar/self-dir/read",
-    "platforms": [
-     "linux"
-    ],
-    "platform_note": "win32 excluded: opening a directory as a file is refused on Windows before Node's own EISDIR, the recorded Layer-12 finding minion-agent#67 (code and, where Node's error has no path, path)",
     "steps": [
      {
       "op": "create_dir",
@@ -1578,10 +1566,6 @@
    },
    {
     "id": "error/scalar/self-dir/read-lines",
-    "platforms": [
-     "linux"
-    ],
-    "platform_note": "win32 excluded: opening a directory as a file is refused on Windows before Node's own EISDIR, the recorded Layer-12 finding minion-agent#67 (code and, where Node's error has no path, path)",
     "steps": [
      {
       "op": "create_dir",
@@ -1617,10 +1601,6 @@
    },
    {
     "id": "error/scalar/self-dir/read-binary",
-    "platforms": [
-     "linux"
-    ],
-    "platform_note": "win32 excluded: opening a directory as a file is refused on Windows before Node's own EISDIR, the recorded Layer-12 finding minion-agent#67 (code and, where Node's error has no path, path)",
     "steps": [
      {
       "op": "create_dir",
@@ -3175,10 +3155,6 @@
    },
    {
     "id": "error/lone/self-dir/write",
-    "platforms": [
-     "linux"
-    ],
-    "platform_note": "win32 excluded: opening a directory as a file is refused on Windows before Node's own EISDIR, the recorded Layer-12 finding minion-agent#67 (code and, where Node's error has no path, path)",
     "steps": [
      {
       "op": "create_dir",
@@ -3220,10 +3196,6 @@
    },
    {
     "id": "error/lone/self-dir/append",
-    "platforms": [
-     "linux"
-    ],
-    "platform_note": "win32 excluded: opening a directory as a file is refused on Windows before Node's own EISDIR, the recorded Layer-12 finding minion-agent#67 (code and, where Node's error has no path, path)",
     "steps": [
      {
       "op": "create_dir",
@@ -3249,15 +3221,28 @@
       "content": [
        99
       ],
-      "expect": {
-       "error": "is_directory",
-       "path": {
-        "components": [
-         [
-          97,
-          65533
+      "expect_by_platform": {
+       "linux": {
+        "error": "is_directory",
+        "path": {
+         "components": [
+          [
+           97,
+           65533
+          ]
          ]
-        ]
+        }
+       },
+       "win32": {
+        "error": "is_directory",
+        "path": {
+         "components": [
+          [
+           97,
+           55296
+          ]
+         ]
+        }
        }
       }
      }
@@ -3265,10 +3250,6 @@
    },
    {
     "id": "error/lone/self-dir/read",
-    "platforms": [
-     "linux"
-    ],
-    "platform_note": "win32 excluded: opening a directory as a file is refused on Windows before Node's own EISDIR, the recorded Layer-12 finding minion-agent#67 (code and, where Node's error has no path, path)",
     "steps": [
      {
       "op": "create_dir",
@@ -3307,10 +3288,6 @@
    },
    {
     "id": "error/lone/self-dir/read-lines",
-    "platforms": [
-     "linux"
-    ],
-    "platform_note": "win32 excluded: opening a directory as a file is refused on Windows before Node's own EISDIR, the recorded Layer-12 finding minion-agent#67 (code and, where Node's error has no path, path)",
     "steps": [
      {
       "op": "create_dir",
@@ -3349,10 +3326,6 @@
    },
    {
     "id": "error/lone/self-dir/read-binary",
-    "platforms": [
-     "linux"
-    ],
-    "platform_note": "win32 excluded: opening a directory as a file is refused on Windows before Node's own EISDIR, the recorded Layer-12 finding minion-agent#67 (code and, where Node's error has no path, path)",
     "steps": [
      {
       "op": "create_dir",

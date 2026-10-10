@@ -27,14 +27,12 @@ def test_the_fs_path_corpus_is_complete() -> None:
     # L12-D006 adds fs-path-nul.json; L12-D007 adds fs-error-codes.json.
     assert len(CASES) == 122 + 237 + 240
     assert len(TOOL_CASES) == 5
-    # L12-D001-R001: the error-origin cases declared for one platform only, each with its reason.
+    # L12-D001-R001 declared 10 error-origin cases Linux-only (#67, a directory read on Windows).
+    # L12-D007 closes #67 and widens them to both platforms from pinned Pi's Windows answers.
     limited = [
         case for case in CASES if "platforms" in case and not case["id"].startswith("errors/")
     ]
-    assert len(limited) == 10
-    assert all(
-        case["platforms"] == ["linux"] and "#67" in case["platform_note"] for case in limited
-    )
+    assert limited == []
     # L12-D007: its Windows-only conditions (name class, sharing, byte-range lock), each with a
     # reason.
     windows_only = [

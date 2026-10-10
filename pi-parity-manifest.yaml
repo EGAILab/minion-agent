@@ -6412,7 +6412,9 @@ rows:
     incl. denied/held-directory, denied-file and denied-tree-entry precedence cases; fixture-only make_symlink / hold_exclusive /
     lock_range / deny_access steps); tests/conformance/test_fs_path_conformance.py; containment controls
     tests/conformance/test_fs_path_runner_containment.py.
-    Python: pending implementation. Rust: pending.'
+    Python: implemented (execution/errors.py to_pi_fs_error; execution/_libuv_win32.py, the libuv 1.49.2
+    fs__open / fs__read / fs__write / fs__scandir / fs__unlink_rmdir Win32 calls; execution/filesystem.py),
+    pending implementation review. Rust: pending.'
   python: 'minion-agent-python/src/minion_agent/execution/filesystem.py; integration evidence in
     minion-agent-python/tests/execution/test_filesystem.py. L12-D004 (minion-agent#163; PI_PARITY_DEFECT,
     Owner-authorized targeted correction; independently approved, merged at #162 -> 5477eaeb): canonical_path

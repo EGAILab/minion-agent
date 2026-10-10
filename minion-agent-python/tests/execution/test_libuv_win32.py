@@ -1,0 +1,227 @@
+"""L12-D007 (spec/execution.md section 19.2): the libuv-equivalent Win32 seam's own branches, and
+the recursive-removal retry of `_name_the_failing_path`.
+
+The `_libuv_win32` failure branches a real host cannot be made to produce on demand (a
+`GetFileInformationByHandle` failure on an open handle, a volume without POSIX delete semantics)
+are driven by replacing the one kernel32 entry point for the duration of a test; the outcome is
+still the module's own decision on the Win32 code it receives."""
+
+from __future__ import annotations
+
+import ctypes
+import os
+import stat
+import sys
+from collections.abc import Callable
+from pathlib import Path
+from typing import Any
+
+import pytest
+
+from minion_agent.execution import filesystem as fs_module
+
+# ---------------------------------------------------------------------------
+# `_name_the_failing_path`: the retry after clearing a read-only attribute (all platforms)
+# ---------------------------------------------------------------------------
+
+
+def _unlink_like(outcome: BaseException | None) -> Callable[[str], None]:
+    def unlink(path: str) -> None:
+        if outcome is not None:
+            raise outcome
+
+    return unlink
+
+
+def test_retry_after_clearing_readonly_succeeds(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(fs_module, "_clear_readonly", lambda path: True)
+    fs_module._name_the_failing_path(_unlink_like(None), "p", PermissionError(13, "denied"))
+
+
+def test_retry_finding_the_entry_gone_counts_as_removed(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(fs_module, "_clear_readonly", lambda path: True)
+    retry = _unlink_like(FileNotFoundError(2, "gone"))
+    fs_module._name_the_failing_path(retry, "p", PermissionError(13, "denied"))
+
+
+def test_retry_failure_is_reported_naming_the_entry(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`L12D005-I001`: the RETRY's error is the one reported, with the failing entry's path."""
+    monkeypatch.setattr(fs_module, "_clear_readonly", lambda path: True)
+    retry = _unlink_like(OSError(16, "busy"))
+    with pytest.raises(fs_module._RemovalFailure) as caught:
+        fs_module._name_the_failing_path(retry, "inner", PermissionError(13, "denied"))
+    assert caught.value.error.errno == 16
+    assert caught.value.error.filename == "inner"
+
+
+# ---------------------------------------------------------------------------
+# `_libuv_win32` (Windows only)
+# ---------------------------------------------------------------------------
+
+windows_only = pytest.mark.skipif(sys.platform != "win32", reason="libuv's Win32 seam")
+
+
+def _lib() -> Any:
+    from minion_agent.execution import _libuv_win32
+
+    return _libuv_win32
+
+
+def _failing(code: int) -> Callable[..., int]:
+    def call(*args: Any) -> int:
+        ctypes.set_last_error(code)
+        return 0
+
+    return call
+
+
+@windows_only
+def test_read_failure_keeps_its_win32_code_and_no_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`fs__read`: a `ReadFile` failure other than end-of-file (here 33, a byte-range lock) keeps
+    its Win32 code and, as libuv's read error, no path."""
+    lib = _lib()
+    (tmp_path / "f").write_bytes(b"data")
+    stream = lib.open_like_libuv(str(tmp_path / "f"), "r")
+    try:
+        monkeypatch.setattr(lib._k32, "ReadFile", _failing(33))
+        with pytest.raises(OSError) as caught:
+            stream.read()
+    finally:
+        monkeypatch.undo()
+        stream.close()
+    assert caught.value.winerror == 33
+    assert caught.value.filename is None
+
+
+@windows_only
+@pytest.mark.parametrize("code", [38, 109])  # ERROR_HANDLE_EOF, ERROR_BROKEN_PIPE
+def test_read_end_of_file_failure_is_end_of_data(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, code: int
+) -> None:
+    """`fs__read`: `ERROR_HANDLE_EOF` / `ERROR_BROKEN_PIPE` end the data; they are not errors."""
+    lib = _lib()
+    (tmp_path / "f").write_bytes(b"data")
+    stream = lib.open_like_libuv(str(tmp_path / "f"), "r")
+    try:
+        monkeypatch.setattr(lib._k32, "ReadFile", _failing(code))
+        assert stream.read() == b""
+    finally:
+        monkeypatch.undo()
+        stream.close()
+
+
+@windows_only
+def test_listable_check_without_handle_information_is_not_a_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    lib = _lib()
+    monkeypatch.setattr(lib._k32, "GetFileInformationByHandle", _failing(6))
+    with pytest.raises(NotADirectoryError):
+        lib.check_listable(str(tmp_path))
+
+
+@windows_only
+def test_unlink_without_handle_information_reports_that_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    lib = _lib()
+    target = tmp_path / "f"
+    target.write_bytes(b"")
+    monkeypatch.setattr(lib._k32, "GetFileInformationByHandle", _failing(6))
+    with pytest.raises(OSError) as caught:
+        lib.unlink_like_libuv(str(target), isrmdir=False)
+    assert (caught.value.winerror, caught.value.filename) == (6, str(target))
+    monkeypatch.undo()
+    assert target.exists()
+
+
+@windows_only
+def test_rmdir_of_a_file_is_error_directory(tmp_path: Path) -> None:
+    """`fs__unlink_rmdir` with `isrmdir` on a non-directory: `ERROR_DIRECTORY` (267)."""
+    target = tmp_path / "f"
+    target.write_bytes(b"")
+    with pytest.raises(OSError) as caught:
+        _lib().unlink_like_libuv(str(target), isrmdir=True)
+    assert caught.value.winerror == 267
+    assert target.exists()
+
+
+@windows_only
+def test_unlink_of_a_directory_is_access_denied(tmp_path: Path) -> None:
+    """`fs__unlink_rmdir` without `isrmdir` on a non-link directory: EPERM (Win32 5)."""
+    target = tmp_path / "d"
+    target.mkdir()
+    with pytest.raises(OSError) as caught:
+        _lib().unlink_like_libuv(str(target), isrmdir=False)
+    assert caught.value.winerror == 5
+    assert target.is_dir()
+
+
+def _without_posix_delete(
+    lib: Any, monkeypatch: pytest.MonkeyPatch, fail: dict[int, int] | None = None
+) -> list[int]:
+    """`SetFileInformationByHandle` refuses `FileDispositionInfoEx` (87, as a volume without POSIX
+    delete semantics does); every other class is the real call unless `fail` scripts its code."""
+    real = lib._k32.SetFileInformationByHandle
+    classes: list[int] = []
+    scripted = {lib._FILE_DISPOSITION_INFO_EX: 87, **(fail or {})}
+
+    def call(handle: Any, info_class: int, buffer: Any, size: int) -> int:
+        classes.append(info_class)
+        if info_class in scripted:
+            ctypes.set_last_error(scripted[info_class])
+            return 0
+        return int(real(handle, info_class, buffer, size))
+
+    monkeypatch.setattr(lib._k32, "SetFileInformationByHandle", call)
+    return classes
+
+
+@windows_only
+@pytest.mark.parametrize("readonly", [False, True])
+def test_fallback_deletion_clears_readonly_then_deletes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, readonly: bool
+) -> None:
+    """libuv's fallback: a read-only entry has the attribute cleared (`FileBasicInfo`), then the
+    entry is deleted with `FileDispositionInfo`."""
+    lib = _lib()
+    target = tmp_path / "f"
+    target.write_bytes(b"")
+    if readonly:
+        os.chmod(target, stat.S_IREAD)
+    classes = _without_posix_delete(lib, monkeypatch)
+    lib.unlink_like_libuv(str(target), isrmdir=False)
+    assert not target.exists()
+    expected = [lib._FILE_DISPOSITION_INFO_EX]
+    expected += [lib._FILE_BASIC_INFO] if readonly else []
+    expected += [lib._FILE_DISPOSITION_INFO]
+    assert classes == expected
+
+
+@windows_only
+@pytest.mark.parametrize(
+    ("scripted", "code"),
+    [
+        pytest.param({21: 32}, 32, id="posix-delete-refused"),
+        pytest.param({0: 5}, 5, id="attribute-clear-refused"),
+        pytest.param({4: 32}, 32, id="fallback-delete-refused"),
+    ],
+)
+def test_deletion_failures_keep_their_win32_code(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, scripted: dict[int, int], code: int
+) -> None:
+    lib = _lib()
+    target = tmp_path / "f"
+    target.write_bytes(b"")
+    os.chmod(target, stat.S_IREAD)
+    _without_posix_delete(lib, monkeypatch, scripted)  # a scripted class 21 overrides the 87
+    try:
+        with pytest.raises(OSError) as caught:
+            lib.unlink_like_libuv(str(target), isrmdir=False)
+    finally:
+        monkeypatch.undo()
+        os.chmod(target, stat.S_IWRITE | stat.S_IREAD)
+    assert (caught.value.winerror, caught.value.filename) == (code, str(target))
+    assert target.exists()

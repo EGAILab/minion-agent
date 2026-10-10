@@ -185,7 +185,8 @@ async def _witness_symlink_loop(fs_cls: Provider, tmp: Path) -> None:
     os.symlink(tmp / "b", tmp / "a")
     os.symlink(tmp / "a", tmp / "b")
     fs = fs_cls(cwd=str(tmp))
-    expected = FsErrorCode.INVALID if _WINDOWS else FsErrorCode.UNKNOWN
+    # L12-D007: Win32 1921 -> libuv ELOOP -> `unknown`, as on POSIX (formerly `invalid` on Windows).
+    expected = FsErrorCode.UNKNOWN
     _assert_err(await fs.check_readable("a"), expected)
 
 
@@ -602,7 +603,7 @@ class _OpenAndReadOneByte(LocalFileSystem):
         try:
             await asyncio.to_thread(read_one_byte)
         except OSError as exc:
-            return Err(filesystem_module.to_fs_error(exc, resolved))
+            return Err(filesystem_module.to_pi_fs_error(exc, resolved))
         return Ok(None)
 
 
@@ -636,7 +637,7 @@ class _StatThenBooleanAccess(LocalFileSystem):
         try:
             await asyncio.to_thread(stat_then_access)
         except OSError as exc:
-            return Err(filesystem_module.to_fs_error(exc, resolved))
+            return Err(filesystem_module.to_pi_fs_error(exc, resolved))
         return Ok(None)
 
 
@@ -656,7 +657,7 @@ class _NativeCallWithoutNulGuard(LocalFileSystem):
         try:
             await asyncio.to_thread(native, resolved)
         except OSError as exc:
-            return Err(filesystem_module.to_fs_error(exc, resolved))
+            return Err(filesystem_module.to_pi_fs_error(exc, resolved))
         return Ok(None)
 
 

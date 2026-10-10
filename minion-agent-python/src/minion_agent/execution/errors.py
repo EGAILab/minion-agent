@@ -124,8 +124,9 @@ def to_pi_fs_error(exc: OSError, path: str | None = None) -> FsError:
     """L12-D007: classify a failure of one of the Pi-derived filesystem operations exactly as
     pinned Pi does. On Windows the ORIGINAL Win32 error (`winerror`) goes through the pinned libuv
     translation (`_WIN32_PI_CODES`), never CPython's already-collapsed errno. Elsewhere, and for a
-    Windows error that carries no Win32 code, this is `to_fs_error`. The EXEC-007/008/009
-    operations keep `to_fs_error` (their dispositions are preserved)."""
+    Windows error that carries no Win32 code, this is `to_fs_error`. Section 19.2: the
+    EXEC-007/008/009 operations classify their failures through this mapper too; their own
+    dispositions (which call is made, what a success means) are unchanged."""
     winerror = getattr(exc, "winerror", None)
     if sys.platform == "win32" and isinstance(winerror, int):
         return FsError(_WIN32_PI_CODES.get(winerror, FsErrorCode.UNKNOWN), str(exc), path, exc)

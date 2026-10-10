@@ -405,6 +405,14 @@ def _aborted(path: str | None = None) -> FsError:
     return FsError(FsErrorCode.ABORTED, "aborted", path)
 
 
+def _failing_path(exc: OSError, native: str, resolved: str) -> str:
+    """Pinned Pi's `toFileError(error, resolved)`: the failing call's own path when Node's error
+    names one (its native origin, section 14.2), else the resolved LOGICAL fallback -- a read or
+    write failure (libuv `fs__read` / `fs__write`, e.g. Win32 33 under a byte-range lock) carries
+    no path (L12D007-I001)."""
+    return native if exc.filename is not None else resolved
+
+
 _NODE_PATH_SEPARATORS = "\\/" if os.name == "nt" else "/"
 
 
@@ -657,7 +665,7 @@ def _probe_dir_entry_sync(path: str) -> DirEntryProbe:
     both branches: directly for a non-symlink entry, and via the disclosed symlink-to-other
     asymmetry (no `symlink_to_other` value) when the entry is a symlink to such a target. A broken
     symlink's following `stat` raises `FileNotFoundError` (an `OSError`), left to the caller to
-    convert via `to_fs_error` -- this is this call's OWN `Result` error, never a raised exception
+    convert via `to_pi_fs_error` -- this is this call's OWN `Result` error, never a raised exception
     escaping the seam."""
     host = native_path(path)
     st = os.lstat(host)
@@ -713,7 +721,7 @@ def _realpath_posix(path: str) -> str:
     counts every symlink traversed while resolving the path, so a cycle or a chain of more than
     `MAXSYMLINKS` links fails with `ELOOP`, as in Pi. `os.path.realpath(strict=True)` resolved
     component by component in userspace and never reached that limit, so it succeeded where Pi
-    fails. The errno is kept and classified by `to_fs_error`.
+    fails. The errno is kept and classified by `to_pi_fs_error`.
 
     A path containing NUL never reaches the C call (`L12D004-R001`): a C string would end at the
     NUL and resolve a different, shorter path. Such a path keeps the previous resolution,
@@ -748,7 +756,7 @@ def _check_readable_posix(path: str) -> None:
     """`EXEC-008` on POSIX, spec section 12.4: exactly one `access(path, R_OK)` -- the call Node's
     `fs.access` makes -- evaluated with the process's real user/group IDs and following symlinks.
     Its own errno is kept (`ENOENT`, `ENOTDIR`, `EACCES`, `ELOOP`, `EIO`, ...) and classified by
-    `to_fs_error`, never replaced by a fabricated one, so there is no second call whose failure
+    `to_pi_fs_error`, never replaced by a fabricated one, so there is no second call whose failure
     could be misattributed. `access` does not open the target: no content is consumed and a FIFO
     without a writer cannot block."""
     import ctypes
@@ -772,7 +780,7 @@ def _check_readable_windows(path: str) -> None:
     for `FILE_READ_DATA` -- read access to a file, list access to a directory -- following
     symlinks (no `FILE_FLAG_OPEN_REPARSE_POINT`); the handle is closed at once and nothing is
     read. A failure is raised as the matching `OSError` (built from the Win32 code, which Python
-    maps to an errno and `OSError` subclass), which `to_fs_error` classifies like every other
+    maps to an errno and `OSError` subclass), which `to_pi_fs_error` classifies like every other
     operation's."""
     import ctypes
     from ctypes import wintypes
@@ -826,8 +834,8 @@ def _check_read_write_posix(path: str) -> None:
     Node's `fs.access(path, R_OK | W_OK)` makes -- evaluated with the process's real IDs and
     following symlinks. The combined predicate is ONE host decision, never `check_readable` plus a
     separate write probe; the call's own errno is kept (`ENOENT`, `ENOTDIR`, `EACCES`, `EROFS`,
-    `ETXTBSY`, `ELOOP`, ...) and classified by `to_fs_error`. `access` opens nothing: no content is
-    consumed, nothing is truncated, and a FIFO cannot block."""
+    `ETXTBSY`, `ELOOP`, ...) and classified by `to_pi_fs_error`. `access` opens nothing: no content
+    is consumed, nothing is truncated, and a FIFO cannot block."""
     import ctypes
 
     if _libc_access()(os.fsencode(path), os.R_OK | os.W_OK) != 0:
@@ -1075,15 +1083,15 @@ def _vanished(exc: OSError) -> bool:
     return to_pi_fs_error(exc).code is FsErrorCode.NOT_FOUND
 
 
-def _rimraf(path: str) -> None:
+def _rimraf(path: str, original: OSError | None = None) -> None:
     """Pinned Node's recursive `rm` of a directory (v22.15.1 `lib/internal/fs/rimraf.js`, git blob
     `24bf3f46b878e711beadcdc8e1b08700d10aa3c5`, `_rmdir` / `_rmchildren`). `rmdir` comes FIRST, so
     an empty directory is removed even when it cannot be listed (L12-D007,
     `errors/directory-denied/remove-recursive`). Only an ENOTEMPTY / EEXIST / EPERM failure lists
-    the directory, removes each child -- a directory by this same walk, anything else (links and
-    junctions included, never followed) by `unlink` with the `fixWinEPERM` retry -- and `rmdir`s
-    it again. ENOENT anywhere counts as removed; a POSIX `rmdir` ENOTDIR answers `lstat`'s own
-    (absent) error, i.e. success. A failure names the entry whose call failed
+    the directory, hands each child NAME to `_rimraf_child` (classified afresh there, never from the
+    listing, L12D007-I002), and `rmdir`s it again. ENOENT anywhere counts as removed. A POSIX
+    `rmdir` ENOTDIR answers `original`, the error that routed here (`_rmdir`'s `originalErr`):
+    none for a directory `lstat` saw, so success. A failure names the entry whose call failed
     (`CE-L12-D001-01`). Windows reaches libuv's `unlink` / `rmdir` (`fs__unlink_rmdir`), POSIX
     `unlink(2)` / `rmdir(2)`. Pinned Node removes the children concurrently and reports the first
     failure to settle; this walk is sequential, in enumeration order."""
@@ -1091,31 +1099,78 @@ def _rimraf(path: str) -> None:
         _node_rmdir(path)
         return
     except OSError as exc:
-        if _vanished(exc) or (sys.platform != "win32" and exc.errno == _errno.ENOTDIR):
+        if _vanished(exc):
+            return
+        if sys.platform != "win32" and exc.errno == _errno.ENOTDIR:  # pragma: no cover -- POSIX
+            if original is not None:
+                raise original from None
             return
         if not _rmdir_descends(exc):
             raise
     try:
         with os.scandir(path) as listing:
-            entries = list(listing)
+            children = [entry.path for entry in listing]
     except OSError as exc:
         if _vanished(exc):
             return
         raise
-    for entry in entries:
-        try:
-            if entry.is_dir(follow_symlinks=False) and not entry.is_junction():
-                _rimraf(entry.path)
-            else:
-                _unlink_entry(entry.path)
-        except OSError as exc:
-            if not _vanished(exc):
-                raise
+    for child in children:
+        _rimraf_child(child)
     try:
         _node_rmdir(path)
     except OSError as exc:
         if not _vanished(exc):
             raise
+
+
+_REPARSE_TAG_MOUNT_POINT = 0xA0000003  # IO_REPARSE_TAG_MOUNT_POINT (a junction)
+
+
+def _is_tree(st: os.stat_result) -> bool:
+    """`lstat(...).isDirectory()` as libuv answers it: a directory, but not a junction (libuv's
+    `lstat` reports a mount-point reparse point as a link, like a symlink)."""
+    return _stat.S_ISDIR(st.st_mode) and (
+        getattr(st, "st_reparse_tag", 0) != _REPARSE_TAG_MOUNT_POINT
+    )
+
+
+def _rimraf_child(path: str) -> None:
+    """rimraf `_rimraf` for one child of `_rmchildren`: its OWN `lstat`, now, decides `rmdir`
+    (`_rimraf`) versus `unlink` -- a child replaced after the listing is removed as what it is now
+    (L12D007-I002). An `lstat` failure other than ENOENT still goes on to `unlink`, as rimraf's
+    does. An `unlink` that meets a directory (POSIX EISDIR / EPERM; Windows EPERM whose
+    `fixWinEPERM` `stat` finds a directory) is removed by `_rimraf`, carrying the unlink error as
+    `_rmdir`'s `originalErr`. ENOENT anywhere counts as removed."""
+    try:
+        if _is_tree(os.lstat(path)):
+            _rimraf(path)
+            return
+    except OSError as exc:
+        if _vanished(exc):
+            return
+    try:
+        _unlink_entry(path)
+    except OSError as exc:
+        if _vanished(exc):
+            return
+        if not _unlink_met_directory(exc, path):
+            raise
+        _rimraf(path, exc)
+
+
+def _unlink_met_directory(exc: OSError, path: str) -> bool:
+    """rimraf's `unlink` error routes to `_rmdir`: POSIX on EISDIR and EPERM (`epermHandler` is
+    `_rmdir`); Windows on EPERM (Win32 5 / 1314) when `fixWinEPERM`'s `stat` (which follows links)
+    finds a directory. A `stat` that finds the entry gone routes there too, where `rmdir` meets
+    the ENOENT that rimraf counts as removed."""
+    if sys.platform != "win32":  # pragma: no cover -- POSIX only
+        return exc.errno in (_errno.EISDIR, _errno.EPERM)
+    if getattr(exc, "winerror", None) not in (5, 1314):
+        return False
+    try:
+        return _stat.S_ISDIR(os.stat(path).st_mode)
+    except OSError as stat_error:
+        return _vanished(stat_error)
 
 
 class FileSystem(Protocol):
@@ -1322,7 +1377,7 @@ class LocalFileSystem:
             # (On Windows the open itself is refused instead -- the recorded `#67`.)
             return Err(to_pi_fs_error(exc, resolved))
         except OSError as exc:
-            return Err(to_pi_fs_error(exc, native))
+            return Err(to_pi_fs_error(exc, _failing_path(exc, native, resolved)))
         return Ok(content)
 
     @_contain_nul
@@ -1341,7 +1396,7 @@ class LocalFileSystem:
             # (On Windows the open itself is refused instead -- the recorded `#67`.)
             return Err(to_pi_fs_error(exc, resolved))
         except OSError as exc:
-            return Err(to_pi_fs_error(exc, native))
+            return Err(to_pi_fs_error(exc, _failing_path(exc, native, resolved)))
         return Ok(lines)
 
     @_contain_nul
@@ -1362,7 +1417,7 @@ class LocalFileSystem:
             # (On Windows the open itself is refused instead -- the recorded `#67`.)
             return Err(to_pi_fs_error(exc, resolved))
         except OSError as exc:
-            return Err(to_pi_fs_error(exc, native))
+            return Err(to_pi_fs_error(exc, _failing_path(exc, native, resolved)))
         return Ok(content)
 
     @_contain_nul
@@ -1388,7 +1443,7 @@ class LocalFileSystem:
         except OSError as exc:
             # L12-D007: a path-less failure (libuv's write error) names Pi's fallback, the
             # logical path; an open failure names its own native path.
-            return Err(to_pi_fs_error(exc, native if exc.filename is not None else resolved))
+            return Err(to_pi_fs_error(exc, _failing_path(exc, native, resolved)))
         return Ok(None)
 
     @_contain_nul
@@ -1408,7 +1463,7 @@ class LocalFileSystem:
         except OSError as exc:
             # L12-D007: a path-less failure (libuv's write error) names Pi's fallback, the
             # logical path; an open failure names its own native path.
-            return Err(to_pi_fs_error(exc, native if exc.filename is not None else resolved))
+            return Err(to_pi_fs_error(exc, _failing_path(exc, native, resolved)))
         return Ok(None)
 
     @_contain_nul

@@ -165,12 +165,8 @@ async fn nul_binding_refusals_keep_the_logical_no_path_fallback() {
     for (operation, error) in errors.into_iter().enumerate() {
         assert_eq!(
             error.code,
-            if matches!(operation, 8 | 9) {
-                FsErrorCode::Unknown
-            } else {
-                FsErrorCode::Invalid
-            },
-            "preserve the existing binding mapper at {operation}"
+            FsErrorCode::Unknown,
+            "L12-D006 interior NUL is unknown at {operation}"
         );
         assert_eq!(
             error.path,

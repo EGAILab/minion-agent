@@ -1,6 +1,8 @@
 //! Thin adapter for the accepted L12-D001 corpus. All path behavior is production-owned.
 use minion_agent::{
-    execution::{FileKind, FileSystem, FsError, FsPath, LocalFileSystem},
+    execution::{
+        AbortSignal, CancellationController, FileKind, FileSystem, FsError, FsPath, LocalFileSystem,
+    },
     llm::{RawNumber, RawString, RawValue, StopReason, ToolCall, ToolResultContentBlock},
     runtime::Runtime,
     tools::{
@@ -72,15 +74,22 @@ async fn step(fs: &LocalFileSystem, root: &Path, spec: &Value) -> Result<Value, 
         .map(|u| String::from_utf16(&u).unwrap().into_bytes())
         .unwrap_or_default();
     let recursive = spec["recursive"].as_bool().unwrap_or(false);
+    let controller = CancellationController::default();
+    controller.abort();
+    let cancelled = controller.signal();
+    let signal = spec["aborted"]
+        .as_bool()
+        .unwrap_or(false)
+        .then_some(&cancelled as &dyn AbortSignal);
     match spec["op"].as_str().unwrap() {
-        "write_file" => fs.write_file(&path, &content, None).await.map(|_| json!({"ok":null})),
+        "write_file" => fs.write_file(&path, &content, signal).await.map(|_| json!({"ok":null})),
         "append_file" => fs.append_file(&path, &content, None).await.map(|_| json!({"ok":null})),
         "create_dir" => fs.create_dir(&path, recursive, None).await.map(|_| json!({"ok":null})),
-        "remove" => fs.remove(&path, recursive, false, None).await.map(|_| json!({"ok":null})),
-        "rename_file" => fs.rename_file(&path, input(&spec["to"],root), None).await.map(|_| json!({"ok":null})),
-        "read_text_file" => fs.read_text_file(&path, None).await.map(|s| json!({"ok":s.encode_utf16().collect::<Vec<_>>()})),
-        "read_text_lines" => fs.read_text_lines(&path, None, None).await.map(|lines| json!({"ok":lines.iter().map(|s| s.encode_utf16().collect::<Vec<_>>()).collect::<Vec<_>>()})),
-        "read_binary_file" => fs.read_binary_file(&path, None).await.map(|bytes| json!({"ok":bytes})),
+        "remove" => fs.remove(&path, recursive, spec["force"].as_bool().unwrap_or(false), None).await.map(|_| json!({"ok":null})),
+        "rename_file" => fs.rename_file(&path, input(&spec["to"],root), signal).await.map(|_| json!({"ok":null})),
+        "read_text_file" => fs.read_text_file(&path, signal).await.map(|s| json!({"ok":s.encode_utf16().collect::<Vec<_>>()})),
+        "read_text_lines" => fs.read_text_lines(&path, spec["max_lines"].as_i64().map(|n| isize::try_from(n).unwrap()), signal).await.map(|lines| json!({"ok":lines.iter().map(|s| s.encode_utf16().collect::<Vec<_>>()).collect::<Vec<_>>()})),
+        "read_binary_file" => fs.read_binary_file(&path, signal).await.map(|bytes| json!({"ok":bytes})),
         "exists" => fs.exists(&path, None).await.map(|v| json!({"ok":v})),
         "absolute_path" => fs.absolute_path(&path, None).await.map(|p| {
             if spec["observe"] == "last_component" {
@@ -94,10 +103,17 @@ async fn step(fs: &LocalFileSystem, root: &Path, spec: &Value) -> Result<Value, 
             fs.process_path(&target).await.map(|p| path_observation(&p,root))
         },
         "file_info" => fs.file_info(&path,None).await.map(|i| json!({"kind":match i.kind {FileKind::File=>"file",FileKind::Directory=>"directory",FileKind::Symlink=>"symlink"},"name":i.name.code_units()})),
-        "list_dir" => fs.list_dir(&path,None).await.map(|entries| {
+        "list_dir" => fs.list_dir(&path,signal).await.map(|entries| {
             let mut names: Vec<Vec<u16>> = entries.into_iter().map(|i| i.name.code_units().to_vec()).collect();
             names.sort(); json!({"names":names})
         }),
+        "list_dir_raw" => fs.list_dir_raw(&path, None).await.map(|names| {
+            let mut names: Vec<Vec<u16>> = names.iter().map(|s| s.encode_utf16().collect()).collect();
+            names.sort(); json!({"names":names})
+        }),
+        "probe_dir_entry" => fs.probe_dir_entry(&path, None).await.map(|p| json!({"kind":p.kind,"name":p.name.code_units()})),
+        "check_readable" => fs.check_readable(&path, None).await.map(|_| json!({"ok":null})),
+        "check_read_write" => fs.check_read_write(&path, None).await.map(|_| json!({"ok":null})),
         op => panic!("unhandled operation {op}"),
     }
 }
@@ -201,8 +217,9 @@ async fn full_accepted_fs_path_domain_corpus() {
     }
     assert_eq!(
         ran.values().sum::<usize>(),
-        if cfg!(windows) { 117 } else { 127 }
+        if cfg!(windows) { 117 + 237 } else { 127 + 237 }
     );
     assert_eq!(skipped, if cfg!(windows) { 10 } else { 0 });
-    eprintln!("L12-D001 cases: {ran:?}; excluded {skipped}");
+    assert_eq!(ran["fs-path-nul"], 237);
+    eprintln!("L12-D001 + L12-D006 cases: {ran:?}; excluded {skipped}");
 }

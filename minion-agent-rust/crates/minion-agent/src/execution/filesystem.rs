@@ -387,7 +387,7 @@ impl FileSystem for LocalFileSystem {
         let mut result = Vec::new();
         loop {
             let mut line = Vec::new();
-            let count = abortable_io(signal, reader.read_until(b'\n', &mut line))
+            let count = abortable_io(signal, &os, reader.read_until(b'\n', &mut line))
                 .await
                 .map_err(|e| io_origin(e, &logical, &os, true))?;
             if count == 0 {
@@ -416,7 +416,7 @@ impl FileSystem for LocalFileSystem {
         let logical = self.resolved(path);
         Self::aborted(signal, &logical)?;
         let os = native(&logical);
-        abortable_io(signal, tokio::fs::read(&os))
+        abortable_io(signal, &os, tokio::fs::read(&os))
             .await
             .map_err(|e| io_origin(e, &logical, &os, true))
     }
@@ -435,7 +435,7 @@ impl FileSystem for LocalFileSystem {
                 .map_err(|e| logical_fallback(e, &logical))?;
         }
         Self::aborted(signal, &logical)?;
-        abortable_io(signal, tokio::fs::write(&os, content))
+        abortable_io(signal, &os, tokio::fs::write(&os, content))
             .await
             .map_err(|e| io_origin(e, &logical, &os, false))
     }
@@ -491,7 +491,12 @@ impl FileSystem for LocalFileSystem {
             }
             Err(error) => {
                 if nul_binding_error(&error, &source) || nul_binding_error(&error, &destination) {
-                    Err(map_fs_error(error).with_path(&logical))
+                    let rejected = if nul_binding_error(&error, &source) {
+                        &source
+                    } else {
+                        &destination
+                    };
+                    Err(map_path_error(error, rejected).with_path(&logical))
                 } else {
                     Err(native_error(error, &source))
                 }
@@ -610,6 +615,14 @@ impl FileSystem for LocalFileSystem {
         _signal: Option<&dyn AbortSignal>,
     ) -> Result<FsPath, FsError> {
         let logical = self.resolved(path);
+        // Node realpath validates the whole resolved argument before any walk.
+        // This is not an operation-wide preflight for the other filesystem calls.
+        if logical.code_units().contains(&0) {
+            return Err(
+                FsError::new(FsErrorCode::Unknown, "path contains an embedded NUL byte")
+                    .with_path(&logical),
+            );
+        }
         let os = native(&logical);
         tokio::fs::canonicalize(&os)
             .await
@@ -687,7 +700,7 @@ impl FileSystem for LocalFileSystem {
         let path = directory.join(format!("{prefix}{}{suffix}", Uuid::new_v4()));
         tokio::fs::File::create(&path)
             .await
-            .map_err(|e| native_error(e, &path))?;
+            .map_err(|e| call_error(e, &path, &from_native(&path)))?;
         Ok(path.to_string_lossy().into_owned())
     }
     async fn resolve(
@@ -869,11 +882,19 @@ impl LocalFileSystem {
 
 fn native_error(error: io::Error, path: &Path) -> FsError {
     if nul_binding_error(&error, path) {
-        // Node's argument-validation failure has no err.path. Keep the existing
-        // Rust code/message mapper, leaving the enclosing logical fallback intact.
-        map_fs_error(error)
+        // L12-D006: Node's NUL argument rejection is unknown and has no err.path.
+        // The enclosing operation supplies its logical fallback, if any.
+        map_path_error(error, path)
     } else {
         map_fs_error(error).with_path(from_native(path))
+    }
+}
+
+fn map_path_error(error: io::Error, path: &Path) -> FsError {
+    if nul_binding_error(&error, path) {
+        FsError::new(FsErrorCode::Unknown, error.to_string())
+    } else {
+        map_fs_error(error)
     }
 }
 
@@ -906,7 +927,7 @@ fn access_origin(error: FsError, logical: &FsPath, os: &Path) -> FsError {
 fn io_origin(error: FsError, logical: &FsPath, os: &Path, directory_read: bool) -> FsError {
     if error.code == FsErrorCode::Aborted
         || (directory_read && error.code == FsErrorCode::IsDirectory)
-        || (error.code == FsErrorCode::Invalid && os.to_string_lossy().contains('\0'))
+        || (error.code == FsErrorCode::Unknown && os.to_string_lossy().contains('\0'))
     {
         error.with_path(logical)
     } else {
@@ -916,7 +937,7 @@ fn io_origin(error: FsError, logical: &FsPath, os: &Path, directory_read: bool) 
 
 fn append_origin(error: io::Error, logical: &FsPath, os: &Path) -> FsError {
     let no_path = nul_binding_error(&error, os);
-    let error = map_fs_error(error);
+    let error = map_path_error(error, os);
     if no_path || (cfg!(windows) && error.code == FsErrorCode::IsDirectory) {
         error.with_path(logical)
     } else {
@@ -1423,10 +1444,11 @@ fn check_local_readable(path: &Path) -> Result<(), FsError> {
 
 async fn abortable_io<T>(
     signal: Option<&dyn AbortSignal>,
+    path: &Path,
     future: impl Future<Output = io::Result<T>>,
 ) -> Result<T, FsError> {
     let Some(signal) = signal else {
-        return future.await.map_err(map_fs_error);
+        return future.await.map_err(|e| map_path_error(e, path));
     };
     tokio::pin!(future);
     loop {
@@ -1435,7 +1457,7 @@ async fn abortable_io<T>(
         }
         tokio::select! {
             biased;
-            result = &mut future => return result.map_err(map_fs_error),
+            result = &mut future => return result.map_err(|e| map_path_error(e, path)),
             () = tokio::time::sleep(std::time::Duration::from_millis(1)) => {}
         }
     }
@@ -1450,6 +1472,28 @@ mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     use super::*;
+
+    #[test]
+    fn l12d006_other_invalid_input_keeps_invalid() {
+        let plain = Path::new("plain");
+        assert_eq!(
+            map_path_error(io::Error::from(io::ErrorKind::InvalidInput), plain).code,
+            FsErrorCode::Invalid,
+            "L12-D006 preserves unrelated InvalidInput"
+        );
+        let nul = Path::new("f\0x");
+        let errno = if cfg!(windows) { 87 } else { 22 };
+        assert_eq!(
+            map_path_error(io::Error::from_raw_os_error(errno), nul).code,
+            FsErrorCode::Invalid,
+            "L12-D006 does not remap OS InvalidInput"
+        );
+        assert_eq!(
+            map_path_error(io::Error::from(io::ErrorKind::InvalidData), nul).code,
+            FsErrorCode::Invalid,
+            "L12-D006 preserves InvalidData"
+        );
+    }
 
     #[derive(Debug)]
     struct VanishingEntry;

@@ -16,6 +16,7 @@ plus the tail
 
 from __future__ import annotations
 
+import errno
 import os
 import stat
 import struct
@@ -106,7 +107,30 @@ def _inspect(path: str) -> os.stat_result | None:
     except OSError as exc:
         if getattr(exc, "winerror", None) in _MISSING_WIN32:
             return None
+        if exc.errno == errno.ENAMETOOLONG and _overlong_component(path):
+            return None
         raise AssertionError(f"containment: cannot inspect {path!r} ({exc}); refused") from exc
+
+
+def _query_limit(name: str, directory: str) -> int | None:
+    try:
+        value = os.pathconf(directory, name)
+    except (OSError, ValueError, AttributeError):  # AttributeError: no pathconf (Windows)
+        return None
+    return value if isinstance(value, int) and value > 0 else None
+
+
+def _overlong_component(path: str) -> bool:
+    """R3a (CE-L12D007-01 revision 5): an ENAMETOOLONG proves the component missing only when its
+    containing directory is proven (reached only after every earlier component was inspected and is
+    not a link), its native UTF-8 bytes exceed the directory's queried NAME_MAX, and the whole
+    path with its terminator fits a queried PATH_MAX (L + 1 <= PATH_MAX). No default limits."""
+    directory, name = os.path.dirname(path), os.path.basename(path)
+    name_max = _query_limit("PC_NAME_MAX", directory)
+    if name_max is None or len(_project(name).encode("utf-8")) <= name_max:
+        return False
+    path_max = _query_limit("PC_PATH_MAX", directory)
+    return path_max is not None and len(_project(path).encode("utf-8")) + 1 <= path_max
 
 
 def _is_link(st: os.stat_result) -> bool:
@@ -198,6 +222,21 @@ _PROVIDER_ENTRY = frozenset({"remove", "rename_file"})
 
 def _provider_target(cwd: str, argument: str, op: str) -> None:
     native = native_path(resolve_local_path(cwd, argument))
+    if "\0" in native:
+        # Section 18 (certified): every native call rejects a NUL-containing argument before
+        # touching the filesystem; the one earlier effect is the parent creation of write/append
+        # when the NUL is only in the final component. So the provider can mutate at most the
+        # NUL-free directory prefix: that directory is proven; the NUL-containing remainder is never
+        # inspected (it cannot be).
+        prefix = native[: native.index("\0")]
+        directory = (
+            prefix[: max(prefix.rfind("\\"), prefix.rfind("/"))] if os.sep in prefix else cwd
+        )
+        if os.path.normcase(directory) != os.path.normcase(cwd):
+            if not _inside(cwd, directory):
+                raise AssertionError(f"containment: provider {op} prefix {directory!r} is outside")
+            _prove(directory, cwd, f"provider {op} NUL-free prefix")
+        return
     if not _inside(cwd, native):
         raise AssertionError(f"containment: provider {op} target {native!r} is outside the case")
     if op in _PROVIDER_REFERENT:
@@ -222,14 +261,18 @@ def _restore_access(cwd: str, rel: str, kind: str, restore: Any) -> None:
 
 
 def _deny_access(cwd: str, rel: str, target: str) -> Any:
-    """L12D007-C002 `deny_access`: Windows denies Everyone read (`icacls /deny *S-1-1-0:(R)`); POSIX
+    """L12D007-C002 `deny_access`: Windows denies Everyone every read right except read-control
+    (`icacls /deny *S-1-1-0:(RD,REA,RA,S)`: a generic (R) deny also denies READ_CONTROL, and under
+    Python 3.13's protected 0o700 temp-directory ACL the owner could then never undo it); POSIX
     removes every mode bit (meaningful for a non-root user). Undone at case end by
     `_restore_access`."""
     kind = "directory" if os.path.isdir(target) else "file"
     if sys.platform == "win32":  # pragma: no cover -- per-platform fixture
         import subprocess
 
-        subprocess.run(["icacls", target, "/deny", "*S-1-1-0:(R)"], check=True, capture_output=True)
+        subprocess.run(
+            ["icacls", target, "/deny", "*S-1-1-0:(RD,REA,RA,S)"], check=True, capture_output=True
+        )
         return lambda: _restore_access(
             cwd,
             rel,

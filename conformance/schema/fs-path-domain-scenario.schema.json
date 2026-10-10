@@ -345,7 +345,7 @@
             "lock_range",
             "deny_access"
           ],
-          "$comment": "L12-D007 fixture-only steps (they build an OS condition natively and observe {ok: null}): make_symlink creates `path` as a symbolic link whose text is `to`; deny_access denies read access to `path` (Windows: an Everyone read-deny ACE; POSIX: mode 000, meaningful only for a non-root user), undone at case end; hold_exclusive (win32 only) holds `path` -- a file or, with backup semantics, a directory -- open for read+write with no sharing; lock_range (win32 only) holds it open for read+write sharing read+write only (not delete) with bytes 0-63 locked; both until the case ends."
+          "$comment": "L12-D007 fixture-only steps (they build an OS condition natively and observe {ok: null}): make_symlink creates `path` as a symbolic link whose text is `to`; deny_access denies read access to `path` (Windows: an Everyone deny of every read right except read-control, i.e. RD,REA,RA,S; POSIX: mode 000, meaningful only for a non-root user), undone at case end; hold_exclusive (win32 only) holds `path` -- a file or, with backup semantics, a directory -- open for read+write with no sharing; lock_range (win32 only) holds it open for read+write sharing read+write only (not delete) with bytes 0-63 locked; both until the case ends."
         },
         "path": {
           "$ref": "#/$defs/path"

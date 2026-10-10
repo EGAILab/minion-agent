@@ -225,3 +225,71 @@ async def test_runner_refuses_a_provider_step_through_an_outward_link_before_the
     with pytest.raises(AssertionError, match="containment"):
         await _runner.run_case(case, Path(root))
     assert reached == []
+
+
+# --- R3a (revision 5): ENAMETOOLONG is missing only for a proven over-long single component.
+
+
+@pytest.fixture
+def overlong(virtual: Any, monkeypatch: pytest.MonkeyPatch) -> Any:
+    def install(name: str, name_max: Any, path_max: Any) -> str:
+        root = virtual({name: {"type": "file", "err": errno.ENAMETOOLONG}})
+        limits = {"PC_NAME_MAX": name_max, "PC_PATH_MAX": path_max}
+
+        def pathconf(p: Any, key: str) -> Any:
+            v = limits[key]
+            if v == "error":
+                raise OSError(errno.EINVAL, "synthetic pathconf")
+            return v
+
+        monkeypatch.setattr(os, "pathconf", pathconf, raising=False)
+        return root
+
+    return install
+
+
+def _bytes(root: str, name: str) -> int:
+    return len(os.path.join(root, name).encode("utf-8"))
+
+
+N300 = "n" * 300
+
+
+def test_r3a_w1_a_proven_overlong_component_is_missing(overlong: Any, tmp_path: Path) -> None:
+    root = overlong(N300, 255, 1 << 20)
+    _fixture_target(root, N300)
+
+
+def test_r3a_w2_a_whole_path_overflow_is_refused(overlong: Any) -> None:
+    root = overlong(N300, 255, 100)  # NAME_MAX passes; PATH_MAX is below L
+    with pytest.raises(AssertionError, match="cannot inspect"):
+        _fixture_target(root, N300)
+
+
+def test_r3a_w5_an_under_limit_component_is_refused(overlong: Any) -> None:
+    root = overlong("a" * 200, 255, 1 << 20)
+    with pytest.raises(AssertionError, match="cannot inspect"):
+        _fixture_target(root, "a" * 200)
+
+
+@pytest.mark.parametrize("value", ["error", -1, None, "abc"])
+def test_r3a_w6_an_unavailable_name_max_is_refused(overlong: Any, value: Any) -> None:
+    root = overlong(N300, value, 1 << 20)
+    with pytest.raises(AssertionError, match="cannot inspect"):
+        _fixture_target(root, N300)
+
+
+def test_r3a_w9_the_path_max_terminator_is_counted(
+    overlong: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = overlong(N300, 255, 0)
+    length = _bytes(root, N300)
+    monkeypatch.setattr(
+        os, "pathconf", lambda p, key: 255 if key == "PC_NAME_MAX" else length + 1, raising=False
+    )
+    _fixture_target(root, N300)  # W9a: L + 1 == PATH_MAX admits
+    monkeypatch.setattr(
+        os, "pathconf", lambda p, key: 255 if key == "PC_NAME_MAX" else length, raising=False
+    )
+    with pytest.raises(AssertionError):
+        _fixture_target(root, N300)  # W9b: L == PATH_MAX refuses

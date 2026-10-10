@@ -24,6 +24,7 @@ from typing import Any
 
 from minion_agent.execution import LocalFileSystem
 from minion_agent.execution.result import Ok
+from minion_agent.runtime.signal import RunAbortController, RunSignal
 
 
 def string(code_units: list[int]) -> str:
@@ -60,6 +61,12 @@ def applies(case: dict[str, Any]) -> bool:
     return PLATFORM in case.get("platforms", ["linux", "win32"])
 
 
+def _aborted_signal() -> RunSignal:
+    controller = RunAbortController()
+    controller.abort()
+    return controller.signal
+
+
 def path_argument(cwd: str, path: dict[str, Any]) -> str:
     if "utf16" in path:
         return string(path["utf16"])
@@ -73,14 +80,16 @@ async def run_case(case: dict[str, Any], root: Path) -> list[Any]:
     for step in case["steps"]:
         p = path_argument(cwd, step["path"])
         op = step["op"]
+        # L12-D006: `aborted` hands the operation an already-aborted signal (fixture construction).
+        signal = _aborted_signal() if step.get("aborted") else None
         if op == "write_file":
-            r: Any = await fs.write_file(p, string(step["content"]))
+            r: Any = await fs.write_file(p, string(step["content"]), signal=signal)
             o: Any = {"ok": None} if isinstance(r, Ok) else observe_error(cwd, r.error)
         elif op == "read_text_file":
-            r = await fs.read_text_file(p)
+            r = await fs.read_text_file(p, signal=signal)
             o = {"ok": units(r.value)} if isinstance(r, Ok) else observe_error(cwd, r.error)
         elif op == "list_dir":
-            r = await fs.list_dir(p)
+            r = await fs.list_dir(p, signal=signal)
             o = (
                 {"names": sorted(units(i.name) for i in r.value)}
                 if isinstance(r, Ok)
@@ -118,23 +127,45 @@ async def run_case(case: dict[str, Any], root: Path) -> list[Any]:
             r = await fs.append_file(p, string(step["content"]))
             o = {"ok": None} if isinstance(r, Ok) else observe_error(cwd, r.error)
         elif op == "read_text_lines":
-            r = await fs.read_text_lines(p)
+            r = await fs.read_text_lines(p, max_lines=step.get("max_lines"), signal=signal)
             o = (
                 {"ok": [units(line) for line in r.value]}
                 if isinstance(r, Ok)
                 else observe_error(cwd, r.error)
             )
         elif op == "read_binary_file":
-            r = await fs.read_binary_file(p)
+            r = await fs.read_binary_file(p, signal=signal)
             o = {"ok": list(r.value)} if isinstance(r, Ok) else observe_error(cwd, r.error)
         elif op == "create_dir":
             r = await fs.create_dir(p, recursive=step["recursive"])
             o = {"ok": None} if isinstance(r, Ok) else observe_error(cwd, r.error)
         elif op == "remove":
-            r = await fs.remove(p)
+            r = await fs.remove(
+                p, recursive=step.get("recursive", False), force=step.get("force", False)
+            )
             o = {"ok": None} if isinstance(r, Ok) else observe_error(cwd, r.error)
         elif op == "rename_file":
-            r = await fs.rename_file(p, path_argument(cwd, step["to"]))
+            r = await fs.rename_file(p, path_argument(cwd, step["to"]), signal=signal)
+            o = {"ok": None} if isinstance(r, Ok) else observe_error(cwd, r.error)
+        elif op == "list_dir_raw":
+            r = await fs.list_dir_raw(p)
+            o = (
+                {"names": sorted(units(name) for name in r.value)}
+                if isinstance(r, Ok)
+                else observe_error(cwd, r.error)
+            )
+        elif op == "probe_dir_entry":
+            r = await fs.probe_dir_entry(p)
+            o = (
+                {"kind": str(r.value.kind), "name": units(r.value.name)}
+                if isinstance(r, Ok)
+                else observe_error(cwd, r.error)
+            )
+        elif op == "check_readable":
+            r = await fs.check_readable(p)
+            o = {"ok": None} if isinstance(r, Ok) else observe_error(cwd, r.error)
+        elif op == "check_read_write":
+            r = await fs.check_read_write(p)
             o = {"ok": None} if isinstance(r, Ok) else observe_error(cwd, r.error)
         else:  # pragma: no cover -- the schema closes the op set
             raise AssertionError(f"unknown op {op}")

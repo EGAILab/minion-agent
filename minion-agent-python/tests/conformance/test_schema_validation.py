@@ -1081,6 +1081,11 @@ def test_fs_path_domain_scenario_validates(scenario: Path) -> None:
         lambda s: s.__setitem__("path", "f.txt"),
         lambda s: s.__setitem__("expect", {"components": [[65]], "x": 1}),
         lambda s: s.__setitem__("observe", "basename"),
+        # L12-D006 additions: typed, closed and optional.
+        lambda s: s.__setitem__("max_lines", "0"),
+        lambda s: s.__setitem__("force", "yes"),
+        lambda s: s.__setitem__("aborted", False),
+        lambda s: s.__setitem__("op", "check_writable"),
     ],
     ids=[
         "no-expect",
@@ -1089,6 +1094,10 @@ def test_fs_path_domain_scenario_validates(scenario: Path) -> None:
         "bare-string-path",
         "extra-key",
         "unknown-observe",
+        "max-lines-not-integer",
+        "force-not-boolean",
+        "aborted-not-true",
+        "unknown-minion-op",
     ],
 )
 def test_fs_path_domain_schema_rejects_malformed_steps(mutation: Any) -> None:

@@ -23,8 +23,8 @@ CASES = [
 
 
 def test_the_fs_path_corpus_is_complete() -> None:
-    assert len(DOCUMENTS) == 6
-    assert len(CASES) == 122
+    assert len(DOCUMENTS) == 7
+    assert len(CASES) == 122 + 237  # L12-D006 adds fs-path-nul.json
     assert len(TOOL_CASES) == 5
     # L12-D001-R001: the error-origin cases declared for one platform only, each with its reason.
     limited = [case for case in CASES if "platforms" in case]

@@ -25,7 +25,7 @@ CASES = [
 
 def test_the_fs_path_corpus_is_complete() -> None:
     assert len(DOCUMENTS) == 7
-    assert len(CASES) == 122 + 158  # L12-D006 adds fs-path-nul.json
+    assert len(CASES) == 122 + 237  # L12-D006 adds fs-path-nul.json
     assert len(TOOL_CASES) == 5
     # L12-D001-R001: the error-origin cases declared for one platform only, each with its reason.
     limited = [case for case in CASES if "platforms" in case]
@@ -42,6 +42,8 @@ def _l12_d006_pending(case_id: str) -> bool:
     if not case_id.startswith("nul/") or case_id.startswith("nul/aborted/"):
         return False
     where, op = case_id.split("/")[1], case_id.rsplit("/", 1)[1]
+    if where == "url-control":  # L12D006-C001 controls: only the rename to a `%00` URL is pending
+        return op == "rename_file-to-url-nul"
     if op in {"absolute_path", "read_text_lines-max0", "check_readable", "check_read_write"}:
         return False
     if op in {"canonical_path", "target_key"}:

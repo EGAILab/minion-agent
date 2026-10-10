@@ -6396,6 +6396,17 @@ rows:
     and Linux); tests/conformance/test_fs_path_conformance.py; binding witnesses
     tests/execution/test_filesystem_nul.py. Python implements it (execution/filesystem.py _contain_nul on the
     resolved path arguments; canonical_path whole-argument check; temp creation). Rust: invalid today (pending).'
+  - 'fs_error_codes_pinned_pi_literal -- L12-D007 (minion-agent#199; provenance #69 + #125 + #67; Owner decision
+    recorded on all three; CONTRACT_DRAFT): each Pi-derived filesystem operation answers the FsErrorCode pinned Pi''s
+    toFileError returns for that operation, input and host platform -- Node/libuv errno translation of the ORIGINAL
+    Win32 code (libuv 1.49.2 uv_translate_sys_error: 123/161/267 -> not_found, 32/33 sharing/lock -> unknown,
+    1921 -> unknown, 1 INVALID_FUNCTION -> is_directory) plus the pinned per-operation overrides (directory
+    write/append and read -> is_directory; non-recursive create_dir of 123/267 -> invalid; non-recursive remove of a
+    directory -> unknown on every platform). No global errno/InvalidInput remap; EXEC-007/008/009 and not_supported
+    keep their own dispositions. spec/execution.md section 19.
+    conformance/agent/fs-path-domain/fs-error-codes.json (176 cases generated from pinned Pi on Windows and Linux;
+    fixture-only make_symlink / hold_exclusive / lock_range steps); tests/conformance/test_fs_path_conformance.py.
+    Python: pending implementation. Rust: pending.'
   python: 'minion-agent-python/src/minion_agent/execution/filesystem.py; integration evidence in
     minion-agent-python/tests/execution/test_filesystem.py. L12-D004 (minion-agent#163; PI_PARITY_DEFECT,
     Owner-authorized targeted correction; independently approved, merged at #162 -> 5477eaeb): canonical_path

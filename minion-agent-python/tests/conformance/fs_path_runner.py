@@ -73,13 +73,69 @@ def path_argument(cwd: str, path: dict[str, Any]) -> str:
     return f"{Path(cwd).as_uri()}/{string(path['file_url_tail'])}"
 
 
+def _fixture_target(cwd: str, p: str) -> str:
+    """L12-D007 fixture steps build an OS condition natively; their target must stay inside the
+    case directory (Owner containment rule, 2026-10-10). String concatenation, never
+    `os.path.join`, which would let an `X:` component (a drive) replace the base."""
+    target = os.path.abspath(cwd + os.sep + p)
+    base = os.path.normcase(cwd)
+    if os.path.commonpath([base, os.path.normcase(target)]) != base:
+        raise AssertionError(f"fixture target {p!r} escapes the case directory")
+    return target
+
+
+def _hold(op: str, target: str) -> Any:  # pragma: no cover -- win32-only fixture
+    """`hold_exclusive`: a FileShare.None handle; `lock_range`: a shared handle with bytes 0-63
+    locked. Both are held until the case ends, so every provider call meets the sharing / lock
+    violation."""
+    import ctypes
+    from ctypes import wintypes
+
+    k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    k32.CreateFileW.argtypes = [
+        wintypes.LPCWSTR,
+        wintypes.DWORD,
+        wintypes.DWORD,
+        wintypes.LPVOID,
+        wintypes.DWORD,
+        wintypes.DWORD,
+        wintypes.HANDLE,
+    ]
+    k32.CreateFileW.restype = wintypes.HANDLE
+    share = 0 if op == "hold_exclusive" else 7  # none / read+write+delete
+    handle = k32.CreateFileW(target, 0xC0000000, share, None, 3, 0x80, None)  # RW, OPEN_EXISTING
+    if handle == wintypes.HANDLE(-1).value:
+        raise OSError(ctypes.get_last_error(), f"{op} fixture open failed", target)
+    if op == "lock_range" and not k32.LockFile(handle, 0, 0, 64, 0):
+        raise OSError(ctypes.get_last_error(), "lock_range fixture lock failed", target)
+    return lambda: k32.CloseHandle(handle)
+
+
 async def run_case(case: dict[str, Any], root: Path) -> list[Any]:
+    releases: list[Any] = []
+    try:
+        return await _run_steps(case, root, releases)
+    finally:
+        for release in releases:  # pragma: no cover -- win32-only fixtures
+            release()
+
+
+async def _run_steps(case: dict[str, Any], root: Path, releases: list[Any]) -> list[Any]:
     cwd = os.path.realpath(root)
     fs = LocalFileSystem(cwd)
     observed: list[Any] = []
     for step in case["steps"]:
         p = path_argument(cwd, step["path"])
         op = step["op"]
+        if op == "make_symlink":
+            _fixture_target(cwd, string(step["to"]["utf16"]))
+            os.symlink(string(step["to"]["utf16"]), _fixture_target(cwd, p))
+            observed.append({"ok": None})
+            continue
+        if op in ("hold_exclusive", "lock_range"):  # pragma: no cover -- win32-only fixtures
+            releases.append(_hold(op, _fixture_target(cwd, p)))
+            observed.append({"ok": None})
+            continue
         # L12-D006: `aborted` hands the operation an already-aborted signal (fixture construction).
         signal = _aborted_signal() if step.get("aborted") else None
         if op == "write_file":

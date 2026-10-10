@@ -293,3 +293,87 @@ def test_r3a_w9_the_path_max_terminator_is_counted(
     )
     with pytest.raises(AssertionError):
         _fixture_target(root, N300)  # W9b: L == PATH_MAX refuses
+
+
+# --- Closure review 1: ".." in link text; R5 NUL witnesses; loud restore failures.
+
+OUT_DIR = "C:\\outside\\nested" if sys.platform == "win32" else "/outside/nested"
+DOTDOT = {"a": {"type": "link", "text": "b/../leaf"}, "b": {"type": "link", "text": OUT_DIR}}
+
+
+def test_dotdot_link_text_does_not_erase_an_unchecked_link(virtual: Any) -> None:
+    root = virtual(DOTDOT)
+    with pytest.raises(AssertionError):
+        _fixture_target(root, "a")  # REFERENT through a
+    with pytest.raises(AssertionError):
+        _runner._fixture_entry(root, "a/x")  # ENTRY below a: its parent a must be proven
+    _runner._fixture_entry(root, "a")  # ENTRY on the link itself does not follow its text
+    with pytest.raises(AssertionError):
+        _runner._provider_target(root, "a", "write_file")
+    _runner._provider_target(root, "a", "remove")  # removes the link entry itself
+
+
+async def _run_refused(
+    root: str, monkeypatch: pytest.MonkeyPatch, op: str, step: dict[str, Any]
+) -> None:
+    reached: list[Any] = []
+
+    async def record(self: Any, *a: Any, **k: Any) -> Any:
+        reached.append(a)
+        raise AssertionError("provider reached")
+
+    monkeypatch.setattr(_runner.LocalFileSystem, op, record)
+    with pytest.raises(AssertionError, match="containment"):
+        await _runner.run_case({"id": "x", "steps": [step]}, Path(root))
+    assert reached == []  # zero provider mutations
+
+
+def _u(text: str) -> dict[str, Any]:
+    return {"utf16": [ord(c) for c in text]}
+
+
+async def test_r5_final_component_nul_under_an_outward_parent_is_refused(
+    virtual: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = virtual({"j": {"type": "link", "text": OUT_DIR}})
+    await _run_refused(
+        root,
+        monkeypatch,
+        "write_file",
+        {"op": "write_file", "path": _u("j/x\0y"), "content": [120]},
+    )
+
+
+def test_r5_parent_component_nul_proves_only_the_nul_free_directory(virtual: Any) -> None:
+    root = virtual({})
+    _runner._provider_target(root, "d\0e/f", "write_file")  # nothing below the NUL is inspected
+
+
+async def test_r5_decoded_file_url_nul_under_an_outward_parent_is_refused(
+    virtual: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = virtual({"j": {"type": "link", "text": OUT_DIR}})
+    step = {
+        "op": "write_file",
+        "path": {"file_url_tail": [ord(c) for c in "j/x%00"]},
+        "content": [120],
+    }
+    await _run_refused(root, monkeypatch, "write_file", step)
+
+
+async def test_r5_rename_destination_nul_under_an_outward_parent_is_refused(
+    virtual: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = virtual({"j": {"type": "link", "text": OUT_DIR}, "src": {"type": "file"}})
+    step = {"op": "rename_file", "path": _u("src"), "to": _u("j/y\0")}
+    await _run_refused(root, monkeypatch, "rename_file", step)
+
+
+def test_a_restore_that_runs_and_fails_is_not_swallowed(virtual: Any) -> None:
+    root = virtual({"f": {"type": "file"}})
+
+    def failing(target: str) -> None:
+        raise OSError(errno.EACCES, "synthetic restore failure", target)
+
+    with pytest.raises(OSError, match="synthetic restore failure"):
+        _runner._restore_access(root, "f", "file", failing)

@@ -166,6 +166,10 @@ def _prove(target: str, boundary: str, what: str) -> None:
                 except OSError as exc:
                     raise AssertionError(f"containment: cannot read link {current!r}") from exc
                 text = text[4:] if text.startswith("\\\\?\\") else text
+                # ".." in link text resolves against the RESOLVED predecessor (POSIX 4.13); a
+                # lexical collapse could erase an unchecked link ("b/../leaf"): refused.
+                if ".." in text.replace("\\", "/").split("/"):
+                    raise AssertionError(f"containment: link {current!r} text has '..'; refused")
                 base = text if os.path.isabs(text) else os.path.dirname(current) + os.sep + text
                 redirected = os.path.abspath(os.sep.join([base, *parts[i + 1 :]]))
                 break
@@ -249,7 +253,8 @@ def _provider_target(cwd: str, argument: str, op: str) -> None:
 
 def _restore_access(cwd: str, rel: str, kind: str, restore: Any) -> None:
     """R6: undo a deny only on an EXISTING, NON-LINK entry of the recorded kind, re-proven now;
-    otherwise skip (the case directory is then left as is)."""
+    otherwise skip (the case directory is then left as is). A restore that RUNS and fails is never
+    swallowed: its error propagates and fails the case (closure review 1)."""
     try:
         target = _fixture_target(cwd, rel)
     except AssertionError:
@@ -277,7 +282,9 @@ def _deny_access(cwd: str, rel: str, target: str) -> Any:
             cwd,
             rel,
             kind,
-            lambda t: subprocess.run(["icacls", t, "/remove:d", "*S-1-1-0"], capture_output=True),
+            lambda t: subprocess.run(
+                ["icacls", t, "/remove:d", "*S-1-1-0"], check=True, capture_output=True
+            ),
         )
     mode = os.stat(target).st_mode & 0o777  # pragma: no cover -- per-platform fixture
     os.chmod(target, 0)  # pragma: no cover

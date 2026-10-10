@@ -344,7 +344,7 @@
             "hold_exclusive",
             "lock_range"
           ],
-          "$comment": "L12-D007 fixture-only steps (they build an OS condition natively and observe {ok: null}): make_symlink creates `path` as a symbolic link whose text is `to`; hold_exclusive (win32 only) holds `path` open with no sharing, and lock_range (win32 only) holds it open shared with bytes 0-63 locked, both until the case ends."
+          "$comment": "L12-D007 fixture-only steps (they build an OS condition natively and observe {ok: null}): make_symlink creates `path` as a symbolic link whose text is `to`; hold_exclusive (win32 only) holds `path` open for read+write with no sharing; lock_range (win32 only) holds it open for read+write sharing read+write only (not delete) with bytes 0-63 locked; both until the case ends."
         },
         "path": {
           "$ref": "#/$defs/path"

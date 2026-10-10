@@ -102,7 +102,7 @@ def _hold(op: str, target: str) -> Any:  # pragma: no cover -- win32-only fixtur
         wintypes.HANDLE,
     ]
     k32.CreateFileW.restype = wintypes.HANDLE
-    share = 0 if op == "hold_exclusive" else 7  # none / read+write+delete
+    share = 0 if op == "hold_exclusive" else 3  # none / read+write (no delete), as the schema says
     handle = k32.CreateFileW(target, 0xC0000000, share, None, 3, 0x80, None)  # RW, OPEN_EXISTING
     if handle == wintypes.HANDLE(-1).value:
         raise OSError(ctypes.get_last_error(), f"{op} fixture open failed", target)

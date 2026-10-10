@@ -2938,6 +2938,20 @@ rows:
   - test_a_raw_object_schema_rejects_invalid_arguments
   - test_prepare_arguments_repairs_raw_schema_arguments_before_validation
   - test_prepare_arguments_can_invalidate_previously_valid_raw_schema_arguments
+  - 'arg_isolation -- L0506-D005 (minion-agent#190, provenance #129; Owner decision recorded on #129; CONTRACT_DRAFT): validation
+    works on pinned Pi''s structuredClone of the prepared arguments (validation.ts validateToolArguments). The
+    tools/pre-execute listeners and execute share that validated graph; no hook or execute mutation reaches the
+    raw ToolCall.arguments or the tools/update payload through a nested alias. Aliases and cycles inside the
+    prepared graph survive in the clone; key order, -0, non-finite numbers and lone surrogates survive unchanged.
+    Validation failure and blocked calls keep their semantics. Certified domain: ACYCLIC prepared graphs (Owner
+    decision L0506D005-Q001 on #190); cyclic graphs through validation are out of scope (finding #193; Rust
+    validation is not cycle-safe). spec/tools.md L0506-D005; assurance/layers/l0506-d005-feasibility-matrix.md.
+    conformance/agent/arg-isolation/ (arg-isolation-scenario.schema.json; 21 cases generated from pinned Pi);
+    tests/conformance/test_arg_isolation_conformance.py and test_arg_isolation_runner_numbers.py. Python
+    raw-schema path failed 17 cases at the contract stage (N001: earlier notes said 12); it now implements
+    the clone (llm/js_object.py structured_clone; tools/execute.py _validate), and the pydantic path is
+    AUDITED -- NO CHANGE (model_dump already rebuilds). Binding witnesses tests/tools/test_validated_argument_isolation.py.
+    Rust: acyclic conformance to be confirmed through the real preflight.'
   python: src/minion_agent/tools/execute.py::_prepare, _validate, ArgumentValidationError, execute_call
   rust: 'minion-agent-rust/crates/minion-agent/src/tools/execution.rs::execute_tool_calls;
     minion-agent-rust/crates/minion-agent/tests/tool_execution.rs;

@@ -1383,3 +1383,49 @@ def test_fs_remove_readonly_schema_rejects_malformed_documents(mutation: Any) ->
     )
     mutation(document)
     assert list(_fs_remove_validator().iter_errors(document))
+
+
+# --- L0506-D005 (minion-agent#129): arg-isolation corpus -----------------------------------------
+
+ARG_ISOLATION_SCHEMA = CONFORMANCE / "schema" / "arg-isolation-scenario.schema.json"
+ARG_ISOLATION_DIR = CONFORMANCE / "agent" / "arg-isolation"
+
+
+def _arg_isolation_validator() -> Draft202012Validator:
+    return Draft202012Validator(json.loads(ARG_ISOLATION_SCHEMA.read_text(encoding="utf-8")))
+
+
+def test_arg_isolation_schema_is_wellformed() -> None:
+    Draft202012Validator.check_schema(json.loads(ARG_ISOLATION_SCHEMA.read_text(encoding="utf-8")))
+
+
+@pytest.mark.parametrize(
+    "scenario", sorted(ARG_ISOLATION_DIR.glob("*.json")), ids=lambda value: value.stem
+)
+def test_arg_isolation_scenario_validates(scenario: Path) -> None:
+    assert not list(
+        _arg_isolation_validator().iter_errors(json.loads(scenario.read_text(encoding="utf-8")))
+    )
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        lambda d: d["arg_isolation"]["expect"].pop("raw_after"),
+        lambda d: d["arg_isolation"]["expect"].pop("updates"),
+        lambda d: d["arg_isolation"].__setitem__("prepare", "deep-copy"),
+        lambda d: d["arg_isolation"]["hooks"][0].append({"op": "splice", "path": ["o"]}),
+        lambda d: d["arg_isolation"]["expect"].__setitem__("outcome", "blocked"),
+        lambda d: d["arg_isolation"]["expect"].__setitem__("execute", {"n": "1"}),
+        lambda d: d["arg_isolation"]["facts"].append({"same": [["o"]]}),
+        lambda d: d.__setitem__("pi_revision", "main"),
+    ],
+)
+def test_arg_isolation_schema_rejects_malformed_documents(mutation: Any) -> None:
+    document = json.loads(
+        (ARG_ISOLATION_DIR / "arg-isolation-hook-sets-into-nested-object.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    mutation(document)
+    assert list(_arg_isolation_validator().iter_errors(document))

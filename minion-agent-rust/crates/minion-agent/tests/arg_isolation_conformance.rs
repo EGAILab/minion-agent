@@ -122,16 +122,25 @@ fn same(a: &PreparedValue, b: &PreparedValue) -> bool {
 
 fn distinct_from_raw(prepared: &PreparedValue, raw: &RawValue, path: &Value) -> bool {
     let raw = path.as_array().unwrap().iter().fold(raw.clone(), |v, k| {
-        if let Some(k) = k.as_str() { v.get(k).unwrap() }
-        else { let RawValue::Array(a) = v else { panic!("raw array path") }; a.get(usize::try_from(k.as_u64().unwrap()).unwrap()).unwrap() }
+        if let Some(k) = k.as_str() {
+            v.get(k).unwrap()
+        } else {
+            let RawValue::Array(a) = v else {
+                panic!("raw array path")
+            };
+            a.get(usize::try_from(k.as_u64().unwrap()).unwrap())
+                .unwrap()
+        }
     });
     // Actual reached containers have disjoint allocation types:
     // Arc<RwLock<...<RawValue>>> vs Arc<RwLock<...<PreparedValue>>>.
     // They cannot share an allocation in safe Rust. Do not convert raw here:
     // conversion would manufacture fresh identity in the observer.
-    matches!((at(prepared,path), raw),
-        (PreparedValue::Object(_),RawValue::Object(_)) |
-        (PreparedValue::Array(_),RawValue::Array(_)))
+    matches!(
+        (at(prepared, path), raw),
+        (PreparedValue::Object(_), RawValue::Object(_))
+            | (PreparedValue::Array(_), RawValue::Array(_))
+    )
 }
 
 fn program(args: &PreparedValue, ops: &Value) {
@@ -292,7 +301,13 @@ async fn run(case: &Value) {
                                             } else {
                                                 let path = &f["distinct_from_raw"];
                                                 if let Some(source) = seen.shim_source.as_ref() {
-                                                    assert!(!same(&at(&current.arguments,path), &at(source,path)), "clone isolates retained shim child");
+                                                    assert!(
+                                                        !same(
+                                                            &at(&current.arguments, path),
+                                                            &at(source, path)
+                                                        ),
+                                                        "clone isolates retained shim child"
+                                                    );
                                                 }
                                                 distinct_from_raw(&current.arguments, &raw, path)
                                             }

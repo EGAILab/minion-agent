@@ -1,4 +1,6 @@
-use minion_agent::execution::{CancellationController, FsErrorCode, FsPath, LocalFileSystem};
+use minion_agent::execution::{CancellationController, FsErrorCode, FsPath};
+#[path = "support/fs_containment.rs"]
+mod containment;
 use std::path::PathBuf;
 #[cfg(unix)]
 use std::sync::Arc;
@@ -7,15 +9,13 @@ fn path(units: &[u16]) -> FsPath {
     FsPath::from_code_units(units.to_vec())
 }
 fn root() -> PathBuf {
-    let p = std::env::temp_dir().join(format!("minion-path-unit-{}", uuid::Uuid::new_v4()));
-    std::fs::create_dir(&p).unwrap();
-    p
+    containment::sandbox("minion-path-unit")
 }
 
 #[tokio::test]
 async fn native_names_logical_metadata_and_location_keys_are_distinct_carriers() {
     let root = root();
-    let fs = LocalFileSystem::new(&root);
+    let fs = containment::GuardedFs::new(&root);
     let a = path(&[97, 0xd800]);
     let b = path(&[97, 0xdc00]);
     let projected: FsPath = "a\u{fffd}".into();
@@ -40,13 +40,13 @@ async fn native_names_logical_metadata_and_location_keys_are_distinct_carriers()
     assert_eq!(existing_a.target_key(), existing_p.target_key());
     assert_ne!(missing_a.target_key(), existing_a.target_key());
     assert_eq!(fs.list_dir_raw(".", None).await.unwrap(), ["a\u{fffd}"]);
-    std::fs::remove_dir_all(root).unwrap();
+    containment::cleanup(&root);
 }
 
 #[tokio::test]
 async fn listing_joins_native_entry_names_to_the_logical_directory() {
     let root = root();
-    let fs = LocalFileSystem::new(&root);
+    let fs = containment::GuardedFs::new(&root);
     let directory = path(&[100, 0xd800]);
     let child = path(&[100, 0xd800, 47, 102, 0xdc00]);
     fs.write_file(&child, b"x", None).await.unwrap();
@@ -64,13 +64,13 @@ async fn listing_joins_native_entry_names_to_the_logical_directory() {
         Some(fs.absolute_path(&directory, None).await.unwrap())
     );
     // No assertion about the separately excluded #125 code/outcome gap.
-    std::fs::remove_dir_all(root).unwrap();
+    containment::cleanup(&root);
 }
 
 #[tokio::test]
 async fn valid_pairs_survive_and_every_lone_unit_projects_independently() {
     let root = root();
-    let fs = LocalFileSystem::new(&root);
+    let fs = containment::GuardedFs::new(&root);
     for (input, name) in [
         (vec![0xd83d, 0xde00], "\u{1f600}"),
         (vec![0xdc00, 0xd800], "\u{fffd}\u{fffd}"),
@@ -87,13 +87,13 @@ async fn valid_pairs_survive_and_every_lone_unit_projects_independently() {
             input
         );
     }
-    std::fs::remove_dir_all(root).unwrap();
+    containment::cleanup(&root);
 }
 
 #[tokio::test]
 async fn abort_has_a_logical_path_and_does_not_touch_the_native_file() {
     let root = root();
-    let fs = LocalFileSystem::new(&root);
+    let fs = containment::GuardedFs::new(&root);
     let p = path(&[0xd800]);
     let controller = CancellationController::default();
     controller.abort();
@@ -121,13 +121,13 @@ async fn abort_has_a_logical_path_and_does_not_touch_the_native_file() {
     assert!(root.join("\u{fffd}").is_file());
     assert!(fs.check_read_write(&p, Some(&signal)).await.is_ok());
     assert!(fs.probe_dir_entry(&p, Some(&signal)).await.is_ok());
-    std::fs::remove_dir_all(root).unwrap();
+    containment::cleanup(&root);
 }
 
 #[tokio::test]
 async fn rename_error_always_names_the_native_source_not_the_destination() {
     let root = root();
-    let fs = LocalFileSystem::new(&root);
+    let fs = containment::GuardedFs::new(&root);
     let source = path(&[115, 0xd800]);
     let dest = path(&[100, 0xdc00, 47, 102]);
     fs.write_file(&source, b"x", None).await.unwrap();
@@ -138,13 +138,13 @@ async fn rename_error_always_names_the_native_source_not_the_destination() {
         Some(fs.absolute_path("s\u{fffd}", None).await.unwrap())
     );
     assert!(fs.read_binary_file(&source, None).await.is_ok());
-    std::fs::remove_dir_all(root).unwrap();
+    containment::cleanup(&root);
 }
 
 #[tokio::test]
 async fn nul_binding_refusals_keep_the_logical_no_path_fallback() {
     let root = root();
-    let fs = LocalFileSystem::new(&root);
+    let fs = containment::GuardedFs::new(&root);
     let p = path(&[100, 0xd800, 47, 102, 0]);
     let logical = fs.absolute_path(&p, None).await.unwrap();
     let errors = [
@@ -165,12 +165,8 @@ async fn nul_binding_refusals_keep_the_logical_no_path_fallback() {
     for (operation, error) in errors.into_iter().enumerate() {
         assert_eq!(
             error.code,
-            if matches!(operation, 8 | 9) {
-                FsErrorCode::Unknown
-            } else {
-                FsErrorCode::Invalid
-            },
-            "preserve the existing binding mapper at {operation}"
+            FsErrorCode::Unknown,
+            "L12-D006 interior NUL is unknown at {operation}"
         );
         assert_eq!(
             error.path,
@@ -196,7 +192,7 @@ async fn nul_binding_refusals_keep_the_logical_no_path_fallback() {
         error.path,
         Some(fs.absolute_path(&source, None).await.unwrap())
     );
-    std::fs::remove_dir_all(root).unwrap();
+    containment::cleanup(&root);
 }
 
 #[cfg(unix)]
@@ -209,18 +205,20 @@ async fn recursive_remove_single_failure_reports_the_inner_native_call() {
         "run this binding witness as a non-root user"
     );
     let root = root();
-    let fs = Arc::new(LocalFileSystem::new(&root));
+    let fs = Arc::new(containment::GuardedFs::new(&root));
     let tree = path(&[116, 0xd800]);
     let child = path(&[116, 0xd800, 47, 120]);
     fs.write_file(&child, b"x", None).await.unwrap();
     let native_dir = root.join("t\u{fffd}");
+    containment::check(&root, &native_dir);
     std::fs::set_permissions(&native_dir, std::fs::Permissions::from_mode(0o555)).unwrap();
     let error = fs.remove(&tree, true, false, None).await.unwrap_err();
+    containment::check(&root, &native_dir);
     std::fs::set_permissions(&native_dir, std::fs::Permissions::from_mode(0o755)).unwrap();
     assert_eq!(error.code, FsErrorCode::PermissionDenied);
     assert_eq!(
         error.path,
         Some(fs.absolute_path("t\u{fffd}/x", None).await.unwrap())
     );
-    std::fs::remove_dir_all(root).unwrap();
+    containment::cleanup(&root);
 }

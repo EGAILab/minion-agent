@@ -1,6 +1,109 @@
 use super::*;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+struct RecursiveVanish {
+    root: PathBuf,
+    stage: &'static str,
+    removes: AtomicUsize,
+    fired: AtomicUsize,
+}
+
+#[async_trait]
+impl RemoveDirectoryOperations for RecursiveVanish {
+    async fn remove_dir(&self, path: &Path) -> io::Result<()> {
+        if path == self.root {
+            let attempt = self.removes.fetch_add(1, Ordering::SeqCst);
+            if self.stage == "initial" && attempt == 0 {
+                std::fs::remove_dir_all(path)?;
+                self.fired.fetch_add(1, Ordering::SeqCst);
+                return Err(io::Error::from(io::ErrorKind::NotFound));
+            }
+            if self.stage == "final" && attempt == 1 {
+                std::fs::remove_dir(path)?;
+                self.fired.fetch_add(1, Ordering::SeqCst);
+                return Err(io::Error::from(io::ErrorKind::NotFound));
+            }
+        }
+        tokio::fs::remove_dir(path).await
+    }
+
+    async fn clear_readonly_entry(&self, _path: &Path) -> io::Result<bool> {
+        panic!("disappearance must not invoke permission correction")
+    }
+
+    async fn read_dir(&self, path: &Path) -> io::Result<tokio::fs::ReadDir> {
+        if self.stage == "readdir" && path == self.root {
+            std::fs::remove_dir_all(path)?;
+            self.fired.fetch_add(1, Ordering::SeqCst);
+        }
+        tokio::fs::read_dir(path).await
+    }
+
+    async fn before_child_metadata(&self, path: &Path) {
+        if self.stage == "child" {
+            // This is reached only after the real read_dir/next_entry returned
+            // the child; its next call is the production symlink_metadata.
+            std::fs::remove_file(path).unwrap();
+            self.fired.fetch_add(1, Ordering::SeqCst);
+        }
+    }
+}
+
+async fn recursive_vanish_at(stage: &'static str) {
+    let fixture = tempfile::tempdir().unwrap();
+    let root = fixture.path().join("tree");
+    std::fs::create_dir(&root).unwrap();
+    std::fs::write(root.join("child"), "entry").unwrap();
+    let operations = RecursiveVanish {
+        root: root.clone(),
+        stage,
+        removes: AtomicUsize::new(0),
+        fired: AtomicUsize::new(0),
+    };
+    remove_addressed_with(&root, true, false, &operations)
+        .await
+        .unwrap();
+    assert_eq!(operations.fired.load(Ordering::SeqCst), 1);
+    assert!(!root.exists());
+}
+
+#[tokio::test]
+async fn readonly_recursive_child_vanishing_before_lstat_counts_as_removed() {
+    recursive_vanish_at("child").await;
+}
+
+#[tokio::test]
+async fn readonly_recursive_directory_vanishing_before_readdir_counts_as_removed() {
+    recursive_vanish_at("readdir").await;
+}
+
+#[tokio::test]
+async fn readonly_recursive_directory_vanishing_at_first_remove_counts_as_removed() {
+    recursive_vanish_at("initial").await;
+}
+
+#[tokio::test]
+async fn readonly_recursive_directory_vanishing_at_final_remove_counts_as_removed() {
+    recursive_vanish_at("final").await;
+}
+
+#[tokio::test]
+async fn readonly_recursive_missing_target_still_requires_force() {
+    let root = tempfile::tempdir().unwrap();
+    let filesystem = LocalFileSystem::new(root.path());
+    for recursive in [false, true] {
+        let error = filesystem
+            .remove("missing", recursive, false, None)
+            .await
+            .unwrap_err();
+        assert_eq!(error.code, FsErrorCode::NotFound);
+        filesystem
+            .remove("missing", recursive, true, None)
+            .await
+            .unwrap();
+    }
+}
+
 struct ScriptedDirectory {
     entry: PathBuf,
     attempts: AtomicUsize,

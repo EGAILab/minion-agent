@@ -27,7 +27,15 @@ controls = [
     ("vanished-correction-is-error", source, "Err(correction) if correction.kind() == io::ErrorKind::NotFound => Ok(())", "Err(correction) if correction.kind() == io::ErrorKind::NotFound => Err(original)", "readonly_directory_concurrent_vanish_during_correction_or_retry_is_success", "unwrap"),
     ("vanished-retry-keeps-original", source, "Err(retry) if retry.kind() == io::ErrorKind::NotFound => Ok(())", "Err(retry) if retry.kind() == io::ErrorKind::NotFound => Err(original)", "readonly_directory_concurrent_vanish_during_correction_or_retry_is_success", "unwrap"),
     ("retry-twice", source, "                    retry => retry,", "                    Err(_) => operations.remove_dir(path).await,\n                    Ok(()) => Ok(()),", "readonly_directory_retries_only_once", "left: 3"),
+    ("missing-target-forced-without-force", source, "Err(e) if force && e.kind() == io::ErrorKind::NotFound => return Ok(())", "Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(())", "readonly_recursive_missing_target_still_requires_force", "unwrap_err"),
 ]
+if sys.platform != "win32":
+    controls += [
+        ("recursive-child-vanish-windows-only", source, "remove_addressed_with(&child, true, true, operations)", "remove_addressed_with(&child, true, force || cfg!(windows), operations)", "readonly_recursive_child_vanishing_before_lstat_counts_as_removed", "unwrap"),
+        ("recursive-readdir-vanish-windows-only", source, "let mut directory = match operations.read_dir(path).await {\n                    Ok(directory) => directory,\n                    Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(()),", "let mut directory = match operations.read_dir(path).await {\n                    Ok(directory) => directory,\n                    Err(e) if cfg!(windows) && e.kind() == io::ErrorKind::NotFound => return Ok(()),", "readonly_recursive_directory_vanishing_before_readdir_counts_as_removed", "unwrap"),
+        ("recursive-initial-vanish-windows-only", source, "                    Err(e) if e.kind() == io::ErrorKind::NotFound => {", "                    Err(e) if (force || cfg!(windows)) && e.kind() == io::ErrorKind::NotFound => {", "readonly_recursive_directory_vanishing_at_first_remove_counts_as_removed", "unwrap"),
+        ("recursive-final-vanish-windows-only", source, "Err(e) if (force || recursive) && e.kind() == io::ErrorKind::NotFound =>", "Err(e) if (force || (recursive && cfg!(windows))) && e.kind() == io::ErrorKind::NotFound =>", "readonly_recursive_directory_vanishing_at_final_remove_counts_as_removed", "unwrap"),
+    ]
 if sys.platform == "win32":
     controls += [
         ("restore-directory-failure", source, "match remove_directory_with(path, operations).await {", "match operations.remove_dir(path).await {", "readonly_directory_real_remove_handles_target_and_tree", "unwrap"),

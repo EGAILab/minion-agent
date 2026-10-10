@@ -994,6 +994,14 @@ async fn node_mkdirp_with(path: &Path, operations: &dyn MkdirOperations) -> Resu
 trait RemoveDirectoryOperations: Send + Sync {
     async fn remove_dir(&self, path: &Path) -> io::Result<()>;
     async fn clear_readonly_entry(&self, path: &Path) -> io::Result<bool>;
+
+    async fn read_dir(&self, path: &Path) -> io::Result<tokio::fs::ReadDir> {
+        tokio::fs::read_dir(path).await
+    }
+
+    // A no-op in production; a deterministic race seam after enumeration and
+    // before the child's real lstat, without sleeps or replacement walk logic.
+    async fn before_child_metadata(&self, _path: &Path) {}
 }
 
 struct TokioRemoveDirectoryOperations;
@@ -1040,7 +1048,8 @@ async fn remove_directory_with(
 }
 
 /// Carry each actual failing call's origin. Multiple-failure selection (#127)
-/// remains excluded. L12-D005 corrects only an addressed entry's readonly attribute.
+/// remains excluded. L12-D005 corrects an addressed entry's readonly attribute
+/// and accepts concurrent disappearance during recursive removal on every OS.
 fn remove_addressed(
     path: &Path,
     recursive: bool,
@@ -1067,23 +1076,28 @@ fn remove_addressed_with<'a>(
                 match remove_directory_with(path, operations).await {
                     Ok(()) => return Ok(()),
                     Err(e) if e.kind() == io::ErrorKind::DirectoryNotEmpty => {}
-                    Err(e) if (force || cfg!(windows)) && e.kind() == io::ErrorKind::NotFound => {
+                    Err(e) if e.kind() == io::ErrorKind::NotFound => {
                         return Ok(());
                     }
                     Err(e) => return Err(native_error(e, path)),
                 }
-                let mut directory = match tokio::fs::read_dir(path).await {
+                let mut directory = match operations.read_dir(path).await {
                     Ok(directory) => directory,
-                    Err(e) if cfg!(windows) && e.kind() == io::ErrorKind::NotFound => return Ok(()),
+                    Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(()),
                     Err(e) => return Err(native_error(e, path)),
                 };
-                while let Some(entry) = directory
-                    .next_entry()
-                    .await
-                    .map_err(|e| native_error(e, path))?
-                {
-                    remove_addressed_with(&entry.path(), true, force || cfg!(windows), operations)
-                        .await?;
+                loop {
+                    let entry = match directory.next_entry().await {
+                        Ok(Some(entry)) => entry,
+                        Ok(None) => break,
+                        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(()),
+                        Err(e) => return Err(native_error(e, path)),
+                    };
+                    let child = entry.path();
+                    operations.before_child_metadata(&child).await;
+                    // The target passed the initial lstat. A child which vanishes
+                    // during this recursive walk counts as removed on every OS.
+                    remove_addressed_with(&child, true, true, operations).await?;
                 }
             }
             // Non-recursive directory outcomes remain the excluded #125 surface.
@@ -1101,12 +1115,7 @@ fn remove_addressed_with<'a>(
         };
         match result {
             Ok(()) => Ok(()),
-            Err(e)
-                if (force || (recursive && cfg!(windows)))
-                    && e.kind() == io::ErrorKind::NotFound =>
-            {
-                Ok(())
-            }
+            Err(e) if (force || recursive) && e.kind() == io::ErrorKind::NotFound => Ok(()),
             // Preserve the excluded #125 code/outcome behavior, but use Pi's
             // logical no-path carrier for a non-recursive directory refusal.
             Err(e) if metadata.is_dir() && !recursive => Err(map_fs_error(e)),

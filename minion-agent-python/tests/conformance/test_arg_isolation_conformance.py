@@ -29,12 +29,17 @@ L0506_D005_PENDING = {
     "arg-isolation-nested-runtime-values-survive-the-clone",
     "arg-isolation-prepared-reused-raw-child-is-isolated",
     "arg-isolation-raw-integer-beyond-2p53-is-binary64",
+    "arg-isolation-raw-exponent-overflow-is-infinity",
+    "arg-isolation-raw-integer-401-digits-is-infinity",
+    "arg-isolation-raw-integer-at-overflow-threshold-is-infinity",
+    "arg-isolation-raw-integer-largest-finite-binary64",
+    "arg-isolation-raw-negative-integer-401-digits-is-negative-infinity",
     "arg-isolation-two-hooks-share-the-validated-graph",
 }
 
 
 def test_the_arg_isolation_corpus_is_complete() -> None:
-    assert len(DOCUMENTS) == 16
+    assert len(DOCUMENTS) == 21
     assert {d["name"] for d in DOCUMENTS} >= L0506_D005_PENDING
 
 

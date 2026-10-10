@@ -120,11 +120,22 @@ SHIMS = {
 }
 
 
+def _json_number(token: str) -> int | float:
+    """One `JSON.parse` number literal (`CE-L0506-D005-01`, `L0506D005-C003`). Correct rounding to
+    binary64 first: a literal that overflows, integer-shaped or not, is +/-Infinity, as `JSON.parse`
+    yields. Every finite literal goes to the certified decoder (`raw_arguments_runner.number`),
+    whose precondition -- a token naming a FINITE binary64 value -- is then met."""
+    value = float(token)
+    if math.isinf(value):
+        return value
+    return number(token)
+
+
 def parse_raw(text: str) -> Any:
-    """`JSON.parse`'s value (fixture construction): every number literal through binary64 with the
-    certified decoder (`raw_arguments_runner.number`), so `-0` stays a float and an integral literal
-    is its binary64 value's exact integer, never the spelled digits."""
-    return json.loads(text, parse_int=number, parse_float=number)
+    """`JSON.parse`'s value (fixture construction): every number literal through binary64, so `-0`
+    stays a float, an integral literal is its binary64 value's exact integer (never the spelled
+    digits), and a literal beyond binary64's range is +/-Infinity."""
+    return json.loads(text, parse_int=_json_number, parse_float=_json_number)
 
 
 async def run_case(scenario: dict[str, Any]) -> dict[str, Any]:

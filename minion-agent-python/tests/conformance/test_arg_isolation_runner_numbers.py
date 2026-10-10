@@ -36,3 +36,28 @@ def test_named_numbers_round_trip() -> None:
 
 def test_an_integer_that_is_not_binary64_is_never_rounded_into_a_matching_token() -> None:
     assert observe(9007199254740993) == {"non_binary64_int": hex(9007199254740993)}
+
+
+# CE-L0506-D005-01 (C003, review 2): the binary64 range boundary of an integer-shaped literal.
+# The smallest integer that rounds (ties-to-even) to Infinity.
+OVERFLOW_THRESHOLD = 2**1024 - 2**970
+
+
+def test_the_largest_finite_rounding_integer_is_the_largest_binary64_value() -> None:
+    raw = parse_raw(f'{{"n":{OVERFLOW_THRESHOLD - 1}}}')
+    assert raw["n"] == int(float.fromhex("0x1.fffffffffffffp+1023"))
+    assert observe(raw) == {"o": [["n", {"n": "1.7976931348623157e+308"}]]}
+
+
+def test_an_integer_at_the_overflow_threshold_is_infinity() -> None:
+    assert observe(parse_raw(f'{{"n":{OVERFLOW_THRESHOLD}}}')) == {"o": [["n", {"n": "+Infinity"}]]}
+
+
+def test_a_401_digit_integer_is_signed_infinity() -> None:
+    digits = "1" + "0" * 400
+    assert observe(parse_raw(f'{{"n":{digits}}}')) == {"o": [["n", {"n": "+Infinity"}]]}
+    assert observe(parse_raw(f'{{"n":-{digits}}}')) == {"o": [["n", {"n": "-Infinity"}]]}
+
+
+def test_an_exponent_spelled_overflow_agrees() -> None:
+    assert observe(parse_raw('{"n":1e400}')) == {"o": [["n", {"n": "+Infinity"}]]}

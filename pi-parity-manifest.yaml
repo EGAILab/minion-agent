@@ -6400,12 +6400,16 @@ rows:
     recorded on all three; CONTRACT_DRAFT): each Pi-derived filesystem operation answers the FsErrorCode pinned Pi''s
     toFileError returns for that operation, input and host platform -- Node/libuv errno translation of the ORIGINAL
     Win32 code (libuv 1.49.2 uv_translate_sys_error: 123/161/267 -> not_found, 32/33 sharing/lock -> unknown,
-    1921 -> unknown, 1 INVALID_FUNCTION -> is_directory) plus the pinned per-operation overrides (directory
-    write/append and read -> is_directory; non-recursive create_dir of 123/267 -> invalid; non-recursive remove of a
+    1921 -> unknown, 1 INVALID_FUNCTION -> is_directory) plus the pinned per-operation overrides, each qualified by
+    the call that actually fails (a directory read/write is is_directory only when libuv''s directory open
+    succeeds; a denied or held directory keeps that open''s own failure); non-recursive create_dir of 123/267 ->
+    invalid; non-recursive remove of a
     directory -> unknown on every platform). No global errno/InvalidInput remap; EXEC-007/008/009 and not_supported
     keep their own dispositions. spec/execution.md section 19.
-    conformance/agent/fs-path-domain/fs-error-codes.json (176 cases generated from pinned Pi on Windows and Linux;
-    fixture-only make_symlink / hold_exclusive / lock_range steps); tests/conformance/test_fs_path_conformance.py.
+    conformance/agent/fs-path-domain/fs-error-codes.json (240 cases generated from pinned Pi on Windows and Linux,
+    incl. denied/held-directory, denied-file and denied-tree-entry precedence cases; fixture-only make_symlink / hold_exclusive /
+    lock_range / deny_access steps); tests/conformance/test_fs_path_conformance.py; containment controls
+    tests/conformance/test_fs_path_runner_containment.py.
     Python: pending implementation. Rust: pending.'
   python: 'minion-agent-python/src/minion_agent/execution/filesystem.py; integration evidence in
     minion-agent-python/tests/execution/test_filesystem.py. L12-D004 (minion-agent#163; PI_PARITY_DEFECT,

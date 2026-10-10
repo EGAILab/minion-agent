@@ -25,7 +25,7 @@ CASES = [
 def test_the_fs_path_corpus_is_complete() -> None:
     assert len(DOCUMENTS) == 8
     # L12-D006 adds fs-path-nul.json; L12-D007 adds fs-error-codes.json.
-    assert len(CASES) == 122 + 237 + 176
+    assert len(CASES) == 122 + 237 + 240
     assert len(TOOL_CASES) == 5
     # L12-D001-R001: the error-origin cases declared for one platform only, each with its reason.
     limited = [
@@ -40,7 +40,7 @@ def test_the_fs_path_corpus_is_complete() -> None:
     windows_only = [
         case for case in CASES if case["id"].startswith("errors/") and "platforms" in case
     ]
-    assert len(windows_only) == 64
+    assert len(windows_only) == 80
     assert all(case["platforms"] == ["win32"] and case["platform_note"] for case in windows_only)
 
 

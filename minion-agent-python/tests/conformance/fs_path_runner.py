@@ -16,6 +16,7 @@ plus the tail
 
 from __future__ import annotations
 
+import contextlib
 import os
 import struct
 import sys
@@ -73,15 +74,72 @@ def path_argument(cwd: str, path: dict[str, Any]) -> str:
     return f"{Path(cwd).as_uri()}/{string(path['file_url_tail'])}"
 
 
-def _fixture_target(cwd: str, p: str) -> str:
-    """L12-D007 fixture steps build an OS condition natively; their target must stay inside the
-    case directory (Owner containment rule, 2026-10-10). String concatenation, never
-    `os.path.join`, which would let an `X:` component (a drive) replace the base."""
-    target = os.path.abspath(cwd + os.sep + p)
-    base = os.path.normcase(cwd)
-    if os.path.commonpath([base, os.path.normcase(target)]) != base:
+def _inside(base: str, path: str) -> bool:
+    base, path = os.path.normcase(base), os.path.normcase(path)
+    try:
+        return os.path.commonpath([base, path]) == base and path != base
+    except ValueError:  # different drives
+        return False
+
+
+def _fixture_target(cwd: str, p: str, start: str | None = None) -> str:
+    """L12-D007 fixture steps build an OS condition natively; their target must stay strictly
+    inside the case directory (Owner containment rule, 2026-10-10) -- lexically AND through every
+    link met on the way, existing or dangling (each link's text is followed and re-checked).
+    `start` is where a relative `p` resolves from (a symlink's text: the link's own directory).
+    String concatenation, never `os.path.join`, which would let an `X:` component (a drive)
+    replace the base."""
+    # The Owner's prohibited raw forms are refused BEFORE any normalization.
+    if (
+        not p
+        or (len(p) >= 2 and p[0].isalpha() and p[1] == ":")
+        or p[0] in "\\/"
+        or ".." in p.replace("\\", "/").split("/")
+    ):
+        raise AssertionError(f"fixture target {p!r} is a prohibited raw form")
+    target = os.path.abspath((start or cwd) + os.sep + p)
+    if not _inside(cwd, target):
         raise AssertionError(f"fixture target {p!r} escapes the case directory")
+    pending = target
+    for _ in range(41):
+        drive, rest = os.path.splitdrive(pending)
+        parts = [part for part in rest.replace("/", os.sep).split(os.sep) if part]
+        current, redirected = drive, None
+        for i, part in enumerate(parts):
+            current = current + os.sep + part
+            if not os.path.lexists(current):
+                break
+            if os.path.islink(current) or os.path.isjunction(current):
+                text = os.readlink(current)
+                base = text if os.path.isabs(text) else os.path.dirname(current) + os.sep + text
+                redirected = os.path.abspath(os.sep.join([base, *parts[i + 1 :]]))
+                break
+        if redirected is None:
+            break
+        if not _inside(cwd, redirected):
+            raise AssertionError(f"fixture target {p!r} reaches {redirected} through a link")
+        pending = redirected
     return target
+
+
+def _deny_access(target: str) -> Any:
+    """L12D007-C002 `deny_access`: Windows denies Everyone read (`icacls /deny *S-1-1-0:(R)`); POSIX
+    removes every mode bit (meaningful for a non-root user). Undone at case end so cleanup works."""
+    if sys.platform == "win32":  # pragma: no cover -- per-platform fixture
+        import subprocess
+
+        subprocess.run(["icacls", target, "/deny", "*S-1-1-0:(R)"], check=True, capture_output=True)
+        return lambda: subprocess.run(
+            ["icacls", target, "/remove:d", "*S-1-1-0"], check=False, capture_output=True
+        )
+    mode = os.stat(target).st_mode & 0o777  # pragma: no cover -- per-platform fixture
+    os.chmod(target, 0)  # pragma: no cover
+
+    def restore() -> None:  # pragma: no cover
+        with contextlib.suppress(OSError):
+            os.chmod(target, mode)
+
+    return restore  # pragma: no cover
 
 
 def _hold(op: str, target: str) -> Any:  # pragma: no cover -- win32-only fixture
@@ -103,7 +161,8 @@ def _hold(op: str, target: str) -> Any:  # pragma: no cover -- win32-only fixtur
     ]
     k32.CreateFileW.restype = wintypes.HANDLE
     share = 0 if op == "hold_exclusive" else 3  # none / read+write (no delete), as the schema says
-    handle = k32.CreateFileW(target, 0xC0000000, share, None, 3, 0x80, None)  # RW, OPEN_EXISTING
+    # RW, OPEN_EXISTING; FILE_FLAG_BACKUP_SEMANTICS so a DIRECTORY can be held too (L12D007-C002).
+    handle = k32.CreateFileW(target, 0xC0000000, share, None, 3, 0x80 | 0x02000000, None)
     if handle == wintypes.HANDLE(-1).value:
         raise OSError(ctypes.get_last_error(), f"{op} fixture open failed", target)
     if op == "lock_range" and not k32.LockFile(handle, 0, 0, 64, 0):
@@ -128,12 +187,17 @@ async def _run_steps(case: dict[str, Any], root: Path, releases: list[Any]) -> l
         p = path_argument(cwd, step["path"])
         op = step["op"]
         if op == "make_symlink":
-            _fixture_target(cwd, string(step["to"]["utf16"]))
-            os.symlink(string(step["to"]["utf16"]), _fixture_target(cwd, p))
+            link = _fixture_target(cwd, p)
+            _fixture_target(cwd, string(step["to"]["utf16"]), os.path.dirname(link))
+            os.symlink(string(step["to"]["utf16"]), link)
             observed.append({"ok": None})
             continue
         if op in ("hold_exclusive", "lock_range"):  # pragma: no cover -- win32-only fixtures
             releases.append(_hold(op, _fixture_target(cwd, p)))
+            observed.append({"ok": None})
+            continue
+        if op == "deny_access":
+            releases.append(_deny_access(_fixture_target(cwd, p)))
             observed.append({"ok": None})
             continue
         # L12-D006: `aborted` hands the operation an already-aborted signal (fixture construction).

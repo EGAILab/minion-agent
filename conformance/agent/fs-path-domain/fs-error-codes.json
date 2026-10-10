@@ -24477,6 +24477,3536 @@
      "win32"
     ],
     "platform_note": "Windows-only condition: the host has no such name class / sharing / byte-range-lock semantics on Linux."
+   },
+   {
+    "id": "errors/directory-denied/read_text_file",
+    "steps": [
+     {
+      "op": "create_dir",
+      "path": {
+       "utf16": [
+        100
+       ]
+      },
+      "recursive": true,
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "deny_access",
+      "path": {
+       "utf16": [
+        100
+       ]
+      },
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "read_text_file",
+      "path": {
+       "utf16": [
+        100
+       ]
+      },
+      "expect": {
+       "error": "permission_denied",
+       "path": {
+        "components": [
+         [
+          100
+         ]
+        ]
+       }
+      }
+     }
+    ]
+   },
+   {
+    "id": "errors/directory-denied/read_text_lines",
+    "steps": [
+     {
+      "op": "create_dir",
+      "path": {
+       "utf16": [
+        100
+       ]
+      },
+      "recursive": true,
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "deny_access",
+      "path": {
+       "utf16": [
+        100
+       ]
+      },
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "read_text_lines",
+      "path": {
+       "utf16": [
+        100
+       ]
+      },
+      "expect": {
+       "error": "permission_denied",
+       "path": {
+        "components": [
+         [
+          100
+         ]
+        ]
+       }
+      }
+     }
+    ]
+   },
+   {
+    "id": "errors/directory-denied/read_binary_file",
+    "steps": [
+     {
+      "op": "create_dir",
+      "path": {
+       "utf16": [
+        100
+       ]
+      },
+      "recursive": true,
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "deny_access",
+      "path": {
+       "utf16": [
+        100
+       ]
+      },
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "read_binary_file",
+      "path": {
+       "utf16": [
+        100
+       ]
+      },
+      "expect": {
+       "error": "permission_denied",
+       "path": {
+        "components": [
+         [
+          100
+         ]
+        ]
+       }
+      }
+     }
+    ]
+   },
+   {
+    "id": "errors/directory-denied/write_file",
+    "steps": [
+     {
+      "op": "create_dir",
+      "path": {
+       "utf16": [
+        100
+       ]
+      },
+      "recursive": true,
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "deny_access",
+      "path": {
+       "utf16": [
+        100
+       ]
+      },
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "write_file",
+      "path": {
+       "utf16": [
+        100
+       ]
+      },
+      "content": [
+       119
+      ],
+      "expect": {
+       "error": "is_directory",
+       "path": {
+        "components": [
+         [
+          100
+         ]
+        ]
+       }
+      }
+     }
+    ]
+   },
+   {
+    "id": "errors/directory-denied/append_file",
+    "steps": [
+     {
+      "op": "create_dir",
+      "path": {
+       "utf16": [
+        100
+       ]
+      },
+      "recursive": true,
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "deny_access",
+      "path": {
+       "utf16": [
+        100
+       ]
+      },
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "append_file",
+      "path": {
+       "utf16": [
+        100
+       ]
+      },
+      "content": [
+       119
+      ],
+      "expect_by_platform": {
+       "linux": {
+        "error": "is_directory",
+        "path": {
+         "components": [
+          [
+           100
+          ]
+         ]
+        }
+       },
+       "win32": {
+        "error": "permission_denied",
+        "path": {
+         "components": [
+          [
+           100
+          ]
+         ]
+        }
+       }
+      }
+     }
+    ]
+   },
+   {
+    "id": "errors/directory-denied/rename_file-source",
+    "steps": [
+     {
+      "op": "create_dir",
+      "path": {
+       "utf16": [
+        100
+       ]
+      },
+      "recursive": true,
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "deny_access",
+      "path": {
+       "utf16": [
+        100
+       ]
+      },
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "rename_file",
+      "path": {
+       "utf16": [
+        100
+       ]
+      },
+      "to": {
+       "utf16": [
+        114,
+        101,
+        110,
+        97,
+        109,
+        101,
+        100
+       ]
+      },
+      "expect_by_platform": {
+       "linux": {
+        "ok": null
+       },
+       "win32": {
+        "error": "permission_denied",
+        "path": {
+         "components": [
+          [
+           100
+          ]
+         ]
+        }
+       }
+      }
+     }
+    ]
+   },
+   {
+    "id": "errors/directory-denied/rename_file-onto",
+    "steps": [
+     {
+      "op": "create_dir",
+      "path": {
+       "utf16": [
+        100
+       ]
+      },
+      "recursive": true,
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "deny_access",
+      "path": {
+       "utf16": [
+        100
+       ]
+      },
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "write_file",
+      "path": {
+       "utf16": [
+        115,
+        114,
+        99
+       ]
+      },
+      "content": [
+       115
+      ],
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "rename_file",
+      "path": {
+       "utf16": [
+        115,
+        114,
+        99
+       ]
+      },
+      "to": {
+       "utf16": [
+        100
+       ]
+      },
+      "expect_by_platform": {
+       "linux": {
+        "error": "is_directory",
+        "path": {
+         "components": [
+          [
+           115,
+           114,
+           99
+          ]
+         ]
+        }
+       },
+       "win32": {
+        "error": "permission_denied",
+        "path": {
+         "components": [
+          [
+           115,
+           114,
+           99
+          ]
+         ]
+        }
+       }
+      }
+     }
+    ]
+   },
+   {
+    "id": "errors/directory-denied/file_info",
+    "steps": [
+     {
+      "op": "create_dir",
+      "path": {
+       "utf16": [
+        100
+       ]
+      },
+      "recursive": true,
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "deny_access",
+      "path": {
+       "utf16": [
+        100
+       ]
+      },
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "file_info",
+      "path": {
+       "utf16": [
+        100
+       ]
+      },
+      "expect": {
+       "kind": "directory",
+       "name": [
+        100
+       ]
+      }
+     }
+    ]
+   },
+   {
+    "id": "errors/directory-denied/exists",
+    "steps": [
+     {
+      "op": "create_dir",
+      "path": {
+       "utf16": [
+        100
+       ]
+      },
+      "recursive": true,
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "deny_access",
+      "path": {
+       "utf16": [
+        100
+       ]
+      },
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "exists",
+      "path": {
+       "utf16": [
+        100
+       ]
+      },
+      "expect": {
+       "ok": true
+      }
+     }
+    ]
+   },
+   {
+    "id": "errors/directory-denied/list_dir",
+    "steps": [
+     {
+      "op": "create_dir",
+      "path": {
+       "utf16": [
+        100
+       ]
+      },
+      "recursive": true,
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "deny_access",
+      "path": {
+       "utf16": [
+        100
+       ]
+      },
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "list_dir",
+      "path": {
+       "utf16": [
+        100
+       ]
+      },
+      "expect": {
+       "error": "permission_denied",
+       "path": {
+        "components": [
+         [
+          100
+         ]
+        ]
+       }
+      }
+     }
+    ]
+   },
+   {
+    "id": "errors/directory-denied/canonical_path",
+    "steps": [
+     {
+      "op": "create_dir",
+      "path": {
+       "utf16": [
+        100
+       ]
+      },
+      "recursive": true,
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "deny_access",
+      "path": {
+       "utf16": [
+        100
+       ]
+      },
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "canonical_path",
+      "path": {
+       "utf16": [
+        100
+       ]
+      },
+      "expect_by_platform": {
+       "linux": {
+        "components": [
+         [
+          100
+         ]
+        ]
+       },
+       "win32": {
+        "error": "permission_denied",
+        "path": {
+         "components": [
+          [
+           100
+          ]
+         ]
+        }
+       }
+      }
+     }
+    ]
+   },
+   {
+    "id": "errors/directory-denied/create_dir-recursive",
+    "steps": [
+     {
+      "op": "create_dir",
+      "path": {
+       "utf16": [
+        100
+       ]
+      },
+      "recursive": true,
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "deny_access",
+      "path": {
+       "utf16": [
+        100
+       ]
+      },
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "create_dir",
+      "path": {
+       "utf16": [
+        100
+       ]
+      },
+      "recursive": true,
+      "expect": {
+       "ok": null
+      }
+     }
+    ]
+   },
+   {
+    "id": "errors/directory-denied/create_dir-nonrecursive",
+    "steps": [
+     {
+      "op": "create_dir",
+      "path": {
+       "utf16": [
+        100
+       ]
+      },
+      "recursive": true,
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "deny_access",
+      "path": {
+       "utf16": [
+        100
+       ]
+      },
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "create_dir",
+      "path": {
+       "utf16": [
+        100
+       ]
+      },
+      "recursive": false,
+      "expect": {
+       "error": "unknown",
+       "path": {
+        "components": [
+         [
+          100
+         ]
+        ]
+       }
+      }
+     }
+    ]
+   },
+   {
+    "id": "errors/directory-denied/remove",
+    "steps": [
+     {
+      "op": "create_dir",
+      "path": {
+       "utf16": [
+        100
+       ]
+      },
+      "recursive": true,
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "deny_access",
+      "path": {
+       "utf16": [
+        100
+       ]
+      },
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "remove",
+      "path": {
+       "utf16": [
+        100
+       ]
+      },
+      "expect": {
+       "error": "unknown",
+       "path": {
+        "components": [
+         [
+          100
+         ]
+        ]
+       }
+      }
+     }
+    ]
+   },
+   {
+    "id": "errors/directory-denied/remove-recursive",
+    "steps": [
+     {
+      "op": "create_dir",
+      "path": {
+       "utf16": [
+        100
+       ]
+      },
+      "recursive": true,
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "deny_access",
+      "path": {
+       "utf16": [
+        100
+       ]
+      },
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "remove",
+      "path": {
+       "utf16": [
+        100
+       ]
+      },
+      "recursive": true,
+      "expect_by_platform": {
+       "linux": {
+        "ok": null
+       },
+       "win32": {
+        "error": "permission_denied",
+        "path": {
+         "components": [
+          [
+           100
+          ]
+         ]
+        }
+       }
+      }
+     }
+    ]
+   },
+   {
+    "id": "errors/directory-denied/remove-force",
+    "steps": [
+     {
+      "op": "create_dir",
+      "path": {
+       "utf16": [
+        100
+       ]
+      },
+      "recursive": true,
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "deny_access",
+      "path": {
+       "utf16": [
+        100
+       ]
+      },
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "remove",
+      "path": {
+       "utf16": [
+        100
+       ]
+      },
+      "force": true,
+      "expect": {
+       "error": "unknown",
+       "path": {
+        "components": [
+         [
+          100
+         ]
+        ]
+       }
+      }
+     }
+    ]
+   },
+   {
+    "id": "errors/file-denied/read_text_file",
+    "steps": [
+     {
+      "op": "write_file",
+      "path": {
+       "utf16": [
+        102
+       ]
+      },
+      "content": [
+       120
+      ],
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "deny_access",
+      "path": {
+       "utf16": [
+        102
+       ]
+      },
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "read_text_file",
+      "path": {
+       "utf16": [
+        102
+       ]
+      },
+      "expect": {
+       "error": "permission_denied",
+       "path": {
+        "components": [
+         [
+          102
+         ]
+        ]
+       }
+      }
+     }
+    ]
+   },
+   {
+    "id": "errors/file-denied/read_text_lines",
+    "steps": [
+     {
+      "op": "write_file",
+      "path": {
+       "utf16": [
+        102
+       ]
+      },
+      "content": [
+       120
+      ],
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "deny_access",
+      "path": {
+       "utf16": [
+        102
+       ]
+      },
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "read_text_lines",
+      "path": {
+       "utf16": [
+        102
+       ]
+      },
+      "expect": {
+       "error": "permission_denied",
+       "path": {
+        "components": [
+         [
+          102
+         ]
+        ]
+       }
+      }
+     }
+    ]
+   },
+   {
+    "id": "errors/file-denied/read_binary_file",
+    "steps": [
+     {
+      "op": "write_file",
+      "path": {
+       "utf16": [
+        102
+       ]
+      },
+      "content": [
+       120
+      ],
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "deny_access",
+      "path": {
+       "utf16": [
+        102
+       ]
+      },
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "read_binary_file",
+      "path": {
+       "utf16": [
+        102
+       ]
+      },
+      "expect": {
+       "error": "permission_denied",
+       "path": {
+        "components": [
+         [
+          102
+         ]
+        ]
+       }
+      }
+     }
+    ]
+   },
+   {
+    "id": "errors/file-denied/write_file",
+    "steps": [
+     {
+      "op": "write_file",
+      "path": {
+       "utf16": [
+        102
+       ]
+      },
+      "content": [
+       120
+      ],
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "deny_access",
+      "path": {
+       "utf16": [
+        102
+       ]
+      },
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "write_file",
+      "path": {
+       "utf16": [
+        102
+       ]
+      },
+      "content": [
+       119
+      ],
+      "expect": {
+       "error": "permission_denied",
+       "path": {
+        "components": [
+         [
+          102
+         ]
+        ]
+       }
+      }
+     }
+    ]
+   },
+   {
+    "id": "errors/file-denied/append_file",
+    "steps": [
+     {
+      "op": "write_file",
+      "path": {
+       "utf16": [
+        102
+       ]
+      },
+      "content": [
+       120
+      ],
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "deny_access",
+      "path": {
+       "utf16": [
+        102
+       ]
+      },
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "append_file",
+      "path": {
+       "utf16": [
+        102
+       ]
+      },
+      "content": [
+       119
+      ],
+      "expect": {
+       "error": "permission_denied",
+       "path": {
+        "components": [
+         [
+          102
+         ]
+        ]
+       }
+      }
+     }
+    ]
+   },
+   {
+    "id": "errors/file-denied/rename_file-source",
+    "steps": [
+     {
+      "op": "write_file",
+      "path": {
+       "utf16": [
+        102
+       ]
+      },
+      "content": [
+       120
+      ],
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "deny_access",
+      "path": {
+       "utf16": [
+        102
+       ]
+      },
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "rename_file",
+      "path": {
+       "utf16": [
+        102
+       ]
+      },
+      "to": {
+       "utf16": [
+        114,
+        101,
+        110,
+        97,
+        109,
+        101,
+        100
+       ]
+      },
+      "expect_by_platform": {
+       "linux": {
+        "ok": null
+       },
+       "win32": {
+        "error": "permission_denied",
+        "path": {
+         "components": [
+          [
+           102
+          ]
+         ]
+        }
+       }
+      }
+     }
+    ]
+   },
+   {
+    "id": "errors/file-denied/rename_file-onto",
+    "steps": [
+     {
+      "op": "write_file",
+      "path": {
+       "utf16": [
+        102
+       ]
+      },
+      "content": [
+       120
+      ],
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "deny_access",
+      "path": {
+       "utf16": [
+        102
+       ]
+      },
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "write_file",
+      "path": {
+       "utf16": [
+        115,
+        114,
+        99
+       ]
+      },
+      "content": [
+       115
+      ],
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "rename_file",
+      "path": {
+       "utf16": [
+        115,
+        114,
+        99
+       ]
+      },
+      "to": {
+       "utf16": [
+        102
+       ]
+      },
+      "expect": {
+       "ok": null
+      }
+     }
+    ]
+   },
+   {
+    "id": "errors/file-denied/file_info",
+    "steps": [
+     {
+      "op": "write_file",
+      "path": {
+       "utf16": [
+        102
+       ]
+      },
+      "content": [
+       120
+      ],
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "deny_access",
+      "path": {
+       "utf16": [
+        102
+       ]
+      },
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "file_info",
+      "path": {
+       "utf16": [
+        102
+       ]
+      },
+      "expect": {
+       "kind": "file",
+       "name": [
+        102
+       ]
+      }
+     }
+    ]
+   },
+   {
+    "id": "errors/file-denied/exists",
+    "steps": [
+     {
+      "op": "write_file",
+      "path": {
+       "utf16": [
+        102
+       ]
+      },
+      "content": [
+       120
+      ],
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "deny_access",
+      "path": {
+       "utf16": [
+        102
+       ]
+      },
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "exists",
+      "path": {
+       "utf16": [
+        102
+       ]
+      },
+      "expect": {
+       "ok": true
+      }
+     }
+    ]
+   },
+   {
+    "id": "errors/file-denied/list_dir",
+    "steps": [
+     {
+      "op": "write_file",
+      "path": {
+       "utf16": [
+        102
+       ]
+      },
+      "content": [
+       120
+      ],
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "deny_access",
+      "path": {
+       "utf16": [
+        102
+       ]
+      },
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "list_dir",
+      "path": {
+       "utf16": [
+        102
+       ]
+      },
+      "expect_by_platform": {
+       "linux": {
+        "error": "not_directory",
+        "path": {
+         "components": [
+          [
+           102
+          ]
+         ]
+        }
+       },
+       "win32": {
+        "error": "permission_denied",
+        "path": {
+         "components": [
+          [
+           102
+          ]
+         ]
+        }
+       }
+      }
+     }
+    ]
+   },
+   {
+    "id": "errors/file-denied/canonical_path",
+    "steps": [
+     {
+      "op": "write_file",
+      "path": {
+       "utf16": [
+        102
+       ]
+      },
+      "content": [
+       120
+      ],
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "deny_access",
+      "path": {
+       "utf16": [
+        102
+       ]
+      },
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "canonical_path",
+      "path": {
+       "utf16": [
+        102
+       ]
+      },
+      "expect_by_platform": {
+       "linux": {
+        "components": [
+         [
+          102
+         ]
+        ]
+       },
+       "win32": {
+        "error": "permission_denied",
+        "path": {
+         "components": [
+          [
+           102
+          ]
+         ]
+        }
+       }
+      }
+     }
+    ]
+   },
+   {
+    "id": "errors/file-denied/create_dir-recursive",
+    "steps": [
+     {
+      "op": "write_file",
+      "path": {
+       "utf16": [
+        102
+       ]
+      },
+      "content": [
+       120
+      ],
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "deny_access",
+      "path": {
+       "utf16": [
+        102
+       ]
+      },
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "create_dir",
+      "path": {
+       "utf16": [
+        102
+       ]
+      },
+      "recursive": true,
+      "expect": {
+       "error": "unknown",
+       "path": {
+        "components": [
+         [
+          102
+         ]
+        ]
+       }
+      }
+     }
+    ]
+   },
+   {
+    "id": "errors/file-denied/create_dir-nonrecursive",
+    "steps": [
+     {
+      "op": "write_file",
+      "path": {
+       "utf16": [
+        102
+       ]
+      },
+      "content": [
+       120
+      ],
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "deny_access",
+      "path": {
+       "utf16": [
+        102
+       ]
+      },
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "create_dir",
+      "path": {
+       "utf16": [
+        102
+       ]
+      },
+      "recursive": false,
+      "expect": {
+       "error": "unknown",
+       "path": {
+        "components": [
+         [
+          102
+         ]
+        ]
+       }
+      }
+     }
+    ]
+   },
+   {
+    "id": "errors/file-denied/remove",
+    "steps": [
+     {
+      "op": "write_file",
+      "path": {
+       "utf16": [
+        102
+       ]
+      },
+      "content": [
+       120
+      ],
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "deny_access",
+      "path": {
+       "utf16": [
+        102
+       ]
+      },
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "remove",
+      "path": {
+       "utf16": [
+        102
+       ]
+      },
+      "expect_by_platform": {
+       "linux": {
+        "ok": null
+       },
+       "win32": {
+        "error": "permission_denied",
+        "path": {
+         "components": [
+          [
+           102
+          ]
+         ]
+        }
+       }
+      }
+     }
+    ]
+   },
+   {
+    "id": "errors/file-denied/remove-recursive",
+    "steps": [
+     {
+      "op": "write_file",
+      "path": {
+       "utf16": [
+        102
+       ]
+      },
+      "content": [
+       120
+      ],
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "deny_access",
+      "path": {
+       "utf16": [
+        102
+       ]
+      },
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "remove",
+      "path": {
+       "utf16": [
+        102
+       ]
+      },
+      "recursive": true,
+      "expect_by_platform": {
+       "linux": {
+        "ok": null
+       },
+       "win32": {
+        "error": "permission_denied",
+        "path": {
+         "components": [
+          [
+           102
+          ]
+         ]
+        }
+       }
+      }
+     }
+    ]
+   },
+   {
+    "id": "errors/file-denied/remove-force",
+    "steps": [
+     {
+      "op": "write_file",
+      "path": {
+       "utf16": [
+        102
+       ]
+      },
+      "content": [
+       120
+      ],
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "deny_access",
+      "path": {
+       "utf16": [
+        102
+       ]
+      },
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "remove",
+      "path": {
+       "utf16": [
+        102
+       ]
+      },
+      "force": true,
+      "expect_by_platform": {
+       "linux": {
+        "ok": null
+       },
+       "win32": {
+        "error": "permission_denied",
+        "path": {
+         "components": [
+          [
+           102
+          ]
+         ]
+        }
+       }
+      }
+     }
+    ]
+   },
+   {
+    "id": "errors/directory-held/read_text_file",
+    "steps": [
+     {
+      "op": "create_dir",
+      "path": {
+       "utf16": [
+        100
+       ]
+      },
+      "recursive": true,
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "hold_exclusive",
+      "path": {
+       "utf16": [
+        100
+       ]
+      },
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "read_text_file",
+      "path": {
+       "utf16": [
+        100
+       ]
+      },
+      "expect": {
+       "error": "unknown",
+       "path": {
+        "components": [
+         [
+          100
+         ]
+        ]
+       }
+      }
+     }
+    ],
+    "platforms": [
+     "win32"
+    ],
+    "platform_note": "Windows-only condition: the host has no such name class / sharing / byte-range-lock semantics on Linux."
+   },
+   {
+    "id": "errors/directory-held/read_text_lines",
+    "steps": [
+     {
+      "op": "create_dir",
+      "path": {
+       "utf16": [
+        100
+       ]
+      },
+      "recursive": true,
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "hold_exclusive",
+      "path": {
+       "utf16": [
+        100
+       ]
+      },
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "read_text_lines",
+      "path": {
+       "utf16": [
+        100
+       ]
+      },
+      "expect": {
+       "error": "unknown",
+       "path": {
+        "components": [
+         [
+          100
+         ]
+        ]
+       }
+      }
+     }
+    ],
+    "platforms": [
+     "win32"
+    ],
+    "platform_note": "Windows-only condition: the host has no such name class / sharing / byte-range-lock semantics on Linux."
+   },
+   {
+    "id": "errors/directory-held/read_binary_file",
+    "steps": [
+     {
+      "op": "create_dir",
+      "path": {
+       "utf16": [
+        100
+       ]
+      },
+      "recursive": true,
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "hold_exclusive",
+      "path": {
+       "utf16": [
+        100
+       ]
+      },
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "read_binary_file",
+      "path": {
+       "utf16": [
+        100
+       ]
+      },
+      "expect": {
+       "error": "unknown",
+       "path": {
+        "components": [
+         [
+          100
+         ]
+        ]
+       }
+      }
+     }
+    ],
+    "platforms": [
+     "win32"
+    ],
+    "platform_note": "Windows-only condition: the host has no such name class / sharing / byte-range-lock semantics on Linux."
+   },
+   {
+    "id": "errors/directory-held/write_file",
+    "steps": [
+     {
+      "op": "create_dir",
+      "path": {
+       "utf16": [
+        100
+       ]
+      },
+      "recursive": true,
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "hold_exclusive",
+      "path": {
+       "utf16": [
+        100
+       ]
+      },
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "write_file",
+      "path": {
+       "utf16": [
+        100
+       ]
+      },
+      "content": [
+       119
+      ],
+      "expect": {
+       "error": "is_directory",
+       "path": {
+        "components": [
+         [
+          100
+         ]
+        ]
+       }
+      }
+     }
+    ],
+    "platforms": [
+     "win32"
+    ],
+    "platform_note": "Windows-only condition: the host has no such name class / sharing / byte-range-lock semantics on Linux."
+   },
+   {
+    "id": "errors/directory-held/append_file",
+    "steps": [
+     {
+      "op": "create_dir",
+      "path": {
+       "utf16": [
+        100
+       ]
+      },
+      "recursive": true,
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "hold_exclusive",
+      "path": {
+       "utf16": [
+        100
+       ]
+      },
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "append_file",
+      "path": {
+       "utf16": [
+        100
+       ]
+      },
+      "content": [
+       119
+      ],
+      "expect": {
+       "error": "unknown",
+       "path": {
+        "components": [
+         [
+          100
+         ]
+        ]
+       }
+      }
+     }
+    ],
+    "platforms": [
+     "win32"
+    ],
+    "platform_note": "Windows-only condition: the host has no such name class / sharing / byte-range-lock semantics on Linux."
+   },
+   {
+    "id": "errors/directory-held/rename_file-source",
+    "steps": [
+     {
+      "op": "create_dir",
+      "path": {
+       "utf16": [
+        100
+       ]
+      },
+      "recursive": true,
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "hold_exclusive",
+      "path": {
+       "utf16": [
+        100
+       ]
+      },
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "rename_file",
+      "path": {
+       "utf16": [
+        100
+       ]
+      },
+      "to": {
+       "utf16": [
+        114,
+        101,
+        110,
+        97,
+        109,
+        101,
+        100
+       ]
+      },
+      "expect": {
+       "error": "unknown",
+       "path": {
+        "components": [
+         [
+          100
+         ]
+        ]
+       }
+      }
+     }
+    ],
+    "platforms": [
+     "win32"
+    ],
+    "platform_note": "Windows-only condition: the host has no such name class / sharing / byte-range-lock semantics on Linux."
+   },
+   {
+    "id": "errors/directory-held/rename_file-onto",
+    "steps": [
+     {
+      "op": "create_dir",
+      "path": {
+       "utf16": [
+        100
+       ]
+      },
+      "recursive": true,
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "hold_exclusive",
+      "path": {
+       "utf16": [
+        100
+       ]
+      },
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "write_file",
+      "path": {
+       "utf16": [
+        115,
+        114,
+        99
+       ]
+      },
+      "content": [
+       115
+      ],
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "rename_file",
+      "path": {
+       "utf16": [
+        115,
+        114,
+        99
+       ]
+      },
+      "to": {
+       "utf16": [
+        100
+       ]
+      },
+      "expect": {
+       "error": "permission_denied",
+       "path": {
+        "components": [
+         [
+          115,
+          114,
+          99
+         ]
+        ]
+       }
+      }
+     }
+    ],
+    "platforms": [
+     "win32"
+    ],
+    "platform_note": "Windows-only condition: the host has no such name class / sharing / byte-range-lock semantics on Linux."
+   },
+   {
+    "id": "errors/directory-held/file_info",
+    "steps": [
+     {
+      "op": "create_dir",
+      "path": {
+       "utf16": [
+        100
+       ]
+      },
+      "recursive": true,
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "hold_exclusive",
+      "path": {
+       "utf16": [
+        100
+       ]
+      },
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "file_info",
+      "path": {
+       "utf16": [
+        100
+       ]
+      },
+      "expect": {
+       "kind": "directory",
+       "name": [
+        100
+       ]
+      }
+     }
+    ],
+    "platforms": [
+     "win32"
+    ],
+    "platform_note": "Windows-only condition: the host has no such name class / sharing / byte-range-lock semantics on Linux."
+   },
+   {
+    "id": "errors/directory-held/exists",
+    "steps": [
+     {
+      "op": "create_dir",
+      "path": {
+       "utf16": [
+        100
+       ]
+      },
+      "recursive": true,
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "hold_exclusive",
+      "path": {
+       "utf16": [
+        100
+       ]
+      },
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "exists",
+      "path": {
+       "utf16": [
+        100
+       ]
+      },
+      "expect": {
+       "ok": true
+      }
+     }
+    ],
+    "platforms": [
+     "win32"
+    ],
+    "platform_note": "Windows-only condition: the host has no such name class / sharing / byte-range-lock semantics on Linux."
+   },
+   {
+    "id": "errors/directory-held/list_dir",
+    "steps": [
+     {
+      "op": "create_dir",
+      "path": {
+       "utf16": [
+        100
+       ]
+      },
+      "recursive": true,
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "hold_exclusive",
+      "path": {
+       "utf16": [
+        100
+       ]
+      },
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "list_dir",
+      "path": {
+       "utf16": [
+        100
+       ]
+      },
+      "expect": {
+       "error": "unknown",
+       "path": {
+        "components": [
+         [
+          100
+         ]
+        ]
+       }
+      }
+     }
+    ],
+    "platforms": [
+     "win32"
+    ],
+    "platform_note": "Windows-only condition: the host has no such name class / sharing / byte-range-lock semantics on Linux."
+   },
+   {
+    "id": "errors/directory-held/canonical_path",
+    "steps": [
+     {
+      "op": "create_dir",
+      "path": {
+       "utf16": [
+        100
+       ]
+      },
+      "recursive": true,
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "hold_exclusive",
+      "path": {
+       "utf16": [
+        100
+       ]
+      },
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "canonical_path",
+      "path": {
+       "utf16": [
+        100
+       ]
+      },
+      "expect": {
+       "components": [
+        [
+         100
+        ]
+       ]
+      }
+     }
+    ],
+    "platforms": [
+     "win32"
+    ],
+    "platform_note": "Windows-only condition: the host has no such name class / sharing / byte-range-lock semantics on Linux."
+   },
+   {
+    "id": "errors/directory-held/create_dir-recursive",
+    "steps": [
+     {
+      "op": "create_dir",
+      "path": {
+       "utf16": [
+        100
+       ]
+      },
+      "recursive": true,
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "hold_exclusive",
+      "path": {
+       "utf16": [
+        100
+       ]
+      },
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "create_dir",
+      "path": {
+       "utf16": [
+        100
+       ]
+      },
+      "recursive": true,
+      "expect": {
+       "ok": null
+      }
+     }
+    ],
+    "platforms": [
+     "win32"
+    ],
+    "platform_note": "Windows-only condition: the host has no such name class / sharing / byte-range-lock semantics on Linux."
+   },
+   {
+    "id": "errors/directory-held/create_dir-nonrecursive",
+    "steps": [
+     {
+      "op": "create_dir",
+      "path": {
+       "utf16": [
+        100
+       ]
+      },
+      "recursive": true,
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "hold_exclusive",
+      "path": {
+       "utf16": [
+        100
+       ]
+      },
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "create_dir",
+      "path": {
+       "utf16": [
+        100
+       ]
+      },
+      "recursive": false,
+      "expect": {
+       "error": "unknown",
+       "path": {
+        "components": [
+         [
+          100
+         ]
+        ]
+       }
+      }
+     }
+    ],
+    "platforms": [
+     "win32"
+    ],
+    "platform_note": "Windows-only condition: the host has no such name class / sharing / byte-range-lock semantics on Linux."
+   },
+   {
+    "id": "errors/directory-held/remove",
+    "steps": [
+     {
+      "op": "create_dir",
+      "path": {
+       "utf16": [
+        100
+       ]
+      },
+      "recursive": true,
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "hold_exclusive",
+      "path": {
+       "utf16": [
+        100
+       ]
+      },
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "remove",
+      "path": {
+       "utf16": [
+        100
+       ]
+      },
+      "expect": {
+       "error": "unknown",
+       "path": {
+        "components": [
+         [
+          100
+         ]
+        ]
+       }
+      }
+     }
+    ],
+    "platforms": [
+     "win32"
+    ],
+    "platform_note": "Windows-only condition: the host has no such name class / sharing / byte-range-lock semantics on Linux."
+   },
+   {
+    "id": "errors/directory-held/remove-recursive",
+    "steps": [
+     {
+      "op": "create_dir",
+      "path": {
+       "utf16": [
+        100
+       ]
+      },
+      "recursive": true,
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "hold_exclusive",
+      "path": {
+       "utf16": [
+        100
+       ]
+      },
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "remove",
+      "path": {
+       "utf16": [
+        100
+       ]
+      },
+      "recursive": true,
+      "expect": {
+       "error": "unknown",
+       "path": {
+        "components": [
+         [
+          100
+         ]
+        ]
+       }
+      }
+     }
+    ],
+    "platforms": [
+     "win32"
+    ],
+    "platform_note": "Windows-only condition: the host has no such name class / sharing / byte-range-lock semantics on Linux."
+   },
+   {
+    "id": "errors/directory-held/remove-force",
+    "steps": [
+     {
+      "op": "create_dir",
+      "path": {
+       "utf16": [
+        100
+       ]
+      },
+      "recursive": true,
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "hold_exclusive",
+      "path": {
+       "utf16": [
+        100
+       ]
+      },
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "remove",
+      "path": {
+       "utf16": [
+        100
+       ]
+      },
+      "force": true,
+      "expect": {
+       "error": "unknown",
+       "path": {
+        "components": [
+         [
+          100
+         ]
+        ]
+       }
+      }
+     }
+    ],
+    "platforms": [
+     "win32"
+    ],
+    "platform_note": "Windows-only condition: the host has no such name class / sharing / byte-range-lock semantics on Linux."
+   },
+   {
+    "id": "errors/tree-with-denied-entry/read_text_file",
+    "steps": [
+     {
+      "op": "create_dir",
+      "path": {
+       "utf16": [
+        100
+       ]
+      },
+      "recursive": true,
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "write_file",
+      "path": {
+       "utf16": [
+        100,
+        47,
+        99
+       ]
+      },
+      "content": [
+       120
+      ],
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "deny_access",
+      "path": {
+       "utf16": [
+        100,
+        47,
+        99
+       ]
+      },
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "read_text_file",
+      "path": {
+       "utf16": [
+        100
+       ]
+      },
+      "expect": {
+       "error": "is_directory",
+       "path": {
+        "components": [
+         [
+          100
+         ]
+        ]
+       }
+      }
+     }
+    ]
+   },
+   {
+    "id": "errors/tree-with-denied-entry/read_text_lines",
+    "steps": [
+     {
+      "op": "create_dir",
+      "path": {
+       "utf16": [
+        100
+       ]
+      },
+      "recursive": true,
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "write_file",
+      "path": {
+       "utf16": [
+        100,
+        47,
+        99
+       ]
+      },
+      "content": [
+       120
+      ],
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "deny_access",
+      "path": {
+       "utf16": [
+        100,
+        47,
+        99
+       ]
+      },
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "read_text_lines",
+      "path": {
+       "utf16": [
+        100
+       ]
+      },
+      "expect": {
+       "error": "is_directory",
+       "path": {
+        "components": [
+         [
+          100
+         ]
+        ]
+       }
+      }
+     }
+    ]
+   },
+   {
+    "id": "errors/tree-with-denied-entry/read_binary_file",
+    "steps": [
+     {
+      "op": "create_dir",
+      "path": {
+       "utf16": [
+        100
+       ]
+      },
+      "recursive": true,
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "write_file",
+      "path": {
+       "utf16": [
+        100,
+        47,
+        99
+       ]
+      },
+      "content": [
+       120
+      ],
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "deny_access",
+      "path": {
+       "utf16": [
+        100,
+        47,
+        99
+       ]
+      },
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "read_binary_file",
+      "path": {
+       "utf16": [
+        100
+       ]
+      },
+      "expect": {
+       "error": "is_directory",
+       "path": {
+        "components": [
+         [
+          100
+         ]
+        ]
+       }
+      }
+     }
+    ]
+   },
+   {
+    "id": "errors/tree-with-denied-entry/write_file",
+    "steps": [
+     {
+      "op": "create_dir",
+      "path": {
+       "utf16": [
+        100
+       ]
+      },
+      "recursive": true,
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "write_file",
+      "path": {
+       "utf16": [
+        100,
+        47,
+        99
+       ]
+      },
+      "content": [
+       120
+      ],
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "deny_access",
+      "path": {
+       "utf16": [
+        100,
+        47,
+        99
+       ]
+      },
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "write_file",
+      "path": {
+       "utf16": [
+        100
+       ]
+      },
+      "content": [
+       119
+      ],
+      "expect": {
+       "error": "is_directory",
+       "path": {
+        "components": [
+         [
+          100
+         ]
+        ]
+       }
+      }
+     }
+    ]
+   },
+   {
+    "id": "errors/tree-with-denied-entry/append_file",
+    "steps": [
+     {
+      "op": "create_dir",
+      "path": {
+       "utf16": [
+        100
+       ]
+      },
+      "recursive": true,
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "write_file",
+      "path": {
+       "utf16": [
+        100,
+        47,
+        99
+       ]
+      },
+      "content": [
+       120
+      ],
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "deny_access",
+      "path": {
+       "utf16": [
+        100,
+        47,
+        99
+       ]
+      },
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "append_file",
+      "path": {
+       "utf16": [
+        100
+       ]
+      },
+      "content": [
+       119
+      ],
+      "expect": {
+       "error": "is_directory",
+       "path": {
+        "components": [
+         [
+          100
+         ]
+        ]
+       }
+      }
+     }
+    ]
+   },
+   {
+    "id": "errors/tree-with-denied-entry/rename_file-source",
+    "steps": [
+     {
+      "op": "create_dir",
+      "path": {
+       "utf16": [
+        100
+       ]
+      },
+      "recursive": true,
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "write_file",
+      "path": {
+       "utf16": [
+        100,
+        47,
+        99
+       ]
+      },
+      "content": [
+       120
+      ],
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "deny_access",
+      "path": {
+       "utf16": [
+        100,
+        47,
+        99
+       ]
+      },
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "rename_file",
+      "path": {
+       "utf16": [
+        100
+       ]
+      },
+      "to": {
+       "utf16": [
+        114,
+        101,
+        110,
+        97,
+        109,
+        101,
+        100
+       ]
+      },
+      "expect": {
+       "ok": null
+      }
+     }
+    ]
+   },
+   {
+    "id": "errors/tree-with-denied-entry/rename_file-onto",
+    "steps": [
+     {
+      "op": "create_dir",
+      "path": {
+       "utf16": [
+        100
+       ]
+      },
+      "recursive": true,
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "write_file",
+      "path": {
+       "utf16": [
+        100,
+        47,
+        99
+       ]
+      },
+      "content": [
+       120
+      ],
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "deny_access",
+      "path": {
+       "utf16": [
+        100,
+        47,
+        99
+       ]
+      },
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "write_file",
+      "path": {
+       "utf16": [
+        115,
+        114,
+        99
+       ]
+      },
+      "content": [
+       115
+      ],
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "rename_file",
+      "path": {
+       "utf16": [
+        115,
+        114,
+        99
+       ]
+      },
+      "to": {
+       "utf16": [
+        100
+       ]
+      },
+      "expect_by_platform": {
+       "linux": {
+        "error": "is_directory",
+        "path": {
+         "components": [
+          [
+           115,
+           114,
+           99
+          ]
+         ]
+        }
+       },
+       "win32": {
+        "error": "permission_denied",
+        "path": {
+         "components": [
+          [
+           115,
+           114,
+           99
+          ]
+         ]
+        }
+       }
+      }
+     }
+    ]
+   },
+   {
+    "id": "errors/tree-with-denied-entry/file_info",
+    "steps": [
+     {
+      "op": "create_dir",
+      "path": {
+       "utf16": [
+        100
+       ]
+      },
+      "recursive": true,
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "write_file",
+      "path": {
+       "utf16": [
+        100,
+        47,
+        99
+       ]
+      },
+      "content": [
+       120
+      ],
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "deny_access",
+      "path": {
+       "utf16": [
+        100,
+        47,
+        99
+       ]
+      },
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "file_info",
+      "path": {
+       "utf16": [
+        100
+       ]
+      },
+      "expect": {
+       "kind": "directory",
+       "name": [
+        100
+       ]
+      }
+     }
+    ]
+   },
+   {
+    "id": "errors/tree-with-denied-entry/exists",
+    "steps": [
+     {
+      "op": "create_dir",
+      "path": {
+       "utf16": [
+        100
+       ]
+      },
+      "recursive": true,
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "write_file",
+      "path": {
+       "utf16": [
+        100,
+        47,
+        99
+       ]
+      },
+      "content": [
+       120
+      ],
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "deny_access",
+      "path": {
+       "utf16": [
+        100,
+        47,
+        99
+       ]
+      },
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "exists",
+      "path": {
+       "utf16": [
+        100
+       ]
+      },
+      "expect": {
+       "ok": true
+      }
+     }
+    ]
+   },
+   {
+    "id": "errors/tree-with-denied-entry/list_dir",
+    "steps": [
+     {
+      "op": "create_dir",
+      "path": {
+       "utf16": [
+        100
+       ]
+      },
+      "recursive": true,
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "write_file",
+      "path": {
+       "utf16": [
+        100,
+        47,
+        99
+       ]
+      },
+      "content": [
+       120
+      ],
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "deny_access",
+      "path": {
+       "utf16": [
+        100,
+        47,
+        99
+       ]
+      },
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "list_dir",
+      "path": {
+       "utf16": [
+        100
+       ]
+      },
+      "expect": {
+       "names": [
+        [
+         99
+        ]
+       ]
+      }
+     }
+    ]
+   },
+   {
+    "id": "errors/tree-with-denied-entry/canonical_path",
+    "steps": [
+     {
+      "op": "create_dir",
+      "path": {
+       "utf16": [
+        100
+       ]
+      },
+      "recursive": true,
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "write_file",
+      "path": {
+       "utf16": [
+        100,
+        47,
+        99
+       ]
+      },
+      "content": [
+       120
+      ],
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "deny_access",
+      "path": {
+       "utf16": [
+        100,
+        47,
+        99
+       ]
+      },
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "canonical_path",
+      "path": {
+       "utf16": [
+        100
+       ]
+      },
+      "expect": {
+       "components": [
+        [
+         100
+        ]
+       ]
+      }
+     }
+    ]
+   },
+   {
+    "id": "errors/tree-with-denied-entry/create_dir-recursive",
+    "steps": [
+     {
+      "op": "create_dir",
+      "path": {
+       "utf16": [
+        100
+       ]
+      },
+      "recursive": true,
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "write_file",
+      "path": {
+       "utf16": [
+        100,
+        47,
+        99
+       ]
+      },
+      "content": [
+       120
+      ],
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "deny_access",
+      "path": {
+       "utf16": [
+        100,
+        47,
+        99
+       ]
+      },
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "create_dir",
+      "path": {
+       "utf16": [
+        100
+       ]
+      },
+      "recursive": true,
+      "expect": {
+       "ok": null
+      }
+     }
+    ]
+   },
+   {
+    "id": "errors/tree-with-denied-entry/create_dir-nonrecursive",
+    "steps": [
+     {
+      "op": "create_dir",
+      "path": {
+       "utf16": [
+        100
+       ]
+      },
+      "recursive": true,
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "write_file",
+      "path": {
+       "utf16": [
+        100,
+        47,
+        99
+       ]
+      },
+      "content": [
+       120
+      ],
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "deny_access",
+      "path": {
+       "utf16": [
+        100,
+        47,
+        99
+       ]
+      },
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "create_dir",
+      "path": {
+       "utf16": [
+        100
+       ]
+      },
+      "recursive": false,
+      "expect": {
+       "error": "unknown",
+       "path": {
+        "components": [
+         [
+          100
+         ]
+        ]
+       }
+      }
+     }
+    ]
+   },
+   {
+    "id": "errors/tree-with-denied-entry/remove",
+    "steps": [
+     {
+      "op": "create_dir",
+      "path": {
+       "utf16": [
+        100
+       ]
+      },
+      "recursive": true,
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "write_file",
+      "path": {
+       "utf16": [
+        100,
+        47,
+        99
+       ]
+      },
+      "content": [
+       120
+      ],
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "deny_access",
+      "path": {
+       "utf16": [
+        100,
+        47,
+        99
+       ]
+      },
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "remove",
+      "path": {
+       "utf16": [
+        100
+       ]
+      },
+      "expect": {
+       "error": "unknown",
+       "path": {
+        "components": [
+         [
+          100
+         ]
+        ]
+       }
+      }
+     }
+    ]
+   },
+   {
+    "id": "errors/tree-with-denied-entry/remove-recursive",
+    "steps": [
+     {
+      "op": "create_dir",
+      "path": {
+       "utf16": [
+        100
+       ]
+      },
+      "recursive": true,
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "write_file",
+      "path": {
+       "utf16": [
+        100,
+        47,
+        99
+       ]
+      },
+      "content": [
+       120
+      ],
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "deny_access",
+      "path": {
+       "utf16": [
+        100,
+        47,
+        99
+       ]
+      },
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "remove",
+      "path": {
+       "utf16": [
+        100
+       ]
+      },
+      "recursive": true,
+      "expect_by_platform": {
+       "linux": {
+        "ok": null
+       },
+       "win32": {
+        "error": "permission_denied",
+        "path": {
+         "components": [
+          [
+           100
+          ],
+          [
+           99
+          ]
+         ]
+        }
+       }
+      }
+     }
+    ]
+   },
+   {
+    "id": "errors/tree-with-denied-entry/remove-force",
+    "steps": [
+     {
+      "op": "create_dir",
+      "path": {
+       "utf16": [
+        100
+       ]
+      },
+      "recursive": true,
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "write_file",
+      "path": {
+       "utf16": [
+        100,
+        47,
+        99
+       ]
+      },
+      "content": [
+       120
+      ],
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "deny_access",
+      "path": {
+       "utf16": [
+        100,
+        47,
+        99
+       ]
+      },
+      "expect": {
+       "ok": null
+      }
+     },
+     {
+      "op": "remove",
+      "path": {
+       "utf16": [
+        100
+       ]
+      },
+      "force": true,
+      "expect": {
+       "error": "unknown",
+       "path": {
+        "components": [
+         [
+          100
+         ]
+        ]
+       }
+      }
+     }
+    ]
    }
   ]
  }

@@ -18,6 +18,9 @@ use uuid::Uuid;
 use super::path::{basename, from_native, join, native, resolve};
 use super::{AbortSignal, ExecutionWorldIdentity, FsError, FsErrorCode, FsPath};
 
+#[cfg(test)]
+mod readonly_tests;
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum FileKind {
     File,
@@ -987,13 +990,80 @@ async fn node_mkdirp_with(path: &Path, operations: &dyn MkdirOperations) -> Resu
     Ok(())
 }
 
-/// Carry each actual failing call's origin. Multiple-failure settlement selection (#127)
-/// and Windows EPERM retry (#126) remain explicitly outside this delta.
+#[async_trait]
+trait RemoveDirectoryOperations: Send + Sync {
+    async fn remove_dir(&self, path: &Path) -> io::Result<()>;
+    async fn clear_readonly_entry(&self, path: &Path) -> io::Result<bool>;
+
+    async fn read_dir(&self, path: &Path) -> io::Result<tokio::fs::ReadDir> {
+        tokio::fs::read_dir(path).await
+    }
+
+    // A no-op in production; a deterministic race seam after enumeration and
+    // before the child's real lstat, without sleeps or replacement walk logic.
+    async fn before_child_metadata(&self, _path: &Path) {}
+}
+
+struct TokioRemoveDirectoryOperations;
+
+#[async_trait]
+impl RemoveDirectoryOperations for TokioRemoveDirectoryOperations {
+    async fn remove_dir(&self, path: &Path) -> io::Result<()> {
+        tokio::fs::remove_dir(path).await
+    }
+
+    async fn clear_readonly_entry(&self, path: &Path) -> io::Result<bool> {
+        #[cfg(windows)]
+        {
+            let path = path.to_owned();
+            tokio::task::spawn_blocking(move || minion_agent_native_fs::clear_readonly_entry(&path))
+                .await
+                .map_err(io::Error::other)?
+        }
+        #[cfg(not(windows))]
+        {
+            let _ = path;
+            Ok(false)
+        }
+    }
+}
+
+async fn remove_directory_with(
+    path: &Path,
+    operations: &dyn RemoveDirectoryOperations,
+) -> io::Result<()> {
+    match operations.remove_dir(path).await {
+        Err(original) if original.kind() == io::ErrorKind::PermissionDenied => {
+            match operations.clear_readonly_entry(path).await {
+                Ok(true) => match operations.remove_dir(path).await {
+                    Err(retry) if retry.kind() == io::ErrorKind::NotFound => Ok(()),
+                    retry => retry,
+                },
+                Err(correction) if correction.kind() == io::ErrorKind::NotFound => Ok(()),
+                _ => Err(original),
+            }
+        }
+        result => result,
+    }
+}
+
+/// Carry each actual failing call's origin. Multiple-failure selection (#127)
+/// remains excluded. L12-D005 corrects an addressed entry's readonly attribute
+/// and accepts concurrent disappearance during recursive removal on every OS.
 fn remove_addressed(
     path: &Path,
     recursive: bool,
     force: bool,
 ) -> std::pin::Pin<Box<dyn Future<Output = Result<(), FsError>> + Send + '_>> {
+    remove_addressed_with(path, recursive, force, &TokioRemoveDirectoryOperations)
+}
+
+fn remove_addressed_with<'a>(
+    path: &'a Path,
+    recursive: bool,
+    force: bool,
+    operations: &'a dyn RemoveDirectoryOperations,
+) -> std::pin::Pin<Box<dyn Future<Output = Result<(), FsError>> + Send + 'a>> {
     Box::pin(async move {
         let metadata = match tokio::fs::symlink_metadata(path).await {
             Ok(metadata) => metadata,
@@ -1003,36 +1073,68 @@ fn remove_addressed(
         let result = if metadata.is_dir() && !metadata.file_type().is_symlink() {
             if recursive {
                 // Node rimraf attempts rmdir first; it enumerates only a nonempty directory.
-                match tokio::fs::remove_dir(path).await {
+                match remove_directory_with(path, operations).await {
                     Ok(()) => return Ok(()),
                     Err(e) if e.kind() == io::ErrorKind::DirectoryNotEmpty => {}
-                    Err(e) if force && e.kind() == io::ErrorKind::NotFound => return Ok(()),
+                    Err(e) if e.kind() == io::ErrorKind::NotFound => {
+                        return Ok(());
+                    }
                     Err(e) => return Err(native_error(e, path)),
                 }
-                let mut directory = tokio::fs::read_dir(path)
-                    .await
-                    .map_err(|e| native_error(e, path))?;
-                while let Some(entry) = directory
-                    .next_entry()
-                    .await
-                    .map_err(|e| native_error(e, path))?
-                {
-                    remove_addressed(&entry.path(), true, force).await?;
+                let mut directory = match operations.read_dir(path).await {
+                    Ok(directory) => directory,
+                    Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(()),
+                    Err(e) => return Err(native_error(e, path)),
+                };
+                loop {
+                    let entry = match directory.next_entry().await {
+                        Ok(Some(entry)) => entry,
+                        Ok(None) => break,
+                        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(()),
+                        Err(e) => return Err(native_error(e, path)),
+                    };
+                    let child = entry.path();
+                    operations.before_child_metadata(&child).await;
+                    // The target passed the initial lstat. A child which vanishes
+                    // during this recursive walk counts as removed on every OS.
+                    remove_addressed_with(&child, true, true, operations).await?;
                 }
             }
-            tokio::fs::remove_dir(path).await
+            // Non-recursive directory outcomes remain the excluded #125 surface.
+            if recursive {
+                remove_directory_with(path, operations).await
+            } else {
+                tokio::fs::remove_dir(path).await
+            }
+        } else if is_directory_link(&metadata) {
+            // Windows directory reparse entries require RemoveDirectory, not DeleteFile.
+            // The no-follow metadata and attribute handle both address the link itself.
+            remove_directory_with(path, operations).await
         } else {
             tokio::fs::remove_file(path).await
         };
         match result {
             Ok(()) => Ok(()),
-            Err(e) if force && e.kind() == io::ErrorKind::NotFound => Ok(()),
+            Err(e) if (force || recursive) && e.kind() == io::ErrorKind::NotFound => Ok(()),
             // Preserve the excluded #125 code/outcome behavior, but use Pi's
             // logical no-path carrier for a non-recursive directory refusal.
             Err(e) if metadata.is_dir() && !recursive => Err(map_fs_error(e)),
             Err(e) => Err(native_error(e, path)),
         }
     })
+}
+
+fn is_directory_link(metadata: &std::fs::Metadata) -> bool {
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt;
+        metadata.file_type().is_symlink() && metadata.file_attributes() & 0x10 != 0
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = metadata;
+        false
+    }
 }
 
 pub(crate) fn resolve_local_path(cwd: &Path, raw: &str) -> PathBuf {

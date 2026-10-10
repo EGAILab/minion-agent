@@ -6362,8 +6362,8 @@ rows:
     (fs-remove-readonly-scenario.schema.json; 21 cases generated from pinned Pi on Windows and Linux);
     tests/conformance/test_fs_remove_readonly_conformance.py, plus binding concurrency witnesses
     tests/execution/test_filesystem_readonly_remove.py. Python implements it (own-entry read-only attribute
-    cleared through a FILE_FLAG_OPEN_REPARSE_POINT handle, one retry); Rust fails the read-only directory
-    cases (pending).'
+    cleared through a FILE_FLAG_OPEN_REPARSE_POINT handle, one retry); Rust L12-D005 implementation
+    candidate covers the same corpus and directory correction; independent Rust closure review pending.'
   python: 'minion-agent-python/src/minion_agent/execution/filesystem.py; integration evidence in
     minion-agent-python/tests/execution/test_filesystem.py. L12-D004 (minion-agent#163; PI_PARITY_DEFECT,
     Owner-authorized targeted correction; independently approved, merged at #162 -> 5477eaeb): canonical_path
@@ -6373,7 +6373,13 @@ rows:
     minion-agent-docs assurance/layers/12-l12-d004-canonical-path.md.'
   rust: 'minion-agent-rust/crates/minion-agent/src/execution/filesystem.rs (`ada-url = 3.1.0`,
     whose bundled core is exact Ada 2.9.2); 8,246-case direct-oracle gate in that module''s unit
-    tests; integration evidence in minion-agent-rust/crates/minion-agent/tests/execution_filesystem.rs'
+    tests; integration evidence in minion-agent-rust/crates/minion-agent/tests/execution_filesystem.rs.
+    L12-D005 candidate (not certified): own-entry Windows readonly-directory correction and one retry;
+    no-follow binding in crates/minion-agent-native-fs; tests/fs_remove_readonly_conformance.rs (21 shared
+    documents), src/execution/filesystem/readonly_tests.rs (retry-error origin, correction failure,
+    concurrent vanish, one retry and external-target protection); scripts/readonly-remove-negative-controls.py.
+    Assurance: minion-agent-docs assurance/layers/12-l12-d005-rust-implementation.md. POSIX and #125 unchanged;
+    independent Rust closure review pending.'
   disposition: adopted
 - id: EXEC-003
   phase: 6

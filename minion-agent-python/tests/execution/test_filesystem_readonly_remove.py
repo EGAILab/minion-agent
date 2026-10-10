@@ -26,7 +26,8 @@ def _readonly(path: Path) -> None:
 def _libuv_fails(monkeypatch: pytest.MonkeyPatch, target: Path, plan: list[Any]) -> list[str]:
     """L12-D007: Windows removal is libuv's handle-based unlink (`_libuv_unlink`), which deletes a
     read-only entry directly. Each call on `target` takes the next planned outcome (an exception
-    to raise, or None to run the real unlink), so rimraf's fixWinEPERM layer above it is exercised.
+    to raise, or None to run the real unlink), so rimraf's fixWinEPERM recovery above it
+    (section 19.5 rule 5, `_fix_win_eperm`) is exercised.
     Returns the list of attempted paths."""
     real = filesystem_module._libuv_unlink
     attempts: list[str] = []
@@ -54,16 +55,16 @@ async def test_an_entry_vanishing_before_its_attribute_is_cleared_counts_as_remo
     target = tmp_path / "f"
     target.write_text("x")
     _readonly(target)
-    real = filesystem_module._clear_own_readonly_windows
+    real = filesystem_module._correct_own_attribute
     calls: list[str] = []
 
-    def vanish_first(path: str) -> bool:
+    def vanish_first(path: str) -> None:
         calls.append(path)
         os.chmod(path, stat.S_IWRITE)
         os.remove(path)
-        return real(path)
+        real(path)  # the real correction now meets the vanished entry
 
-    monkeypatch.setattr(filesystem_module, "_clear_own_readonly_windows", vanish_first)
+    monkeypatch.setattr(filesystem_module, "_correct_own_attribute", vanish_first)
     _libuv_fails(monkeypatch, target, [_eperm(target)])
 
     assert await LocalFileSystem(str(tmp_path)).remove("f") == Ok(None)
@@ -78,7 +79,11 @@ async def test_a_failed_attribute_correction_reports_the_original_error(
     target = tmp_path / "f"
     target.write_text("x")
     _readonly(target)
-    monkeypatch.setattr(filesystem_module, "_clear_own_readonly_windows", lambda path: False)
+
+    def correction_denied(path: str) -> None:
+        raise OSError(0, "Access is denied", path, 5)  # WRITE_ATTRIBUTES denied
+
+    monkeypatch.setattr(filesystem_module, "_correct_own_attribute", correction_denied)
     _libuv_fails(monkeypatch, target, [_eperm(target)])
 
     result = await LocalFileSystem(str(tmp_path)).remove("f")
@@ -149,9 +154,7 @@ async def test_a_tree_entry_whose_retry_still_fails_reports_the_retry_error(
     target.write_text("x")
     _readonly(target)
     retried: list[str] = []
-    monkeypatch.setattr(
-        filesystem_module, "_clear_readonly", lambda path: retried.append(path) or True
-    )
+    monkeypatch.setattr(filesystem_module, "_correct_own_attribute", retried.append)
     _libuv_fails(monkeypatch, target, [_eperm(target), _eperm(target)])
 
     result = await LocalFileSystem(str(tmp_path)).remove("t", recursive=True)
@@ -171,12 +174,11 @@ async def test_a_tree_entry_vanishing_before_its_retry_counts_as_removed(
     target.write_text("x")
     _readonly(target)
 
-    def cleared_then_vanished(path: str) -> bool:
+    def cleared_then_vanished(path: str) -> None:
         os.chmod(path, stat.S_IWRITE)
         os.remove(path)
-        return True
 
-    monkeypatch.setattr(filesystem_module, "_clear_readonly", cleared_then_vanished)
+    monkeypatch.setattr(filesystem_module, "_correct_own_attribute", cleared_then_vanished)
     _libuv_fails(monkeypatch, target, [_eperm(target)])
 
     assert await LocalFileSystem(str(tmp_path)).remove("t", recursive=True) == Ok(None)

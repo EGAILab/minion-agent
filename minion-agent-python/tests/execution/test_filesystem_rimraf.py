@@ -109,39 +109,6 @@ def test_a_directory_gone_before_its_listing_counts_as_removed(
 
 
 @windows_only
-def test_a_child_gone_before_its_unlink_counts_as_removed(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    (tmp_path / "d").mkdir()
-    (tmp_path / "d" / "f").write_text("x")
-    real = fs_module._unlink_entry
-
-    def vanished(path: str) -> None:
-        real(path)
-        raise _win32(2, path)
-
-    monkeypatch.setattr(fs_module, "_unlink_entry", vanished)
-    fs_module._rimraf(str(tmp_path / "d"))
-    assert not (tmp_path / "d").exists()
-
-
-@windows_only
-def test_a_child_unlink_failure_is_reported(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    (tmp_path / "d").mkdir()
-    (tmp_path / "d" / "f").write_text("x")
-
-    def refused(path: str) -> None:
-        raise _win32(32, path)
-
-    monkeypatch.setattr(fs_module, "_unlink_entry", refused)
-    with pytest.raises(OSError) as caught:
-        fs_module._rimraf(str(tmp_path / "d"))
-    assert (caught.value.winerror, caught.value.filename) == (32, str(tmp_path / "d" / "f"))
-
-
-@windows_only
 @pytest.mark.parametrize(("code", "removed"), [(2, True), (32, False)])
 def test_the_final_rmdir(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, code: int, removed: bool
@@ -261,17 +228,21 @@ async def test_control_cached_listing_type_fails_the_witness(
             listed[entry.path] = entry.is_dir(follow_symlinks=False)
         return real_scandir(path)
 
+    real_entry = fs_module._rimraf_entry
+
     def cached_child(path: str) -> None:
-        if listed[path]:
+        if path not in listed:  # the remove target itself: never listed
+            real_entry(path)
+        elif listed[path]:
             fs_module._rimraf(path)
         else:
-            fs_module._unlink_entry(path)
+            fs_module._unlink_routed(path)
 
     tree = tmp_path / "tree"
     (tree / "child").mkdir(parents=True)
     monkeypatch.setattr(fs_module.os, "scandir", recording)
     fired = _replace_after_listing(monkeypatch, tree, _directory_becomes_file(tree / "child"))
-    monkeypatch.setattr(fs_module, "_rimraf_child", cached_child)
+    monkeypatch.setattr(fs_module, "_rimraf_entry", cached_child)
     result = await LocalFileSystem(str(tmp_path)).remove("tree", recursive=True)
     assert fired == [True]
     assert result != Ok(None)
@@ -317,79 +288,6 @@ async def test_a_child_replaced_by_a_directory_link_is_removed_without_following
     assert fired == [True]
     assert not tree.exists()
     assert (outside / "keep").read_text() == "k"
-
-
-def test_a_child_gone_before_its_lstat_counts_as_removed(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    fs_module._rimraf_child(str(tmp_path / "missing"))
-
-
-def test_an_lstat_failure_still_goes_on_to_unlink(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """rimraf: an `lstat` error other than ENOENT falls through to `unlink`."""
-    target = tmp_path / "f"
-    target.write_text("x")
-    real_lstat = os.lstat
-
-    def refused(path: Any, *args: Any, **kwargs: Any) -> os.stat_result:
-        if os.fspath(path) == str(target):
-            raise PermissionError(13, "Permission denied", str(target))
-        return real_lstat(path, *args, **kwargs)
-
-    monkeypatch.setattr(fs_module.os, "lstat", refused)
-    fs_module._rimraf_child(str(target))
-    assert not target.exists()
-
-
-@windows_only
-def test_an_unlink_that_meets_a_directory_removes_it_as_a_directory(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """The child became a directory between its `lstat` and its `unlink`: libuv's unlink refuses
-    a directory (EPERM), and `fixWinEPERM`'s `stat` finds a directory, so `_rmdir` removes it."""
-    target = tmp_path / "d"
-    (target / "inner").mkdir(parents=True)
-    monkeypatch.setattr(fs_module, "_is_tree", lambda st: False)
-    fs_module._rimraf_child(str(target))
-    assert not target.exists()
-
-
-@windows_only
-@pytest.mark.parametrize(
-    ("stat_answer", "removed"),
-    [
-        pytest.param(None, False, id="stat-finds-a-file"),
-        pytest.param(32, False, id="stat-fails"),
-        pytest.param(2, True, id="stat-finds-it-gone"),
-    ],
-)
-def test_an_eperm_unlink_of_a_non_directory(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, stat_answer: int | None, removed: bool
-) -> None:
-    """`fixWinEPERM`: a `stat` that finds a file, or fails, reports the unlink's own error; one
-    that finds the entry gone counts as removed."""
-    target = tmp_path / "f"
-    target.write_text("x")
-
-    def refused(path: str) -> None:
-        raise OSError(0, "Access is denied", path, 5)
-
-    monkeypatch.setattr(fs_module, "_unlink_entry", refused)
-    if stat_answer is not None:
-        code = stat_answer
-
-        def stat_fails(path: Any, *args: Any, **kwargs: Any) -> os.stat_result:
-            raise OSError(0, "scripted", os.fspath(path), code)
-
-        monkeypatch.setattr(fs_module.os, "stat", stat_fails)
-    if removed:
-        fs_module._rimraf_child(str(target))
-        return
-    with pytest.raises(OSError) as caught:
-        fs_module._rimraf_child(str(target))
-    assert (caught.value.winerror, caught.value.filename) == (5, str(target))
 
 
 @windows_only

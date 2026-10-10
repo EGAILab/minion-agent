@@ -904,142 +904,24 @@ def _check_read_write_sync(path: str) -> None:
         _check_read_write_posix(path)
 
 
-def _clear_own_readonly_windows(path: str) -> bool:
-    """Clear the entry's OWN `FILE_ATTRIBUTE_READONLY` through a handle opened with
-    `FILE_FLAG_OPEN_REPARSE_POINT`: a symlink or junction is changed itself, never its target. True
-    only when the attribute was set and is now cleared; raises `FileNotFoundError` when the entry is
-    gone. Any other failure (an ACL denying `WRITE_ATTRIBUTES`, ...) is False: the caller then
-    reports the original deletion error, as pinned Node does."""
-    import ctypes
-    from ctypes import wintypes
-
-    class _FileBasicInfo(ctypes.Structure):
-        _fields_ = [
-            ("CreationTime", ctypes.c_int64),
-            ("LastAccessTime", ctypes.c_int64),
-            ("LastWriteTime", ctypes.c_int64),
-            ("ChangeTime", ctypes.c_int64),
-            ("FileAttributes", wintypes.DWORD),
-        ]
-
-    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
-    kernel32.CreateFileW.restype = wintypes.HANDLE
-    kernel32.CreateFileW.argtypes = [
-        wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD, ctypes.c_void_p,
-        wintypes.DWORD, wintypes.DWORD, wintypes.HANDLE,
-    ]  # fmt: skip
-    kernel32.GetFileInformationByHandleEx.argtypes = [
-        wintypes.HANDLE,
-        ctypes.c_int,
-        ctypes.c_void_p,
-        wintypes.DWORD,
-    ]
-    kernel32.SetFileInformationByHandle.argtypes = [
-        wintypes.HANDLE,
-        ctypes.c_int,
-        ctypes.c_void_p,
-        wintypes.DWORD,
-    ]
-    kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
-    file_read_attributes, file_write_attributes = 0x80, 0x100
-    share_all = 0x1 | 0x2 | 0x4
-    open_existing = 3
-    open_reparse_point, backup_semantics = 0x00200000, 0x02000000
-    file_basic_info = 0
-    handle = kernel32.CreateFileW(
-        path,
-        file_read_attributes | file_write_attributes,
-        share_all,
-        None,
-        open_existing,
-        open_reparse_point | backup_semantics,
-        None,
-    )
-    if handle in (None, wintypes.HANDLE(-1).value):
-        if ctypes.get_last_error() in (2, 3):  # ERROR_FILE_NOT_FOUND, ERROR_PATH_NOT_FOUND
-            raise FileNotFoundError(path)
-        return False
-    try:
-        info = _FileBasicInfo()
-        if not kernel32.GetFileInformationByHandleEx(
-            handle, file_basic_info, ctypes.byref(info), ctypes.sizeof(info)
-        ):  # pragma: no cover -- defensive: the handle was opened for FILE_READ_ATTRIBUTES
-            return False
-        if not info.FileAttributes & _stat.FILE_ATTRIBUTE_READONLY:
-            return False
-        # Zero times mean "unchanged"; an attribute value of 0 would also mean "unchanged", so
-        # an entry left with no attribute at all gets FILE_ATTRIBUTE_NORMAL.
-        attributes = info.FileAttributes & ~_stat.FILE_ATTRIBUTE_READONLY
-        update = _FileBasicInfo(0, 0, 0, 0, attributes or _stat.FILE_ATTRIBUTE_NORMAL)
-        return bool(
-            kernel32.SetFileInformationByHandle(
-                handle, file_basic_info, ctypes.byref(update), ctypes.sizeof(update)
-            )
-        )
-    finally:
-        kernel32.CloseHandle(handle)
-
-
-def _clear_readonly(path: str) -> bool:
-    """`L12-D005` (`spec/execution.md` section 17): pinned Pi's Windows deletion (Node v22.15.1's
-    libuv 1.49.2 `unlink`/`rmdir`, `FILE_DISPOSITION_IGNORE_READONLY_ATTRIBUTE`) ignores an entry's
-    own read-only attribute. True when one retry of a failed deletion is due: the attribute was
-    cleared, or the entry vanished meanwhile (which counts as removed)."""
-    if sys.platform != "win32":  # pragma: no cover -- POSIX unlinking never depends on a mode
-        return False
-    try:
-        return _clear_own_readonly_windows(path)
-    except FileNotFoundError:
-        return True
-
-
-def _delete_ignoring_readonly(function: Callable[[str], Any], path: str) -> None:
-    """Delete once; on `PermissionError`, retry once if the entry's own read-only attribute was the
-    obstacle. Otherwise the original error stands; a failed retry raises the retry's error."""
-    try:
-        function(path)
-    except PermissionError:
-        if not _clear_readonly(path):
-            raise
-        with suppress(FileNotFoundError):
-            function(path)
-
-
 def _remove_sync(path: str, recursive: bool, force: bool) -> None:
+    """Pinned Pi's `remove` -> `fs.promises.rm` (Node v22.15.1), spec section 19.5. Rule 0, the
+    target VALIDATION (`validateRmOptions`): the target's `lstat` failing is the result as is -- no
+    recovery -- except `force` with ENOENT, which proceeds; a directory without `recursive` is
+    #125. Then rule 1 onward (`rimraf`), which classifies the target AFRESH (`_rimraf_entry`)."""
     try:
         st = os.lstat(path)
     except OSError as exc:
-        # Node's `rm({force})` ignores exactly its ENOENT -- on Windows the libuv translation's,
-        # which includes 123 / 161 / 267 (L12-D007), not only CPython's `FileNotFoundError`.
-        if force and to_pi_fs_error(exc).code is FsErrorCode.NOT_FOUND:
-            return
-        raise
-    if _stat.S_ISLNK(st.st_mode):
-        # Never follows: removes the addressed symlink's own directory entry regardless of
-        # what it points to (spec section 3.2) -- matches Node's raw rm(), which unlinks a
-        # symlink rather than recursing into its target.
-        _unlink_entry(path)
-        return
-    if _stat.S_ISDIR(st.st_mode):
-        if not recursive:
+        # On Windows libuv's ENOENT includes 123 / 161 / 267 (L12-D007), not only CPython's
+        # `FileNotFoundError`.
+        if not (force and _vanished(exc)):
+            raise
+    else:
+        if _is_tree(st) and not recursive:
             # Matches pinned Pi's own fs.rm exactly: ANY directory (even an empty one)
             # requires recursive=true, unlike POSIX rmdir's own more lenient default.
             raise _RmDirectoryRefusal(f"Path is a directory: {path}")
-        _rimraf(path)
-        return
-    _unlink_entry(path)
-
-
-def _unlink_entry(path: str) -> None:
-    """Node's `unlink`. On Windows that is libuv `fs__unlink_rmdir` (L12-D007): the entry is opened
-    and deleted through that handle, so a read-denied file is refused (5) as under pinned Pi, and a
-    read-only one is deleted by libuv's own mechanism (the L12-D005 outcome). Above it, pinned
-    Node's rimraf `fixWinEPERM` still applies to an EPERM (Win32 5): clear the attribute, retry
-    once, and report the retry's error (`L12D005-I001`). POSIX: `unlink(2)`, same retry layer."""
-    if sys.platform == "win32":
-        _delete_ignoring_readonly(_libuv_unlink, path)
-        return
-    _delete_ignoring_readonly(os.unlink, path)  # pragma: no cover -- POSIX only
+    _rimraf_entry(path)
 
 
 def _libuv_unlink(path: str) -> None:  # pragma: no cover -- win32 only
@@ -1056,12 +938,22 @@ def _libuv_rmdir(path: str) -> None:  # pragma: no cover -- win32 only
         _libuv_win32.unlink_like_libuv(path, isrmdir=True)
 
 
+def _correct_own_attribute(path: str) -> None:  # pragma: no cover -- win32 only
+    """`fixWinEPERM`'s `chmod(0o666)`, on the entry itself (never through a link)."""
+    if sys.platform == "win32":  # scopes the Win32-only module to its platform
+        from . import _libuv_win32
+
+        _libuv_win32.clear_own_readonly(path)
+
+
 _RMDIR_DESCENDS = frozenset({_errno.ENOTEMPTY, _errno.EEXIST, _errno.EPERM})
 # The Win32 codes pinned libuv 1.49.2 `uv_translate_sys_error` (src/win/error.c, blob
 # 7abf906bb5c82312aeb9f3f30f39ab2cadc07eae) sends to ENOTEMPTY (145 ERROR_DIR_NOT_EMPTY), EEXIST
 # (80 ERROR_FILE_EXISTS, 183 ERROR_ALREADY_EXISTS) and EPERM (5 ERROR_ACCESS_DENIED, 1314
 # ERROR_PRIVILEGE_NOT_HELD).
 _RMDIR_DESCENDS_WIN32 = frozenset({145, 80, 183, 5, 1314})
+_EPERM_WIN32 = frozenset({5, 1314})
+_UNLINK_TO_RMDIR = frozenset({_errno.EISDIR, _errno.EPERM})  # POSIX `unlink` errors -> `_rmdir`
 
 
 def _node_rmdir(path: str) -> None:
@@ -1071,11 +963,23 @@ def _node_rmdir(path: str) -> None:
         os.rmdir(path)
 
 
+def _node_unlink(path: str) -> None:
+    if sys.platform == "win32":
+        _libuv_unlink(path)
+    else:  # pragma: no cover -- POSIX only
+        os.unlink(path)
+
+
 def _rmdir_descends(exc: OSError) -> bool:
     """rimraf `_rmdir`: an `rmdir` failing ENOTEMPTY / EEXIST / EPERM removes the children."""
     if sys.platform == "win32":
         return getattr(exc, "winerror", None) in _RMDIR_DESCENDS_WIN32
     return exc.errno in _RMDIR_DESCENDS  # pragma: no cover -- POSIX only
+
+
+def _is_win_eperm(exc: OSError) -> bool:
+    """libuv's EPERM on Windows, the error that enters `fixWinEPERM` (section 19.5 rule 5)."""
+    return sys.platform == "win32" and getattr(exc, "winerror", None) in _EPERM_WIN32
 
 
 def _vanished(exc: OSError) -> bool:
@@ -1084,17 +988,15 @@ def _vanished(exc: OSError) -> bool:
 
 
 def _rimraf(path: str, original: OSError | None = None) -> None:
-    """Pinned Node's recursive `rm` of a directory (v22.15.1 `lib/internal/fs/rimraf.js`, git blob
-    `24bf3f46b878e711beadcdc8e1b08700d10aa3c5`, `_rmdir` / `_rmchildren`). `rmdir` comes FIRST, so
-    an empty directory is removed even when it cannot be listed (L12-D007,
-    `errors/directory-denied/remove-recursive`). Only an ENOTEMPTY / EEXIST / EPERM failure lists
-    the directory, hands each child NAME to `_rimraf_child` (classified afresh there, never from the
-    listing, L12D007-I002), and `rmdir`s it again. ENOENT anywhere counts as removed. A POSIX
-    `rmdir` ENOTDIR answers `original`, the error that routed here (`_rmdir`'s `originalErr`):
-    none for a directory `lstat` saw, so success. A failure names the entry whose call failed
-    (`CE-L12-D001-01`). Windows reaches libuv's `unlink` / `rmdir` (`fs__unlink_rmdir`), POSIX
-    `unlink(2)` / `rmdir(2)`. Pinned Node removes the children concurrently and reports the first
-    failure to settle; this walk is sequential, in enumeration order."""
+    """Section 19.5 rules 3-4: pinned Node's `_rmdir` / `_rmchildren` (v22.15.1
+    `lib/internal/fs/rimraf.js`, git blob `24bf3f46b878e711beadcdc8e1b08700d10aa3c5`). `rmdir`
+    comes FIRST, so an empty directory is removed even when it cannot be listed. Only an ENOTEMPTY /
+    EEXIST / EPERM failure lists the directory, hands each child NAME to `_rimraf_entry` (classified
+    afresh there, L12D007-I002), and `rmdir`s it again; the first child failure, from any depth, is
+    this directory's failure unchanged (L12D007-I003). ENOENT anywhere counts as removed; a POSIX
+    `rmdir` ENOTDIR answers `original`, the error that routed here (none: success). A failure names
+    the entry whose call failed (`CE-L12-D001-01`). Pinned Node removes the children concurrently
+    and reports the first failure to settle; this walk is sequential, in enumeration order."""
     try:
         _node_rmdir(path)
         return
@@ -1115,7 +1017,7 @@ def _rimraf(path: str, original: OSError | None = None) -> None:
             return
         raise
     for child in children:
-        _rimraf_child(child)
+        _rimraf_entry(child)
     try:
         _node_rmdir(path)
     except OSError as exc:
@@ -1134,43 +1036,65 @@ def _is_tree(st: os.stat_result) -> bool:
     )
 
 
-def _rimraf_child(path: str) -> None:
-    """rimraf `_rimraf` for one child of `_rmchildren`: its OWN `lstat`, now, decides `rmdir`
-    (`_rimraf`) versus `unlink` -- a child replaced after the listing is removed as what it is now
-    (L12D007-I002). An `lstat` failure other than ENOENT still goes on to `unlink`, as rimraf's
-    does. An `unlink` that meets a directory (POSIX EISDIR / EPERM; Windows EPERM whose
-    `fixWinEPERM` `stat` finds a directory) is removed by `_rimraf`, carrying the unlink error as
-    `_rmdir`'s `originalErr`. ENOENT anywhere counts as removed."""
+def _rimraf_entry(path: str) -> None:
+    """Section 19.5 rule 1, rimraf `_rimraf` for one entry (the validated target, or a child): its
+    OWN `lstat`, now, decides. Only that `lstat` is guarded: a directory's outcome is the entry's
+    outcome and never re-routed (L12D007-I003). `lstat` ENOENT: removed; Windows EPERM: the
+    `fixWinEPERM` recovery; any other failure: unlink as itself."""
     try:
-        if _is_tree(os.lstat(path)):
-            _rimraf(path)
-            return
+        st: os.stat_result | None = os.lstat(path)
     except OSError as exc:
         if _vanished(exc):
             return
+        if _is_win_eperm(exc):
+            _fix_win_eperm(path, exc)
+            return
+        st = None
+    if st is not None and _is_tree(st):
+        _rimraf(path)
+        return
+    _unlink_routed(path)
+
+
+def _unlink_routed(path: str) -> None:
+    """Section 19.5 rule 2: an unlink failure. ENOENT: removed; Windows EPERM: the `fixWinEPERM`
+    recovery; POSIX EISDIR / EPERM: `_rmdir` carrying the unlink error; anything else: that failure.
+    On Windows this is libuv `fs__unlink_rmdir`, which already ignores a read-only attribute."""
     try:
-        _unlink_entry(path)
+        _node_unlink(path)
     except OSError as exc:
         if _vanished(exc):
             return
-        if not _unlink_met_directory(exc, path):
+        if _is_win_eperm(exc):
+            _fix_win_eperm(path, exc)
+            return
+        if sys.platform != "win32" and exc.errno in _UNLINK_TO_RMDIR:  # pragma: no cover -- POSIX
+            _rimraf(path, exc)
+            return
+        raise
+
+
+def _fix_win_eperm(path: str, original: OSError) -> None:
+    """Section 19.5 rule 5, pinned rimraf `fixWinEPERM` (Owner decision ADOPT PI, #199
+    issuecomment-6103080422). Correct the entry's own read-only attribute (never through a link; a
+    success whether or not it was set); inspect the entry (following links); then remove it as a
+    directory (`_rmdir` carrying the original error) or unlink it ONCE more. A failed correction
+    or inspection reports the ORIGINAL error (ENOENT: removed); a failed retry reports its own."""
+    try:
+        _correct_own_attribute(path)
+        st = os.stat(path)
+    except OSError as exc:
+        if _vanished(exc):
+            return
+        raise original from None
+    if _stat.S_ISDIR(st.st_mode):
+        _rimraf(path, original)
+        return
+    try:
+        _node_unlink(path)
+    except OSError as exc:
+        if not _vanished(exc):
             raise
-        _rimraf(path, exc)
-
-
-def _unlink_met_directory(exc: OSError, path: str) -> bool:
-    """rimraf's `unlink` error routes to `_rmdir`: POSIX on EISDIR and EPERM (`epermHandler` is
-    `_rmdir`); Windows on EPERM (Win32 5 / 1314) when `fixWinEPERM`'s `stat` (which follows links)
-    finds a directory. A `stat` that finds the entry gone routes there too, where `rmdir` meets
-    the ENOENT that rimraf counts as removed."""
-    if sys.platform != "win32":  # pragma: no cover -- POSIX only
-        return exc.errno in (_errno.EISDIR, _errno.EPERM)
-    if getattr(exc, "winerror", None) not in (5, 1314):
-        return False
-    try:
-        return _stat.S_ISDIR(os.stat(path).st_mode)
-    except OSError as stat_error:
-        return _vanished(stat_error)
 
 
 class FileSystem(Protocol):

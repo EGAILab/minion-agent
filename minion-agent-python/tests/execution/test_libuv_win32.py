@@ -188,3 +188,63 @@ def test_deletion_failures_keep_their_win32_code(
         os.chmod(target, stat.S_IWRITE | stat.S_IREAD)
     assert (caught.value.winerror, caught.value.filename) == (code, str(target))
     assert target.exists()
+
+
+# --- `clear_own_readonly`: fixWinEPERM's attribute correction (spec section 19.5 rule 5) ----------
+
+
+def _readonly(path: Path) -> bool:
+    return bool(os.lstat(path).st_file_attributes & stat.FILE_ATTRIBUTE_READONLY)
+
+
+@windows_only
+@pytest.mark.parametrize("readonly", [True, False])
+def test_the_correction_clears_the_attribute_or_succeeds_without_one(
+    tmp_path: Path, readonly: bool
+) -> None:
+    target = tmp_path / "f"
+    target.write_bytes(b"")
+    if readonly:
+        os.chmod(target, stat.S_IREAD)
+    _lib().clear_own_readonly(str(target))
+    assert not _readonly(target)
+
+
+@windows_only
+def test_the_correction_never_changes_a_link_target(tmp_path: Path) -> None:
+    target = tmp_path / "t"
+    target.write_bytes(b"")
+    os.chmod(target, stat.S_IREAD)
+    os.symlink(target, tmp_path / "link")
+    try:
+        _lib().clear_own_readonly(str(tmp_path / "link"))
+        assert _readonly(target)
+    finally:
+        os.chmod(target, stat.S_IREAD | stat.S_IWRITE)
+
+
+@windows_only
+def test_the_correction_of_a_missing_entry_fails_with_its_win32_code(tmp_path: Path) -> None:
+    with pytest.raises(OSError) as caught:
+        _lib().clear_own_readonly(str(tmp_path / "missing"))
+    assert caught.value.winerror == 2
+
+
+@windows_only
+@pytest.mark.parametrize("stage", ["inspect", "update"])
+def test_a_correction_failure_keeps_its_win32_code(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, stage: str
+) -> None:
+    lib = _lib()
+    target = tmp_path / "f"
+    target.write_bytes(b"")
+    os.chmod(target, stat.S_IREAD)
+    entry = "GetFileInformationByHandle" if stage == "inspect" else "SetFileInformationByHandle"
+    monkeypatch.setattr(lib._k32, entry, _failing(5))
+    try:
+        with pytest.raises(OSError) as caught:
+            lib.clear_own_readonly(str(target))
+    finally:
+        monkeypatch.undo()
+        os.chmod(target, stat.S_IREAD | stat.S_IWRITE)
+    assert (caught.value.winerror, caught.value.filename) == (5, str(target))

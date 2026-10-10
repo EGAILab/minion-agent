@@ -6383,7 +6383,10 @@ rows:
     tests/conformance/test_fs_remove_readonly_conformance.py, plus binding concurrency witnesses
     tests/execution/test_filesystem_readonly_remove.py. Python implements it (own-entry read-only attribute
     cleared through a FILE_FLAG_OPEN_REPARSE_POINT handle, one retry); Rust implements the read-only-directory correction
-    and platform-neutral recursive disappearance (code #192 -> fd6c025f; closure #188 issuecomment-6093795761).'
+    and platform-neutral recursive disappearance (code #192 -> fd6c025f; closure #188 issuecomment-6093795761).
+    L12-D007 / CE-L12D007-02 (Owner decision ADOPT PI, #199 issuecomment-6103080422): the Windows EPERM
+    recovery outcomes are corrected to pinned rimraf fixWinEPERM (spec/execution.md section 19.5 rule 5 and
+    the section 17 correction note); this entry''s other rules are unchanged.'
   - 'fs_path_nul_unknown -- L12-D006 (minion-agent#194; provenance #65 + #133-F1; Owner decision recorded on
     both): a NUL-containing path. In each filesystem-touching operation the native call whose path argument --
     after L12-D001 resolution, so including a file:// URL decoding %00 -- carries the NUL fails as unknown with
@@ -6412,9 +6415,14 @@ rows:
     incl. denied/held-directory, denied-file and denied-tree-entry precedence cases; fixture-only make_symlink / hold_exclusive /
     lock_range / deny_access steps); tests/conformance/test_fs_path_conformance.py; containment controls
     tests/conformance/test_fs_path_runner_containment.py.
+    remove: target validation, entry classification, failure routing and Windows EPERM recovery as pinned
+    Node rm / rimraf (spec/execution.md section 19.5; convergence episode CE-L12D007-02 agreed at docs
+    795cc30b); binding evidence: the three agreed matrices with pinned-Pi oracle
+    (minion-agent-docs data/l12-d007/ce02; tests/execution/test_filesystem_remove_routing.py with
+    tests/execution/data/remove_routing_pi.json and controls N1-N14).
     Python: implemented (execution/errors.py to_pi_fs_error; execution/_libuv_win32.py, the libuv 1.49.2
-    fs__open / fs__read / fs__write / fs__scandir / fs__unlink_rmdir Win32 calls; execution/filesystem.py),
-    pending implementation review. Rust: pending.'
+    fs__open / fs__read / fs__write / fs__scandir / fs__unlink_rmdir Win32 calls and the no-follow
+    attribute correction; execution/filesystem.py), pending targeted closure review. Rust: pending.'
   python: 'minion-agent-python/src/minion_agent/execution/filesystem.py; integration evidence in
     minion-agent-python/tests/execution/test_filesystem.py. L12-D004 (minion-agent#163; PI_PARITY_DEFECT,
     Owner-authorized targeted correction; independently approved, merged at #162 -> 5477eaeb): canonical_path

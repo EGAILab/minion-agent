@@ -280,6 +280,33 @@ def unlink_like_libuv(path: str, isrmdir: bool) -> None:
         _k32.CloseHandle(handle)
 
 
+def clear_own_readonly(path: str) -> None:
+    """The attribute correction of pinned rimraf's `fixWinEPERM` (`chmod(path, 0o666)`), on the
+    entry ITSELF: opened with `FILE_FLAG_OPEN_REPARSE_POINT`, so a link is corrected as itself and
+    its target never changes (spec section 17 rule 3; pinned Pi measured to leave a read-only link
+    target unchanged, `CE-L12D007-02` rows L9 / U7). A success whether or not the attribute was
+    set; a failure (the entry gone, `WRITE_ATTRIBUTES` denied, ...) raises with its Win32 code."""
+    handle = _create_flags(
+        path,
+        _FILE_READ_ATTRIBUTES | _FILE_WRITE_ATTRIBUTES,
+        _OPEN_REPARSE_POINT | _BACKUP_SEMANTICS,
+    )
+    try:
+        info = _ByHandleInfo()
+        if not _k32.GetFileInformationByHandle(handle, ctypes.byref(info)):
+            raise _win32_error(ctypes.get_last_error(), path)
+        attributes = info.dwFileAttributes
+        if not attributes & _ATTRIBUTE_READONLY:
+            return
+        basic = _BasicInfo(0, 0, 0, 0, (attributes & ~_ATTRIBUTE_READONLY) or _ATTRIBUTE_NORMAL)
+        if not _k32.SetFileInformationByHandle(
+            handle, _FILE_BASIC_INFO, ctypes.byref(basic), ctypes.sizeof(basic)
+        ):
+            raise _win32_error(ctypes.get_last_error(), path)
+    finally:
+        _k32.CloseHandle(handle)
+
+
 def check_listable(path: str) -> None:
     """libuv `fs__scandir`'s own directory open, before CPython's `os.scandir` (which uses
     `FindFirstFileW` and answers differently, e.g. 267 rather than a sharing violation's 32)."""

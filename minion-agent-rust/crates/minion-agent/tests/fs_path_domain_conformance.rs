@@ -206,7 +206,7 @@ impl Fixtures {
                 #[cfg(unix)]
                 {
                     use std::os::unix::fs::PermissionsExt;
-                    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0)).unwrap();
+                    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o0)).unwrap();
                 }
             }
             "hold_exclusive" | "lock_range" => {

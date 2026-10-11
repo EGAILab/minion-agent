@@ -260,7 +260,12 @@ pub fn delete_entry(path: &std::path::Path, directory: bool) -> std::io::Result<
             )
         } == 0
         {
-            return Err(io::Error::last_os_error());
+            let error = io::Error::last_os_error();
+            return Err(if error.raw_os_error() == Some(1464) {
+                io::Error::from_raw_os_error(5)
+            } else {
+                error
+            });
         }
         if !buffer
             .get(..bytes as usize)

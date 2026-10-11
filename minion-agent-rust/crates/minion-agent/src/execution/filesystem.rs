@@ -1093,6 +1093,7 @@ async fn node_mkdirp_with(path: &Path, operations: &dyn MkdirOperations) -> Resu
     Ok(())
 }
 
+#[cfg(windows)]
 fn remove_addressed(
     path: &Path,
     recursive: bool,

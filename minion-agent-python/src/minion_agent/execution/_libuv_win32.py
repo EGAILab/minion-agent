@@ -100,17 +100,28 @@ _k32.WriteFile.argtypes = [
 ]
 _ERROR_BROKEN_PIPE = 109
 _ERROR_HANDLE_EOF = 38
+_ERROR_ACCESS_DENIED = 5
+_ERROR_INVALID_FLAGS = 1004
 
 
 def _win32_error(code: int, path: str | None) -> OSError:
     return OSError(0, ctypes.FormatError(code).strip(), path, code)
 
 
+def _io_error_code(code: int) -> int:
+    """libuv `fs__read` / `fs__write` (src/win/fs.c lines 870-873 / 1075-1079): an I/O syscall's
+    `ERROR_ACCESS_DENIED` is reported as `ERROR_INVALID_FLAGS` (UV_EBADF, which pinned Pi's
+    `toFileError` names `unknown`), L12D007-I004. Local to the read / write call: an OPEN refused
+    with 5 keeps its own code."""
+    return _ERROR_INVALID_FLAGS if code == _ERROR_ACCESS_DENIED else code
+
+
 class _HandleIO(io.RawIOBase):
     """The read and write of libuv `fs__read` / `fs__write`: `ReadFile` / `WriteFile` on the
     handle, so a failure (for example 33 `ERROR_LOCK_VIOLATION` under a byte-range lock) keeps its
-    Win32 code. The C runtime's `_read` / `_write` would collapse it into `EACCES`. libuv's read
-    and write errors carry no path, so neither does this one."""
+    Win32 code -- with libuv's own `ERROR_ACCESS_DENIED` override (`_io_error_code`). The C
+    runtime's `_read` / `_write` would collapse it into `EACCES`. libuv's read and write errors
+    carry no path, so neither does this one."""
 
     def __init__(self, handle: int, readable: bool) -> None:
         super().__init__()
@@ -129,7 +140,7 @@ class _HandleIO(io.RawIOBase):
         chunk = (ctypes.c_char * size).from_buffer(view)
         done = wintypes.DWORD(0)
         if not _k32.ReadFile(self._handle, chunk, size, ctypes.byref(done), None):
-            code = ctypes.get_last_error()
+            code = _io_error_code(ctypes.get_last_error())  # libuv: before its EOF check
             if code in (_ERROR_HANDLE_EOF, _ERROR_BROKEN_PIPE):
                 return 0
             raise _win32_error(code, None)
@@ -139,7 +150,7 @@ class _HandleIO(io.RawIOBase):
         view = bytes(data)
         done = wintypes.DWORD(0)
         if not _k32.WriteFile(self._handle, view, len(view), ctypes.byref(done), None):
-            raise _win32_error(ctypes.get_last_error(), None)
+            raise _win32_error(_io_error_code(ctypes.get_last_error()), None)
         return int(done.value)
 
     def close(self) -> None:

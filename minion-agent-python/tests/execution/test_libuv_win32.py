@@ -248,3 +248,105 @@ def test_a_correction_failure_keeps_its_win32_code(
         monkeypatch.undo()
         os.chmod(target, stat.S_IREAD | stat.S_IWRITE)
     assert (caught.value.winerror, caught.value.filename) == (5, str(target))
+
+
+# --- L12D007-I004: libuv fs__read / fs__write report an I/O ERROR_ACCESS_DENIED as EBADF --------
+
+
+def test_the_io_override_maps_only_access_denied() -> None:
+    """libuv src/win/fs.c lines 870-873 / 1075-1079: 5 -> 1004 (ERROR_INVALID_FLAGS, UV_EBADF);
+    every other code passes through."""
+    lib = _lib() if sys.platform == "win32" else None
+    if lib is None:
+        pytest.skip("libuv's Win32 seam")
+    assert [lib._io_error_code(code) for code in (5, 33, 32, 38, 109, 1)] == [
+        1004,
+        33,
+        32,
+        38,
+        109,
+        1,
+    ]
+
+
+async def _provider_io_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, entry: str, operation: str
+) -> Any:
+    """`operation` through the real `LocalFileSystem` while kernel32's `entry` (ReadFile or
+    WriteFile) fails with ERROR_ACCESS_DENIED; the open itself is real and succeeds."""
+    from minion_agent.execution import LocalFileSystem
+
+    lib = _lib()
+    (tmp_path / "f").write_bytes(b"data")
+    fs = LocalFileSystem(str(tmp_path))
+    with monkeypatch.context() as patch:
+        patch.setattr(lib._k32, entry, _failing(5))
+        if operation in ("write_file", "append_file"):
+            return await getattr(fs, operation)("f", "x")
+        return await getattr(fs, operation)("f")
+
+
+@windows_only
+@pytest.mark.parametrize(
+    ("entry", "operation"),
+    [
+        ("ReadFile", "read_text_file"),
+        ("ReadFile", "read_binary_file"),
+        ("ReadFile", "read_text_lines"),
+        ("WriteFile", "write_file"),
+        ("WriteFile", "append_file"),
+    ],
+)
+async def test_an_io_access_denied_is_unknown_with_the_logical_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, entry: str, operation: str
+) -> None:
+    """Pinned Pi: EBADF -> `unknown`; libuv's I/O error carries no path, so `toFileError`
+    reports the resolved logical path (`.tmp/codex-scratch/l12d007-final-ebadf-pi.mjs`)."""
+    from minion_agent.execution import Err, FsErrorCode
+
+    result = await _provider_io_failure(tmp_path, monkeypatch, entry, operation)
+    assert isinstance(result, Err)
+    assert (result.error.code, result.error.path) == (FsErrorCode.UNKNOWN, str(tmp_path / "f"))
+
+
+@windows_only
+@pytest.mark.parametrize(
+    ("entry", "operation"), [("ReadFile", "read_binary_file"), ("WriteFile", "write_file")]
+)
+async def test_control_raw_code_forwarding_fails_the_io_witness(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, entry: str, operation: str
+) -> None:
+    """Mutant: forward the I/O syscall's raw code (the reviewed defect): permission_denied."""
+    from minion_agent.execution import FsErrorCode
+
+    monkeypatch.setattr(_lib(), "_io_error_code", lambda code: code)
+    result = await _provider_io_failure(tmp_path, monkeypatch, entry, operation)
+    assert result.error.code is not FsErrorCode.UNKNOWN
+    assert result.error.code is FsErrorCode.PERMISSION_DENIED
+
+
+@windows_only
+async def test_a_denied_open_keeps_permission_denied(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The override is local to the read / write call: CreateFileW refused with 5 stays
+    permission_denied, naming the file."""
+    from minion_agent.execution import Err, FsErrorCode, LocalFileSystem
+
+    lib = _lib()
+    (tmp_path / "f").write_bytes(b"data")
+    real = lib._k32.CreateFileW
+
+    def denied(path: Any, *args: Any) -> Any:
+        if str(path) == str(tmp_path / "f"):
+            ctypes.set_last_error(5)
+            return lib._INVALID_HANDLE
+        return real(path, *args)
+
+    monkeypatch.setattr(lib._k32, "CreateFileW", denied)
+    result = await LocalFileSystem(str(tmp_path)).read_binary_file("f")
+    assert isinstance(result, Err)
+    assert (result.error.code, result.error.path) == (
+        FsErrorCode.PERMISSION_DENIED,
+        str(tmp_path / "f"),
+    )

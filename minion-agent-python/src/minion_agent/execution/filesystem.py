@@ -921,7 +921,9 @@ def _remove_sync(path: str, recursive: bool, force: bool) -> None:
             # Matches pinned Pi's own fs.rm exactly: ANY directory (even an empty one)
             # requires recursive=true, unlike POSIX rmdir's own more lenient default.
             raise _RmDirectoryRefusal(f"Path is a directory: {path}")
-    _rimraf_entry(path)
+    descend = _rimraf_entry(path)
+    if descend is not None:
+        _rimraf(*descend)
 
 
 def _libuv_unlink(path: str) -> None:  # pragma: no cover -- win32 only
@@ -987,42 +989,74 @@ def _vanished(exc: OSError) -> bool:
     return to_pi_fs_error(exc).code is FsErrorCode.NOT_FOUND
 
 
-def _rimraf(path: str, original: OSError | None = None) -> None:
-    """Section 19.5 rules 3-4: pinned Node's `_rmdir` / `_rmchildren` (v22.15.1
-    `lib/internal/fs/rimraf.js`, git blob `24bf3f46b878e711beadcdc8e1b08700d10aa3c5`). `rmdir`
-    comes FIRST, so an empty directory is removed even when it cannot be listed. Only an ENOTEMPTY /
-    EEXIST / EPERM failure lists the directory, hands each child NAME to `_rimraf_entry` (classified
-    afresh there, L12D007-I002), and `rmdir`s it again; the first child failure, from any depth, is
-    this directory's failure unchanged (L12D007-I003). ENOENT anywhere counts as removed; a POSIX
-    `rmdir` ENOTDIR answers `original`, the error that routed here (none: success). A failure names
-    the entry whose call failed (`CE-L12-D001-01`). Pinned Node removes the children concurrently
-    and reports the first failure to settle; this walk is sequential, in enumeration order."""
+# A directory still to be removed by rules 3-4, with the `original` error that routed it there
+# (`_rmdir`'s `originalErr`; None for a directory its own `lstat` classified).
+_Descend = tuple[str, "OSError | None"]
+
+
+def _rmdir_first(path: str, original: OSError | None) -> list[str] | None:
+    """Section 19.5 rule 3's first step, rimraf `_rmdir`: `rmdir` FIRST, so an empty directory is
+    removed even when it cannot be listed. None when that settles it (removed, vanished, or a POSIX
+    ENOTDIR answering `original`: none means success); otherwise, after an ENOTEMPTY / EEXIST /
+    EPERM failure, the children's paths (`_rmchildren`'s listing). Any other failure is raised."""
     try:
         _node_rmdir(path)
-        return
+        return None
     except OSError as exc:
         if _vanished(exc):
-            return
+            return None
         if sys.platform != "win32" and exc.errno == _errno.ENOTDIR:  # pragma: no cover -- POSIX
             if original is not None:
                 raise original from None
-            return
+            return None
         if not _rmdir_descends(exc):
             raise
     try:
         with os.scandir(path) as listing:
-            children = [entry.path for entry in listing]
+            return [entry.path for entry in listing]
     except OSError as exc:
         if _vanished(exc):
-            return
+            return None
         raise
-    for child in children:
-        _rimraf_entry(child)
+
+
+def _rmdir_last(path: str) -> None:
+    """`_rmchildren`'s final `rmdir`, once every child is removed. ENOENT: removed."""
     try:
         _node_rmdir(path)
     except OSError as exc:
         if not _vanished(exc):
             raise
+
+
+def _rimraf(path: str, original: OSError | None = None) -> None:
+    """Section 19.5 rules 3-4: pinned Node's `_rmdir` / `_rmchildren` (v22.15.1
+    `lib/internal/fs/rimraf.js`, git blob `24bf3f46b878e711beadcdc8e1b08700d10aa3c5`) for `path`
+    and everything below it. Each listed child NAME goes to `_rimraf_entry` (classified afresh,
+    L12D007-I002); a child that is itself a directory to remove is descended into; once a
+    directory's children are all removed it is `rmdir`ed again. The first child failure, from any
+    depth, is the whole removal's failure, unchanged (L12D007-I003); ENOENT anywhere counts as
+    removed; a failure names the entry whose call failed (`CE-L12-D001-01`).
+
+    The walk keeps its own explicit stack of directories being emptied, so the interpreter stack
+    does not grow with the tree's depth (L12D007-I005): pinned Node's callback walk removes any
+    depth the filesystem allows. Pinned Node removes the children concurrently and reports the
+    first failure to settle; this walk is sequential, in enumeration order."""
+    children = _rmdir_first(path, original)
+    if children is None:
+        return
+    pending: list[tuple[str, list[str]]] = [(path, children[::-1])]
+    while pending:
+        directory, remaining = pending[-1]
+        if not remaining:
+            pending.pop()
+            _rmdir_last(directory)
+            continue
+        descend = _rimraf_entry(remaining.pop())
+        if descend is not None:
+            grandchildren = _rmdir_first(*descend)
+            if grandchildren is not None:
+                pending.append((descend[0], grandchildren[::-1]))
 
 
 _REPARSE_TAG_MOUNT_POINT = 0xA0000003  # IO_REPARSE_TAG_MOUNT_POINT (a junction)
@@ -1036,65 +1070,64 @@ def _is_tree(st: os.stat_result) -> bool:
     )
 
 
-def _rimraf_entry(path: str) -> None:
+def _rimraf_entry(path: str) -> _Descend | None:
     """Section 19.5 rule 1, rimraf `_rimraf` for one entry (the validated target, or a child): its
-    OWN `lstat`, now, decides. Only that `lstat` is guarded: a directory's outcome is the entry's
-    outcome and never re-routed (L12D007-I003). `lstat` ENOENT: removed; Windows EPERM: the
-    `fixWinEPERM` recovery; any other failure: unlink as itself."""
+    OWN `lstat`, now, decides. Only that `lstat` is guarded: a directory is returned as the
+    directory to remove (rules 3-4, by the caller's walk), never re-routed (L12D007-I003). `lstat`
+    ENOENT: removed; Windows EPERM: the `fixWinEPERM` recovery; any other failure: unlink as
+    itself. None when the entry is settled here."""
     try:
         st: os.stat_result | None = os.lstat(path)
     except OSError as exc:
         if _vanished(exc):
-            return
+            return None
         if _is_win_eperm(exc):
-            _fix_win_eperm(path, exc)
-            return
+            return _fix_win_eperm(path, exc)
         st = None
     if st is not None and _is_tree(st):
-        _rimraf(path)
-        return
-    _unlink_routed(path)
+        return (path, None)
+    return _unlink_routed(path)
 
 
-def _unlink_routed(path: str) -> None:
+def _unlink_routed(path: str) -> _Descend | None:
     """Section 19.5 rule 2: an unlink failure. ENOENT: removed; Windows EPERM: the `fixWinEPERM`
-    recovery; POSIX EISDIR / EPERM: `_rmdir` carrying the unlink error; anything else: that failure.
-    On Windows this is libuv `fs__unlink_rmdir`, which already ignores a read-only attribute."""
+    recovery; POSIX EISDIR / EPERM: a directory to remove, carrying the unlink error; anything
+    else: that failure. On Windows this is libuv `fs__unlink_rmdir`, which already ignores a
+    read-only attribute."""
     try:
         _node_unlink(path)
     except OSError as exc:
         if _vanished(exc):
-            return
+            return None
         if _is_win_eperm(exc):
-            _fix_win_eperm(path, exc)
-            return
+            return _fix_win_eperm(path, exc)
         if sys.platform != "win32" and exc.errno in _UNLINK_TO_RMDIR:  # pragma: no cover -- POSIX
-            _rimraf(path, exc)
-            return
+            return (path, exc)
         raise
+    return None
 
 
-def _fix_win_eperm(path: str, original: OSError) -> None:
+def _fix_win_eperm(path: str, original: OSError) -> _Descend | None:
     """Section 19.5 rule 5, pinned rimraf `fixWinEPERM` (Owner decision ADOPT PI, #199
     issuecomment-6103080422). Correct the entry's own read-only attribute (never through a link; a
-    success whether or not it was set); inspect the entry (following links); then remove it as a
-    directory (`_rmdir` carrying the original error) or unlink it ONCE more. A failed correction
+    success whether or not it was set); inspect the entry (following links); then return it as a
+    directory to remove (carrying the original error) or unlink it ONCE more. A failed correction
     or inspection reports the ORIGINAL error (ENOENT: removed); a failed retry reports its own."""
     try:
         _correct_own_attribute(path)
         st = os.stat(path)
     except OSError as exc:
         if _vanished(exc):
-            return
+            return None
         raise original from None
     if _stat.S_ISDIR(st.st_mode):
-        _rimraf(path, original)
-        return
+        return (path, original)
     try:
         _node_unlink(path)
     except OSError as exc:
         if not _vanished(exc):
             raise
+    return None
 
 
 class FileSystem(Protocol):

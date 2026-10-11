@@ -230,13 +230,12 @@ async def test_control_cached_listing_type_fails_the_witness(
 
     real_entry = fs_module._rimraf_entry
 
-    def cached_child(path: str) -> None:
+    def cached_child(path: str) -> Any:
         if path not in listed:  # the remove target itself: never listed
-            real_entry(path)
-        elif listed[path]:
-            fs_module._rimraf(path)
-        else:
-            fs_module._unlink_routed(path)
+            return real_entry(path)
+        if listed[path]:
+            return (path, None)
+        return fs_module._unlink_routed(path)
 
     tree = tmp_path / "tree"
     (tree / "child").mkdir(parents=True)
@@ -305,3 +304,96 @@ async def test_a_junction_in_the_tree_is_removed_without_following(tmp_path: Pat
     assert await LocalFileSystem(str(tmp_path)).remove("tree", recursive=True) == Ok(None)
     assert not tree.exists()
     assert (outside / "keep").read_text() == "k"
+
+
+# --- L12D007-I005: the walk's interpreter stack does not grow with the tree's depth -------------
+
+
+def _chain(root: Path, depth: int) -> Path:
+    """`root/tree/d/d/.../d` with `depth` nested directories and a file at the bottom."""
+    path = root / "tree"
+    path.mkdir()
+    for _ in range(depth):
+        path = path / "d"
+        path.mkdir()
+    (path / "f").write_text("x")
+    return root / "tree"
+
+
+def _frames() -> int:
+    frame, count = sys._getframe(), 0
+    while frame is not None:
+        count, frame = count + 1, frame.f_back  # type: ignore[assignment]
+    return count
+
+
+def _deepest_rmdir_stack(root: Path, depth: int, monkeypatch: pytest.MonkeyPatch) -> int:
+    """The deepest interpreter stack at any `rmdir` while removing a `depth`-deep chain."""
+    _chain(root, depth)
+    real = fs_module._node_rmdir
+    deepest = [0]
+
+    def rmdir(path: str) -> None:
+        deepest[0] = max(deepest[0], _frames())
+        real(path)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(fs_module, "_node_rmdir", rmdir)
+        fs_module._remove_sync(str(root / "tree"), recursive=True, force=False)
+    assert not (root / "tree").exists()
+    return deepest[0]
+
+
+def test_the_walk_stack_is_independent_of_the_tree_depth(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """All platforms: removing a 60-deep chain reaches no deeper interpreter stack than a 2-deep
+    one (a recursive walk grows by its frames per level)."""
+    (tmp_path / "a").mkdir()
+    (tmp_path / "b").mkdir()
+    shallow = _deepest_rmdir_stack(tmp_path / "a", 2, monkeypatch)
+    deep = _deepest_rmdir_stack(tmp_path / "b", 60, monkeypatch)
+    assert deep == shallow
+
+
+@posix_only
+async def test_a_550_deep_tree_is_removed(tmp_path: Path) -> None:
+    """The reviewer's witness (`.tmp/codex-scratch/l12d007-final-depth.py`): 550 nested ordinary
+    directories, well within PATH_MAX. Pinned Pi removes them (`{"ok": true}`,
+    `l12d007-final-depth-pi.mjs`); a recursive walk raises RecursionError."""
+    _chain(tmp_path, 550)
+    assert await LocalFileSystem(str(tmp_path)).remove("tree", recursive=True) == Ok(None)
+    assert not (tmp_path / "tree").exists()
+
+
+def _recursive_rimraf(path: str, original: OSError | None = None) -> None:
+    """The control: the pre-I005 recursive walk (one interpreter frame pair per tree level)."""
+    children = fs_module._rmdir_first(path, original)
+    if children is None:
+        return
+    for child in children:
+        descend = fs_module._rimraf_entry(child)
+        if descend is not None:
+            _recursive_rimraf(*descend)
+    fs_module._rmdir_last(path)
+
+
+def test_control_a_recursive_walk_fails_the_stack_witness(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(fs_module, "_rimraf", _recursive_rimraf)
+    (tmp_path / "a").mkdir()
+    (tmp_path / "b").mkdir()
+    shallow = _deepest_rmdir_stack(tmp_path / "a", 2, monkeypatch)
+    deep = _deepest_rmdir_stack(tmp_path / "b", 60, monkeypatch)
+    assert deep > shallow
+
+
+@posix_only
+async def test_control_a_recursive_walk_fails_the_deep_tree_witness(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(fs_module, "_rimraf", _recursive_rimraf)
+    _chain(tmp_path, 550)
+    with pytest.raises(RecursionError):
+        await LocalFileSystem(str(tmp_path)).remove("tree", recursive=True)

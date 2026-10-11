@@ -165,33 +165,33 @@ async def test_remove_routing_matches_pinned_pi(
 # --- Negative controls N1-N14 (episode record; each must fail its intended rows) ----------------
 
 
-def _n1_broad_catch(path: str) -> None:
-    """The `I003` defect: the `lstat` handler also encloses the directory branch."""
+def _n1_broad_catch(path: str) -> Any:
+    """The `I003` defect: the `lstat` handler also encloses the directory's removal."""
     try:
         st = os.lstat(path)
         if fs._is_tree(st):
             fs._rimraf(path)
-            return
+            return None
     except OSError as exc:
         if fs._vanished(exc):
-            return
+            return None
         if fs._is_win_eperm(exc):
-            fs._fix_win_eperm(path, exc)
-            return
-    fs._unlink_routed(path)
+            return fs._fix_win_eperm(path, exc)
+    return fs._unlink_routed(path)
 
 
-def _n2_retry_rmdir(real: Callable[..., None]) -> Callable[..., None]:
-    """A directory whose removal failed is retried once (above the native seam, so the retried
+def _n2_retry_rmdir(real: Callable[..., Any]) -> Callable[..., Any]:
+    """A directory whose first `rmdir` failed is retried once (above the native seam, so the retried
     `rmdir` is a second real call)."""
 
-    def rimraf(path: str, original: OSError | None = None) -> None:
+    def rmdir_first(path: str, original: OSError | None) -> Any:
         try:
-            real(path, original)
+            return real(path, original)
         except OSError:
             fs._node_rmdir(path)
+            return None
 
-    return rimraf
+    return rmdir_first
 
 
 def _n3_swallow(real: Callable[[str], None]) -> Callable[[str], None]:
@@ -213,13 +213,13 @@ def _n4_ancestor(real: Callable[..., None]) -> Callable[..., None]:
     return rimraf
 
 
-def _n5_list_first(real: Callable[..., None]) -> Callable[..., None]:
-    def rimraf(path: str, original: OSError | None = None) -> None:
+def _n5_list_first(real: Callable[..., Any]) -> Callable[..., Any]:
+    def rmdir_first(path: str, original: OSError | None) -> Any:
         with os.scandir(path):
             pass
-        real(path, original)
+        return real(path, original)
 
-    return rimraf
+    return rmdir_first
 
 
 def _n6_no_lstat_recovery(path: str) -> None:
@@ -230,9 +230,8 @@ def _n6_no_lstat_recovery(path: str) -> None:
             return
         st = None
     if st is not None and fs._is_tree(st):
-        fs._rimraf(path)
-        return
-    fs._unlink_routed(path)
+        return (path, None)
+    return fs._unlink_routed(path)
 
 
 def _recovery(*, own_error: bool = False, conditional: bool = False, keep_original: bool = False):  # type: ignore[no-untyped-def]
@@ -254,8 +253,7 @@ def _recovery(*, own_error: bool = False, conditional: bool = False, keep_origin
                 raise
             raise original from None
         if stat.S_ISDIR(st.st_mode):
-            fs._rimraf(path, original)
-            return
+            return (path, original)
         try:
             fs._node_unlink(path)
         except OSError as exc:
@@ -274,7 +272,9 @@ def _n10_follow_link(path: str) -> None:
 def _remove(validate: Callable[[str, bool, bool], bool]) -> Callable[[str, bool, bool], None]:
     def remove_sync(path: str, recursive: bool, force: bool) -> None:
         if validate(path, recursive, force):
-            fs._rimraf_entry(path)
+            descend = fs._rimraf_entry(path)
+            if descend is not None:
+                fs._rimraf(*descend)
 
     return remove_sync
 
@@ -313,7 +313,9 @@ def _n13_reuse_validation(path: str, recursive: bool, force: bool) -> bool:
             raise fs._RmDirectoryRefusal(path)
         fs._rimraf(path)
     else:
-        fs._unlink_routed(path)
+        descend = fs._unlink_routed(path)
+        if descend is not None:
+            fs._rimraf(*descend)
     return False
 
 
@@ -333,13 +335,13 @@ def _mutate(name: str, monkeypatch: pytest.MonkeyPatch) -> None:
     if name == "N1":
         monkeypatch.setattr(fs, "_rimraf_entry", _n1_broad_catch)
     elif name == "N2":
-        monkeypatch.setattr(fs, "_rimraf", _n2_retry_rmdir(fs._rimraf))
+        monkeypatch.setattr(fs, "_rmdir_first", _n2_retry_rmdir(fs._rmdir_first))
     elif name == "N3":
         monkeypatch.setattr(fs, "_rimraf_entry", _n3_swallow(fs._rimraf_entry))
     elif name == "N4":
         monkeypatch.setattr(fs, "_rimraf", _n4_ancestor(fs._rimraf))
     elif name == "N5":
-        monkeypatch.setattr(fs, "_rimraf", _n5_list_first(fs._rimraf))
+        monkeypatch.setattr(fs, "_rmdir_first", _n5_list_first(fs._rmdir_first))
     elif name == "N6":
         monkeypatch.setattr(fs, "_rimraf_entry", _n6_no_lstat_recovery)
     elif name == "N7":

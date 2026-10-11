@@ -15,7 +15,10 @@ export PIP_CACHE_DIR=/cargo-home/pip UV_CACHE_DIR=/cargo-home/uv
 mkdir -p /tmp/l12d007/work /tmp/bin /tmp/l12d007/fixtures
 chmod 777 /tmp/l12d007/fixtures
 export MINION_FIXTURE_ROOT=/tmp/l12d007/fixtures
-cp -r /source/. /tmp/l12d007/work/
+# Temp-creation witnesses require the OS temp base to be the contained fixture base.
+export TMP="$MINION_FIXTURE_ROOT" TEMP="$MINION_FIXTURE_ROOT" TMPDIR="$MINION_FIXTURE_ROOT"
+# Preserve source times so the shared target can reuse unchanged build inputs.
+cp -rp /source/. /tmp/l12d007/work/
 cp /node /tmp/bin/node
 chmod +x /tmp/bin/node
 export PATH=/tmp/bin:/cargo-home/rustup/toolchains/1.97.1-x86_64-unknown-linux-gnu/bin:$PATH

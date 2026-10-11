@@ -194,10 +194,15 @@ def _n2_retry_rmdir(real: Callable[..., Any]) -> Callable[..., Any]:
     return rmdir_first
 
 
-def _n3_swallow(real: Callable[[str], None]) -> Callable[[str], None]:
-    def entry(path: str) -> None:
-        with suppress(OSError):
-            real(path)
+def _n3_swallow(real: Callable[[str], Any]) -> Callable[[str], Any]:
+    """An entry's failure is swallowed; a SUCCESSFUL entry still returns its descent request
+    unchanged (L12D007-I006: dropping it would skip the walk, not swallow an error)."""
+
+    def entry(path: str) -> Any:
+        try:
+            return real(path)
+        except OSError:
+            return None
 
     return entry
 
@@ -391,13 +396,29 @@ CONTROL_CASES = [
 ]
 
 
+# L12D007-I006: a control is credited only when its intended row's planned injections actually
+# fire under the mutant -- except the calls the mutation itself removes, which may stay unfired.
+# Anything else unfired means the mutant skipped the walk instead of exercising its dimension.
+UNFIRED_ALLOWED: dict[str, set[str]] = {
+    "N6": {"chmod", "stat"},  # no recovery stage after an lstat EPERM
+    "N8": {"unlink"},  # no retry unlink when the attribute was not set
+    "N11": {"chmod", "stat"},  # the target bypasses the routing, so no recovery
+    "N13": {"lstat"},  # no fresh classification lstat
+}
+
+
 @pytest.mark.parametrize(("control", "row_id"), CONTROL_CASES)
 async def test_control_fails_its_intended_row(
     control: str, row_id: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _mutate(control, monkeypatch)
     row = ROWS[row_id]
-    assert await _observe(row, tmp_path, monkeypatch) != _expected(row)
+    expected = _expected(row)
+    observed = await _observe(row, tmp_path, monkeypatch)
+    newly_unfired = set(observed["unfired"]) - set(expected["unfired"])
+    allowed = UNFIRED_ALLOWED.get(control, set())
+    assert {entry.split(" ", 1)[0] for entry in newly_unfired} <= allowed, newly_unfired
+    assert observed != expected
 
 
 def test_every_control_has_an_intended_row_on_this_platform_or_is_windows_only() -> None:
@@ -417,3 +438,28 @@ async def test_an_unlink_finding_the_entry_gone_counts_as_removed(
     observed = await _observe(row, tmp_path, monkeypatch)
     assert (observed["result"], observed["remains"], observed["unfired"]) == ("ok", ["tree"], [])
     assert observed["calls"] == {"lstat tree": 2, "unlink tree": 1}
+
+
+@pytest.mark.parametrize("row_id", ["E2-inner-unlink-fails", "E10-grandchild-unlink-fails"])
+async def test_the_fire_check_refuses_a_control_that_skips_the_walk(
+    row_id: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """L12D007-I006: the first N3 discarded a SUCCESSFUL entry's descent request, so the walk never
+    reached its intended failure -- a "kill" by skipping, not by swallowing. The control test's
+    fire check must refuse exactly that: the intended injection shows as unfired and N3 has no
+    allowance for it."""
+
+    def drops_descent(real: Callable[[str], Any]) -> Callable[[str], Any]:
+        def entry(path: str) -> None:
+            with suppress(OSError):
+                real(path)
+
+        return entry
+
+    monkeypatch.setattr(fs, "_rimraf_entry", drops_descent(fs._rimraf_entry))
+    row = ROWS[row_id]
+    observed = await _observe(row, tmp_path, monkeypatch)
+    newly_unfired = set(observed["unfired"]) - set(_expected(row)["unfired"])
+    assert newly_unfired
+    unfired_ops = {entry.split(" ", 1)[0] for entry in newly_unfired}
+    assert not unfired_ops <= UNFIRED_ALLOWED.get("N3", set())

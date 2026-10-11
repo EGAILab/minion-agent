@@ -12,7 +12,7 @@ use std::{
 use ada_url::{HostType, Idna, Url as AdaUrl};
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use uuid::Uuid;
 
 use super::path::{basename, from_native, join, native, resolve};
@@ -20,6 +20,29 @@ use super::{AbortSignal, ExecutionWorldIdentity, FsError, FsErrorCode, FsPath};
 
 #[cfg(test)]
 mod readonly_tests;
+mod rimraf;
+
+#[async_trait]
+trait HandleOperations: Debug + Send + Sync {
+    async fn read_end(&self, file: &mut tokio::fs::File, bytes: &mut Vec<u8>) -> io::Result<usize> {
+        file.read_to_end(bytes).await
+    }
+    async fn read_line(
+        &self,
+        reader: &mut BufReader<tokio::fs::File>,
+        line: &mut Vec<u8>,
+    ) -> io::Result<usize> {
+        reader.read_until(b'\n', line).await
+    }
+    async fn write(&self, file: &mut tokio::fs::File, content: &[u8]) -> io::Result<()> {
+        file.write_all(content).await?;
+        // Join Tokio's pending blocking write before exposing completion.
+        file.flush().await
+    }
+}
+#[derive(Debug)]
+struct NativeHandleOperations;
+impl HandleOperations for NativeHandleOperations {}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum FileKind {
@@ -75,12 +98,26 @@ struct TokioDirectoryProbeOperations;
 #[async_trait]
 impl DirectoryProbeOperations for TokioDirectoryProbeOperations {
     async fn read_dir_names(&self, path: &Path) -> io::Result<Vec<String>> {
-        let mut directory = tokio::fs::read_dir(path).await?;
-        let mut names = Vec::new();
-        while let Some(entry) = directory.next_entry().await? {
-            names.push(entry.file_name().to_string_lossy().into_owned());
+        #[cfg(windows)]
+        {
+            let path = path.to_owned();
+            let names = tokio::task::spawn_blocking(move || minion_agent_native_fs::scandir(&path))
+                .await
+                .map_err(io::Error::other)??;
+            Ok(names
+                .into_iter()
+                .map(|n| n.to_string_lossy().into_owned())
+                .collect())
         }
-        Ok(names)
+        #[cfg(not(windows))]
+        {
+            let mut directory = tokio::fs::read_dir(path).await?;
+            let mut names = Vec::new();
+            while let Some(entry) = directory.next_entry().await? {
+                names.push(entry.file_name().to_string_lossy().into_owned());
+            }
+            Ok(names)
+        }
     }
 
     async fn symlink_metadata(&self, path: &Path) -> io::Result<std::fs::Metadata> {
@@ -275,6 +312,8 @@ pub struct LocalFileSystem {
     provider_id: Uuid,
     world: ExecutionWorldIdentity,
     directory_probe_operations: Arc<dyn DirectoryProbeOperations>,
+    remove_operations: Arc<dyn rimraf::Operations>,
+    handle_operations: Arc<dyn HandleOperations>,
 }
 
 impl LocalFileSystem {
@@ -288,6 +327,8 @@ impl LocalFileSystem {
             provider_id: Uuid::new_v4(),
             world,
             directory_probe_operations: Arc::new(TokioDirectoryProbeOperations),
+            remove_operations: Arc::new(rimraf::NativeOperations),
+            handle_operations: Arc::new(NativeHandleOperations),
         }
     }
 
@@ -380,16 +421,21 @@ impl FileSystem for LocalFileSystem {
             return Ok(Vec::new());
         }
         let os = native(&logical);
-        let file = tokio::fs::File::open(&os)
+        let file = open_pi_file(&os, false, false)
             .await
             .map_err(|e| call_error(e, &os, &logical))?;
         let mut reader = BufReader::new(file);
         let mut result = Vec::new();
         loop {
             let mut line = Vec::new();
-            let count = abortable_io(signal, &os, reader.read_until(b'\n', &mut line))
-                .await
-                .map_err(|e| io_origin(e, &logical, &os, true))?;
+            let count = abortable_io(signal, &os, async {
+                self.handle_operations
+                    .read_line(&mut reader, &mut line)
+                    .await
+                    .map_err(handle_io_error)
+            })
+            .await
+            .map_err(|e| e.with_path(&logical))?;
             if count == 0 {
                 break;
             }
@@ -416,9 +462,19 @@ impl FileSystem for LocalFileSystem {
         let logical = self.resolved(path);
         Self::aborted(signal, &logical)?;
         let os = native(&logical);
-        abortable_io(signal, &os, tokio::fs::read(&os))
+        let mut file = open_pi_file(&os, false, false)
             .await
-            .map_err(|e| io_origin(e, &logical, &os, true))
+            .map_err(|e| call_error(e, &os, &logical))?;
+        let mut bytes = Vec::new();
+        abortable_io(signal, &os, async {
+            self.handle_operations
+                .read_end(&mut file, &mut bytes)
+                .await
+                .map_err(handle_io_error)
+        })
+        .await
+        .map_err(|e| e.with_path(&logical))?;
+        Ok(bytes)
     }
     async fn write_file(
         &self,
@@ -435,9 +491,17 @@ impl FileSystem for LocalFileSystem {
                 .map_err(|e| logical_fallback(e, &logical))?;
         }
         Self::aborted(signal, &logical)?;
-        abortable_io(signal, &os, tokio::fs::write(&os, content))
+        let mut file = open_pi_file(&os, true, false)
             .await
-            .map_err(|e| io_origin(e, &logical, &os, false))
+            .map_err(|e| call_error(e, &os, &logical))?;
+        abortable_io(signal, &os, async {
+            self.handle_operations
+                .write(&mut file, content)
+                .await
+                .map_err(handle_io_error)
+        })
+        .await
+        .map_err(|e| e.with_path(&logical))
     }
     async fn append_file(
         &self,
@@ -452,19 +516,13 @@ impl FileSystem for LocalFileSystem {
                 .await
                 .map_err(|e| logical_fallback(e, &logical))?;
         }
-        let mut file = tokio::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(&os)
+        let mut file = open_pi_file(&os, true, true)
             .await
-            .map_err(|e| append_origin(e, &logical, &os))?;
-        file.write_all(content)
+            .map_err(|e| call_error(e, &os, &logical))?;
+        self.handle_operations
+            .write(&mut file, content)
             .await
-            .map_err(|e| append_origin(e, &logical, &os))?;
-        // Join Tokio's pending blocking write before exposing append completion.
-        file.flush()
-            .await
-            .map_err(|e| append_origin(e, &logical, &os))
+            .map_err(|e| map_fs_error(handle_io_error(e)).with_path(&logical))
     }
     async fn rename_file(
         &self,
@@ -655,7 +713,7 @@ impl FileSystem for LocalFileSystem {
         } else {
             tokio::fs::create_dir(&os)
                 .await
-                .map_err(|e| call_error(e, &os, &logical))
+                .map_err(|e| mkdir_error(e, &os, &logical))
         }
     }
     async fn remove(
@@ -666,15 +724,20 @@ impl FileSystem for LocalFileSystem {
         _signal: Option<&dyn AbortSignal>,
     ) -> Result<(), FsError> {
         let logical = self.resolved(path);
-        remove_addressed(&native(&logical), recursive, force)
-            .await
-            .map_err(|e| {
-                if e.path.is_none() {
-                    e.with_path(logical)
-                } else {
-                    e
-                }
-            })
+        rimraf::remove(
+            &native(&logical),
+            recursive,
+            force,
+            self.remove_operations.as_ref(),
+        )
+        .await
+        .map_err(|e| {
+            if e.path.is_none() {
+                e.with_path(logical)
+            } else {
+                e
+            }
+        })
     }
     async fn create_temp_dir(
         &self,
@@ -924,25 +987,44 @@ fn access_origin(error: FsError, logical: &FsPath, os: &Path) -> FsError {
     }
 }
 
-fn io_origin(error: FsError, logical: &FsPath, os: &Path, directory_read: bool) -> FsError {
-    if error.code == FsErrorCode::Aborted
-        || (directory_read && error.code == FsErrorCode::IsDirectory)
-        || (error.code == FsErrorCode::Unknown && os.to_string_lossy().contains('\0'))
+async fn open_pi_file(path: &Path, write: bool, append: bool) -> io::Result<tokio::fs::File> {
+    #[cfg(windows)]
     {
-        error.with_path(logical)
-    } else {
-        error.with_path(from_native(os))
+        let path = path.to_owned();
+        let file = tokio::task::spawn_blocking(move || {
+            minion_agent_native_fs::open_like_libuv(&path, write, append)
+        })
+        .await
+        .map_err(io::Error::other)??;
+        Ok(tokio::fs::File::from_std(file))
+    }
+    #[cfg(not(windows))]
+    {
+        tokio::fs::OpenOptions::new()
+            .read(!write)
+            .write(write)
+            .append(append)
+            .create(write)
+            .truncate(write && !append)
+            .open(path)
+            .await
     }
 }
 
-fn append_origin(error: io::Error, logical: &FsPath, os: &Path) -> FsError {
-    let no_path = nul_binding_error(&error, os);
-    let error = map_path_error(error, os);
-    if no_path || (cfg!(windows) && error.code == FsErrorCode::IsDirectory) {
-        error.with_path(logical)
-    } else {
-        error.with_path(from_native(os))
+fn handle_io_error(error: io::Error) -> io::Error {
+    #[cfg(windows)]
+    if error.raw_os_error() == Some(5) {
+        return io::Error::from_raw_os_error(1004);
     }
+    error
+}
+
+fn mkdir_error(error: io::Error, os: &Path, logical: &FsPath) -> FsError {
+    #[cfg(windows)]
+    if matches!(error.raw_os_error(), Some(123 | 267)) {
+        return FsError::new(FsErrorCode::Invalid, error.to_string()).with_path(from_native(os));
+    }
+    call_error(error, os, logical)
 }
 
 /// Node v22.15.1 MKDirpAsync's explicit walk, including its failed-stat ENOTDIR branch.
@@ -1011,151 +1093,17 @@ async fn node_mkdirp_with(path: &Path, operations: &dyn MkdirOperations) -> Resu
     Ok(())
 }
 
-#[async_trait]
-trait RemoveDirectoryOperations: Send + Sync {
-    async fn remove_dir(&self, path: &Path) -> io::Result<()>;
-    async fn clear_readonly_entry(&self, path: &Path) -> io::Result<bool>;
-
-    async fn read_dir(&self, path: &Path) -> io::Result<tokio::fs::ReadDir> {
-        tokio::fs::read_dir(path).await
-    }
-
-    // A no-op in production; a deterministic race seam after enumeration and
-    // before the child's real lstat, without sleeps or replacement walk logic.
-    async fn before_child_metadata(&self, _path: &Path) {}
-}
-
-struct TokioRemoveDirectoryOperations;
-
-#[async_trait]
-impl RemoveDirectoryOperations for TokioRemoveDirectoryOperations {
-    async fn remove_dir(&self, path: &Path) -> io::Result<()> {
-        tokio::fs::remove_dir(path).await
-    }
-
-    async fn clear_readonly_entry(&self, path: &Path) -> io::Result<bool> {
-        #[cfg(windows)]
-        {
-            let path = path.to_owned();
-            tokio::task::spawn_blocking(move || minion_agent_native_fs::clear_readonly_entry(&path))
-                .await
-                .map_err(io::Error::other)?
-        }
-        #[cfg(not(windows))]
-        {
-            let _ = path;
-            Ok(false)
-        }
-    }
-}
-
-async fn remove_directory_with(
-    path: &Path,
-    operations: &dyn RemoveDirectoryOperations,
-) -> io::Result<()> {
-    match operations.remove_dir(path).await {
-        Err(original) if original.kind() == io::ErrorKind::PermissionDenied => {
-            match operations.clear_readonly_entry(path).await {
-                Ok(true) => match operations.remove_dir(path).await {
-                    Err(retry) if retry.kind() == io::ErrorKind::NotFound => Ok(()),
-                    retry => retry,
-                },
-                Err(correction) if correction.kind() == io::ErrorKind::NotFound => Ok(()),
-                _ => Err(original),
-            }
-        }
-        result => result,
-    }
-}
-
-/// Carry each actual failing call's origin. Multiple-failure selection (#127)
-/// remains excluded. L12-D005 corrects an addressed entry's readonly attribute
-/// and accepts concurrent disappearance during recursive removal on every OS.
 fn remove_addressed(
     path: &Path,
     recursive: bool,
     force: bool,
 ) -> std::pin::Pin<Box<dyn Future<Output = Result<(), FsError>> + Send + '_>> {
-    remove_addressed_with(path, recursive, force, &TokioRemoveDirectoryOperations)
-}
-
-fn remove_addressed_with<'a>(
-    path: &'a Path,
-    recursive: bool,
-    force: bool,
-    operations: &'a dyn RemoveDirectoryOperations,
-) -> std::pin::Pin<Box<dyn Future<Output = Result<(), FsError>> + Send + 'a>> {
-    Box::pin(async move {
-        let metadata = match tokio::fs::symlink_metadata(path).await {
-            Ok(metadata) => metadata,
-            Err(e) if force && e.kind() == io::ErrorKind::NotFound => return Ok(()),
-            Err(e) => return Err(native_error(e, path)),
-        };
-        let result = if metadata.is_dir() && !metadata.file_type().is_symlink() {
-            if recursive {
-                // Node rimraf attempts rmdir first; it enumerates only a nonempty directory.
-                match remove_directory_with(path, operations).await {
-                    Ok(()) => return Ok(()),
-                    Err(e) if e.kind() == io::ErrorKind::DirectoryNotEmpty => {}
-                    Err(e) if e.kind() == io::ErrorKind::NotFound => {
-                        return Ok(());
-                    }
-                    Err(e) => return Err(native_error(e, path)),
-                }
-                let mut directory = match operations.read_dir(path).await {
-                    Ok(directory) => directory,
-                    Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(()),
-                    Err(e) => return Err(native_error(e, path)),
-                };
-                loop {
-                    let entry = match directory.next_entry().await {
-                        Ok(Some(entry)) => entry,
-                        Ok(None) => break,
-                        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(()),
-                        Err(e) => return Err(native_error(e, path)),
-                    };
-                    let child = entry.path();
-                    operations.before_child_metadata(&child).await;
-                    // The target passed the initial lstat. A child which vanishes
-                    // during this recursive walk counts as removed on every OS.
-                    remove_addressed_with(&child, true, true, operations).await?;
-                }
-            }
-            // Non-recursive directory outcomes remain the excluded #125 surface.
-            if recursive {
-                remove_directory_with(path, operations).await
-            } else {
-                tokio::fs::remove_dir(path).await
-            }
-        } else if is_directory_link(&metadata) {
-            // Windows directory reparse entries require RemoveDirectory, not DeleteFile.
-            // The no-follow metadata and attribute handle both address the link itself.
-            remove_directory_with(path, operations).await
-        } else {
-            tokio::fs::remove_file(path).await
-        };
-        match result {
-            Ok(()) => Ok(()),
-            Err(e) if (force || recursive) && e.kind() == io::ErrorKind::NotFound => Ok(()),
-            // Preserve the excluded #125 code/outcome behavior, but use Pi's
-            // logical no-path carrier for a non-recursive directory refusal.
-            Err(e) if metadata.is_dir() && !recursive => Err(map_fs_error(e)),
-            Err(e) => Err(native_error(e, path)),
-        }
-    })
-}
-
-fn is_directory_link(metadata: &std::fs::Metadata) -> bool {
-    #[cfg(windows)]
-    {
-        use std::os::windows::fs::MetadataExt;
-        metadata.file_type().is_symlink() && metadata.file_attributes() & 0x10 != 0
-    }
-    #[cfg(not(windows))]
-    {
-        let _ = metadata;
-        false
-    }
+    Box::pin(rimraf::remove(
+        path,
+        recursive,
+        force,
+        &rimraf::NativeOperations,
+    ))
 }
 
 pub(crate) fn resolve_local_path(cwd: &Path, raw: &str) -> PathBuf {
@@ -1297,36 +1245,107 @@ fn lexical_normalize(path: &Path) -> PathBuf {
 }
 
 fn map_fs_error(error: io::Error) -> FsError {
+    #[cfg(windows)]
+    if let Some(raw) = error.raw_os_error() {
+        return FsError::new(win32_pi_code(raw), error.to_string());
+    }
     let code = match error.kind() {
         io::ErrorKind::NotFound => FsErrorCode::NotFound,
         io::ErrorKind::PermissionDenied => FsErrorCode::PermissionDenied,
         io::ErrorKind::NotADirectory => FsErrorCode::NotDirectory,
         io::ErrorKind::IsADirectory => FsErrorCode::IsDirectory,
         io::ErrorKind::InvalidInput | io::ErrorKind::InvalidData => FsErrorCode::Invalid,
-        io::ErrorKind::Unsupported => FsErrorCode::NotSupported,
         _ => FsErrorCode::Unknown,
     };
     FsError::new(code, error.to_string())
 }
 
+/// Projection of the complete libuv 1.49.2 uv_translate_sys_error table through
+/// pinned Pi's toFileError. All other libuv errno values project to Unknown.
+#[cfg(windows)]
+fn win32_pi_code(raw: i32) -> FsErrorCode {
+    match raw {
+        2 | 3 | 15 | 123 | 126 | 161 | 203 | 267 | 4392 | 11001 | 11004 => FsErrorCode::NotFound,
+        5 | 1314 | 740 | 1920 | 10013 => FsErrorCode::PermissionDenied,
+        1 => FsErrorCode::IsDirectory,
+        13 | 87 | 122 | 1464 | 10022 | 10046 => FsErrorCode::Invalid,
+        _ => FsErrorCode::Unknown,
+    }
+}
+
 /// `NotSupported` is reserved for a provider missing EXEC-008, not a host syscall failure.
 /// Keep the certified general filesystem error mapping unchanged for every other operation.
 fn map_readability_error(error: io::Error) -> FsError {
-    if error.kind() == io::ErrorKind::Unsupported {
-        FsError::new(FsErrorCode::Unknown, error.to_string())
-    } else {
-        map_fs_error(error)
+    map_fs_error(error)
+}
+
+#[cfg(all(test, windows))]
+mod l12d007_handle_tests {
+    use super::*;
+    #[test]
+    fn literal_win32_mapping_is_not_the_std_error_kind_mapping() {
+        for mapper in [map_fs_error, map_readability_error, map_read_write_error] {
+            assert_eq!(
+                mapper(io::Error::from_raw_os_error(1)).code,
+                FsErrorCode::IsDirectory
+            );
+            assert_eq!(
+                mapper(io::Error::from_raw_os_error(120)).code,
+                FsErrorCode::Unknown
+            );
+            assert_eq!(
+                mapper(io::Error::from(io::ErrorKind::Unsupported)).code,
+                FsErrorCode::Unknown
+            );
+        }
+        for raw in [123, 161, 267] {
+            assert_eq!(
+                map_fs_error(io::Error::from_raw_os_error(raw)).code,
+                FsErrorCode::NotFound
+            );
+        }
+        for raw in [32, 33, 80, 145, 1004, 1117, 4390] {
+            assert_eq!(
+                map_fs_error(io::Error::from_raw_os_error(raw)).code,
+                FsErrorCode::Unknown
+            );
+        }
+        assert_eq!(
+            map_fs_error(io::Error::from_raw_os_error(1)).code,
+            FsErrorCode::IsDirectory
+        );
+    }
+
+    #[tokio::test]
+    async fn read_write_handle_denial_is_unknown_but_open_denial_is_permission_denied() {
+        let logical = FsPath::from_code_units(vec![102, 0xd800]);
+        for operation in ["read", "write"] {
+            // The same production handler is applied to each completed native
+            // IO future before a read count can be considered EOF.
+            let native_io = async { Err::<usize, _>(io::Error::from_raw_os_error(5)) };
+            let outcome = native_io
+                .await
+                .map_err(handle_io_error)
+                .map_err(|e| map_fs_error(e).with_path(&logical));
+            let error = outcome.unwrap_err();
+            assert_eq!(
+                error.code,
+                FsErrorCode::Unknown,
+                "{operation} handle denial"
+            );
+            assert_eq!(error.path.as_ref(), Some(&logical));
+        }
+        assert_eq!(
+            map_fs_error(io::Error::from_raw_os_error(5)).code,
+            FsErrorCode::PermissionDenied
+        );
     }
 }
 
 /// A host `Unsupported` error is not a provider-capability answer. The latter is reserved for
 /// the trait default when EXEC-009 is absent.
 fn map_read_write_error(error: io::Error) -> FsError {
-    if error.kind() == io::ErrorKind::Unsupported {
-        FsError::new(FsErrorCode::Unknown, error.to_string())
-    } else {
-        map_fs_error(error)
-    }
+    map_fs_error(error)
 }
 
 #[cfg(unix)]
@@ -1816,6 +1835,8 @@ mod tests {
             provider_id: Uuid::new_v4(),
             world: ExecutionWorldIdentity::local(),
             directory_probe_operations: operations.clone(),
+            remove_operations: Arc::new(rimraf::NativeOperations),
+            handle_operations: Arc::new(NativeHandleOperations),
         };
 
         assert_eq!(
@@ -1840,6 +1861,8 @@ mod tests {
             provider_id: Uuid::new_v4(),
             world: ExecutionWorldIdentity::local(),
             directory_probe_operations: operations.clone(),
+            remove_operations: Arc::new(rimraf::NativeOperations),
+            handle_operations: Arc::new(NativeHandleOperations),
         };
 
         let names = filesystem.list_dir_raw(".", None).await.unwrap();

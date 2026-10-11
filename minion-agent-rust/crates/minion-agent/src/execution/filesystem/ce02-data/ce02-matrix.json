@@ -1,0 +1,18 @@
+{
+  "about": "CE-L12D007-02 behavior matrix: recursive remove('tree', {recursive: true}) with ONE injected failure of one native call on a child path (op, rel, nth call on that path). 'fixture' lists entries under the sandbox ('/' suffix = directory). Codes are Node errno names; the Python probe maps them to the platform's native form (Windows Win32: EIO 1117, EACCES 1920, EBUSY 32, ENOENT 2, EPERM 5).",
+  "rows": [
+    {"id": "C0-no-error", "fixture": ["tree/", "tree/child/", "tree/child/f", "tree/g"], "inject": null},
+    {"id": "E1-child-rmdir-fails", "fixture": ["tree/", "tree/child/"], "inject": {"op": "rmdir", "rel": "tree/child", "nth": 1, "code": "EIO"}},
+    {"id": "E2-inner-unlink-fails", "fixture": ["tree/", "tree/child/", "tree/child/f"], "inject": {"op": "unlink", "rel": "tree/child/f", "nth": 1, "code": "EIO"}},
+    {"id": "E3-child-readdir-fails", "fixture": ["tree/", "tree/child/", "tree/child/f"], "inject": {"op": "readdir", "rel": "tree/child", "nth": 1, "code": "EACCES"}},
+    {"id": "E4-child-final-rmdir-fails", "fixture": ["tree/", "tree/child/", "tree/child/f"], "inject": {"op": "rmdir", "rel": "tree/child", "nth": 2, "code": "EIO"}},
+    {"id": "E5-child-rmdir-busy", "fixture": ["tree/", "tree/child/", "tree/child/f"], "inject": {"op": "rmdir", "rel": "tree/child", "nth": 1, "code": "EBUSY"}},
+    {"id": "E6-child-unlink-busy", "fixture": ["tree/", "tree/child"], "inject": {"op": "unlink", "rel": "tree/child", "nth": 1, "code": "EBUSY"}},
+    {"id": "E7-child-lstat-fails-file", "fixture": ["tree/", "tree/child"], "inject": {"op": "lstat", "rel": "tree/child", "nth": 1, "code": "EIO"}},
+    {"id": "E8-child-lstat-enoent", "fixture": ["tree/", "tree/child"], "inject": {"op": "lstat", "rel": "tree/child", "nth": 1, "code": "ENOENT"}},
+    {"id": "E9-child-lstat-fails-dir", "fixture": ["tree/", "tree/child/"], "inject": {"op": "lstat", "rel": "tree/child", "nth": 1, "code": "EIO"}},
+    {"id": "E10-grandchild-unlink-fails", "fixture": ["tree/", "tree/child/", "tree/child/sub/", "tree/child/sub/f"], "inject": {"op": "unlink", "rel": "tree/child/sub/f", "nth": 1, "code": "EIO"}},
+    {"id": "E11-child-unlink-eperm", "fixture": ["tree/", "tree/child"], "inject": {"op": "unlink", "rel": "tree/child", "nth": 1, "code": "EPERM"}},
+    {"id": "E12-grandchild-rmdir-fails", "fixture": ["tree/", "tree/child/", "tree/child/sub/"], "inject": {"op": "rmdir", "rel": "tree/child/sub", "nth": 1, "code": "EIO"}}
+  ]
+}

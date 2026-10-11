@@ -1,0 +1,23 @@
+{
+  "about": "CE-L12D007-02 revision 2 (checkpoint review 1, C001/C002): Windows EPERM recovery (rimraf fixWinEPERM). Entry sites: child lstat EPERM (L*), child unlink EPERM (U*), top-level single-file remove (T*). Each row injects one or more failures (op, rel, nth call on that path); every other call is real. Fixture entries: 'd/' directory, 'f' file, {'ro': rel} sets the read-only attribute, {'link': rel, 'to': rel} a file symlink. 'remove' defaults to {'path': 'tree', 'recursive': true}. Windows Win32 forms: EIO 1117, EPERM 5, ENOENT 2.",
+  "rows": [
+    {"id": "L1-file-recovered", "fixture": ["tree/", "tree/child"], "inject": [{"op": "lstat", "rel": "tree/child", "nth": 1, "code": "EPERM"}]},
+    {"id": "L2-dir-recovered", "fixture": ["tree/", "tree/child/"], "inject": [{"op": "lstat", "rel": "tree/child", "nth": 1, "code": "EPERM"}]},
+    {"id": "L3-chmod-fails", "fixture": ["tree/", "tree/child"], "inject": [{"op": "lstat", "rel": "tree/child", "nth": 1, "code": "EPERM"}, {"op": "chmod", "rel": "tree/child", "nth": 1, "code": "EIO"}]},
+    {"id": "L4-chmod-enoent", "fixture": ["tree/", "tree/child"], "inject": [{"op": "lstat", "rel": "tree/child", "nth": 1, "code": "EPERM"}, {"op": "chmod", "rel": "tree/child", "nth": 1, "code": "ENOENT"}]},
+    {"id": "L5-stat-fails", "fixture": ["tree/", "tree/child"], "inject": [{"op": "lstat", "rel": "tree/child", "nth": 1, "code": "EPERM"}, {"op": "stat", "rel": "tree/child", "nth": 1, "code": "EIO"}]},
+    {"id": "L6-stat-enoent", "fixture": ["tree/", "tree/child"], "inject": [{"op": "lstat", "rel": "tree/child", "nth": 1, "code": "EPERM"}, {"op": "stat", "rel": "tree/child", "nth": 1, "code": "ENOENT"}]},
+    {"id": "L7-retry-unlink-fails", "fixture": ["tree/", "tree/child"], "inject": [{"op": "lstat", "rel": "tree/child", "nth": 1, "code": "EPERM"}, {"op": "unlink", "rel": "tree/child", "nth": 1, "code": "EIO"}]},
+    {"id": "L8-dir-retry-rmdir-fails", "fixture": ["tree/", "tree/child/"], "inject": [{"op": "lstat", "rel": "tree/child", "nth": 1, "code": "EPERM"}, {"op": "rmdir", "rel": "tree/child", "nth": 1, "code": "EIO"}]},
+    {"id": "L9-link-to-readonly-target", "fixture": ["tree/", "outside/", "outside/t", {"ro": "outside/t"}, {"link": "tree/child", "to": "outside/t"}], "inject": [{"op": "lstat", "rel": "tree/child", "nth": 1, "code": "EPERM"}]},
+    {"id": "U1-file-recovered", "fixture": ["tree/", "tree/child"], "inject": [{"op": "unlink", "rel": "tree/child", "nth": 1, "code": "EPERM"}]},
+    {"id": "U2-chmod-fails", "fixture": ["tree/", "tree/child"], "inject": [{"op": "unlink", "rel": "tree/child", "nth": 1, "code": "EPERM"}, {"op": "chmod", "rel": "tree/child", "nth": 1, "code": "EIO"}]},
+    {"id": "U3-stat-enoent", "fixture": ["tree/", "tree/child"], "inject": [{"op": "unlink", "rel": "tree/child", "nth": 1, "code": "EPERM"}, {"op": "stat", "rel": "tree/child", "nth": 1, "code": "ENOENT"}]},
+    {"id": "U4-retry-fails-eio", "fixture": ["tree/", "tree/child"], "inject": [{"op": "unlink", "rel": "tree/child", "nth": 1, "code": "EPERM"}, {"op": "unlink", "rel": "tree/child", "nth": 2, "code": "EIO"}]},
+    {"id": "U5-retry-fails-eperm", "fixture": ["tree/", "tree/child"], "inject": [{"op": "unlink", "rel": "tree/child", "nth": 1, "code": "EPERM"}, {"op": "unlink", "rel": "tree/child", "nth": 2, "code": "EPERM"}]},
+    {"id": "U6-readonly-file-real", "fixture": ["tree/", "tree/child", {"ro": "tree/child"}], "inject": []},
+    {"id": "U7-link-to-readonly-target", "fixture": ["tree/", "outside/", "outside/t", {"ro": "outside/t"}, {"link": "tree/child", "to": "outside/t"}], "inject": [{"op": "unlink", "rel": "tree/child", "nth": 1, "code": "EPERM"}]},
+    {"id": "T1-single-file-recovered", "fixture": ["tree"], "remove": {"path": "tree", "recursive": false}, "inject": [{"op": "unlink", "rel": "tree", "nth": 1, "code": "EPERM"}]},
+    {"id": "T2-single-file-chmod-fails", "fixture": ["tree"], "remove": {"path": "tree", "recursive": false}, "inject": [{"op": "unlink", "rel": "tree", "nth": 1, "code": "EPERM"}, {"op": "chmod", "rel": "tree", "nth": 1, "code": "EIO"}]}
+  ]
+}

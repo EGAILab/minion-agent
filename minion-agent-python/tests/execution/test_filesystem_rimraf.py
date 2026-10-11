@@ -367,15 +367,20 @@ async def test_a_550_deep_tree_is_removed(tmp_path: Path) -> None:
 
 
 def _recursive_rimraf(path: str, original: OSError | None = None) -> None:
-    """The control: the pre-I005 recursive walk (one interpreter frame pair per tree level)."""
+    """The control: the reviewed pre-I005 shape, `_rimraf` and the entry handler recursing
+    alternately (an interpreter frame pair per tree level, as at code `0887a50d`)."""
     children = fs_module._rmdir_first(path, original)
     if children is None:
         return
     for child in children:
-        descend = fs_module._rimraf_entry(child)
-        if descend is not None:
-            _recursive_rimraf(*descend)
+        _recursive_entry(child)
     fs_module._rmdir_last(path)
+
+
+def _recursive_entry(path: str) -> None:
+    descend = fs_module._rimraf_entry(path)
+    if descend is not None:
+        _recursive_rimraf(*descend)
 
 
 def test_control_a_recursive_walk_fails_the_stack_witness(

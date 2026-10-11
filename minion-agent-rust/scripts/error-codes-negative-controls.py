@@ -135,15 +135,18 @@ control("final-rmdir-missing-is-error", "@execution::filesystem::rimraf::tests::
 control("retry-unlink-missing-is-error", "@execution::filesystem::rimraf::tests::disappearance_at_retry_unlink_is_accepted", rimraf,
     "            Err(e) if missing(&e) => Ok(()),\n            Err(e) => Err(native_error(e, p)),",
     "            Err(e) if missing(&e) => Err(native_error(e, p)),\n            Err(e) => Err(native_error(e, p)),", True)
+control("reparse-any-tag-is-link", "@native:tests::directory_reparse_payloads_keep_libuv_readlink_acceptance", native,
+    "        _ => false,\n    }\n}", "        _ => true,\n    }\n}")
 matrix_test = "execution::filesystem::rimraf::tests::l12d007_all_41_pi_routing_rows_match_and_injections_fire"
 link_test = "execution::filesystem::rimraf::tests::directory_link_recovery_matches_pinned_pi"
 
 def run(name, row, mutant=False):
-    witness = row[1:] if row.startswith("@") else link_test if "dirlink" in row or "junction" in row else matrix_test
+    package = "minion-agent-native-fs" if row.startswith("@native:") else "minion-agent"
+    witness = row[len("@native:"):] if row.startswith("@native:") else row[1:] if row.startswith("@") else link_test if "dirlink" in row or "junction" in row else matrix_test
     env = dict(os.environ)
     env.pop("L12D007_CASE", None)
     if witness in (matrix_test, link_test): env["L12D007_CASE"] = row
-    command = ["cargo", "test", "-p", "minion-agent", "--all-features", "--lib", witness, "--", "--exact", "--nocapture"]
+    command = ["cargo", "test", "-p", package, "--all-features", "--lib", witness, "--", "--exact", "--nocapture"]
     result = subprocess.run(command, cwd=tree, env=env, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     checked(logs / f"{name}.log").write_text(result.stdout, encoding="utf-8")
     valid = result.returncode == (101 if mutant else 0)
@@ -169,6 +172,7 @@ def run(name, row, mutant=False):
                 "first-rmdir-missing-is-error": ("concurrent disappearance must succeed", "not_found"),
                 "final-rmdir-missing-is-error": ("concurrent disappearance must succeed", "not_found"),
                 "retry-unlink-missing-is-error": ("concurrent disappearance must succeed", "not_found"),
+                "reparse-any-tag-is-link": ("assertion failed: !valid_directory_link", "0x9000001a"),
             }
             valid &= all(part in result.stdout for part in signatures[name])
         valid &= "error[E" not in result.stdout and "thread '" in result.stdout

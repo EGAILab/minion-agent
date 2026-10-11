@@ -239,6 +239,37 @@ pub fn delete_entry(path: &std::path::Path, directory: bool) -> std::io::Result<
     {
         return Err(io::Error::from_raw_os_error(5));
     }
+    if !directory && attributes & FILE_ATTRIBUTE_DIRECTORY != 0 {
+        // libuv fs__readlink_handle validates a directory reparse point before
+        // unlinking it. Query THIS handle, not the path (which can be replaced).
+        use windows_sys::Win32::System::{IO::DeviceIoControl, Ioctl::FSCTL_GET_REPARSE_POINT};
+        let mut buffer = [0u8; 16384];
+        let mut bytes = 0;
+        // SAFETY: live owned synchronous handle and initialized output buffer;
+        // no retained pointers or overlapped operation.
+        if unsafe {
+            DeviceIoControl(
+                file.as_raw_handle(),
+                FSCTL_GET_REPARSE_POINT,
+                std::ptr::null(),
+                0,
+                buffer.as_mut_ptr().cast(),
+                buffer.len() as u32,
+                &mut bytes,
+                std::ptr::null_mut(),
+            )
+        } == 0
+        {
+            return Err(io::Error::last_os_error());
+        }
+        if !buffer
+            .get(..bytes as usize)
+            .is_some_and(valid_directory_link)
+        {
+            // fs__unlink_rmdir maps ERROR_SYMLINK_NOT_SUPPORTED to ACCESS_DENIED.
+            return Err(io::Error::from_raw_os_error(5));
+        }
+    }
     let disposition = FILE_DISPOSITION_INFO_EX {
         Flags: FILE_DISPOSITION_FLAG_DELETE
             | FILE_DISPOSITION_FLAG_POSIX_SEMANTICS
@@ -290,6 +321,137 @@ pub fn delete_entry(path: &std::path::Path, directory: bool) -> std::io::Result<
         return Err(io::Error::last_os_error());
     }
     Ok(())
+}
+
+// Only the observable readlink validation is needed here, not text projection.
+// Layouts and acceptance are pinned libuv 1.49.2 fs__readlink_handle.
+#[cfg(any(windows, test))]
+fn valid_directory_link(buffer: &[u8]) -> bool {
+    let word = |offset| {
+        buffer
+            .get(offset..offset + 2)
+            .map(|b| u16::from_le_bytes([b[0], b[1]]) as usize)
+    };
+    let Some(tag) = buffer
+        .get(..4)
+        .map(|b| u32::from_le_bytes(b.try_into().unwrap()))
+    else {
+        return false;
+    };
+    let Some(length) = word(4) else {
+        return false;
+    };
+    let Some(data) = buffer.get(8..8 + length) else {
+        return false;
+    };
+    match tag {
+        0xa000000c | 0xa0000003 => {
+            // SYMLINK / MOUNT_POINT
+            let base = if tag == 0xa000000c { 12 } else { 8 };
+            if data.len() < base {
+                return false;
+            }
+            let offset = u16::from_le_bytes([data[0], data[1]]) as usize;
+            let size = u16::from_le_bytes([data[2], data[3]]) as usize;
+            if !offset.is_multiple_of(2) || !size.is_multiple_of(2) {
+                return false;
+            }
+            let Some(name) = data.get(base + offset..base + offset + size) else {
+                return false;
+            };
+            if tag == 0xa000000c {
+                return true;
+            }
+            let units = name
+                .chunks_exact(2)
+                .map(|c| u16::from_le_bytes([c[0], c[1]]))
+                .collect::<Vec<_>>();
+            units.len() >= 6
+                && units[..4] == [92, 63, 63, 92]
+                && ascii_drive(units[4])
+                && units[5] == 58
+                && (units.len() == 6 || units[6] == 92)
+        }
+        0x8000001b => {
+            // APPEXECLINK
+            let Some(count) = data
+                .get(..4)
+                .map(|b| u32::from_le_bytes(b.try_into().unwrap()))
+            else {
+                return false;
+            };
+            if count < 3 || !(data.len() - 4).is_multiple_of(2) {
+                return false;
+            }
+            let units = data[4..]
+                .chunks_exact(2)
+                .map(|c| u16::from_le_bytes([c[0], c[1]]))
+                .collect::<Vec<_>>();
+            let mut strings = units.split(|u| *u == 0);
+            if !strings.next().is_some_and(|s| !s.is_empty())
+                || !strings.next().is_some_and(|s| !s.is_empty())
+            {
+                return false;
+            }
+            strings
+                .next()
+                .is_some_and(|s| s.len() >= 3 && ascii_drive(s[0]) && s[1..3] == [58, 92])
+        }
+        _ => false,
+    }
+}
+
+#[cfg(any(windows, test))]
+fn ascii_drive(unit: u16) -> bool {
+    (65..=90).contains(&unit) || (97..=122).contains(&unit)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::valid_directory_link;
+    fn link(tag: u32, name: &str) -> Vec<u8> {
+        let mut data = vec![0, 0];
+        let units = name.encode_utf16().collect::<Vec<_>>();
+        data.extend_from_slice(&((units.len() * 2) as u16).to_le_bytes());
+        data.extend_from_slice(&[0; 4]);
+        if tag == 0xa000000c {
+            data.extend_from_slice(&[0; 4]);
+        }
+        for u in units {
+            data.extend_from_slice(&u.to_le_bytes());
+        }
+        let mut bytes = tag.to_le_bytes().to_vec();
+        bytes.extend_from_slice(&(data.len() as u16).to_le_bytes());
+        bytes.extend_from_slice(&[0; 2]);
+        bytes.extend(data);
+        bytes
+    }
+    #[test]
+    fn directory_reparse_payloads_keep_libuv_readlink_acceptance() {
+        assert!(valid_directory_link(&link(0xa000000c, "relative")));
+        assert!(valid_directory_link(&link(0xa0000003, r"\??\E:\inside")));
+        assert!(!valid_directory_link(&link(
+            0xa0000003,
+            r"\??\Volume{guid}"
+        )));
+        assert!(!valid_directory_link(&link(0x9000001a, "cloud")));
+        assert!(!valid_directory_link(&[]));
+        let mut malformed = link(0xa000000c, "x");
+        malformed[8] = 255;
+        assert!(!valid_directory_link(&malformed));
+        let strings = "package\0entry\0E:\\target\0";
+        let mut data = 3u32.to_le_bytes().to_vec();
+        for u in strings.encode_utf16() {
+            data.extend_from_slice(&u.to_le_bytes());
+        }
+        let mut app = 0x8000001bu32.to_le_bytes().to_vec();
+        app.extend_from_slice(&(data.len() as u16).to_le_bytes());
+        app.extend_from_slice(&[0; 2]);
+        app.extend(data);
+        assert!(valid_directory_link(&app));
+        app[8] = 2;
+        assert!(!valid_directory_link(&app));
+    }
 }
 
 #[cfg(windows)]

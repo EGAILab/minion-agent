@@ -26,20 +26,23 @@ find /tmp/l12d007/work -name '*.sh' -exec sed -i 's/\r$//' {} +
 cd /tmp/l12d007/work/minion-agent-rust
 rustc --version
 node --version
+cargo check -p minion-agent-native-fs > /logs/native-fs-check.log 2>&1
 cargo fmt --all -- --check > /logs/fmt.log 2>&1
 cargo clippy --workspace --all-targets --all-features -- -D warnings > /logs/clippy.log 2>&1
 cargo test --workspace --all-features > /logs/test.log 2>&1
 cargo doc --workspace --no-deps > /logs/doc.log 2>&1
 cargo run -p xtask -- conformance verify > /logs/xtask.log 2>&1
 cargo test -p minion-agent --lib l12d007_all_41_pi_routing_rows_match_and_injections_fire -- --nocapture > /logs/ce02.log 2>&1
+cargo test -p minion-agent --lib execution::filesystem::rimraf::tests -- --nocapture > /logs/remediation-focused.log 2>&1
 # Permission-sensitive canonical corpora run as uid 1000, never credited as root.
-cargo test -p minion-agent --test fs_path_domain_conformance --test fs_remove_readonly_conformance --no-run --message-format=json > /logs/corpus-build.json 2>/logs/corpus-build.log
+cargo test -p minion-agent --test fs_path_domain_conformance --test fs_remove_readonly_conformance --test fs_path_domain --no-run --message-format=json > /logs/corpus-build.json 2>/logs/corpus-build.log
 python3 - <<'PY'
 import json, subprocess
 for row in map(json.loads, open('/logs/corpus-build.json')):
-    if row.get('executable') and row.get('target', {}).get('name') in ('fs_path_domain_conformance', 'fs_remove_readonly_conformance'):
+    if row.get('executable') and row.get('target', {}).get('name') in ('fs_path_domain_conformance', 'fs_remove_readonly_conformance', 'fs_path_domain'):
         with open('/logs/' + row['target']['name'] + '-uid1000.log', 'w') as log:
-            subprocess.run(['setpriv', '--reuid', '1000', '--regid', '1000', '--clear-groups', row['executable'], '--nocapture'], stdout=log, stderr=subprocess.STDOUT, check=True)
+            extra = ['--exact', 'recursive_remove_single_failure_reports_the_inner_native_call', '--ignored'] if row['target']['name'] == 'fs_path_domain' else []
+            subprocess.run(['setpriv', '--reuid', '1000', '--regid', '1000', '--clear-groups', row['executable'], *extra, '--nocapture'], stdout=log, stderr=subprocess.STDOUT, check=True)
 PY
 mkdir /tmp/l12d007/control-code
 cp -r /tmp/l12d007/work/minion-agent-rust /tmp/l12d007/control-code/

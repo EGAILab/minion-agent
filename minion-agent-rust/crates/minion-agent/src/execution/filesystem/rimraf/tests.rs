@@ -328,12 +328,14 @@ fn errno(code: &str) -> io::Error {
         (true, "EACCES") => 1920,
         (true, "EBUSY") => 32,
         (true, "ENOENT") => 2,
+        (true, "EEXIST") => 183,
         (true, "EPERM") => 5,
         (true, "ENOTDIR") => return io::Error::from(io::ErrorKind::NotADirectory),
         (false, "EIO") => 5,
         (false, "EACCES") => 13,
         (false, "EBUSY") => 16,
         (false, "ENOENT") => 2,
+        (false, "EEXIST") => 17,
         (false, "EPERM") => 1,
         (false, "ENOTDIR") => 20,
         _ => panic!("unexpected injected errno {code}"),
@@ -360,6 +362,20 @@ impl Injected {
         *nth += 1;
         for f in &self.faults {
             if f["op"] == op && f["rel"] == rel && f["nth"].as_u64().unwrap() == *nth as u64 {
+                if f["vanish"] == true {
+                    // A real concurrent remover, synchronized at the failing call.
+                    // Only this proven, existing entry is removed; never recurse.
+                    prove(&self.root, path, false);
+                    let meta = std::fs::symlink_metadata(path)?;
+                    #[cfg(windows)]
+                    minion_agent_native_fs::delete_entry(path, meta.is_dir())?;
+                    #[cfg(not(windows))]
+                    if meta.is_dir() && !meta.file_type().is_symlink() {
+                        std::fs::remove_dir(path)?;
+                    } else {
+                        std::fs::remove_file(path)?;
+                    }
+                }
                 return Err(errno(f["code"].as_str().unwrap()));
             }
         }
@@ -421,12 +437,28 @@ async fn row(spec: &Value, recovery: bool) -> Value {
                 std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o444)).unwrap();
             }
         } else {
-            let p = relative(root, item["link"].as_str().unwrap());
+            let kind = ["link", "dirlink", "junction"]
+                .into_iter()
+                .find(|k| item.get(*k).is_some())
+                .unwrap();
+            let p = relative(root, item[kind].as_str().unwrap());
             let to = relative(root, item["to"].as_str().unwrap());
             prove(root, &p, false);
             prove(root, &to, true);
             #[cfg(windows)]
-            std::os::windows::fs::symlink_file(to, p).unwrap();
+            match kind {
+                "dirlink" => std::os::windows::fs::symlink_dir(to, p).unwrap(),
+                "junction" => {
+                    let output = std::process::Command::new("cmd")
+                        .args(["/d", "/c", "mklink", "/J"])
+                        .arg(p.to_string_lossy().replace('/', "\\"))
+                        .arg(to.to_string_lossy().replace('/', "\\"))
+                        .output()
+                        .unwrap();
+                    assert!(output.status.success(), "junction creation: {output:?}");
+                }
+                _ => std::os::windows::fs::symlink_file(to, p).unwrap(),
+            }
             #[cfg(not(windows))]
             std::os::unix::fs::symlink(to, p).unwrap();
         }
@@ -565,4 +597,110 @@ async fn l12d007_all_41_pi_routing_rows_match_and_injections_fire() {
         }
     }
     assert_eq!(count, if selected.is_some() { 1 } else { 41 });
+}
+
+#[tokio::test]
+async fn directory_link_recovery_matches_pinned_pi() {
+    let matrix: Value =
+        serde_json::from_str(include_str!("../ce02-data/dirlink-matrix.json")).unwrap();
+    let oracle = if cfg!(windows) {
+        include_str!("../ce02-data/dirlink-pi-win32.jsonl")
+    } else {
+        include_str!("../ce02-data/dirlink-pi-linux.jsonl")
+    }
+    .lines()
+    .map(|l| serde_json::from_str::<Value>(l).unwrap())
+    .collect::<Vec<_>>();
+    let selected = env::var("L12D007_CASE").ok();
+    let mut count = 0;
+    for spec in matrix["rows"].as_array().unwrap() {
+        if !cfg!(windows) && spec["id"].as_str().unwrap().contains("junction") {
+            continue;
+        }
+        if selected
+            .as_ref()
+            .is_some_and(|id| spec["id"] != id.as_str())
+        {
+            continue;
+        }
+        let expected = oracle.iter().find(|r| r["id"] == spec["id"]).unwrap();
+        let actual = row(spec, true).await;
+        println!("CE02 {}", serde_json::to_string(&actual).unwrap());
+        assert_eq!(
+            actual["unfired"],
+            json!([]),
+            "directory-link injection did not fire"
+        );
+        // These new rows compare EVERY call, including recovery and both lstat stages.
+        assert_eq!(
+            actual, *expected,
+            "Pi directory-link recovery: {}",
+            spec["id"]
+        );
+        count += 1;
+    }
+    assert_eq!(
+        count,
+        if selected.is_some() {
+            1
+        } else if cfg!(windows) {
+            4
+        } else {
+            2
+        }
+    );
+}
+
+async fn disappearance(spec: Value, calls: Value) {
+    let actual = row(&spec, false).await;
+    println!("DISAPPEARANCE {}", serde_json::to_string(&actual).unwrap());
+    assert_eq!(
+        actual["unfired"],
+        json!([]),
+        "disappearance injection did not fire"
+    );
+    assert_eq!(
+        actual["result"], "ok",
+        "concurrent disappearance must succeed"
+    );
+    assert_eq!(actual["path"], Value::Null);
+    assert_eq!(actual["remains"], json!([]));
+    assert_eq!(actual["calls"], calls);
+}
+
+#[tokio::test]
+async fn disappearance_at_readdir_is_accepted() {
+    disappearance(
+        json!({"id":"D1-readdir","fixture":["tree/"],"inject":[
+        {"op":"rmdir","rel":"tree","nth":1,"code":"EEXIST"},
+        {"op":"readdir","rel":"tree","nth":1,"code":"ENOENT","vanish":true}]}),
+        json!({"lstat tree":2,"rmdir tree":1,"readdir tree":1}),
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn disappearance_at_first_rmdir_is_accepted() {
+    disappearance(
+        json!({"id":"D2-first-rmdir","fixture":["tree/"],"inject":
+        {"op":"rmdir","rel":"tree","nth":1,"code":"ENOENT","vanish":true}}),
+        json!({"lstat tree":2,"rmdir tree":1}),
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn disappearance_at_final_rmdir_is_accepted() {
+    disappearance(json!({"id":"D3-final-rmdir","fixture":["tree/","tree/child"],"inject":
+        {"op":"rmdir","rel":"tree","nth":2,"code":"ENOENT","vanish":true}}),
+        json!({"lstat tree":2,"lstat tree/child":1,"rmdir tree":2,"readdir tree":1,"unlink tree/child":1})).await;
+}
+
+#[cfg(windows)]
+#[tokio::test]
+async fn disappearance_at_retry_unlink_is_accepted() {
+    disappearance(json!({"id":"D4-retry-unlink","fixture":["tree/","tree/child"],"inject":[
+        {"op":"unlink","rel":"tree/child","nth":1,"code":"EPERM"},
+        {"op":"unlink","rel":"tree/child","nth":2,"code":"ENOENT","vanish":true}]}),
+        json!({"lstat tree":2,"lstat tree/child":1,"rmdir tree":2,"readdir tree":1,"unlink tree/child":2,"chmod tree/child":1,"stat tree/child":1})).await;
 }

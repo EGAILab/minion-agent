@@ -1,0 +1,2 @@
+{"platform":"linux","id":"U8-dirlink-unlink-eperm","result":"permission_denied","path":"tree/child","calls":{"lstat tree":2,"lstat tree/child":1,"readdir tree":1,"rmdir tree":1,"rmdir tree/child":1,"unlink tree/child":1},"remains":["outside/","outside/keep","tree/","tree/child@"],"readonly":[],"unfired":[]}
+{"platform":"linux","id":"L10-dirlink-lstat-eperm","result":"ok","path":null,"calls":{"lstat tree":2,"lstat tree/child":1,"readdir tree":1,"rmdir tree":2,"unlink tree/child":1},"remains":["outside/","outside/keep"],"readonly":[],"unfired":[]}

@@ -111,22 +111,50 @@ control("raw-code-collapses-to-error-kind", "@execution::filesystem::l12d007_han
 control("depth-limited-removal-walk", "@execution::filesystem::rimraf::tests::removal_walk_uses_constant_interpreter_stack_for_deep_trees", rimraf,
     "    while let Some(work) = stack.pop() {",
     "    let mut depth_budget = 1024usize;\n    while let Some(work) = stack.pop() {\n        depth_budget -= 1;\n        if depth_budget == 0 { return Err(FsError::new(FsErrorCode::Unknown, \"mutant depth bound\")); }")
+def std_classification(text):
+    text = replace(text, "    if directory && attributes & FILE_ATTRIBUTE_DIRECTORY == 0 {",
+        "    if directory && !metadata.is_dir() {")
+    text = replace(text,
+        "    if !directory\n        && attributes & FILE_ATTRIBUTE_DIRECTORY != 0\n        && attributes & FILE_ATTRIBUTE_REPARSE_POINT == 0\n    {",
+        "    if !directory && metadata.is_dir() && !metadata.file_type().is_symlink() {")
+    return replace(text, "    let attributes = metadata.file_attributes();", "    let _attributes = metadata.file_attributes();")
+if os.name == "nt":
+    for link_row in ("U8-dirlink-unlink-eperm", "L10-dirlink-lstat-eperm", "U9-junction-unlink-eperm", "L11-junction-lstat-eperm"):
+        controls.append(("std-classification-" + link_row, link_row, native, std_classification))
+else:
+    print("NOT_APPLICABLE std-classification: Windows raw-attribute classification", flush=True)
+control("readdir-missing-is-error", "@execution::filesystem::rimraf::tests::disappearance_at_readdir_is_accepted", rimraf,
+    "                        Err(e) if missing(&e) => continue,",
+    "                        Err(e) if missing(&e) => return Err(native_error(e, &p)),")
+control("first-rmdir-missing-is-error", "@execution::filesystem::rimraf::tests::disappearance_at_first_rmdir_is_accepted", rimraf,
+    "                Err(e) if missing(&e) => (),\n                Err(e) if enotdir(&e) => {",
+    "                Err(e) if missing(&e) => return Err(native_error(e, &p)),\n                Err(e) if enotdir(&e) => {")
+control("final-rmdir-missing-is-error", "@execution::filesystem::rimraf::tests::disappearance_at_final_rmdir_is_accepted", rimraf,
+    "            Work::FinalDirectory(p) => match ops.rmdir(&p).await {\n                Ok(()) => (),\n                Err(e) if missing(&e) => (),",
+    "            Work::FinalDirectory(p) => match ops.rmdir(&p).await {\n                Ok(()) => (),\n                Err(e) if missing(&e) => return Err(native_error(e, &p)),")
+control("retry-unlink-missing-is-error", "@execution::filesystem::rimraf::tests::disappearance_at_retry_unlink_is_accepted", rimraf,
+    "            Err(e) if missing(&e) => Ok(()),\n            Err(e) => Err(native_error(e, p)),",
+    "            Err(e) if missing(&e) => Err(native_error(e, p)),\n            Err(e) => Err(native_error(e, p)),", True)
 matrix_test = "execution::filesystem::rimraf::tests::l12d007_all_41_pi_routing_rows_match_and_injections_fire"
+link_test = "execution::filesystem::rimraf::tests::directory_link_recovery_matches_pinned_pi"
 
 def run(name, row, mutant=False):
-    witness = row[1:] if row.startswith("@") else matrix_test
+    witness = row[1:] if row.startswith("@") else link_test if "dirlink" in row or "junction" in row else matrix_test
     env = dict(os.environ)
     env.pop("L12D007_CASE", None)
-    if witness == matrix_test: env["L12D007_CASE"] = row
+    if witness in (matrix_test, link_test): env["L12D007_CASE"] = row
     command = ["cargo", "test", "-p", "minion-agent", "--all-features", "--lib", witness, "--", "--exact", "--nocapture"]
     result = subprocess.run(command, cwd=tree, env=env, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     checked(logs / f"{name}.log").write_text(result.stdout, encoding="utf-8")
     valid = result.returncode == (101 if mutant else 0)
     valid &= f"test {witness} ... {'FAILED' if mutant else 'ok'}" in result.stdout
     valid &= ("1 failed" if mutant else "1 passed") in result.stdout
-    if witness == matrix_test: valid &= f'"id":"{row}"' in result.stdout
+    if witness in (matrix_test, link_test): valid &= f'"id":"{row}"' in result.stdout
     if mutant:
-        if witness == matrix_test:
+        if witness == link_test:
+            valid &= f"Pi directory-link recovery: \"{row}\"" in result.stdout
+            valid &= '"unfired":[]' in result.stdout
+        elif witness == matrix_test:
             allowed_unfired = name.startswith(("N6-", "N8-", "N11-", "N13-"))
             valid &= (f"Pi routing: \"{row}\"" in result.stdout or
                 (allowed_unfired and f"binding-only UNFIRED: \"{row}\"" in result.stdout))
@@ -137,6 +165,10 @@ def run(name, row, mutant=False):
                 "raw-code-collapses-to-error-kind": ("left: Unknown", "right: IsDirectory"),
                 "depth-limited-removal-walk": ("mutant depth bound", "code: Unknown"),
                 "child-vanish-windows-only": ("code: NotFound", "tree/child"),
+                "readdir-missing-is-error": ("concurrent disappearance must succeed", "not_found"),
+                "first-rmdir-missing-is-error": ("concurrent disappearance must succeed", "not_found"),
+                "final-rmdir-missing-is-error": ("concurrent disappearance must succeed", "not_found"),
+                "retry-unlink-missing-is-error": ("concurrent disappearance must succeed", "not_found"),
             }
             valid &= all(part in result.stdout for part in signatures[name])
         valid &= "error[E" not in result.stdout and "thread '" in result.stdout

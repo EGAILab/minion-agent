@@ -1,0 +1,9 @@
+{
+  "source": "Pinned-Pi closure-review probe, minion-agent#199 issuecomment-6111409107",
+  "rows": [
+    {"id":"U8-dirlink-unlink-eperm","fixture":["tree/","outside/","outside/keep",{"dirlink":"tree/child","to":"outside"}],"inject":[{"op":"unlink","rel":"tree/child","nth":1,"code":"EPERM"}]},
+    {"id":"L10-dirlink-lstat-eperm","fixture":["tree/","outside/","outside/keep",{"dirlink":"tree/child","to":"outside"}],"inject":[{"op":"lstat","rel":"tree/child","nth":1,"code":"EPERM"}]},
+    {"id":"U9-junction-unlink-eperm","fixture":["tree/","outside/","outside/keep",{"junction":"tree/child","to":"outside"}],"inject":[{"op":"unlink","rel":"tree/child","nth":1,"code":"EPERM"}]},
+    {"id":"L11-junction-lstat-eperm","fixture":["tree/","outside/","outside/keep",{"junction":"tree/child","to":"outside"}],"inject":[{"op":"lstat","rel":"tree/child","nth":1,"code":"EPERM"}]}
+  ]
+}

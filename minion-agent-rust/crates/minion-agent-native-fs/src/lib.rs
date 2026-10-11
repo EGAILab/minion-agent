@@ -214,7 +214,10 @@ pub fn scandir(path: &std::path::Path) -> std::io::Result<Vec<std::ffi::OsString
 pub fn delete_entry(path: &std::path::Path, directory: bool) -> std::io::Result<()> {
     use std::{
         io, mem,
-        os::windows::{fs::OpenOptionsExt, io::AsRawHandle},
+        os::windows::{
+            fs::{MetadataExt, OpenOptionsExt},
+            io::AsRawHandle,
+        },
     };
     use windows_sys::Win32::Storage::FileSystem::*;
     let file = std::fs::OpenOptions::new()
@@ -223,10 +226,17 @@ pub fn delete_entry(path: &std::path::Path, directory: bool) -> std::io::Result<
         .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT | FILE_FLAG_BACKUP_SEMANTICS)
         .open(path)?;
     let metadata = file.metadata()?;
-    if directory && !metadata.is_dir() {
+    // These are the raw attributes of the opened no-follow handle. std's
+    // is_dir/is_symlink vocabulary hides DIRECTORY on name-surrogate links
+    // and does not cover all REPARSE_POINT tags; libuv checks the raw bits.
+    let attributes = metadata.file_attributes();
+    if directory && attributes & FILE_ATTRIBUTE_DIRECTORY == 0 {
         return Err(io::Error::from_raw_os_error(267));
     }
-    if !directory && metadata.is_dir() && !metadata.file_type().is_symlink() {
+    if !directory
+        && attributes & FILE_ATTRIBUTE_DIRECTORY != 0
+        && attributes & FILE_ATTRIBUTE_REPARSE_POINT == 0
+    {
         return Err(io::Error::from_raw_os_error(5));
     }
     let disposition = FILE_DISPOSITION_INFO_EX {
@@ -251,7 +261,6 @@ pub fn delete_entry(path: &std::path::Path, directory: bool) -> std::io::Result<
         return Err(e);
     }
     // Older filesystem fallback uses the same addressed handle, never a followed target.
-    use std::os::windows::fs::MetadataExt;
     if metadata.file_attributes() & FILE_ATTRIBUTE_READONLY != 0 {
         let mut info: FILE_BASIC_INFO = unsafe { mem::zeroed() };
         info.FileAttributes =

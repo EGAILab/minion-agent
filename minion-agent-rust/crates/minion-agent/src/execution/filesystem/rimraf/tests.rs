@@ -307,7 +307,13 @@ fn listing(root: &Path) -> (Vec<String>, Vec<String>) {
                 left.push(rel.clone());
             }
             #[cfg(windows)]
-            if m.permissions().readonly() {
+            let is_readonly = m.permissions().readonly();
+            #[cfg(unix)]
+            let is_readonly = {
+                use std::os::unix::fs::PermissionsExt;
+                !m.file_type().is_symlink() && m.permissions().mode() & 0o200 == 0
+            };
+            if is_readonly {
                 readonly.push(rel);
             }
         }
@@ -401,16 +407,19 @@ async fn row(spec: &Value, recovery: bool) -> Value {
                 std::fs::write(&p, b"x").unwrap();
             }
         } else if let Some(rel) = item["ro"].as_str() {
+            let p = relative(root, rel);
+            prove(root, &p, true);
             #[cfg(windows)]
             {
-                let p = relative(root, rel);
-                prove(root, &p, true);
                 let mut permissions = std::fs::metadata(&p).unwrap().permissions();
                 permissions.set_readonly(true);
                 std::fs::set_permissions(&p, permissions).unwrap();
             }
-            #[cfg(not(windows))]
-            let _ = rel;
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o444)).unwrap();
+            }
         } else {
             let p = relative(root, item["link"].as_str().unwrap());
             let to = relative(root, item["to"].as_str().unwrap());

@@ -2,7 +2,7 @@
 # rust:1.97.1-trixie, read-only rootfs; /tmp tmpfs; E:-backed mounts below.
 set -eu
 export TMP=/tmp TEMP=/tmp TMPDIR=/tmp
-export CARGO_HOME=/cargo-home CARGO_TARGET_DIR=/target CARGO_BUILD_JOBS=2
+export CARGO_HOME=/cargo-home CARGO_TARGET_DIR=/target CARGO_BUILD_JOBS=4
 export RUSTUP_HOME=/cargo-home/rustup RUSTUP_TOOLCHAIN=1.97.1
 export RUST_ICU_MAJOR_VERSION_NUMBER=78
 export RUSTFLAGS='-L native=/icu/icu/lib'

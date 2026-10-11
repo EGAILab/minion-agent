@@ -6383,7 +6383,10 @@ rows:
     tests/conformance/test_fs_remove_readonly_conformance.py, plus binding concurrency witnesses
     tests/execution/test_filesystem_readonly_remove.py. Python implements it (own-entry read-only attribute
     cleared through a FILE_FLAG_OPEN_REPARSE_POINT handle, one retry); Rust implements the read-only-directory correction
-    and platform-neutral recursive disappearance (code #192 -> fd6c025f; closure #188 issuecomment-6093795761).'
+    and platform-neutral recursive disappearance (code #192 -> fd6c025f; closure #188 issuecomment-6093795761).
+    L12-D007 / CE-L12D007-02 (Owner decision ADOPT PI, #199 issuecomment-6103080422): the Windows EPERM
+    recovery outcomes are corrected to pinned rimraf fixWinEPERM (spec/execution.md section 19.5 rule 5 and
+    the section 17 correction note); this entry''s other rules are unchanged.'
   - 'fs_path_nul_unknown -- L12-D006 (minion-agent#194; provenance #65 + #133-F1; Owner decision recorded on
     both): a NUL-containing path. In each filesystem-touching operation the native call whose path argument --
     after L12-D001 resolution, so including a file:// URL decoding %00 -- carries the NUL fails as unknown with
@@ -6398,6 +6401,28 @@ rows:
     resolved path arguments; canonical_path whole-argument check; temp creation). CERTIFIED_CLOSED cross-language:
     Rust maps only its interior-NUL validation failure to unknown (code #203 -> 29089a88; closure #194
     issuecomment-6101644540).'
+  - 'fs_error_codes_pinned_pi_literal -- L12-D007 (minion-agent#199; provenance #69 + #125 + #67; Owner decision
+    recorded on all three; contract APPROVED, #199 issuecomment-6101924549): each Pi-derived filesystem operation answers the FsErrorCode pinned Pi''s
+    toFileError returns for that operation, input and host platform -- Node/libuv errno translation of the ORIGINAL
+    Win32 code (libuv 1.49.2 uv_translate_sys_error: 123/161/267 -> not_found, 32/33 sharing/lock -> unknown,
+    1921 -> unknown, 1 INVALID_FUNCTION -> is_directory) plus the pinned per-operation overrides, each qualified by
+    the call that actually fails (a directory read/write is is_directory only when libuv''s directory open
+    succeeds; a denied or held directory keeps that open''s own failure); non-recursive create_dir of 123/267 ->
+    invalid; non-recursive remove of a
+    directory -> unknown on every platform). No global errno/InvalidInput remap; EXEC-007/008/009 keep their semantics,
+    and their failure classification follows the corrected mapper; not_supported unchanged. spec/execution.md section 19.
+    conformance/agent/fs-path-domain/fs-error-codes.json (240 cases generated from pinned Pi on Windows and Linux,
+    incl. denied/held-directory, denied-file and denied-tree-entry precedence cases; fixture-only make_symlink / hold_exclusive /
+    lock_range / deny_access steps); tests/conformance/test_fs_path_conformance.py; containment controls
+    tests/conformance/test_fs_path_runner_containment.py.
+    remove: target validation, entry classification, failure routing and Windows EPERM recovery as pinned
+    Node rm / rimraf (spec/execution.md section 19.5; convergence episode CE-L12D007-02 agreed at docs
+    795cc30b); binding evidence: the three agreed matrices with pinned-Pi oracle
+    (minion-agent-docs data/l12-d007/ce02; tests/execution/test_filesystem_remove_routing.py with
+    tests/execution/data/remove_routing_pi.json and controls N1-N14).
+    Python: implemented (execution/errors.py to_pi_fs_error; execution/_libuv_win32.py, the libuv 1.49.2
+    fs__open / fs__read / fs__write / fs__scandir / fs__unlink_rmdir Win32 calls and the no-follow
+    attribute correction; execution/filesystem.py), pending targeted closure review. Rust: pending.'
   python: 'minion-agent-python/src/minion_agent/execution/filesystem.py; integration evidence in
     minion-agent-python/tests/execution/test_filesystem.py. L12-D004 (minion-agent#163; PI_PARITY_DEFECT,
     Owner-authorized targeted correction; independently approved, merged at #162 -> 5477eaeb): canonical_path

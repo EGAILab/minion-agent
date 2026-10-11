@@ -1,0 +1,2251 @@
+{
+ "about": "CE-L12D007-02 (agreed revision 3, minion-agent#199): pinned Pi's real NodeExecutionEnv.remove, measured per platform by minion-agent-docs assurance/layers/data/l12-d007/ce02 (docs 795cc30b). Generated; do not edit by hand.",
+ "rows": [
+  {
+   "matrix": "ce02-matrix",
+   "id": "C0-no-error",
+   "fixture": [
+    "tree/",
+    "tree/child/",
+    "tree/child/f",
+    "tree/g"
+   ],
+   "remove": {
+    "path": "tree",
+    "recursive": true
+   },
+   "inject": [],
+   "pi": {
+    "win32": {
+     "result": "ok",
+     "path": null,
+     "calls": {
+      "lstat tree": 2,
+      "lstat tree/child": 1,
+      "lstat tree/child/f": 1,
+      "lstat tree/g": 1,
+      "readdir tree": 1,
+      "readdir tree/child": 1,
+      "rmdir tree": 2,
+      "rmdir tree/child": 2,
+      "unlink tree/child/f": 1,
+      "unlink tree/g": 1
+     },
+     "remains": []
+    },
+    "linux": {
+     "result": "ok",
+     "path": null,
+     "calls": {
+      "lstat tree": 2,
+      "lstat tree/child": 1,
+      "lstat tree/child/f": 1,
+      "lstat tree/g": 1,
+      "readdir tree": 1,
+      "readdir tree/child": 1,
+      "rmdir tree": 2,
+      "rmdir tree/child": 2,
+      "unlink tree/child/f": 1,
+      "unlink tree/g": 1
+     },
+     "remains": []
+    }
+   }
+  },
+  {
+   "matrix": "ce02-matrix",
+   "id": "E1-child-rmdir-fails",
+   "fixture": [
+    "tree/",
+    "tree/child/"
+   ],
+   "remove": {
+    "path": "tree",
+    "recursive": true
+   },
+   "inject": [
+    {
+     "op": "rmdir",
+     "rel": "tree/child",
+     "nth": 1,
+     "code": "EIO"
+    }
+   ],
+   "pi": {
+    "win32": {
+     "result": "unknown",
+     "path": "tree/child",
+     "calls": {
+      "lstat tree": 2,
+      "lstat tree/child": 1,
+      "readdir tree": 1,
+      "rmdir tree": 1,
+      "rmdir tree/child": 1
+     },
+     "remains": [
+      "tree/",
+      "tree/child/"
+     ]
+    },
+    "linux": {
+     "result": "unknown",
+     "path": "tree/child",
+     "calls": {
+      "lstat tree": 2,
+      "lstat tree/child": 1,
+      "readdir tree": 1,
+      "rmdir tree": 1,
+      "rmdir tree/child": 1
+     },
+     "remains": [
+      "tree/",
+      "tree/child/"
+     ]
+    }
+   }
+  },
+  {
+   "matrix": "ce02-matrix",
+   "id": "E2-inner-unlink-fails",
+   "fixture": [
+    "tree/",
+    "tree/child/",
+    "tree/child/f"
+   ],
+   "remove": {
+    "path": "tree",
+    "recursive": true
+   },
+   "inject": [
+    {
+     "op": "unlink",
+     "rel": "tree/child/f",
+     "nth": 1,
+     "code": "EIO"
+    }
+   ],
+   "pi": {
+    "win32": {
+     "result": "unknown",
+     "path": "tree/child/f",
+     "calls": {
+      "lstat tree": 2,
+      "lstat tree/child": 1,
+      "lstat tree/child/f": 1,
+      "readdir tree": 1,
+      "readdir tree/child": 1,
+      "rmdir tree": 1,
+      "rmdir tree/child": 1,
+      "unlink tree/child/f": 1
+     },
+     "remains": [
+      "tree/",
+      "tree/child/",
+      "tree/child/f"
+     ]
+    },
+    "linux": {
+     "result": "unknown",
+     "path": "tree/child/f",
+     "calls": {
+      "lstat tree": 2,
+      "lstat tree/child": 1,
+      "lstat tree/child/f": 1,
+      "readdir tree": 1,
+      "readdir tree/child": 1,
+      "rmdir tree": 1,
+      "rmdir tree/child": 1,
+      "unlink tree/child/f": 1
+     },
+     "remains": [
+      "tree/",
+      "tree/child/",
+      "tree/child/f"
+     ]
+    }
+   }
+  },
+  {
+   "matrix": "ce02-matrix",
+   "id": "E3-child-readdir-fails",
+   "fixture": [
+    "tree/",
+    "tree/child/",
+    "tree/child/f"
+   ],
+   "remove": {
+    "path": "tree",
+    "recursive": true
+   },
+   "inject": [
+    {
+     "op": "readdir",
+     "rel": "tree/child",
+     "nth": 1,
+     "code": "EACCES"
+    }
+   ],
+   "pi": {
+    "win32": {
+     "result": "permission_denied",
+     "path": "tree/child",
+     "calls": {
+      "lstat tree": 2,
+      "lstat tree/child": 1,
+      "readdir tree": 1,
+      "readdir tree/child": 1,
+      "rmdir tree": 1,
+      "rmdir tree/child": 1
+     },
+     "remains": [
+      "tree/",
+      "tree/child/",
+      "tree/child/f"
+     ]
+    },
+    "linux": {
+     "result": "permission_denied",
+     "path": "tree/child",
+     "calls": {
+      "lstat tree": 2,
+      "lstat tree/child": 1,
+      "readdir tree": 1,
+      "readdir tree/child": 1,
+      "rmdir tree": 1,
+      "rmdir tree/child": 1
+     },
+     "remains": [
+      "tree/",
+      "tree/child/",
+      "tree/child/f"
+     ]
+    }
+   }
+  },
+  {
+   "matrix": "ce02-matrix",
+   "id": "E4-child-final-rmdir-fails",
+   "fixture": [
+    "tree/",
+    "tree/child/",
+    "tree/child/f"
+   ],
+   "remove": {
+    "path": "tree",
+    "recursive": true
+   },
+   "inject": [
+    {
+     "op": "rmdir",
+     "rel": "tree/child",
+     "nth": 2,
+     "code": "EIO"
+    }
+   ],
+   "pi": {
+    "win32": {
+     "result": "unknown",
+     "path": "tree/child",
+     "calls": {
+      "lstat tree": 2,
+      "lstat tree/child": 1,
+      "lstat tree/child/f": 1,
+      "readdir tree": 1,
+      "readdir tree/child": 1,
+      "rmdir tree": 1,
+      "rmdir tree/child": 2,
+      "unlink tree/child/f": 1
+     },
+     "remains": [
+      "tree/",
+      "tree/child/"
+     ]
+    },
+    "linux": {
+     "result": "unknown",
+     "path": "tree/child",
+     "calls": {
+      "lstat tree": 2,
+      "lstat tree/child": 1,
+      "lstat tree/child/f": 1,
+      "readdir tree": 1,
+      "readdir tree/child": 1,
+      "rmdir tree": 1,
+      "rmdir tree/child": 2,
+      "unlink tree/child/f": 1
+     },
+     "remains": [
+      "tree/",
+      "tree/child/"
+     ]
+    }
+   }
+  },
+  {
+   "matrix": "ce02-matrix",
+   "id": "E5-child-rmdir-busy",
+   "fixture": [
+    "tree/",
+    "tree/child/",
+    "tree/child/f"
+   ],
+   "remove": {
+    "path": "tree",
+    "recursive": true
+   },
+   "inject": [
+    {
+     "op": "rmdir",
+     "rel": "tree/child",
+     "nth": 1,
+     "code": "EBUSY"
+    }
+   ],
+   "pi": {
+    "win32": {
+     "result": "unknown",
+     "path": "tree/child",
+     "calls": {
+      "lstat tree": 2,
+      "lstat tree/child": 1,
+      "readdir tree": 1,
+      "rmdir tree": 1,
+      "rmdir tree/child": 1
+     },
+     "remains": [
+      "tree/",
+      "tree/child/",
+      "tree/child/f"
+     ]
+    },
+    "linux": {
+     "result": "unknown",
+     "path": "tree/child",
+     "calls": {
+      "lstat tree": 2,
+      "lstat tree/child": 1,
+      "readdir tree": 1,
+      "rmdir tree": 1,
+      "rmdir tree/child": 1
+     },
+     "remains": [
+      "tree/",
+      "tree/child/",
+      "tree/child/f"
+     ]
+    }
+   }
+  },
+  {
+   "matrix": "ce02-matrix",
+   "id": "E6-child-unlink-busy",
+   "fixture": [
+    "tree/",
+    "tree/child"
+   ],
+   "remove": {
+    "path": "tree",
+    "recursive": true
+   },
+   "inject": [
+    {
+     "op": "unlink",
+     "rel": "tree/child",
+     "nth": 1,
+     "code": "EBUSY"
+    }
+   ],
+   "pi": {
+    "win32": {
+     "result": "unknown",
+     "path": "tree/child",
+     "calls": {
+      "lstat tree": 2,
+      "lstat tree/child": 1,
+      "readdir tree": 1,
+      "rmdir tree": 1,
+      "unlink tree/child": 1
+     },
+     "remains": [
+      "tree/",
+      "tree/child"
+     ]
+    },
+    "linux": {
+     "result": "unknown",
+     "path": "tree/child",
+     "calls": {
+      "lstat tree": 2,
+      "lstat tree/child": 1,
+      "readdir tree": 1,
+      "rmdir tree": 1,
+      "unlink tree/child": 1
+     },
+     "remains": [
+      "tree/",
+      "tree/child"
+     ]
+    }
+   }
+  },
+  {
+   "matrix": "ce02-matrix",
+   "id": "E7-child-lstat-fails-file",
+   "fixture": [
+    "tree/",
+    "tree/child"
+   ],
+   "remove": {
+    "path": "tree",
+    "recursive": true
+   },
+   "inject": [
+    {
+     "op": "lstat",
+     "rel": "tree/child",
+     "nth": 1,
+     "code": "EIO"
+    }
+   ],
+   "pi": {
+    "win32": {
+     "result": "ok",
+     "path": null,
+     "calls": {
+      "lstat tree": 2,
+      "lstat tree/child": 1,
+      "readdir tree": 1,
+      "rmdir tree": 2,
+      "unlink tree/child": 1
+     },
+     "remains": []
+    },
+    "linux": {
+     "result": "ok",
+     "path": null,
+     "calls": {
+      "lstat tree": 2,
+      "lstat tree/child": 1,
+      "readdir tree": 1,
+      "rmdir tree": 2,
+      "unlink tree/child": 1
+     },
+     "remains": []
+    }
+   }
+  },
+  {
+   "matrix": "ce02-matrix",
+   "id": "E8-child-lstat-enoent",
+   "fixture": [
+    "tree/",
+    "tree/child"
+   ],
+   "remove": {
+    "path": "tree",
+    "recursive": true
+   },
+   "inject": [
+    {
+     "op": "lstat",
+     "rel": "tree/child",
+     "nth": 1,
+     "code": "ENOENT"
+    }
+   ],
+   "pi": {
+    "win32": {
+     "result": "unknown",
+     "path": "tree",
+     "calls": {
+      "lstat tree": 2,
+      "lstat tree/child": 1,
+      "readdir tree": 1,
+      "rmdir tree": 2
+     },
+     "remains": [
+      "tree/",
+      "tree/child"
+     ]
+    },
+    "linux": {
+     "result": "unknown",
+     "path": "tree",
+     "calls": {
+      "lstat tree": 2,
+      "lstat tree/child": 1,
+      "readdir tree": 1,
+      "rmdir tree": 2
+     },
+     "remains": [
+      "tree/",
+      "tree/child"
+     ]
+    }
+   }
+  },
+  {
+   "matrix": "ce02-matrix",
+   "id": "E9-child-lstat-fails-dir",
+   "fixture": [
+    "tree/",
+    "tree/child/"
+   ],
+   "remove": {
+    "path": "tree",
+    "recursive": true
+   },
+   "inject": [
+    {
+     "op": "lstat",
+     "rel": "tree/child",
+     "nth": 1,
+     "code": "EIO"
+    }
+   ],
+   "pi": {
+    "win32": {
+     "result": "ok",
+     "path": null,
+     "calls": {
+      "chmod tree/child": 1,
+      "lstat tree": 2,
+      "lstat tree/child": 1,
+      "readdir tree": 1,
+      "rmdir tree": 2,
+      "rmdir tree/child": 1,
+      "stat tree/child": 1,
+      "unlink tree/child": 1
+     },
+     "remains": []
+    },
+    "linux": {
+     "result": "ok",
+     "path": null,
+     "calls": {
+      "lstat tree": 2,
+      "lstat tree/child": 1,
+      "readdir tree": 1,
+      "rmdir tree": 2,
+      "rmdir tree/child": 1,
+      "unlink tree/child": 1
+     },
+     "remains": []
+    }
+   }
+  },
+  {
+   "matrix": "ce02-matrix",
+   "id": "E10-grandchild-unlink-fails",
+   "fixture": [
+    "tree/",
+    "tree/child/",
+    "tree/child/sub/",
+    "tree/child/sub/f"
+   ],
+   "remove": {
+    "path": "tree",
+    "recursive": true
+   },
+   "inject": [
+    {
+     "op": "unlink",
+     "rel": "tree/child/sub/f",
+     "nth": 1,
+     "code": "EIO"
+    }
+   ],
+   "pi": {
+    "win32": {
+     "result": "unknown",
+     "path": "tree/child/sub/f",
+     "calls": {
+      "lstat tree": 2,
+      "lstat tree/child": 1,
+      "lstat tree/child/sub": 1,
+      "lstat tree/child/sub/f": 1,
+      "readdir tree": 1,
+      "readdir tree/child": 1,
+      "readdir tree/child/sub": 1,
+      "rmdir tree": 1,
+      "rmdir tree/child": 1,
+      "rmdir tree/child/sub": 1,
+      "unlink tree/child/sub/f": 1
+     },
+     "remains": [
+      "tree/",
+      "tree/child/",
+      "tree/child/sub/",
+      "tree/child/sub/f"
+     ]
+    },
+    "linux": {
+     "result": "unknown",
+     "path": "tree/child/sub/f",
+     "calls": {
+      "lstat tree": 2,
+      "lstat tree/child": 1,
+      "lstat tree/child/sub": 1,
+      "lstat tree/child/sub/f": 1,
+      "readdir tree": 1,
+      "readdir tree/child": 1,
+      "readdir tree/child/sub": 1,
+      "rmdir tree": 1,
+      "rmdir tree/child": 1,
+      "rmdir tree/child/sub": 1,
+      "unlink tree/child/sub/f": 1
+     },
+     "remains": [
+      "tree/",
+      "tree/child/",
+      "tree/child/sub/",
+      "tree/child/sub/f"
+     ]
+    }
+   }
+  },
+  {
+   "matrix": "ce02-matrix",
+   "id": "E11-child-unlink-eperm",
+   "fixture": [
+    "tree/",
+    "tree/child"
+   ],
+   "remove": {
+    "path": "tree",
+    "recursive": true
+   },
+   "inject": [
+    {
+     "op": "unlink",
+     "rel": "tree/child",
+     "nth": 1,
+     "code": "EPERM"
+    }
+   ],
+   "pi": {
+    "win32": {
+     "result": "ok",
+     "path": null,
+     "calls": {
+      "chmod tree/child": 1,
+      "lstat tree": 2,
+      "lstat tree/child": 1,
+      "readdir tree": 1,
+      "rmdir tree": 2,
+      "stat tree/child": 1,
+      "unlink tree/child": 2
+     },
+     "remains": []
+    },
+    "linux": {
+     "result": "permission_denied",
+     "path": "tree/child",
+     "calls": {
+      "lstat tree": 2,
+      "lstat tree/child": 1,
+      "readdir tree": 1,
+      "rmdir tree": 1,
+      "rmdir tree/child": 1,
+      "unlink tree/child": 1
+     },
+     "remains": [
+      "tree/",
+      "tree/child"
+     ]
+    }
+   }
+  },
+  {
+   "matrix": "ce02-matrix",
+   "id": "E12-grandchild-rmdir-fails",
+   "fixture": [
+    "tree/",
+    "tree/child/",
+    "tree/child/sub/"
+   ],
+   "remove": {
+    "path": "tree",
+    "recursive": true
+   },
+   "inject": [
+    {
+     "op": "rmdir",
+     "rel": "tree/child/sub",
+     "nth": 1,
+     "code": "EIO"
+    }
+   ],
+   "pi": {
+    "win32": {
+     "result": "unknown",
+     "path": "tree/child/sub",
+     "calls": {
+      "lstat tree": 2,
+      "lstat tree/child": 1,
+      "lstat tree/child/sub": 1,
+      "readdir tree": 1,
+      "readdir tree/child": 1,
+      "rmdir tree": 1,
+      "rmdir tree/child": 1,
+      "rmdir tree/child/sub": 1
+     },
+     "remains": [
+      "tree/",
+      "tree/child/",
+      "tree/child/sub/"
+     ]
+    },
+    "linux": {
+     "result": "unknown",
+     "path": "tree/child/sub",
+     "calls": {
+      "lstat tree": 2,
+      "lstat tree/child": 1,
+      "lstat tree/child/sub": 1,
+      "readdir tree": 1,
+      "readdir tree/child": 1,
+      "rmdir tree": 1,
+      "rmdir tree/child": 1,
+      "rmdir tree/child/sub": 1
+     },
+     "remains": [
+      "tree/",
+      "tree/child/",
+      "tree/child/sub/"
+     ]
+    }
+   }
+  },
+  {
+   "matrix": "ce02-recovery-matrix",
+   "id": "L1-file-recovered",
+   "fixture": [
+    "tree/",
+    "tree/child"
+   ],
+   "remove": {
+    "path": "tree",
+    "recursive": true
+   },
+   "inject": [
+    {
+     "op": "lstat",
+     "rel": "tree/child",
+     "nth": 1,
+     "code": "EPERM"
+    }
+   ],
+   "pi": {
+    "win32": {
+     "result": "ok",
+     "path": null,
+     "calls": {
+      "chmod tree/child": 1,
+      "lstat tree": 2,
+      "lstat tree/child": 1,
+      "readdir tree": 1,
+      "rmdir tree": 2,
+      "stat tree/child": 1,
+      "unlink tree/child": 1
+     },
+     "remains": [],
+     "readonly": [],
+     "unfired": []
+    },
+    "linux": {
+     "result": "ok",
+     "path": null,
+     "calls": {
+      "lstat tree": 2,
+      "lstat tree/child": 1,
+      "readdir tree": 1,
+      "rmdir tree": 2,
+      "unlink tree/child": 1
+     },
+     "remains": [],
+     "readonly": [],
+     "unfired": []
+    }
+   }
+  },
+  {
+   "matrix": "ce02-recovery-matrix",
+   "id": "L2-dir-recovered",
+   "fixture": [
+    "tree/",
+    "tree/child/"
+   ],
+   "remove": {
+    "path": "tree",
+    "recursive": true
+   },
+   "inject": [
+    {
+     "op": "lstat",
+     "rel": "tree/child",
+     "nth": 1,
+     "code": "EPERM"
+    }
+   ],
+   "pi": {
+    "win32": {
+     "result": "ok",
+     "path": null,
+     "calls": {
+      "chmod tree/child": 1,
+      "lstat tree": 2,
+      "lstat tree/child": 1,
+      "readdir tree": 1,
+      "rmdir tree": 2,
+      "rmdir tree/child": 1,
+      "stat tree/child": 1
+     },
+     "remains": [],
+     "readonly": [],
+     "unfired": []
+    },
+    "linux": {
+     "result": "ok",
+     "path": null,
+     "calls": {
+      "lstat tree": 2,
+      "lstat tree/child": 1,
+      "readdir tree": 1,
+      "rmdir tree": 2,
+      "rmdir tree/child": 1,
+      "unlink tree/child": 1
+     },
+     "remains": [],
+     "readonly": [],
+     "unfired": []
+    }
+   }
+  },
+  {
+   "matrix": "ce02-recovery-matrix",
+   "id": "L3-chmod-fails",
+   "fixture": [
+    "tree/",
+    "tree/child"
+   ],
+   "remove": {
+    "path": "tree",
+    "recursive": true
+   },
+   "inject": [
+    {
+     "op": "lstat",
+     "rel": "tree/child",
+     "nth": 1,
+     "code": "EPERM"
+    },
+    {
+     "op": "chmod",
+     "rel": "tree/child",
+     "nth": 1,
+     "code": "EIO"
+    }
+   ],
+   "pi": {
+    "win32": {
+     "result": "permission_denied",
+     "path": "tree/child",
+     "calls": {
+      "chmod tree/child": 1,
+      "lstat tree": 2,
+      "lstat tree/child": 1,
+      "readdir tree": 1,
+      "rmdir tree": 1
+     },
+     "remains": [
+      "tree/",
+      "tree/child"
+     ],
+     "readonly": [],
+     "unfired": []
+    },
+    "linux": {
+     "result": "ok",
+     "path": null,
+     "calls": {
+      "lstat tree": 2,
+      "lstat tree/child": 1,
+      "readdir tree": 1,
+      "rmdir tree": 2,
+      "unlink tree/child": 1
+     },
+     "remains": [],
+     "readonly": [],
+     "unfired": [
+      "chmod tree/child #1"
+     ]
+    }
+   }
+  },
+  {
+   "matrix": "ce02-recovery-matrix",
+   "id": "L4-chmod-enoent",
+   "fixture": [
+    "tree/",
+    "tree/child"
+   ],
+   "remove": {
+    "path": "tree",
+    "recursive": true
+   },
+   "inject": [
+    {
+     "op": "lstat",
+     "rel": "tree/child",
+     "nth": 1,
+     "code": "EPERM"
+    },
+    {
+     "op": "chmod",
+     "rel": "tree/child",
+     "nth": 1,
+     "code": "ENOENT"
+    }
+   ],
+   "pi": {
+    "win32": {
+     "result": "unknown",
+     "path": "tree",
+     "calls": {
+      "chmod tree/child": 1,
+      "lstat tree": 2,
+      "lstat tree/child": 1,
+      "readdir tree": 1,
+      "rmdir tree": 2
+     },
+     "remains": [
+      "tree/",
+      "tree/child"
+     ],
+     "readonly": [],
+     "unfired": []
+    },
+    "linux": {
+     "result": "ok",
+     "path": null,
+     "calls": {
+      "lstat tree": 2,
+      "lstat tree/child": 1,
+      "readdir tree": 1,
+      "rmdir tree": 2,
+      "unlink tree/child": 1
+     },
+     "remains": [],
+     "readonly": [],
+     "unfired": [
+      "chmod tree/child #1"
+     ]
+    }
+   }
+  },
+  {
+   "matrix": "ce02-recovery-matrix",
+   "id": "L5-stat-fails",
+   "fixture": [
+    "tree/",
+    "tree/child"
+   ],
+   "remove": {
+    "path": "tree",
+    "recursive": true
+   },
+   "inject": [
+    {
+     "op": "lstat",
+     "rel": "tree/child",
+     "nth": 1,
+     "code": "EPERM"
+    },
+    {
+     "op": "stat",
+     "rel": "tree/child",
+     "nth": 1,
+     "code": "EIO"
+    }
+   ],
+   "pi": {
+    "win32": {
+     "result": "permission_denied",
+     "path": "tree/child",
+     "calls": {
+      "chmod tree/child": 1,
+      "lstat tree": 2,
+      "lstat tree/child": 1,
+      "readdir tree": 1,
+      "rmdir tree": 1,
+      "stat tree/child": 1
+     },
+     "remains": [
+      "tree/",
+      "tree/child"
+     ],
+     "readonly": [],
+     "unfired": []
+    },
+    "linux": {
+     "result": "ok",
+     "path": null,
+     "calls": {
+      "lstat tree": 2,
+      "lstat tree/child": 1,
+      "readdir tree": 1,
+      "rmdir tree": 2,
+      "unlink tree/child": 1
+     },
+     "remains": [],
+     "readonly": [],
+     "unfired": [
+      "stat tree/child #1"
+     ]
+    }
+   }
+  },
+  {
+   "matrix": "ce02-recovery-matrix",
+   "id": "L6-stat-enoent",
+   "fixture": [
+    "tree/",
+    "tree/child"
+   ],
+   "remove": {
+    "path": "tree",
+    "recursive": true
+   },
+   "inject": [
+    {
+     "op": "lstat",
+     "rel": "tree/child",
+     "nth": 1,
+     "code": "EPERM"
+    },
+    {
+     "op": "stat",
+     "rel": "tree/child",
+     "nth": 1,
+     "code": "ENOENT"
+    }
+   ],
+   "pi": {
+    "win32": {
+     "result": "unknown",
+     "path": "tree",
+     "calls": {
+      "chmod tree/child": 1,
+      "lstat tree": 2,
+      "lstat tree/child": 1,
+      "readdir tree": 1,
+      "rmdir tree": 2,
+      "stat tree/child": 1
+     },
+     "remains": [
+      "tree/",
+      "tree/child"
+     ],
+     "readonly": [],
+     "unfired": []
+    },
+    "linux": {
+     "result": "ok",
+     "path": null,
+     "calls": {
+      "lstat tree": 2,
+      "lstat tree/child": 1,
+      "readdir tree": 1,
+      "rmdir tree": 2,
+      "unlink tree/child": 1
+     },
+     "remains": [],
+     "readonly": [],
+     "unfired": [
+      "stat tree/child #1"
+     ]
+    }
+   }
+  },
+  {
+   "matrix": "ce02-recovery-matrix",
+   "id": "L7-retry-unlink-fails",
+   "fixture": [
+    "tree/",
+    "tree/child"
+   ],
+   "remove": {
+    "path": "tree",
+    "recursive": true
+   },
+   "inject": [
+    {
+     "op": "lstat",
+     "rel": "tree/child",
+     "nth": 1,
+     "code": "EPERM"
+    },
+    {
+     "op": "unlink",
+     "rel": "tree/child",
+     "nth": 1,
+     "code": "EIO"
+    }
+   ],
+   "pi": {
+    "win32": {
+     "result": "unknown",
+     "path": "tree/child",
+     "calls": {
+      "chmod tree/child": 1,
+      "lstat tree": 2,
+      "lstat tree/child": 1,
+      "readdir tree": 1,
+      "rmdir tree": 1,
+      "stat tree/child": 1,
+      "unlink tree/child": 1
+     },
+     "remains": [
+      "tree/",
+      "tree/child"
+     ],
+     "readonly": [],
+     "unfired": []
+    },
+    "linux": {
+     "result": "unknown",
+     "path": "tree/child",
+     "calls": {
+      "lstat tree": 2,
+      "lstat tree/child": 1,
+      "readdir tree": 1,
+      "rmdir tree": 1,
+      "unlink tree/child": 1
+     },
+     "remains": [
+      "tree/",
+      "tree/child"
+     ],
+     "readonly": [],
+     "unfired": []
+    }
+   }
+  },
+  {
+   "matrix": "ce02-recovery-matrix",
+   "id": "L8-dir-retry-rmdir-fails",
+   "fixture": [
+    "tree/",
+    "tree/child/"
+   ],
+   "remove": {
+    "path": "tree",
+    "recursive": true
+   },
+   "inject": [
+    {
+     "op": "lstat",
+     "rel": "tree/child",
+     "nth": 1,
+     "code": "EPERM"
+    },
+    {
+     "op": "rmdir",
+     "rel": "tree/child",
+     "nth": 1,
+     "code": "EIO"
+    }
+   ],
+   "pi": {
+    "win32": {
+     "result": "unknown",
+     "path": "tree/child",
+     "calls": {
+      "chmod tree/child": 1,
+      "lstat tree": 2,
+      "lstat tree/child": 1,
+      "readdir tree": 1,
+      "rmdir tree": 1,
+      "rmdir tree/child": 1,
+      "stat tree/child": 1
+     },
+     "remains": [
+      "tree/",
+      "tree/child/"
+     ],
+     "readonly": [],
+     "unfired": []
+    },
+    "linux": {
+     "result": "unknown",
+     "path": "tree/child",
+     "calls": {
+      "lstat tree": 2,
+      "lstat tree/child": 1,
+      "readdir tree": 1,
+      "rmdir tree": 1,
+      "rmdir tree/child": 1,
+      "unlink tree/child": 1
+     },
+     "remains": [
+      "tree/",
+      "tree/child/"
+     ],
+     "readonly": [],
+     "unfired": []
+    }
+   }
+  },
+  {
+   "matrix": "ce02-recovery-matrix",
+   "id": "L9-link-to-readonly-target",
+   "fixture": [
+    "tree/",
+    "outside/",
+    "outside/t",
+    {
+     "ro": "outside/t"
+    },
+    {
+     "link": "tree/child",
+     "to": "outside/t"
+    }
+   ],
+   "remove": {
+    "path": "tree",
+    "recursive": true
+   },
+   "inject": [
+    {
+     "op": "lstat",
+     "rel": "tree/child",
+     "nth": 1,
+     "code": "EPERM"
+    }
+   ],
+   "pi": {
+    "win32": {
+     "result": "ok",
+     "path": null,
+     "calls": {
+      "chmod tree/child": 1,
+      "lstat tree": 2,
+      "lstat tree/child": 1,
+      "readdir tree": 1,
+      "rmdir tree": 2,
+      "stat tree/child": 1,
+      "unlink tree/child": 1
+     },
+     "remains": [
+      "outside/",
+      "outside/t"
+     ],
+     "readonly": [
+      "outside/t"
+     ],
+     "unfired": []
+    },
+    "linux": {
+     "result": "ok",
+     "path": null,
+     "calls": {
+      "lstat tree": 2,
+      "lstat tree/child": 1,
+      "readdir tree": 1,
+      "rmdir tree": 2,
+      "unlink tree/child": 1
+     },
+     "remains": [
+      "outside/",
+      "outside/t"
+     ],
+     "readonly": [
+      "outside/t"
+     ],
+     "unfired": []
+    }
+   }
+  },
+  {
+   "matrix": "ce02-recovery-matrix",
+   "id": "U1-file-recovered",
+   "fixture": [
+    "tree/",
+    "tree/child"
+   ],
+   "remove": {
+    "path": "tree",
+    "recursive": true
+   },
+   "inject": [
+    {
+     "op": "unlink",
+     "rel": "tree/child",
+     "nth": 1,
+     "code": "EPERM"
+    }
+   ],
+   "pi": {
+    "win32": {
+     "result": "ok",
+     "path": null,
+     "calls": {
+      "chmod tree/child": 1,
+      "lstat tree": 2,
+      "lstat tree/child": 1,
+      "readdir tree": 1,
+      "rmdir tree": 2,
+      "stat tree/child": 1,
+      "unlink tree/child": 2
+     },
+     "remains": [],
+     "readonly": [],
+     "unfired": []
+    },
+    "linux": {
+     "result": "permission_denied",
+     "path": "tree/child",
+     "calls": {
+      "lstat tree": 2,
+      "lstat tree/child": 1,
+      "readdir tree": 1,
+      "rmdir tree": 1,
+      "rmdir tree/child": 1,
+      "unlink tree/child": 1
+     },
+     "remains": [
+      "tree/",
+      "tree/child"
+     ],
+     "readonly": [],
+     "unfired": []
+    }
+   }
+  },
+  {
+   "matrix": "ce02-recovery-matrix",
+   "id": "U2-chmod-fails",
+   "fixture": [
+    "tree/",
+    "tree/child"
+   ],
+   "remove": {
+    "path": "tree",
+    "recursive": true
+   },
+   "inject": [
+    {
+     "op": "unlink",
+     "rel": "tree/child",
+     "nth": 1,
+     "code": "EPERM"
+    },
+    {
+     "op": "chmod",
+     "rel": "tree/child",
+     "nth": 1,
+     "code": "EIO"
+    }
+   ],
+   "pi": {
+    "win32": {
+     "result": "permission_denied",
+     "path": "tree/child",
+     "calls": {
+      "chmod tree/child": 1,
+      "lstat tree": 2,
+      "lstat tree/child": 1,
+      "readdir tree": 1,
+      "rmdir tree": 1,
+      "unlink tree/child": 1
+     },
+     "remains": [
+      "tree/",
+      "tree/child"
+     ],
+     "readonly": [],
+     "unfired": []
+    },
+    "linux": {
+     "result": "permission_denied",
+     "path": "tree/child",
+     "calls": {
+      "lstat tree": 2,
+      "lstat tree/child": 1,
+      "readdir tree": 1,
+      "rmdir tree": 1,
+      "rmdir tree/child": 1,
+      "unlink tree/child": 1
+     },
+     "remains": [
+      "tree/",
+      "tree/child"
+     ],
+     "readonly": [],
+     "unfired": [
+      "chmod tree/child #1"
+     ]
+    }
+   }
+  },
+  {
+   "matrix": "ce02-recovery-matrix",
+   "id": "U3-stat-enoent",
+   "fixture": [
+    "tree/",
+    "tree/child"
+   ],
+   "remove": {
+    "path": "tree",
+    "recursive": true
+   },
+   "inject": [
+    {
+     "op": "unlink",
+     "rel": "tree/child",
+     "nth": 1,
+     "code": "EPERM"
+    },
+    {
+     "op": "stat",
+     "rel": "tree/child",
+     "nth": 1,
+     "code": "ENOENT"
+    }
+   ],
+   "pi": {
+    "win32": {
+     "result": "unknown",
+     "path": "tree",
+     "calls": {
+      "chmod tree/child": 1,
+      "lstat tree": 2,
+      "lstat tree/child": 1,
+      "readdir tree": 1,
+      "rmdir tree": 2,
+      "stat tree/child": 1,
+      "unlink tree/child": 1
+     },
+     "remains": [
+      "tree/",
+      "tree/child"
+     ],
+     "readonly": [],
+     "unfired": []
+    },
+    "linux": {
+     "result": "permission_denied",
+     "path": "tree/child",
+     "calls": {
+      "lstat tree": 2,
+      "lstat tree/child": 1,
+      "readdir tree": 1,
+      "rmdir tree": 1,
+      "rmdir tree/child": 1,
+      "unlink tree/child": 1
+     },
+     "remains": [
+      "tree/",
+      "tree/child"
+     ],
+     "readonly": [],
+     "unfired": [
+      "stat tree/child #1"
+     ]
+    }
+   }
+  },
+  {
+   "matrix": "ce02-recovery-matrix",
+   "id": "U4-retry-fails-eio",
+   "fixture": [
+    "tree/",
+    "tree/child"
+   ],
+   "remove": {
+    "path": "tree",
+    "recursive": true
+   },
+   "inject": [
+    {
+     "op": "unlink",
+     "rel": "tree/child",
+     "nth": 1,
+     "code": "EPERM"
+    },
+    {
+     "op": "unlink",
+     "rel": "tree/child",
+     "nth": 2,
+     "code": "EIO"
+    }
+   ],
+   "pi": {
+    "win32": {
+     "result": "unknown",
+     "path": "tree/child",
+     "calls": {
+      "chmod tree/child": 1,
+      "lstat tree": 2,
+      "lstat tree/child": 1,
+      "readdir tree": 1,
+      "rmdir tree": 1,
+      "stat tree/child": 1,
+      "unlink tree/child": 2
+     },
+     "remains": [
+      "tree/",
+      "tree/child"
+     ],
+     "readonly": [],
+     "unfired": []
+    },
+    "linux": {
+     "result": "permission_denied",
+     "path": "tree/child",
+     "calls": {
+      "lstat tree": 2,
+      "lstat tree/child": 1,
+      "readdir tree": 1,
+      "rmdir tree": 1,
+      "rmdir tree/child": 1,
+      "unlink tree/child": 1
+     },
+     "remains": [
+      "tree/",
+      "tree/child"
+     ],
+     "readonly": [],
+     "unfired": [
+      "unlink tree/child #2"
+     ]
+    }
+   }
+  },
+  {
+   "matrix": "ce02-recovery-matrix",
+   "id": "U5-retry-fails-eperm",
+   "fixture": [
+    "tree/",
+    "tree/child"
+   ],
+   "remove": {
+    "path": "tree",
+    "recursive": true
+   },
+   "inject": [
+    {
+     "op": "unlink",
+     "rel": "tree/child",
+     "nth": 1,
+     "code": "EPERM"
+    },
+    {
+     "op": "unlink",
+     "rel": "tree/child",
+     "nth": 2,
+     "code": "EPERM"
+    }
+   ],
+   "pi": {
+    "win32": {
+     "result": "permission_denied",
+     "path": "tree/child",
+     "calls": {
+      "chmod tree/child": 1,
+      "lstat tree": 2,
+      "lstat tree/child": 1,
+      "readdir tree": 1,
+      "rmdir tree": 1,
+      "stat tree/child": 1,
+      "unlink tree/child": 2
+     },
+     "remains": [
+      "tree/",
+      "tree/child"
+     ],
+     "readonly": [],
+     "unfired": []
+    },
+    "linux": {
+     "result": "permission_denied",
+     "path": "tree/child",
+     "calls": {
+      "lstat tree": 2,
+      "lstat tree/child": 1,
+      "readdir tree": 1,
+      "rmdir tree": 1,
+      "rmdir tree/child": 1,
+      "unlink tree/child": 1
+     },
+     "remains": [
+      "tree/",
+      "tree/child"
+     ],
+     "readonly": [],
+     "unfired": [
+      "unlink tree/child #2"
+     ]
+    }
+   }
+  },
+  {
+   "matrix": "ce02-recovery-matrix",
+   "id": "U6-readonly-file-real",
+   "fixture": [
+    "tree/",
+    "tree/child",
+    {
+     "ro": "tree/child"
+    }
+   ],
+   "remove": {
+    "path": "tree",
+    "recursive": true
+   },
+   "inject": [],
+   "pi": {
+    "win32": {
+     "result": "ok",
+     "path": null,
+     "calls": {
+      "lstat tree": 2,
+      "lstat tree/child": 1,
+      "readdir tree": 1,
+      "rmdir tree": 2,
+      "unlink tree/child": 1
+     },
+     "remains": [],
+     "readonly": [],
+     "unfired": []
+    },
+    "linux": {
+     "result": "ok",
+     "path": null,
+     "calls": {
+      "lstat tree": 2,
+      "lstat tree/child": 1,
+      "readdir tree": 1,
+      "rmdir tree": 2,
+      "unlink tree/child": 1
+     },
+     "remains": [],
+     "readonly": [],
+     "unfired": []
+    }
+   }
+  },
+  {
+   "matrix": "ce02-recovery-matrix",
+   "id": "U7-link-to-readonly-target",
+   "fixture": [
+    "tree/",
+    "outside/",
+    "outside/t",
+    {
+     "ro": "outside/t"
+    },
+    {
+     "link": "tree/child",
+     "to": "outside/t"
+    }
+   ],
+   "remove": {
+    "path": "tree",
+    "recursive": true
+   },
+   "inject": [
+    {
+     "op": "unlink",
+     "rel": "tree/child",
+     "nth": 1,
+     "code": "EPERM"
+    }
+   ],
+   "pi": {
+    "win32": {
+     "result": "ok",
+     "path": null,
+     "calls": {
+      "chmod tree/child": 1,
+      "lstat tree": 2,
+      "lstat tree/child": 1,
+      "readdir tree": 1,
+      "rmdir tree": 2,
+      "stat tree/child": 1,
+      "unlink tree/child": 2
+     },
+     "remains": [
+      "outside/",
+      "outside/t"
+     ],
+     "readonly": [
+      "outside/t"
+     ],
+     "unfired": []
+    },
+    "linux": {
+     "result": "permission_denied",
+     "path": "tree/child",
+     "calls": {
+      "lstat tree": 2,
+      "lstat tree/child": 1,
+      "readdir tree": 1,
+      "rmdir tree": 1,
+      "rmdir tree/child": 1,
+      "unlink tree/child": 1
+     },
+     "remains": [
+      "outside/",
+      "outside/t",
+      "tree/",
+      "tree/child@"
+     ],
+     "readonly": [
+      "outside/t"
+     ],
+     "unfired": []
+    }
+   }
+  },
+  {
+   "matrix": "ce02-recovery-matrix",
+   "id": "T1-single-file-recovered",
+   "fixture": [
+    "tree"
+   ],
+   "remove": {
+    "path": "tree",
+    "recursive": false
+   },
+   "inject": [
+    {
+     "op": "unlink",
+     "rel": "tree",
+     "nth": 1,
+     "code": "EPERM"
+    }
+   ],
+   "pi": {
+    "win32": {
+     "result": "ok",
+     "path": null,
+     "calls": {
+      "chmod tree": 1,
+      "lstat tree": 2,
+      "stat tree": 1,
+      "unlink tree": 2
+     },
+     "remains": [],
+     "readonly": [],
+     "unfired": []
+    },
+    "linux": {
+     "result": "permission_denied",
+     "path": "tree",
+     "calls": {
+      "lstat tree": 2,
+      "rmdir tree": 1,
+      "unlink tree": 1
+     },
+     "remains": [
+      "tree"
+     ],
+     "readonly": [],
+     "unfired": []
+    }
+   }
+  },
+  {
+   "matrix": "ce02-recovery-matrix",
+   "id": "T2-single-file-chmod-fails",
+   "fixture": [
+    "tree"
+   ],
+   "remove": {
+    "path": "tree",
+    "recursive": false
+   },
+   "inject": [
+    {
+     "op": "unlink",
+     "rel": "tree",
+     "nth": 1,
+     "code": "EPERM"
+    },
+    {
+     "op": "chmod",
+     "rel": "tree",
+     "nth": 1,
+     "code": "EIO"
+    }
+   ],
+   "pi": {
+    "win32": {
+     "result": "permission_denied",
+     "path": "tree",
+     "calls": {
+      "chmod tree": 1,
+      "lstat tree": 2,
+      "unlink tree": 1
+     },
+     "remains": [
+      "tree"
+     ],
+     "readonly": [],
+     "unfired": []
+    },
+    "linux": {
+     "result": "permission_denied",
+     "path": "tree",
+     "calls": {
+      "lstat tree": 2,
+      "rmdir tree": 1,
+      "unlink tree": 1
+     },
+     "remains": [
+      "tree"
+     ],
+     "readonly": [],
+     "unfired": [
+      "chmod tree #1"
+     ]
+    }
+   }
+  },
+  {
+   "matrix": "ce02-validation-matrix",
+   "id": "V1-validation-eperm-file",
+   "fixture": [
+    "tree"
+   ],
+   "remove": {
+    "path": "tree",
+    "recursive": false
+   },
+   "inject": [
+    {
+     "op": "lstat",
+     "rel": "tree",
+     "nth": 1,
+     "code": "EPERM"
+    }
+   ],
+   "pi": {
+    "win32": {
+     "result": "permission_denied",
+     "path": "tree",
+     "calls": {
+      "lstat tree": 1
+     },
+     "remains": [
+      "tree"
+     ],
+     "readonly": [],
+     "unfired": []
+    },
+    "linux": {
+     "result": "permission_denied",
+     "path": "tree",
+     "calls": {
+      "lstat tree": 1
+     },
+     "remains": [
+      "tree"
+     ],
+     "readonly": [],
+     "unfired": []
+    }
+   }
+  },
+  {
+   "matrix": "ce02-validation-matrix",
+   "id": "V2-classification-eperm-file",
+   "fixture": [
+    "tree"
+   ],
+   "remove": {
+    "path": "tree",
+    "recursive": false
+   },
+   "inject": [
+    {
+     "op": "lstat",
+     "rel": "tree",
+     "nth": 2,
+     "code": "EPERM"
+    }
+   ],
+   "pi": {
+    "win32": {
+     "result": "ok",
+     "path": null,
+     "calls": {
+      "chmod tree": 1,
+      "lstat tree": 2,
+      "stat tree": 1,
+      "unlink tree": 1
+     },
+     "remains": [],
+     "readonly": [],
+     "unfired": []
+    },
+    "linux": {
+     "result": "ok",
+     "path": null,
+     "calls": {
+      "lstat tree": 2,
+      "unlink tree": 1
+     },
+     "remains": [],
+     "readonly": [],
+     "unfired": []
+    }
+   }
+  },
+  {
+   "matrix": "ce02-validation-matrix",
+   "id": "V3-validation-eperm-dir",
+   "fixture": [
+    "tree/",
+    "tree/f"
+   ],
+   "remove": {
+    "path": "tree",
+    "recursive": true
+   },
+   "inject": [
+    {
+     "op": "lstat",
+     "rel": "tree",
+     "nth": 1,
+     "code": "EPERM"
+    }
+   ],
+   "pi": {
+    "win32": {
+     "result": "permission_denied",
+     "path": "tree",
+     "calls": {
+      "lstat tree": 1
+     },
+     "remains": [
+      "tree/",
+      "tree/f"
+     ],
+     "readonly": [],
+     "unfired": []
+    },
+    "linux": {
+     "result": "permission_denied",
+     "path": "tree",
+     "calls": {
+      "lstat tree": 1
+     },
+     "remains": [
+      "tree/",
+      "tree/f"
+     ],
+     "readonly": [],
+     "unfired": []
+    }
+   }
+  },
+  {
+   "matrix": "ce02-validation-matrix",
+   "id": "V4-classification-eperm-dir",
+   "fixture": [
+    "tree/",
+    "tree/f"
+   ],
+   "remove": {
+    "path": "tree",
+    "recursive": true
+   },
+   "inject": [
+    {
+     "op": "lstat",
+     "rel": "tree",
+     "nth": 2,
+     "code": "EPERM"
+    }
+   ],
+   "pi": {
+    "win32": {
+     "result": "ok",
+     "path": null,
+     "calls": {
+      "chmod tree": 1,
+      "lstat tree": 2,
+      "lstat tree/f": 1,
+      "readdir tree": 1,
+      "rmdir tree": 2,
+      "stat tree": 1,
+      "unlink tree/f": 1
+     },
+     "remains": [],
+     "readonly": [],
+     "unfired": []
+    },
+    "linux": {
+     "result": "ok",
+     "path": null,
+     "calls": {
+      "lstat tree": 2,
+      "lstat tree/f": 1,
+      "readdir tree": 1,
+      "rmdir tree": 2,
+      "unlink tree": 1,
+      "unlink tree/f": 1
+     },
+     "remains": [],
+     "readonly": [],
+     "unfired": []
+    }
+   }
+  },
+  {
+   "matrix": "ce02-validation-matrix",
+   "id": "V5-validation-eio",
+   "fixture": [
+    "tree"
+   ],
+   "remove": {
+    "path": "tree",
+    "recursive": false
+   },
+   "inject": [
+    {
+     "op": "lstat",
+     "rel": "tree",
+     "nth": 1,
+     "code": "EIO"
+    }
+   ],
+   "pi": {
+    "win32": {
+     "result": "unknown",
+     "path": "tree",
+     "calls": {
+      "lstat tree": 1
+     },
+     "remains": [
+      "tree"
+     ],
+     "readonly": [],
+     "unfired": []
+    },
+    "linux": {
+     "result": "unknown",
+     "path": "tree",
+     "calls": {
+      "lstat tree": 1
+     },
+     "remains": [
+      "tree"
+     ],
+     "readonly": [],
+     "unfired": []
+    }
+   }
+  },
+  {
+   "matrix": "ce02-validation-matrix",
+   "id": "V6-missing-no-force",
+   "fixture": [],
+   "remove": {
+    "path": "tree",
+    "recursive": true
+   },
+   "inject": [],
+   "pi": {
+    "win32": {
+     "result": "not_found",
+     "path": "tree",
+     "calls": {
+      "lstat tree": 1
+     },
+     "remains": [],
+     "readonly": [],
+     "unfired": []
+    },
+    "linux": {
+     "result": "not_found",
+     "path": "tree",
+     "calls": {
+      "lstat tree": 1
+     },
+     "remains": [],
+     "readonly": [],
+     "unfired": []
+    }
+   }
+  },
+  {
+   "matrix": "ce02-validation-matrix",
+   "id": "V7-missing-force",
+   "fixture": [],
+   "remove": {
+    "path": "tree",
+    "recursive": true,
+    "force": true
+   },
+   "inject": [],
+   "pi": {
+    "win32": {
+     "result": "ok",
+     "path": null,
+     "calls": {
+      "lstat tree": 2
+     },
+     "remains": [],
+     "readonly": [],
+     "unfired": []
+    },
+    "linux": {
+     "result": "ok",
+     "path": null,
+     "calls": {
+      "lstat tree": 2
+     },
+     "remains": [],
+     "readonly": [],
+     "unfired": []
+    }
+   }
+  },
+  {
+   "matrix": "ce02-validation-matrix",
+   "id": "V8-validation-enoent-no-force",
+   "fixture": [
+    "tree"
+   ],
+   "remove": {
+    "path": "tree",
+    "recursive": false
+   },
+   "inject": [
+    {
+     "op": "lstat",
+     "rel": "tree",
+     "nth": 1,
+     "code": "ENOENT"
+    }
+   ],
+   "pi": {
+    "win32": {
+     "result": "not_found",
+     "path": "tree",
+     "calls": {
+      "lstat tree": 1
+     },
+     "remains": [
+      "tree"
+     ],
+     "readonly": [],
+     "unfired": []
+    },
+    "linux": {
+     "result": "not_found",
+     "path": "tree",
+     "calls": {
+      "lstat tree": 1
+     },
+     "remains": [
+      "tree"
+     ],
+     "readonly": [],
+     "unfired": []
+    }
+   }
+  },
+  {
+   "matrix": "ce02-validation-matrix",
+   "id": "V9-validation-enoent-force",
+   "fixture": [
+    "tree"
+   ],
+   "remove": {
+    "path": "tree",
+    "recursive": false,
+    "force": true
+   },
+   "inject": [
+    {
+     "op": "lstat",
+     "rel": "tree",
+     "nth": 1,
+     "code": "ENOENT"
+    }
+   ],
+   "pi": {
+    "win32": {
+     "result": "ok",
+     "path": null,
+     "calls": {
+      "lstat tree": 2,
+      "unlink tree": 1
+     },
+     "remains": [],
+     "readonly": [],
+     "unfired": []
+    },
+    "linux": {
+     "result": "ok",
+     "path": null,
+     "calls": {
+      "lstat tree": 2,
+      "unlink tree": 1
+     },
+     "remains": [],
+     "readonly": [],
+     "unfired": []
+    }
+   }
+  },
+  {
+   "matrix": "ce02-validation-matrix",
+   "id": "V10-classification-eio-file",
+   "fixture": [
+    "tree"
+   ],
+   "remove": {
+    "path": "tree",
+    "recursive": false
+   },
+   "inject": [
+    {
+     "op": "lstat",
+     "rel": "tree",
+     "nth": 2,
+     "code": "EIO"
+    }
+   ],
+   "pi": {
+    "win32": {
+     "result": "ok",
+     "path": null,
+     "calls": {
+      "lstat tree": 2,
+      "unlink tree": 1
+     },
+     "remains": [],
+     "readonly": [],
+     "unfired": []
+    },
+    "linux": {
+     "result": "ok",
+     "path": null,
+     "calls": {
+      "lstat tree": 2,
+      "unlink tree": 1
+     },
+     "remains": [],
+     "readonly": [],
+     "unfired": []
+    }
+   }
+  }
+ ]
+}

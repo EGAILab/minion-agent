@@ -245,7 +245,8 @@ async def _witness_symlink_loop(fs_cls: Provider, tmp: Path) -> None:
     os.symlink(tmp / "b", tmp / "a")
     os.symlink(tmp / "a", tmp / "b")
     fs = fs_cls(cwd=str(tmp))
-    expected = FsErrorCode.INVALID if _WINDOWS else FsErrorCode.UNKNOWN
+    # L12-D007: Win32 1921 -> libuv ELOOP -> `unknown`, as on POSIX (formerly `invalid` on Windows).
+    expected = FsErrorCode.UNKNOWN
     _assert_err(await fs.check_read_write("a"), expected)
 
 
@@ -635,7 +636,7 @@ class _WritabilityOnly(LocalFileSystem):
         try:
             await asyncio.to_thread(write_only)
         except OSError as exc:
-            return Err(filesystem_module.to_fs_error(exc, resolved))
+            return Err(filesystem_module.to_pi_fs_error(exc, resolved))
         return Ok(None)
 
 
@@ -666,7 +667,7 @@ class _TruncatingOpen(LocalFileSystem):
         try:
             await asyncio.to_thread(truncate_open)
         except OSError as exc:
-            return Err(filesystem_module.to_fs_error(exc, resolved))
+            return Err(filesystem_module.to_pi_fs_error(exc, resolved))
         return Ok(None)
 
 
@@ -684,7 +685,7 @@ class _CreateEntryToProve(LocalFileSystem):
                 await asyncio.to_thread(Path(probe).write_text, "")
                 await asyncio.to_thread(os.remove, probe)
             except OSError as exc:
-                return Err(filesystem_module.to_fs_error(exc, resolved))
+                return Err(filesystem_module.to_pi_fs_error(exc, resolved))
         return result
 
 
@@ -699,7 +700,7 @@ class _RequestsDeleteChild(LocalFileSystem):
         try:
             await asyncio.to_thread(filesystem_module._windows_open_probe, resolved, access)
         except OSError as exc:
-            return Err(filesystem_module.to_fs_error(exc, resolved))
+            return Err(filesystem_module.to_pi_fs_error(exc, resolved))
         return Ok(None)
 
 
@@ -752,7 +753,7 @@ class _OpenForReadWrite(LocalFileSystem):
         try:
             await asyncio.to_thread(open_rw)
         except OSError as exc:
-            return Err(filesystem_module.to_fs_error(exc, resolved))
+            return Err(filesystem_module.to_pi_fs_error(exc, resolved))
         return Ok(None)
 
 
@@ -771,7 +772,7 @@ class _NativeCallWithoutNulGuard(LocalFileSystem):
         try:
             await asyncio.to_thread(native, resolved)
         except OSError as exc:
-            return Err(filesystem_module.to_fs_error(exc, resolved))
+            return Err(filesystem_module.to_pi_fs_error(exc, resolved))
         return Ok(None)
 
 

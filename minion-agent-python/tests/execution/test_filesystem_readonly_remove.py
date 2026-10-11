@@ -23,6 +23,31 @@ def _readonly(path: Path) -> None:
     os.chmod(path, stat.S_IREAD)
 
 
+def _libuv_fails(monkeypatch: pytest.MonkeyPatch, target: Path, plan: list[Any]) -> list[str]:
+    """L12-D007: Windows removal is libuv's handle-based unlink (`_libuv_unlink`), which deletes a
+    read-only entry directly. Each call on `target` takes the next planned outcome (an exception
+    to raise, or None to run the real unlink), so rimraf's fixWinEPERM recovery above it
+    (section 19.5 rule 5, `_fix_win_eperm`) is exercised.
+    Returns the list of attempted paths."""
+    real = filesystem_module._libuv_unlink
+    attempts: list[str] = []
+
+    def unlink(path: str) -> None:
+        if path == str(target):
+            attempts.append(path)
+            outcome = plan.pop(0) if plan else None
+            if outcome is not None:
+                raise outcome
+        real(path)
+
+    monkeypatch.setattr(filesystem_module, "_libuv_unlink", unlink)
+    return attempts
+
+
+def _eperm(path: Path) -> OSError:
+    return OSError(0, "Access is denied", str(path), 5)  # libuv's Win32 error: EPERM
+
+
 @windows_only
 async def test_an_entry_vanishing_before_its_attribute_is_cleared_counts_as_removed(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -30,16 +55,17 @@ async def test_an_entry_vanishing_before_its_attribute_is_cleared_counts_as_remo
     target = tmp_path / "f"
     target.write_text("x")
     _readonly(target)
-    real = filesystem_module._clear_own_readonly_windows
+    real = filesystem_module._correct_own_attribute
     calls: list[str] = []
 
-    def vanish_first(path: str) -> bool:
+    def vanish_first(path: str) -> None:
         calls.append(path)
         os.chmod(path, stat.S_IWRITE)
         os.remove(path)
-        return real(path)
+        real(path)  # the real correction now meets the vanished entry
 
-    monkeypatch.setattr(filesystem_module, "_clear_own_readonly_windows", vanish_first)
+    monkeypatch.setattr(filesystem_module, "_correct_own_attribute", vanish_first)
+    _libuv_fails(monkeypatch, target, [_eperm(target)])
 
     assert await LocalFileSystem(str(tmp_path)).remove("f") == Ok(None)
     assert calls == [str(target)]
@@ -53,7 +79,12 @@ async def test_a_failed_attribute_correction_reports_the_original_error(
     target = tmp_path / "f"
     target.write_text("x")
     _readonly(target)
-    monkeypatch.setattr(filesystem_module, "_clear_own_readonly_windows", lambda path: False)
+
+    def correction_denied(path: str) -> None:
+        raise OSError(0, "Access is denied", path, 5)  # WRITE_ATTRIBUTES denied
+
+    monkeypatch.setattr(filesystem_module, "_correct_own_attribute", correction_denied)
+    _libuv_fails(monkeypatch, target, [_eperm(target)])
 
     result = await LocalFileSystem(str(tmp_path)).remove("f")
 
@@ -74,15 +105,9 @@ async def test_an_entry_vanishing_during_the_recursive_walk_counts_as_removed(
     real_scandir = os.scandir
     fired: list[bool] = []
 
-    def listed_name(path: Any) -> str:
-        # POSIX `rmtree` walks by directory fd; Windows by path.
-        if isinstance(path, int):
-            return Path(os.readlink(f"/proc/self/fd/{path}")).name
-        return Path(path if path is not None else ".").name
-
     def scandir_then_vanish(path: Any = None) -> Any:
         listing = real_scandir(path) if path is not None else real_scandir()
-        if fired or listed_name(path) != "t":
+        if fired or Path(path if path is not None else ".").name != "t":
             return listing
         entries = list(listing)
         listing.close()
@@ -129,9 +154,8 @@ async def test_a_tree_entry_whose_retry_still_fails_reports_the_retry_error(
     target.write_text("x")
     _readonly(target)
     retried: list[str] = []
-    monkeypatch.setattr(
-        filesystem_module, "_clear_readonly", lambda path: retried.append(path) or True
-    )
+    monkeypatch.setattr(filesystem_module, "_correct_own_attribute", retried.append)
+    _libuv_fails(monkeypatch, target, [_eperm(target), _eperm(target)])
 
     result = await LocalFileSystem(str(tmp_path)).remove("t", recursive=True)
 
@@ -150,26 +174,15 @@ async def test_a_tree_entry_vanishing_before_its_retry_counts_as_removed(
     target.write_text("x")
     _readonly(target)
 
-    def cleared_then_vanished(path: str) -> bool:
+    def cleared_then_vanished(path: str) -> None:
         os.chmod(path, stat.S_IWRITE)
         os.remove(path)
-        return True
 
-    monkeypatch.setattr(filesystem_module, "_clear_readonly", cleared_then_vanished)
+    monkeypatch.setattr(filesystem_module, "_correct_own_attribute", cleared_then_vanished)
+    _libuv_fails(monkeypatch, target, [_eperm(target)])
 
     assert await LocalFileSystem(str(tmp_path)).remove("t", recursive=True) == Ok(None)
     assert not (tmp_path / "t").exists()
-
-
-def test_the_removal_handler_treats_a_vanished_tree_entry_as_removed(tmp_path: Path) -> None:
-    """Python 3.12's `rmtree` hands a concurrently vanished entry's `FileNotFoundError` to the
-    handler (3.13+ skips it before the handler); either way the entry counts as removed."""
-    missing = str(tmp_path / "gone")
-
-    assert (
-        filesystem_module._name_the_failing_path(os.unlink, missing, FileNotFoundError(missing))
-        is None
-    )
 
 
 @windows_only
@@ -184,17 +197,14 @@ async def test_a_tree_entry_retry_failure_reports_the_retry_error_not_the_first(
     target.parent.mkdir()
     target.write_text("x")
     _readonly(target)
-    real_unlink = os.unlink
-    attempts: list[str] = []
-
-    def unlink(path: Any, *args: Any, **kwargs: Any) -> None:
-        if os.fspath(path) == str(target):
-            attempts.append(os.fspath(path))
-            if len(attempts) == 2:
-                raise NotADirectoryError(errno.ENOTDIR, "retry failed differently", os.fspath(path))
-        real_unlink(path, *args, **kwargs)
-
-    monkeypatch.setattr(os, "unlink", unlink)
+    attempts = _libuv_fails(
+        monkeypatch,
+        target,
+        [
+            _eperm(target),
+            NotADirectoryError(errno.ENOTDIR, "retry failed differently", str(target)),
+        ],
+    )
 
     result = await LocalFileSystem(str(tmp_path)).remove("t", recursive=True)
 

@@ -223,9 +223,9 @@ async def test_w_g11_real_readable_directory_is_the_read_site(
     tmp_path: Path, via_symlink: bool
 ) -> None:
     """`W-G11`: a readable directory passes the access check and fails the content read, so it is
-    the READ site (Pi: access ok, readFile EISDIR). On Windows the certified Python
-    `read_binary_file` classifies a directory read as `permission_denied` -- disclosed divergence
-    `W-3` (`L12-WINDOWS-DIRECTORY-READ`, minion-agent#67; not worked around)."""
+    the READ site (Pi: access ok, readFile EISDIR). L12-D007 (minion-agent#199) closes the former
+    Windows divergence `W-3` (`L12-WINDOWS-DIRECTORY-READ`, #67): libuv's directory open succeeds
+    and the read fails EISDIR, so the phrase is "is a directory" on every platform."""
     (tmp_path / "sub").mkdir()
     path = "sub"
     if via_symlink:
@@ -234,6 +234,5 @@ async def test_w_g11_real_readable_directory_is_the_read_site(
     fs = _Log(tmp_path)
     tool = create_read_tool(fs)  # type: ignore[arg-type]
     observed = await _run(tool, {"path": path}, RunAbortController().signal)
-    phrase = "permission denied" if _WINDOWS else "is a directory"
-    assert observed == (True, f"Cannot read {tmp_path / path}: {phrase}")
+    assert observed == (True, f"Cannot read {tmp_path / path}: is a directory")
     assert fs.calls[:2] == ["check_readable", "read_binary_file"]

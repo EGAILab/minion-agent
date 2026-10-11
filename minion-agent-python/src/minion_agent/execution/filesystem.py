@@ -35,7 +35,6 @@ import functools
 import inspect
 import os
 import re
-import shutil
 import stat as _stat
 import sys
 import tempfile
@@ -44,7 +43,7 @@ from collections.abc import Callable, Coroutine, Sequence
 from contextlib import suppress
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import Any, Protocol
+from typing import IO, Any, Protocol
 from urllib.parse import urlparse
 
 from ada_url import URL as _AdaURL
@@ -52,7 +51,7 @@ from ada_url import HostType as _AdaHostType
 from ada_url import idna_to_unicode as _ada_idna_to_unicode
 
 from ..runtime.signal import RunSignal
-from .errors import FsError, FsErrorCode, to_fs_error
+from .errors import FsError, FsErrorCode, to_pi_fs_error
 from .result import Err, Ok, Result
 from .world import ExecutionWorldIdentity
 
@@ -406,6 +405,14 @@ def _aborted(path: str | None = None) -> FsError:
     return FsError(FsErrorCode.ABORTED, "aborted", path)
 
 
+def _failing_path(exc: OSError, native: str, resolved: str) -> str:
+    """Pinned Pi's `toFileError(error, resolved)`: the failing call's own path when Node's error
+    names one (its native origin, section 14.2), else the resolved LOGICAL fallback -- a read or
+    write failure (libuv `fs__read` / `fs__write`, e.g. Win32 33 under a byte-range lock) carries
+    no path (L12D007-I001)."""
+    return native if exc.filename is not None else resolved
+
+
 _NODE_PATH_SEPARATORS = "\\/" if os.name == "nt" else "/"
 
 
@@ -454,11 +461,21 @@ def _node_mkdirp(path: str) -> None:
         raise FileExistsError(_errno.EEXIST, os.strerror(_errno.EEXIST), current)
 
 
+# libuv 1.49.2 `fs__mkdir` (src/win/fs.c lines 1224-1226): ERROR_INVALID_NAME / ERROR_DIRECTORY
+# become UV_EINVAL for a single `mkdir`.
+_MKDIR_EINVAL_WIN32 = frozenset({123, 267})
+
+
+class _RmDirectoryRefusal(OSError):
+    """Node's own `rm` validation of a directory without `recursive`: `ERR_FS_EISDIR`, a code
+    pinned Pi's `toFileError` does not name, so `unknown` on every platform (L12-D007, #125)."""
+
+
 def _mkdir_error(exc: OSError) -> FsError:
     """`L12-D001-R001`: a recursive directory creation's failure names the path `_node_mkdirp` was
     at (Node's `err.path`, which pinned Pi's `toFileError` prefers to its fallback): the native path
     of that directory, never the target of the write that needed it."""
-    return to_fs_error(exc, exc.filename)
+    return to_pi_fs_error(exc, exc.filename)
 
 
 async def _race_signal(op: Coroutine[Any, Any, Any], signal: RunSignal | None) -> Any:
@@ -517,6 +534,18 @@ def _file_info_sync(path: str) -> FileInfo:
     )
 
 
+def _open_node(path: str, mode: str, **text: Any) -> IO[Any]:
+    """L12-D007 (section 19.2): open as pinned Node does. On Windows, through libuv's own Win32
+    call (`_libuv_win32`), so a failure carries the Win32 error Pi classifies and a directory
+    fails at the READ with `EISDIR`; elsewhere `open()` already is libuv's `open(2)`.
+    `mode` is Node's flag: `r`, `w` or `a`."""
+    if sys.platform == "win32":
+        from . import _libuv_win32
+
+        return _libuv_win32.open_like_libuv(path, mode, **text)
+    return open(path, mode if text else f"{mode}b", **text)  # pragma: no cover -- POSIX only
+
+
 def _read_text_sync(path: str) -> str:
     # `L12-PY-R002`: `errors="replace"` matches pinned Node's own UTF-8 decoding, which never
     # throws for invalid bytes -- it substitutes the replacement character (U+FFFD). The default
@@ -525,13 +554,15 @@ def _read_text_sync(path: str) -> str:
     # `Result` contract outright. `EXEC-002-R1-PY-STR`: decoded from the file's bytes, never through
     # a text-mode file -- pinned Node's `readFile(path, "utf8")` returns `\r\n` and a lone `\r`
     # exactly, where text mode's universal newlines would turn both into `\n`.
-    with open(path, "rb") as f:
-        return f.read().decode("utf-8", "replace")
+    with _open_node(path, "r") as f:
+        data: bytes = f.read()
+    return data.decode("utf-8", "replace")
 
 
 def _read_binary_sync(path: str) -> bytes:
-    with open(path, "rb") as f:
-        return f.read()
+    with _open_node(path, "r") as f:
+        data: bytes = f.read()
+    return data
 
 
 def _read_text_lines_sync(path: str, max_lines: int | None, signal: RunSignal | None) -> list[str]:
@@ -540,7 +571,7 @@ def _read_text_lines_sync(path: str, max_lines: int | None, signal: RunSignal | 
     if max_lines is not None and max_lines <= 0:
         return []
     lines: list[str] = []
-    with open(path, encoding="utf-8", errors="replace") as f:
+    with _open_node(path, "r", encoding="utf-8", errors="replace") as f:
         for raw_line in f:
             if signal is not None and signal.aborted:
                 raise _AbortedSignal
@@ -567,13 +598,13 @@ def _encode_js_utf8(text: str) -> bytes:
 
 def _write_file_sync(path: str, content: str | bytes) -> None:
     data = _encode_js_utf8(content) if isinstance(content, str) else content
-    with open(path, "wb") as f:
+    with _open_node(path, "w") as f:
         f.write(data)
 
 
 def _append_file_sync(path: str, content: str | bytes) -> None:
     data = _encode_js_utf8(content) if isinstance(content, str) else content
-    with open(path, "ab") as f:
+    with _open_node(path, "a") as f:
         f.write(data)
 
 
@@ -583,6 +614,12 @@ def _list_dir_sync(path: str, signal: RunSignal | None) -> list[FileInfo]:
         # empty directory (zero iterations), so a pre-aborted signal on an empty dir wrongly
         # returned Ok([]). This is the genuine pre-check, independent of entry count.
         raise _AbortedSignal
+    if sys.platform == "win32":
+        # L12-D007: libuv's own directory open first (its Win32 error, or its explicit ENOTDIR);
+        # `os.scandir`'s `FindFirstFileW` answers differently (section 19.2).
+        from . import _libuv_win32
+
+        _libuv_win32.check_listable(native_path(path))
     infos: list[FileInfo] = []
     with os.scandir(native_path(path)) as entries:
         for entry in entries:
@@ -609,6 +646,12 @@ def _list_dir_raw_sync(path: str, signal: RunSignal | None) -> list[str]:
     operation's."""
     if signal is not None and signal.aborted:
         raise _AbortedSignal
+    if sys.platform == "win32":
+        # L12-D007: the same libuv directory open as `list_dir` (section 11.3: identical error
+        # mapping to `list_dir`'s whole-directory-read failure).
+        from . import _libuv_win32
+
+        _libuv_win32.check_listable(native_path(path))
     return os.listdir(path)
 
 
@@ -622,7 +665,7 @@ def _probe_dir_entry_sync(path: str) -> DirEntryProbe:
     both branches: directly for a non-symlink entry, and via the disclosed symlink-to-other
     asymmetry (no `symlink_to_other` value) when the entry is a symlink to such a target. A broken
     symlink's following `stat` raises `FileNotFoundError` (an `OSError`), left to the caller to
-    convert via `to_fs_error` -- this is this call's OWN `Result` error, never a raised exception
+    convert via `to_pi_fs_error` -- this is this call's OWN `Result` error, never a raised exception
     escaping the seam."""
     host = native_path(path)
     st = os.lstat(host)
@@ -678,7 +721,7 @@ def _realpath_posix(path: str) -> str:
     counts every symlink traversed while resolving the path, so a cycle or a chain of more than
     `MAXSYMLINKS` links fails with `ELOOP`, as in Pi. `os.path.realpath(strict=True)` resolved
     component by component in userspace and never reached that limit, so it succeeded where Pi
-    fails. The errno is kept and classified by `to_fs_error`.
+    fails. The errno is kept and classified by `to_pi_fs_error`.
 
     A path containing NUL never reaches the C call (`L12D004-R001`): a C string would end at the
     NUL and resolve a different, shorter path. Such a path keeps the previous resolution,
@@ -713,7 +756,7 @@ def _check_readable_posix(path: str) -> None:
     """`EXEC-008` on POSIX, spec section 12.4: exactly one `access(path, R_OK)` -- the call Node's
     `fs.access` makes -- evaluated with the process's real user/group IDs and following symlinks.
     Its own errno is kept (`ENOENT`, `ENOTDIR`, `EACCES`, `ELOOP`, `EIO`, ...) and classified by
-    `to_fs_error`, never replaced by a fabricated one, so there is no second call whose failure
+    `to_pi_fs_error`, never replaced by a fabricated one, so there is no second call whose failure
     could be misattributed. `access` does not open the target: no content is consumed and a FIFO
     without a writer cannot block."""
     import ctypes
@@ -737,7 +780,7 @@ def _check_readable_windows(path: str) -> None:
     for `FILE_READ_DATA` -- read access to a file, list access to a directory -- following
     symlinks (no `FILE_FLAG_OPEN_REPARSE_POINT`); the handle is closed at once and nothing is
     read. A failure is raised as the matching `OSError` (built from the Win32 code, which Python
-    maps to an errno and `OSError` subclass), which `to_fs_error` classifies like every other
+    maps to an errno and `OSError` subclass), which `to_pi_fs_error` classifies like every other
     operation's."""
     import ctypes
     from ctypes import wintypes
@@ -791,8 +834,8 @@ def _check_read_write_posix(path: str) -> None:
     Node's `fs.access(path, R_OK | W_OK)` makes -- evaluated with the process's real IDs and
     following symlinks. The combined predicate is ONE host decision, never `check_readable` plus a
     separate write probe; the call's own errno is kept (`ENOENT`, `ENOTDIR`, `EACCES`, `EROFS`,
-    `ETXTBSY`, `ELOOP`, ...) and classified by `to_fs_error`. `access` opens nothing: no content is
-    consumed, nothing is truncated, and a FIFO cannot block."""
+    `ETXTBSY`, `ELOOP`, ...) and classified by `to_pi_fs_error`. `access` opens nothing: no content
+    is consumed, nothing is truncated, and a FIFO cannot block."""
     import ctypes
 
     if _libc_access()(os.fsencode(path), os.R_OK | os.W_OK) != 0:
@@ -861,169 +904,230 @@ def _check_read_write_sync(path: str) -> None:
         _check_read_write_posix(path)
 
 
-class _RemovalFailure(Exception):
-    """Carries a recursive removal's FIRST failure out of `shutil.rmtree`, which would otherwise
-    catch a re-raised `OSError` at the enclosing directory and report it again as that directory's
-    own `scandir` failure."""
-
-    def __init__(self, error: OSError) -> None:
-        super().__init__(error)
-        self.error = error
-
-
-def _clear_own_readonly_windows(path: str) -> bool:
-    """Clear the entry's OWN `FILE_ATTRIBUTE_READONLY` through a handle opened with
-    `FILE_FLAG_OPEN_REPARSE_POINT`: a symlink or junction is changed itself, never its target. True
-    only when the attribute was set and is now cleared; raises `FileNotFoundError` when the entry is
-    gone. Any other failure (an ACL denying `WRITE_ATTRIBUTES`, ...) is False: the caller then
-    reports the original deletion error, as pinned Node does."""
-    import ctypes
-    from ctypes import wintypes
-
-    class _FileBasicInfo(ctypes.Structure):
-        _fields_ = [
-            ("CreationTime", ctypes.c_int64),
-            ("LastAccessTime", ctypes.c_int64),
-            ("LastWriteTime", ctypes.c_int64),
-            ("ChangeTime", ctypes.c_int64),
-            ("FileAttributes", wintypes.DWORD),
-        ]
-
-    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
-    kernel32.CreateFileW.restype = wintypes.HANDLE
-    kernel32.CreateFileW.argtypes = [
-        wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD, ctypes.c_void_p,
-        wintypes.DWORD, wintypes.DWORD, wintypes.HANDLE,
-    ]  # fmt: skip
-    kernel32.GetFileInformationByHandleEx.argtypes = [
-        wintypes.HANDLE,
-        ctypes.c_int,
-        ctypes.c_void_p,
-        wintypes.DWORD,
-    ]
-    kernel32.SetFileInformationByHandle.argtypes = [
-        wintypes.HANDLE,
-        ctypes.c_int,
-        ctypes.c_void_p,
-        wintypes.DWORD,
-    ]
-    kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
-    file_read_attributes, file_write_attributes = 0x80, 0x100
-    share_all = 0x1 | 0x2 | 0x4
-    open_existing = 3
-    open_reparse_point, backup_semantics = 0x00200000, 0x02000000
-    file_basic_info = 0
-    handle = kernel32.CreateFileW(
-        path,
-        file_read_attributes | file_write_attributes,
-        share_all,
-        None,
-        open_existing,
-        open_reparse_point | backup_semantics,
-        None,
-    )
-    if handle in (None, wintypes.HANDLE(-1).value):
-        if ctypes.get_last_error() in (2, 3):  # ERROR_FILE_NOT_FOUND, ERROR_PATH_NOT_FOUND
-            raise FileNotFoundError(path)
-        return False
-    try:
-        info = _FileBasicInfo()
-        if not kernel32.GetFileInformationByHandleEx(
-            handle, file_basic_info, ctypes.byref(info), ctypes.sizeof(info)
-        ):  # pragma: no cover -- defensive: the handle was opened for FILE_READ_ATTRIBUTES
-            return False
-        if not info.FileAttributes & _stat.FILE_ATTRIBUTE_READONLY:
-            return False
-        # Zero times mean "unchanged"; an attribute value of 0 would also mean "unchanged", so
-        # an entry left with no attribute at all gets FILE_ATTRIBUTE_NORMAL.
-        attributes = info.FileAttributes & ~_stat.FILE_ATTRIBUTE_READONLY
-        update = _FileBasicInfo(0, 0, 0, 0, attributes or _stat.FILE_ATTRIBUTE_NORMAL)
-        return bool(
-            kernel32.SetFileInformationByHandle(
-                handle, file_basic_info, ctypes.byref(update), ctypes.sizeof(update)
-            )
-        )
-    finally:
-        kernel32.CloseHandle(handle)
-
-
-def _clear_readonly(path: str) -> bool:
-    """`L12-D005` (`spec/execution.md` section 17): pinned Pi's Windows deletion (Node v22.15.1's
-    libuv 1.49.2 `unlink`/`rmdir`, `FILE_DISPOSITION_IGNORE_READONLY_ATTRIBUTE`) ignores an entry's
-    own read-only attribute. True when one retry of a failed deletion is due: the attribute was
-    cleared, or the entry vanished meanwhile (which counts as removed)."""
-    if sys.platform != "win32":  # pragma: no cover -- POSIX unlinking never depends on a mode
-        return False
-    try:
-        return _clear_own_readonly_windows(path)
-    except FileNotFoundError:
-        return True
-
-
-def _delete_ignoring_readonly(function: Callable[[str], Any], path: str) -> None:
-    """Delete once; on `PermissionError`, retry once if the entry's own read-only attribute was the
-    obstacle. Otherwise the original error stands; a failed retry raises the retry's error."""
-    try:
-        function(path)
-    except PermissionError:
-        if not _clear_readonly(path):
-            raise
-        with suppress(FileNotFoundError):
-            function(path)
-
-
-def _name_the_failing_path(function: Callable[..., Any], path: str, exc: BaseException) -> None:
-    """`CE-L12-D001-01`: a recursive removal's failure names the path of the call that failed,
-    as pinned Node's `rimraf` (v22.15.1 `lib/internal/fs/rimraf.js`, git blob
-    `24bf3f46b878e711beadcdc8e1b08700d10aa3c5`) reports it -- an entry INSIDE the tree, not the
-    removal's own target. `rmtree` passes that path here; its fd-relative calls name only a part.
-    `L12-D005`: an entry whose only obstacle was its own read-only attribute is still deleted, and
-    an entry that vanished concurrently counts as removed (`rimraf` ignores `ENOENT`; Python 3.12's
-    `rmtree` reports it here, 3.13+ skips it itself)."""
-    if isinstance(exc, FileNotFoundError):
-        return
-    if (
-        isinstance(exc, PermissionError)
-        and getattr(function, "__name__", "") in ("unlink", "remove", "rmdir")
-        and _clear_readonly(path)
-    ):
-        try:
-            function(path)
-            return
-        except FileNotFoundError:
-            return
-        except OSError as retry:
-            exc = retry
-    if isinstance(exc, OSError):
-        exc.filename = path
-        raise _RemovalFailure(exc) from exc
-    raise exc
-
-
 def _remove_sync(path: str, recursive: bool, force: bool) -> None:
+    """Pinned Pi's `remove` -> `fs.promises.rm` (Node v22.15.1), spec section 19.5. Rule 0, the
+    target VALIDATION (`validateRmOptions`): the target's `lstat` failing is the result as is -- no
+    recovery -- except `force` with ENOENT, which proceeds; a directory without `recursive` is
+    #125. Then rule 1 onward (`rimraf`), which classifies the target AFRESH (`_rimraf_entry`)."""
     try:
         st = os.lstat(path)
-    except FileNotFoundError:
-        if force:
-            return
-        raise
-    if _stat.S_ISLNK(st.st_mode):
-        # Never follows: removes the addressed symlink's own directory entry regardless of
-        # what it points to (spec section 3.2) -- matches Node's raw rm(), which unlinks a
-        # symlink rather than recursing into its target.
-        _delete_ignoring_readonly(os.remove, path)
-        return
-    if _stat.S_ISDIR(st.st_mode):
-        if not recursive:
+    except OSError as exc:
+        # On Windows libuv's ENOENT includes 123 / 161 / 267 (L12-D007), not only CPython's
+        # `FileNotFoundError`.
+        if not (force and _vanished(exc)):
+            raise
+    else:
+        if _is_tree(st) and not recursive:
             # Matches pinned Pi's own fs.rm exactly: ANY directory (even an empty one)
             # requires recursive=true, unlike POSIX rmdir's own more lenient default.
-            raise IsADirectoryError(f"Path is a directory: {path}")
-        try:
-            shutil.rmtree(path, onexc=_name_the_failing_path)
-        except _RemovalFailure as failure:
-            raise failure.error from None
+            raise _RmDirectoryRefusal(f"Path is a directory: {path}")
+    descend = _rimraf_entry(path)
+    if descend is not None:
+        _rimraf(*descend)
+
+
+def _libuv_unlink(path: str) -> None:  # pragma: no cover -- win32 only
+    if sys.platform == "win32":  # scopes the Win32-only module to its platform
+        from . import _libuv_win32
+
+        _libuv_win32.unlink_like_libuv(path, isrmdir=False)
+
+
+def _libuv_rmdir(path: str) -> None:  # pragma: no cover -- win32 only
+    if sys.platform == "win32":  # scopes the Win32-only module to its platform
+        from . import _libuv_win32
+
+        _libuv_win32.unlink_like_libuv(path, isrmdir=True)
+
+
+def _correct_own_attribute(path: str) -> None:  # pragma: no cover -- win32 only
+    """`fixWinEPERM`'s `chmod(0o666)`, on the entry itself (never through a link)."""
+    if sys.platform == "win32":  # scopes the Win32-only module to its platform
+        from . import _libuv_win32
+
+        _libuv_win32.clear_own_readonly(path)
+
+
+_RMDIR_DESCENDS = frozenset({_errno.ENOTEMPTY, _errno.EEXIST, _errno.EPERM})
+# The Win32 codes pinned libuv 1.49.2 `uv_translate_sys_error` (src/win/error.c, blob
+# 7abf906bb5c82312aeb9f3f30f39ab2cadc07eae) sends to ENOTEMPTY (145 ERROR_DIR_NOT_EMPTY), EEXIST
+# (80 ERROR_FILE_EXISTS, 183 ERROR_ALREADY_EXISTS) and EPERM (5 ERROR_ACCESS_DENIED, 1314
+# ERROR_PRIVILEGE_NOT_HELD).
+_RMDIR_DESCENDS_WIN32 = frozenset({145, 80, 183, 5, 1314})
+_EPERM_WIN32 = frozenset({5, 1314})
+_UNLINK_TO_RMDIR = frozenset({_errno.EISDIR, _errno.EPERM})  # POSIX `unlink` errors -> `_rmdir`
+
+
+def _node_rmdir(path: str) -> None:
+    if sys.platform == "win32":
+        _libuv_rmdir(path)
+    else:  # pragma: no cover -- POSIX only
+        os.rmdir(path)
+
+
+def _node_unlink(path: str) -> None:
+    if sys.platform == "win32":
+        _libuv_unlink(path)
+    else:  # pragma: no cover -- POSIX only
+        os.unlink(path)
+
+
+def _rmdir_descends(exc: OSError) -> bool:
+    """rimraf `_rmdir`: an `rmdir` failing ENOTEMPTY / EEXIST / EPERM removes the children."""
+    if sys.platform == "win32":
+        return getattr(exc, "winerror", None) in _RMDIR_DESCENDS_WIN32
+    return exc.errno in _RMDIR_DESCENDS  # pragma: no cover -- POSIX only
+
+
+def _is_win_eperm(exc: OSError) -> bool:
+    """libuv's EPERM on Windows, the error that enters `fixWinEPERM` (section 19.5 rule 5)."""
+    return sys.platform == "win32" and getattr(exc, "winerror", None) in _EPERM_WIN32
+
+
+def _vanished(exc: OSError) -> bool:
+    """rimraf ignores ENOENT at every step: on Windows libuv's, which includes 123 / 161 / 267."""
+    return to_pi_fs_error(exc).code is FsErrorCode.NOT_FOUND
+
+
+# A directory still to be removed by rules 3-4, with the `original` error that routed it there
+# (`_rmdir`'s `originalErr`; None for a directory its own `lstat` classified).
+_Descend = tuple[str, "OSError | None"]
+
+
+def _rmdir_first(path: str, original: OSError | None) -> list[str] | None:
+    """Section 19.5 rule 3's first step, rimraf `_rmdir`: `rmdir` FIRST, so an empty directory is
+    removed even when it cannot be listed. None when that settles it (removed, vanished, or a POSIX
+    ENOTDIR answering `original`: none means success); otherwise, after an ENOTEMPTY / EEXIST /
+    EPERM failure, the children's paths (`_rmchildren`'s listing). Any other failure is raised."""
+    try:
+        _node_rmdir(path)
+        return None
+    except OSError as exc:
+        if _vanished(exc):
+            return None
+        if sys.platform != "win32" and exc.errno == _errno.ENOTDIR:  # pragma: no cover -- POSIX
+            if original is not None:
+                raise original from None
+            return None
+        if not _rmdir_descends(exc):
+            raise
+    try:
+        with os.scandir(path) as listing:
+            return [entry.path for entry in listing]
+    except OSError as exc:
+        if _vanished(exc):
+            return None
+        raise
+
+
+def _rmdir_last(path: str) -> None:
+    """`_rmchildren`'s final `rmdir`, once every child is removed. ENOENT: removed."""
+    try:
+        _node_rmdir(path)
+    except OSError as exc:
+        if not _vanished(exc):
+            raise
+
+
+def _rimraf(path: str, original: OSError | None = None) -> None:
+    """Section 19.5 rules 3-4: pinned Node's `_rmdir` / `_rmchildren` (v22.15.1
+    `lib/internal/fs/rimraf.js`, git blob `24bf3f46b878e711beadcdc8e1b08700d10aa3c5`) for `path`
+    and everything below it. Each listed child NAME goes to `_rimraf_entry` (classified afresh,
+    L12D007-I002); a child that is itself a directory to remove is descended into; once a
+    directory's children are all removed it is `rmdir`ed again. The first child failure, from any
+    depth, is the whole removal's failure, unchanged (L12D007-I003); ENOENT anywhere counts as
+    removed; a failure names the entry whose call failed (`CE-L12-D001-01`).
+
+    The walk keeps its own explicit stack of directories being emptied, so the interpreter stack
+    does not grow with the tree's depth (L12D007-I005): pinned Node's callback walk removes any
+    depth the filesystem allows. Pinned Node removes the children concurrently and reports the
+    first failure to settle; this walk is sequential, in enumeration order."""
+    children = _rmdir_first(path, original)
+    if children is None:
         return
-    _delete_ignoring_readonly(os.remove, path)
+    pending: list[tuple[str, list[str]]] = [(path, children[::-1])]
+    while pending:
+        directory, remaining = pending[-1]
+        if not remaining:
+            pending.pop()
+            _rmdir_last(directory)
+            continue
+        descend = _rimraf_entry(remaining.pop())
+        if descend is not None:
+            grandchildren = _rmdir_first(*descend)
+            if grandchildren is not None:
+                pending.append((descend[0], grandchildren[::-1]))
+
+
+_REPARSE_TAG_MOUNT_POINT = 0xA0000003  # IO_REPARSE_TAG_MOUNT_POINT (a junction)
+
+
+def _is_tree(st: os.stat_result) -> bool:
+    """`lstat(...).isDirectory()` as libuv answers it: a directory, but not a junction (libuv's
+    `lstat` reports a mount-point reparse point as a link, like a symlink)."""
+    return _stat.S_ISDIR(st.st_mode) and (
+        getattr(st, "st_reparse_tag", 0) != _REPARSE_TAG_MOUNT_POINT
+    )
+
+
+def _rimraf_entry(path: str) -> _Descend | None:
+    """Section 19.5 rule 1, rimraf `_rimraf` for one entry (the validated target, or a child): its
+    OWN `lstat`, now, decides. Only that `lstat` is guarded: a directory is returned as the
+    directory to remove (rules 3-4, by the caller's walk), never re-routed (L12D007-I003). `lstat`
+    ENOENT: removed; Windows EPERM: the `fixWinEPERM` recovery; any other failure: unlink as
+    itself. None when the entry is settled here."""
+    try:
+        st: os.stat_result | None = os.lstat(path)
+    except OSError as exc:
+        if _vanished(exc):
+            return None
+        if _is_win_eperm(exc):
+            return _fix_win_eperm(path, exc)
+        st = None
+    if st is not None and _is_tree(st):
+        return (path, None)
+    return _unlink_routed(path)
+
+
+def _unlink_routed(path: str) -> _Descend | None:
+    """Section 19.5 rule 2: an unlink failure. ENOENT: removed; Windows EPERM: the `fixWinEPERM`
+    recovery; POSIX EISDIR / EPERM: a directory to remove, carrying the unlink error; anything
+    else: that failure. On Windows this is libuv `fs__unlink_rmdir`, which already ignores a
+    read-only attribute."""
+    try:
+        _node_unlink(path)
+    except OSError as exc:
+        if _vanished(exc):
+            return None
+        if _is_win_eperm(exc):
+            return _fix_win_eperm(path, exc)
+        if sys.platform != "win32" and exc.errno in _UNLINK_TO_RMDIR:  # pragma: no cover -- POSIX
+            return (path, exc)
+        raise
+    return None
+
+
+def _fix_win_eperm(path: str, original: OSError) -> _Descend | None:
+    """Section 19.5 rule 5, pinned rimraf `fixWinEPERM` (Owner decision ADOPT PI, #199
+    issuecomment-6103080422). Correct the entry's own read-only attribute (never through a link; a
+    success whether or not it was set); inspect the entry (following links); then return it as a
+    directory to remove (carrying the original error) or unlink it ONCE more. A failed correction
+    or inspection reports the ORIGINAL error (ENOENT: removed); a failed retry reports its own."""
+    try:
+        _correct_own_attribute(path)
+        st = os.stat(path)
+    except OSError as exc:
+        if _vanished(exc):
+            return None
+        raise original from None
+    if _stat.S_ISDIR(st.st_mode):
+        return (path, original)
+    try:
+        _node_unlink(path)
+    except OSError as exc:
+        if not _vanished(exc):
+            raise
+    return None
 
 
 class FileSystem(Protocol):
@@ -1228,9 +1332,9 @@ class LocalFileSystem:
             # `L12-D001-R001`: Node opens a directory for reading and fails the READ with `EISDIR`,
             # an error that carries no path, so pinned Pi reports its fallback: the logical path.
             # (On Windows the open itself is refused instead -- the recorded `#67`.)
-            return Err(to_fs_error(exc, resolved))
+            return Err(to_pi_fs_error(exc, resolved))
         except OSError as exc:
-            return Err(to_fs_error(exc, native))
+            return Err(to_pi_fs_error(exc, _failing_path(exc, native, resolved)))
         return Ok(content)
 
     @_contain_nul
@@ -1247,9 +1351,9 @@ class LocalFileSystem:
             # `L12-D001-R001`: Node opens a directory for reading and fails the READ with `EISDIR`,
             # an error that carries no path, so pinned Pi reports its fallback: the logical path.
             # (On Windows the open itself is refused instead -- the recorded `#67`.)
-            return Err(to_fs_error(exc, resolved))
+            return Err(to_pi_fs_error(exc, resolved))
         except OSError as exc:
-            return Err(to_fs_error(exc, native))
+            return Err(to_pi_fs_error(exc, _failing_path(exc, native, resolved)))
         return Ok(lines)
 
     @_contain_nul
@@ -1268,9 +1372,9 @@ class LocalFileSystem:
             # `L12-D001-R001`: Node opens a directory for reading and fails the READ with `EISDIR`,
             # an error that carries no path, so pinned Pi reports its fallback: the logical path.
             # (On Windows the open itself is refused instead -- the recorded `#67`.)
-            return Err(to_fs_error(exc, resolved))
+            return Err(to_pi_fs_error(exc, resolved))
         except OSError as exc:
-            return Err(to_fs_error(exc, native))
+            return Err(to_pi_fs_error(exc, _failing_path(exc, native, resolved)))
         return Ok(content)
 
     @_contain_nul
@@ -1294,7 +1398,9 @@ class LocalFileSystem:
         except _AbortedSignal:
             return Err(_aborted(resolved))
         except OSError as exc:
-            return Err(to_fs_error(exc, native))
+            # L12-D007: a path-less failure (libuv's write error) names Pi's fallback, the
+            # logical path; an open failure names its own native path.
+            return Err(to_pi_fs_error(exc, _failing_path(exc, native, resolved)))
         return Ok(None)
 
     @_contain_nul
@@ -1312,7 +1418,9 @@ class LocalFileSystem:
         try:
             await asyncio.to_thread(_append_file_sync, native, content)
         except OSError as exc:
-            return Err(to_fs_error(exc, native))
+            # L12-D007: a path-less failure (libuv's write error) names Pi's fallback, the
+            # logical path; an open failure names its own native path.
+            return Err(to_pi_fs_error(exc, _failing_path(exc, native, resolved)))
         return Ok(None)
 
     @_contain_nul
@@ -1332,7 +1440,7 @@ class LocalFileSystem:
             # either endpoint -- same underlying non-dereferencing primitive as os.rename.
             await asyncio.to_thread(os.replace, native_path(src), native_path(dst))
         except OSError as exc:
-            return Err(to_fs_error(exc, native_path(src)))
+            return Err(to_pi_fs_error(exc, native_path(src)))
         return Ok(None)
 
     @_contain_nul
@@ -1346,7 +1454,7 @@ class LocalFileSystem:
         except _UnsupportedFileType:
             return Err(FsError(FsErrorCode.INVALID, "Unsupported file type", resolved))
         except OSError as exc:
-            return Err(to_fs_error(exc, native))
+            return Err(to_pi_fs_error(exc, native))
         return Ok(info)
 
     @_contain_nul
@@ -1363,7 +1471,7 @@ class LocalFileSystem:
             # `CE-L12-D001-01` (R001): the failing call names its own path -- the directory for the
             # enumeration, the native ENTRY for an entry's own `lstat` (pinned Pi's
             # `toFileError(error, entryPath)`, e.g. an entry removed after the enumeration).
-            return Err(to_fs_error(exc, exc.filename if exc.filename is not None else native))
+            return Err(to_pi_fs_error(exc, exc.filename if exc.filename is not None else native))
         return Ok(infos)
 
     @_contain_nul
@@ -1379,7 +1487,7 @@ class LocalFileSystem:
         except _AbortedSignal:
             return Err(_aborted(resolved))
         except OSError as exc:
-            return Err(to_fs_error(exc, native))
+            return Err(to_pi_fs_error(exc, native))
         return Ok(names)
 
     @_contain_nul
@@ -1395,7 +1503,7 @@ class LocalFileSystem:
         try:
             probe = await asyncio.to_thread(_probe_dir_entry_sync, resolved)
         except OSError as exc:
-            return Err(to_fs_error(exc, native))
+            return Err(to_pi_fs_error(exc, native))
         return Ok(probe)
 
     @_contain_nul
@@ -1411,7 +1519,7 @@ class LocalFileSystem:
         try:
             await asyncio.to_thread(_check_readable_sync, native)
         except OSError as exc:
-            return Err(to_fs_error(exc, native))
+            return Err(to_pi_fs_error(exc, native))
         except _EmbeddedNulPath as exc:
             # Section 2.1's mapping of that rejection: Node's `ERR_INVALID_ARG_VALUE` is none of
             # `toFileError`'s listed codes (in particular not the `EINVAL` errno), so `unknown`.
@@ -1433,7 +1541,7 @@ class LocalFileSystem:
         try:
             await asyncio.to_thread(_check_read_write_sync, native)
         except OSError as exc:
-            return Err(to_fs_error(exc, native))
+            return Err(to_pi_fs_error(exc, native))
         except _EmbeddedNulPath as exc:
             # The same section 2.1 mapping as `check_readable`'s NUL rejection: `unknown`.
             return Err(FsError(FsErrorCode.UNKNOWN, str(exc), resolved, exc))
@@ -1450,7 +1558,7 @@ class LocalFileSystem:
         try:
             real = await asyncio.to_thread(_realpath, native)
         except OSError as exc:
-            return Err(to_fs_error(exc, native))
+            return Err(to_pi_fs_error(exc, native))
         return Ok(real)
 
     async def exists(self, path: str, signal: RunSignal | None = None) -> Result[bool, FsError]:
@@ -1473,6 +1581,10 @@ class LocalFileSystem:
             else:
                 await asyncio.to_thread(os.mkdir, native)
         except OSError as exc:
+            if not recursive and getattr(exc, "winerror", None) in _MKDIR_EINVAL_WIN32:
+                # L12-D007: libuv `fs__mkdir` forces UV_EINVAL for these (section 19.1). The
+                # recursive walk reaches its stat fallback instead, as Node's does.
+                return Err(FsError(FsErrorCode.INVALID, str(exc), exc.filename, exc))
             return Err(_mkdir_error(exc))
         return Ok(None)
 
@@ -1488,12 +1600,15 @@ class LocalFileSystem:
         native = native_path(resolved)
         try:
             await asyncio.to_thread(_remove_sync, native, recursive, force)
+        except _RmDirectoryRefusal as exc:
+            # L12-D007 (#125): Node's ERR_FS_EISDIR -> `unknown`, naming the logical path.
+            return Err(FsError(FsErrorCode.UNKNOWN, str(exc), resolved, exc))
         except OSError as exc:
             # `L12-D001-R001`: the non-recursive directory refusal is Node's own `rm` validation,
             # whose error names the path string it was given -- the logical path. It is raised here
             # without a `filename`. Every OS failure names its own native path: the argument, or
             # (`CE-L12-D001-01`) an entry INSIDE the tree a recursive removal failed on.
-            return Err(to_fs_error(exc, exc.filename if exc.filename is not None else resolved))
+            return Err(to_pi_fs_error(exc, exc.filename if exc.filename is not None else resolved))
         return Ok(None)
 
     async def create_temp_dir(
@@ -1502,7 +1617,7 @@ class LocalFileSystem:
         try:
             path = await asyncio.to_thread(tempfile.mkdtemp, prefix=prefix)
         except OSError as exc:
-            return Err(to_fs_error(exc))
+            return Err(to_pi_fs_error(exc))
         except ValueError as exc:
             if not _nul_rejected(exc, prefix):
                 raise
@@ -1519,7 +1634,7 @@ class LocalFileSystem:
         try:
             await asyncio.to_thread(_write_file_sync, file_path, "")
         except OSError as exc:
-            return Err(to_fs_error(exc, file_path))
+            return Err(to_pi_fs_error(exc, file_path))
         except ValueError as exc:
             if not _nul_rejected(exc, file_path):
                 raise

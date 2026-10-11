@@ -14,6 +14,7 @@ own operational-vs-invariant boundary requires (`L12-R015`).
 from __future__ import annotations
 
 import errno as _errno
+import sys
 from dataclasses import dataclass
 from enum import StrEnum
 
@@ -81,6 +82,55 @@ class SubprocessError:
     code: SubprocessErrorCode
     message: str
     cause: BaseException | None = None
+
+
+# L12-D007 (spec/execution.md section 19): pinned libuv 1.49.2 `uv_translate_sys_error`
+# (src/win/error.c, blob 7abf906bb5c82312aeb9f3f30f39ab2cadc07eae) reduced through pinned Pi's
+# `toFileError`. Only the Win32 codes libuv sends to an errno Pi names are listed; every other code
+# is `unknown` (libuv's own default is UV_UNKNOWN, and Pi maps any unnamed errno to `unknown`).
+# libuv has no ENOTDIR entry: Windows `not_directory` only comes from explicit call sites.
+_WIN32_PI_CODES: dict[int, FsErrorCode] = {
+    # -> UV_ENOENT
+    2: FsErrorCode.NOT_FOUND,  # ERROR_FILE_NOT_FOUND
+    3: FsErrorCode.NOT_FOUND,  # ERROR_PATH_NOT_FOUND
+    15: FsErrorCode.NOT_FOUND,  # ERROR_INVALID_DRIVE
+    123: FsErrorCode.NOT_FOUND,  # ERROR_INVALID_NAME
+    126: FsErrorCode.NOT_FOUND,  # ERROR_MOD_NOT_FOUND
+    161: FsErrorCode.NOT_FOUND,  # ERROR_BAD_PATHNAME
+    203: FsErrorCode.NOT_FOUND,  # ERROR_ENVVAR_NOT_FOUND
+    267: FsErrorCode.NOT_FOUND,  # ERROR_DIRECTORY
+    4392: FsErrorCode.NOT_FOUND,  # ERROR_INVALID_REPARSE_DATA
+    11001: FsErrorCode.NOT_FOUND,  # WSAHOST_NOT_FOUND
+    11004: FsErrorCode.NOT_FOUND,  # WSANO_DATA
+    # -> UV_EACCES / UV_EPERM
+    5: FsErrorCode.PERMISSION_DENIED,  # ERROR_ACCESS_DENIED (EPERM)
+    740: FsErrorCode.PERMISSION_DENIED,  # ERROR_ELEVATION_REQUIRED
+    1314: FsErrorCode.PERMISSION_DENIED,  # ERROR_PRIVILEGE_NOT_HELD (EPERM)
+    1920: FsErrorCode.PERMISSION_DENIED,  # ERROR_CANT_ACCESS_FILE
+    10013: FsErrorCode.PERMISSION_DENIED,  # WSAEACCES
+    # -> UV_EISDIR
+    1: FsErrorCode.IS_DIRECTORY,  # ERROR_INVALID_FUNCTION
+    # -> UV_EINVAL
+    13: FsErrorCode.INVALID,  # ERROR_INVALID_DATA
+    87: FsErrorCode.INVALID,  # ERROR_INVALID_PARAMETER
+    122: FsErrorCode.INVALID,  # ERROR_INSUFFICIENT_BUFFER
+    1464: FsErrorCode.INVALID,  # ERROR_SYMLINK_NOT_SUPPORTED
+    10022: FsErrorCode.INVALID,  # WSAEINVAL
+    10046: FsErrorCode.INVALID,  # WSAEPFNOSUPPORT
+}
+
+
+def to_pi_fs_error(exc: OSError, path: str | None = None) -> FsError:
+    """L12-D007: classify a failure of one of the Pi-derived filesystem operations exactly as
+    pinned Pi does. On Windows the ORIGINAL Win32 error (`winerror`) goes through the pinned libuv
+    translation (`_WIN32_PI_CODES`), never CPython's already-collapsed errno. Elsewhere, and for a
+    Windows error that carries no Win32 code, this is `to_fs_error`. Section 19.2: the
+    EXEC-007/008/009 operations classify their failures through this mapper too; their own
+    dispositions (which call is made, what a success means) are unchanged."""
+    winerror = getattr(exc, "winerror", None)
+    if sys.platform == "win32" and isinstance(winerror, int):
+        return FsError(_WIN32_PI_CODES.get(winerror, FsErrorCode.UNKNOWN), str(exc), path, exc)
+    return to_fs_error(exc, path)
 
 
 def to_fs_error(exc: OSError, path: str | None = None) -> FsError:

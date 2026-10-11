@@ -9,8 +9,8 @@ from __future__ import annotations
 import dataclasses
 import errno
 import os
-import shutil
 import stat
+import sys
 from collections.abc import Callable
 from pathlib import Path
 
@@ -282,6 +282,17 @@ def _deny_inner_unlink(monkeypatch: pytest.MonkeyPatch) -> None:
         original(path, *args, **kwargs)  # type: ignore[arg-type]
 
     monkeypatch.setattr(os, "unlink", unlink)
+    if sys.platform == "win32":
+        # L12-D007: Windows removal goes through libuv's own unlink (`_libuv_unlink`), not
+        # `os.unlink`; refuse it there with libuv's Win32 error (5, ACCESS_DENIED).
+        libuv_original = fs_module._libuv_unlink
+
+        def libuv_unlink(path: str) -> None:
+            if os.path.basename(path) == "f":
+                raise OSError(0, "Access is denied", path, 5)
+            libuv_original(path)
+
+        monkeypatch.setattr(fs_module, "_libuv_unlink", libuv_unlink)
 
 
 async def _remove_failing_inside(
@@ -304,11 +315,6 @@ async def test_a_recursive_removal_names_the_inner_entry_that_failed(
     result, inner = await _remove_failing_inside(tmp_path, name, monkeypatch)
     assert result.error.code == FsErrorCode.PERMISSION_DENIED
     assert result.error.path == inner
-
-
-def test_a_non_os_removal_failure_propagates_unchanged() -> None:
-    with pytest.raises(ValueError, match="boom"):
-        fs_module._name_the_failing_path(os.unlink, "p", ValueError("boom"))
 
 
 # --- CE-L12-D001-01 negative controls (section 7): each must make its witness fail ---------------
@@ -340,15 +346,6 @@ def _remove_names_the_target(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(LocalFileSystem, "remove", remove)
 
 
-def _rmtree_reraises_without_the_carrier(monkeypatch: pytest.MonkeyPatch) -> None:
-    def name_and_reraise(function: Callable[..., object], path: str, exc: BaseException) -> None:
-        if isinstance(exc, OSError):
-            exc.filename = path
-        raise exc
-
-    monkeypatch.setattr(fs_module, "_name_the_failing_path", name_and_reraise)
-
-
 @pytest.mark.parametrize(
     "mutant",
     [_list_dir_names_the_directory],
@@ -364,17 +361,8 @@ async def test_control_the_entry_witness_rejects(
 
 @pytest.mark.parametrize(
     "mutant",
-    [
-        _remove_names_the_target,
-        pytest.param(
-            _rmtree_reraises_without_the_carrier,
-            marks=pytest.mark.skipif(
-                not shutil._use_fd_functions,  # type: ignore[attr-defined]
-                reason="the re-catch quirk lives only in rmtree's fd-based (POSIX) walk",
-            ),
-        ),
-    ],
-    ids=["remove-names-the-target", "rmtree-reraises-without-the-carrier"],
+    [_remove_names_the_target],
+    ids=["remove-names-the-target"],
 )
 async def test_control_the_removal_witness_rejects(
     mutant: Callable[[pytest.MonkeyPatch], None], monkeypatch: pytest.MonkeyPatch, tmp_path: Path

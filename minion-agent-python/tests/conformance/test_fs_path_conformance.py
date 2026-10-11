@@ -23,15 +23,23 @@ CASES = [
 
 
 def test_the_fs_path_corpus_is_complete() -> None:
-    assert len(DOCUMENTS) == 7
-    assert len(CASES) == 122 + 237  # L12-D006 adds fs-path-nul.json
+    assert len(DOCUMENTS) == 8
+    # L12-D006 adds fs-path-nul.json; L12-D007 adds fs-error-codes.json.
+    assert len(CASES) == 122 + 237 + 240
     assert len(TOOL_CASES) == 5
-    # L12-D001-R001: the error-origin cases declared for one platform only, each with its reason.
-    limited = [case for case in CASES if "platforms" in case]
-    assert len(limited) == 10
-    assert all(
-        case["platforms"] == ["linux"] and "#67" in case["platform_note"] for case in limited
-    )
+    # L12-D001-R001 declared 10 error-origin cases Linux-only (#67, a directory read on Windows).
+    # L12-D007 closes #67 and widens them to both platforms from pinned Pi's Windows answers.
+    limited = [
+        case for case in CASES if "platforms" in case and not case["id"].startswith("errors/")
+    ]
+    assert limited == []
+    # L12-D007: its Windows-only conditions (name class, sharing, byte-range lock), each with a
+    # reason.
+    windows_only = [
+        case for case in CASES if case["id"].startswith("errors/") and "platforms" in case
+    ]
+    assert len(windows_only) == 80
+    assert all(case["platforms"] == ["win32"] and case["platform_note"] for case in windows_only)
 
 
 @pytest.mark.parametrize("case", CASES, ids=[case["id"] for case in CASES])

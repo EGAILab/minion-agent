@@ -117,7 +117,7 @@ def std_classification(text):
     text = replace(text,
         "    if !directory\n        && attributes & FILE_ATTRIBUTE_DIRECTORY != 0\n        && attributes & FILE_ATTRIBUTE_REPARSE_POINT == 0\n    {",
         "    if !directory && metadata.is_dir() && !metadata.file_type().is_symlink() {")
-    return replace(text, "    let attributes = metadata.file_attributes();", "    let _attributes = metadata.file_attributes();")
+    return text
 if os.name == "nt":
     for link_row in ("U8-dirlink-unlink-eperm", "L10-dirlink-lstat-eperm", "U9-junction-unlink-eperm", "L11-junction-lstat-eperm"):
         controls.append(("std-classification-" + link_row, link_row, native, std_classification))

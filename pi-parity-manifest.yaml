@@ -6445,7 +6445,20 @@ rows:
     tests/execution_nul.rs covers the real tool and provider boundaries; the private non-NUL mapper
     witness and scripts/nul-path-negative-controls.py discriminate six faults. Assurance:
     minion-agent-docs assurance/layers/12-l12-d006-rust-implementation.md. Closure: #194
-    issuecomment-6101644540 (code #203 -> 29089a88).'
+    issuecomment-6101644540 (code #203 -> 29089a88).
+    L12-D007 implementation candidate (NOT CERTIFIED): literal libuv 1.49.2 Win32-error projection;
+    native fs__open / directory-open / own-entry deletion bindings; ReadFile/WriteFile access-denied
+    override; target validation plus stack-independent Node rm/rimraf routing and Windows EPERM
+    recovery (Owner O001 ADOPT PI). src/execution/filesystem/rimraf/tests.rs drives all 41 pinned-Pi
+    routing/recovery/validation rows through LocalFileSystem::remove and checks injection delivery;
+    includes child disappearance and deep-walk witnesses. tests/fs_path_domain_conformance.rs runs
+    240 error-code cases on Windows / 160 on Linux plus the certified path and 237 NUL cases;
+    tests/fs_remove_readonly_conformance.rs retains the 21-document read-only corpus.
+    scripts/error-codes-negative-controls.py replaces the historical L12-D005 conditional-retry
+    controls for the Owner-authorized section-19.5 recovery surface; prior L12-D005 certification
+    remains historical evidence, not a claim that those superseded control anchors still apply.
+    Assurance: minion-agent-docs assurance/layers/12-l12-d007-rust-implementation.md.
+    Independent Rust closure review pending; #127 and #133-F2 excluded.'
   disposition: adopted
 - id: EXEC-003
   phase: 6

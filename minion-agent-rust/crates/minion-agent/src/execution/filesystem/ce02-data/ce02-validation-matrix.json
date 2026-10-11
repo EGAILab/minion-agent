@@ -1,0 +1,15 @@
+{
+  "about": "CE-L12D007-02 revision 3 (checkpoint review 2, C003): the remove TARGET's two stages. Node's rm first VALIDATES the target (validateRmOptions: lstat #1 on the target; a failure is returned as is, except force + ENOENT which proceeds), then rimraf CLASSIFIES it (lstat #2, with the recovery routing). Same format as ce02-recovery-matrix.json; 'remove' may set 'force'.",
+  "rows": [
+    {"id": "V1-validation-eperm-file", "fixture": ["tree"], "remove": {"path": "tree", "recursive": false}, "inject": [{"op": "lstat", "rel": "tree", "nth": 1, "code": "EPERM"}]},
+    {"id": "V2-classification-eperm-file", "fixture": ["tree"], "remove": {"path": "tree", "recursive": false}, "inject": [{"op": "lstat", "rel": "tree", "nth": 2, "code": "EPERM"}]},
+    {"id": "V3-validation-eperm-dir", "fixture": ["tree/", "tree/f"], "inject": [{"op": "lstat", "rel": "tree", "nth": 1, "code": "EPERM"}]},
+    {"id": "V4-classification-eperm-dir", "fixture": ["tree/", "tree/f"], "inject": [{"op": "lstat", "rel": "tree", "nth": 2, "code": "EPERM"}]},
+    {"id": "V5-validation-eio", "fixture": ["tree"], "remove": {"path": "tree", "recursive": false}, "inject": [{"op": "lstat", "rel": "tree", "nth": 1, "code": "EIO"}]},
+    {"id": "V6-missing-no-force", "fixture": [], "remove": {"path": "tree", "recursive": true}, "inject": []},
+    {"id": "V7-missing-force", "fixture": [], "remove": {"path": "tree", "recursive": true, "force": true}, "inject": []},
+    {"id": "V8-validation-enoent-no-force", "fixture": ["tree"], "remove": {"path": "tree", "recursive": false}, "inject": [{"op": "lstat", "rel": "tree", "nth": 1, "code": "ENOENT"}]},
+    {"id": "V9-validation-enoent-force", "fixture": ["tree"], "remove": {"path": "tree", "recursive": false, "force": true}, "inject": [{"op": "lstat", "rel": "tree", "nth": 1, "code": "ENOENT"}]},
+    {"id": "V10-classification-eio-file", "fixture": ["tree"], "remove": {"path": "tree", "recursive": false}, "inject": [{"op": "lstat", "rel": "tree", "nth": 2, "code": "EIO"}]}
+  ]
+}

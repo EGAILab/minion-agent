@@ -1,0 +1,10 @@
+{"platform":"linux","id":"V1-validation-eperm-file","result":"permission_denied","path":"tree","calls":{"lstat tree":1},"remains":["tree"],"readonly":[],"unfired":[]}
+{"platform":"linux","id":"V2-classification-eperm-file","result":"ok","path":null,"calls":{"lstat tree":2,"unlink tree":1},"remains":[],"readonly":[],"unfired":[]}
+{"platform":"linux","id":"V3-validation-eperm-dir","result":"permission_denied","path":"tree","calls":{"lstat tree":1},"remains":["tree/","tree/f"],"readonly":[],"unfired":[]}
+{"platform":"linux","id":"V4-classification-eperm-dir","result":"ok","path":null,"calls":{"lstat tree":2,"lstat tree/f":1,"readdir tree":1,"rmdir tree":2,"unlink tree":1,"unlink tree/f":1},"remains":[],"readonly":[],"unfired":[]}
+{"platform":"linux","id":"V5-validation-eio","result":"unknown","path":"tree","calls":{"lstat tree":1},"remains":["tree"],"readonly":[],"unfired":[]}
+{"platform":"linux","id":"V6-missing-no-force","result":"not_found","path":"tree","calls":{"lstat tree":1},"remains":[],"readonly":[],"unfired":[]}
+{"platform":"linux","id":"V7-missing-force","result":"ok","path":null,"calls":{"lstat tree":2},"remains":[],"readonly":[],"unfired":[]}
+{"platform":"linux","id":"V8-validation-enoent-no-force","result":"not_found","path":"tree","calls":{"lstat tree":1},"remains":["tree"],"readonly":[],"unfired":[]}
+{"platform":"linux","id":"V9-validation-enoent-force","result":"ok","path":null,"calls":{"lstat tree":2,"unlink tree":1},"remains":[],"readonly":[],"unfired":[]}
+{"platform":"linux","id":"V10-classification-eio-file","result":"ok","path":null,"calls":{"lstat tree":2,"unlink tree":1},"remains":[],"readonly":[],"unfired":[]}

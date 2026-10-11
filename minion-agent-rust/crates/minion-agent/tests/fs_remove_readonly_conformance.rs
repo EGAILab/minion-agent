@@ -5,6 +5,25 @@ use std::{
     fs,
     path::{Path, PathBuf},
 };
+#[path = "support/fs_containment.rs"]
+mod containment;
+
+fn guard(root: &Path, path: &Path, entry: bool) {
+    if path == root {
+        containment::check(&containment::base(), root);
+    } else if entry {
+        containment::check_entry(root, path);
+    } else {
+        containment::check(root, path);
+    }
+}
+fn target(root: &Path, rel: &str) -> PathBuf {
+    assert!(!rel.is_empty() && !rel.contains(':') && !rel.starts_with(['/', '\\']));
+    assert!(rel.split(['/', '\\']).all(|p| !matches!(p, "." | "..")));
+    let path = root.join(rel);
+    guard(root, &path, true);
+    path
+}
 
 fn command(name: &str, args: &[&str]) {
     let output = std::process::Command::new(name)
@@ -15,7 +34,7 @@ fn command(name: &str, args: &[&str]) {
 }
 
 struct Fixture {
-    root: tempfile::TempDir,
+    root: PathBuf,
     permissions: Vec<PathBuf>,
     acls: Vec<PathBuf>,
 }
@@ -23,40 +42,61 @@ impl Drop for Fixture {
     fn drop(&mut self) {
         #[cfg(windows)]
         for path in self.acls.iter().rev() {
-            let _ = std::process::Command::new("icacls")
-                .args([
+            guard(&self.root, path, true);
+            match fs::symlink_metadata(path) {
+                Ok(meta) if !meta.file_type().is_symlink() => (),
+                Ok(_) => continue,
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
+                Err(e) => panic!("ACL restore target not inspectable: {e}"),
+            }
+            guard(&self.root, path, false);
+            command(
+                "icacls",
+                &[
                     path.to_str().unwrap(),
                     "/remove:d",
                     &std::env::var("USERNAME").unwrap(),
-                ])
-                .output();
+                ],
+            );
         }
         for path in &self.permissions {
+            guard(&self.root, path, true);
+            if !path.try_exists().unwrap() {
+                continue;
+            }
             #[cfg(windows)]
             {
-                let _ = minion_agent_native_fs::clear_readonly_entry(path);
+                minion_agent_native_fs::clear_readonly_entry(path).unwrap();
             }
             #[cfg(unix)]
             if let Ok(metadata) = fs::metadata(path) {
                 use std::os::unix::fs::PermissionsExt;
-                let _ = fs::set_permissions(
+                guard(&self.root, path, false);
+                fs::set_permissions(
                     path,
                     fs::Permissions::from_mode(if metadata.is_dir() { 0o755 } else { 0o644 }),
-                );
+                )
+                .unwrap();
             }
         }
+        containment::cleanup(&self.root);
     }
 }
 fn prepare(root: &Path, steps: &Value, fixture: &mut Fixture) {
     for step in steps.as_array().unwrap() {
         if let Some(rel) = step["file"].as_str() {
-            let path = root.join(rel);
+            let path = target(root, rel);
+            guard(root, path.parent().unwrap(), false);
             fs::create_dir_all(path.parent().unwrap()).unwrap();
+            guard(root, &path, false);
             fs::write(path, step["text"].as_str().unwrap_or("x")).unwrap();
         } else if let Some(rel) = step["dir"].as_str() {
-            fs::create_dir_all(root.join(rel)).unwrap();
+            let path = target(root, rel);
+            guard(root, &path, false);
+            fs::create_dir_all(path).unwrap();
         } else if let Some(rel) = step["readonly"].as_str() {
-            let path = root.join(rel);
+            let path = target(root, rel);
+            guard(root, &path, false);
             #[cfg(windows)]
             command("attrib", &["+R", path.to_str().unwrap()]);
             #[cfg(unix)]
@@ -70,27 +110,29 @@ fn prepare(root: &Path, steps: &Value, fixture: &mut Fixture) {
             }
             fixture.permissions.push(path);
         } else if let Some(rel) = step["readonly_link"].as_str() {
-            let path = root.join(rel);
+            let path = target(root, rel);
             command("attrib", &["+R", "/L", path.to_str().unwrap()]);
             fixture.permissions.push(path);
         } else if let Some(rel) = step["symlink"].as_str() {
-            let target = root.join(step["to"].as_str().unwrap());
-            let link = root.join(rel);
+            let destination = target(root, step["to"].as_str().unwrap());
+            guard(root, &destination, false);
+            let link = target(root, rel);
             #[cfg(windows)]
             if step["kind"] == "dir" {
-                std::os::windows::fs::symlink_dir(target, link).unwrap();
+                std::os::windows::fs::symlink_dir(destination, link).unwrap();
             } else {
-                std::os::windows::fs::symlink_file(target, link).unwrap();
+                std::os::windows::fs::symlink_file(destination, link).unwrap();
             }
             #[cfg(unix)]
-            std::os::unix::fs::symlink(target, link).unwrap();
+            std::os::unix::fs::symlink(destination, link).unwrap();
         } else {
             let (rel, access) = if let Some(rel) = step["deny_delete"].as_str() {
                 (rel, "D")
             } else {
                 (step["deny_write_attributes"].as_str().unwrap(), "WA")
             };
-            let path = root.join(rel);
+            let path = target(root, rel);
+            guard(root, &path, false);
             let user = std::env::var("USERNAME").unwrap();
             command(
                 "icacls",
@@ -103,6 +145,7 @@ fn prepare(root: &Path, steps: &Value, fixture: &mut Fixture) {
             fixture.acls.push(path.clone());
             if access == "D" {
                 let parent = path.parent().unwrap();
+                guard(root, parent, false);
                 command(
                     "icacls",
                     &[parent.to_str().unwrap(), "/deny", &format!("{user}:(DC)")],
@@ -179,13 +222,14 @@ async fn canonical_fs_remove_readonly() {
             continue;
         }
         let mut fixture = Fixture {
-            root: tempfile::tempdir().unwrap(),
+            root: containment::sandbox("minion-readonly"),
             permissions: vec![],
             acls: vec![],
         };
-        let root = fixture.root.path().to_owned();
+        let root = fixture.root.clone();
         prepare(&root, &case["fixture"], &mut fixture);
         let fs = LocalFileSystem::new(&root);
+        containment::argument(&fs, &root, &case["remove"]["path"].as_str().unwrap().into()).await;
         let result = fs
             .remove(
                 case["remove"]["path"].as_str().unwrap(),

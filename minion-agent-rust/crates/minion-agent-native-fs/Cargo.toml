@@ -6,4 +6,4 @@ rust-version.workspace = true
 version.workspace = true
 
 [target.'cfg(windows)'.dependencies]
-windows-sys.workspace = true
+windows-sys = { workspace = true, features = ["Win32_Security", "Win32_System_IO", "Win32_System_Ioctl"] }

@@ -16,7 +16,7 @@ use std::{
     path::Path,
     sync::{
         Arc,
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicUsize, Ordering},
     },
 };
 mod capabilities {
@@ -74,16 +74,28 @@ async fn execute_case(dir: &Path, cwd: &Path, case: &Value, delay: std::time::Du
             signal.0.store(true, Ordering::SeqCst);
         })
     });
+    let updates = Arc::new(AtomicUsize::new(0));
+    let update_count = updates.clone();
     let batch = execute_tool_calls(
         &runtime.context(),
         &[ToolCall::new_raw("case", "bash", arguments)],
-        ToolExecutionOptions::new(StopReason::ToolUse, 0.0).with_signal(signal),
+        ToolExecutionOptions::new(StopReason::ToolUse, 0.0)
+            .with_signal(signal)
+            .with_execution_update(move |_| {
+                update_count.fetch_add(1, Ordering::SeqCst);
+                async { Ok(()) }
+            }),
     )
     .await
     .unwrap();
     if let Some(abort) = abort {
         abort.abort();
     }
+    assert_eq!(
+        updates.load(Ordering::SeqCst),
+        0,
+        "bash emits zero partial updates; trigger stays at subprocess seam"
+    );
     serde_json::to_value(&batch.messages[0]).unwrap()
 }
 

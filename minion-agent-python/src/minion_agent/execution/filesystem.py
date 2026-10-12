@@ -1029,34 +1029,67 @@ def _rmdir_last(path: str) -> None:
             raise
 
 
+class _Emptying:
+    """One directory on `_rimraf`'s explicit stack: its children still to remove (in reverse, so the
+    next one pops off the end) and whether any child under it has failed."""
+
+    __slots__ = ("directory", "failed", "remaining")
+
+    def __init__(self, directory: str, children: list[str]) -> None:
+        self.directory = directory
+        self.remaining = children[::-1]
+        self.failed = False
+
+
 def _rimraf(path: str, original: OSError | None = None) -> None:
     """Section 19.5 rules 3-4: pinned Node's `_rmdir` / `_rmchildren` (v22.15.1
     `lib/internal/fs/rimraf.js`, git blob `24bf3f46b878e711beadcdc8e1b08700d10aa3c5`) for `path`
     and everything below it. Each listed child NAME goes to `_rimraf_entry` (classified afresh,
     L12D007-I002); a child that is itself a directory to remove is descended into; once a
-    directory's children are all removed it is `rmdir`ed again. The first child failure, from any
-    depth, is the whole removal's failure, unchanged (L12D007-I003); ENOENT anywhere counts as
-    removed; a failure names the entry whose call failed (`CE-L12-D001-01`).
+    directory's children are all removed it is `rmdir`ed again. ENOENT anywhere counts as removed;
+    a failure names the entry whose call failed (`CE-L12-D001-01`).
+
+    A child's failure does not stop its siblings (L12-D008, rule 4 as amended by the Owner's DIV-008
+    extent decision): pinned Node starts every child's removal before any settles, so once its
+    in-flight removals drain, everything removable is gone. Here every remaining sibling, with its
+    own subtree, is still removed; a directory with a failed descendant is not `rmdir`ed; and the
+    FIRST failure encountered, unchanged, is the whole removal's failure (L12D007-I003). Which
+    failure that is, and when the call returns, are DIV-008: pinned Node reports the first failure
+    to SETTLE and may return before its other removals finish; this walk is sequential, in
+    enumeration order, and returns after every child was attempted.
 
     The walk keeps its own explicit stack of directories being emptied, so the interpreter stack
     does not grow with the tree's depth (L12D007-I005): pinned Node's callback walk removes any
-    depth the filesystem allows. Pinned Node removes the children concurrently and reports the
-    first failure to settle; this walk is sequential, in enumeration order."""
+    depth the filesystem allows."""
     children = _rmdir_first(path, original)
     if children is None:
         return
-    pending: list[tuple[str, list[str]]] = [(path, children[::-1])]
+    first: OSError | None = None
+    pending = [_Emptying(path, children)]
     while pending:
-        directory, remaining = pending[-1]
-        if not remaining:
+        frame = pending[-1]
+        if not frame.remaining:
             pending.pop()
-            _rmdir_last(directory)
+            if not frame.failed:
+                try:
+                    _rmdir_last(frame.directory)
+                    continue
+                except OSError as exc:
+                    first = first or exc
+            if pending:
+                pending[-1].failed = True
             continue
-        descend = _rimraf_entry(remaining.pop())
-        if descend is not None:
-            grandchildren = _rmdir_first(*descend)
-            if grandchildren is not None:
-                pending.append((descend[0], grandchildren[::-1]))
+        try:
+            descend = _rimraf_entry(frame.remaining.pop())
+            if descend is not None:
+                grandchildren = _rmdir_first(*descend)
+                if grandchildren is not None:
+                    pending.append(_Emptying(descend[0], grandchildren))
+        except OSError as exc:
+            first = first or exc
+            frame.failed = True
+    if first is not None:
+        raise first
 
 
 _REPARSE_TAG_MOUNT_POINT = 0xA0000003  # IO_REPARSE_TAG_MOUNT_POINT (a junction)

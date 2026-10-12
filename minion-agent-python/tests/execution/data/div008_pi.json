@@ -1,8 +1,8 @@
 {
  "about": "L12-D008 / DIV-008 oracle (minion-agent#215): pinned Pi's real NodeExecutionEnv.remove over minion-agent-docs assurance/layers/data/l12-d008/div008-matrix.json, measured by div008-pi-probe.mjs on Windows and on Linux (uid 1000), after Pi's in-flight removals drained. Generated, not edited.",
  "sources": {
-  "matrix_sha256": "8fb49d13ed4b6dc0d90bf7e5498e53ee566bea73cf3f40854c4db24d21714356",
-  "probe_sha256": "81f6b2aa6ababe34f013df2ae9a8ef17f922c040b8477bad237493ea2e4fa3a9",
+  "matrix_sha256": "9884afa0b5fc9fb41aaf6840606715316cdf995aef4c9851f8f4c925e3b49b0f",
+  "probe_sha256": "3fff733cb029c410dc7418606cdbbbd05a801bb0e27bbc02842b335a540f158c",
   "pi": "b7bb00b936dbe21b8e160b3e89efdec361846699"
  },
  "rows": [
@@ -18,13 +18,15 @@
      "op": "unlink",
      "rel": "tree/a",
      "nth": 1,
-     "code": "EACCES"
+     "code": "EACCES",
+     "outcome": "terminal"
     },
     {
      "op": "unlink",
      "rel": "tree/b",
      "nth": 1,
-     "code": "EACCES"
+     "code": "EACCES",
+     "outcome": "terminal"
     }
    ],
    "settle": [
@@ -46,7 +48,7 @@
       "tree/b"
      ],
      "late_calls": [
-      "settle unlink tree/b"
+      "settle unlink tree/b EACCES"
      ]
     },
     "linux": {
@@ -63,7 +65,7 @@
       "tree/b"
      ],
      "late_calls": [
-      "settle unlink tree/b"
+      "settle unlink tree/b EACCES"
      ]
     }
    }
@@ -80,13 +82,15 @@
      "op": "unlink",
      "rel": "tree/a",
      "nth": 1,
-     "code": "EACCES"
+     "code": "EACCES",
+     "outcome": "terminal"
     },
     {
      "op": "unlink",
      "rel": "tree/b",
      "nth": 1,
-     "code": "EACCES"
+     "code": "EACCES",
+     "outcome": "terminal"
     }
    ],
    "settle": [
@@ -108,7 +112,7 @@
       "tree/b"
      ],
      "late_calls": [
-      "settle unlink tree/a"
+      "settle unlink tree/a EACCES"
      ]
     },
     "linux": {
@@ -125,7 +129,7 @@
       "tree/b"
      ],
      "late_calls": [
-      "settle unlink tree/a"
+      "settle unlink tree/a EACCES"
      ]
     }
    }
@@ -142,13 +146,15 @@
      "op": "unlink",
      "rel": "tree/a",
      "nth": 1,
-     "code": "EACCES"
+     "code": "EACCES",
+     "outcome": "terminal"
     },
     {
      "op": "unlink",
      "rel": "tree/b",
      "nth": 1,
-     "code": "EBUSY"
+     "code": "EBUSY",
+     "outcome": "terminal"
     }
    ],
    "settle": [
@@ -170,7 +176,7 @@
       "tree/b"
      ],
      "late_calls": [
-      "settle unlink tree/b"
+      "settle unlink tree/b EBUSY"
      ]
     },
     "linux": {
@@ -187,7 +193,7 @@
       "tree/b"
      ],
      "late_calls": [
-      "settle unlink tree/b"
+      "settle unlink tree/b EBUSY"
      ]
     }
    }
@@ -204,13 +210,15 @@
      "op": "unlink",
      "rel": "tree/a",
      "nth": 1,
-     "code": "EACCES"
+     "code": "EACCES",
+     "outcome": "terminal"
     },
     {
      "op": "unlink",
      "rel": "tree/b",
      "nth": 1,
-     "code": "EBUSY"
+     "code": "EBUSY",
+     "outcome": "terminal"
     }
    ],
    "settle": [
@@ -232,7 +240,7 @@
       "tree/b"
      ],
      "late_calls": [
-      "settle unlink tree/a"
+      "settle unlink tree/a EACCES"
      ]
     },
     "linux": {
@@ -249,7 +257,7 @@
       "tree/b"
      ],
      "late_calls": [
-      "settle unlink tree/a"
+      "settle unlink tree/a EACCES"
      ]
     }
    }
@@ -267,13 +275,15 @@
      "op": "unlink",
      "rel": "tree/a",
      "nth": 1,
-     "code": "EACCES"
+     "code": "EACCES",
+     "outcome": "terminal"
     },
     {
      "op": "unlink",
      "rel": "tree/z",
      "nth": 1,
-     "code": "EACCES"
+     "code": "EACCES",
+     "outcome": "terminal"
     }
    ],
    "settle": [
@@ -295,7 +305,7 @@
       "tree/z"
      ],
      "late_calls": [
-      "settle unlink tree/z"
+      "settle unlink tree/z EACCES"
      ]
     },
     "linux": {
@@ -312,7 +322,7 @@
       "tree/z"
      ],
      "late_calls": [
-      "settle unlink tree/z"
+      "settle unlink tree/z EACCES"
      ]
     }
    }
@@ -330,13 +340,15 @@
      "op": "unlink",
      "rel": "tree/a",
      "nth": 1,
-     "code": "EACCES"
+     "code": "EACCES",
+     "outcome": "terminal"
     },
     {
      "op": "unlink",
      "rel": "tree/z",
      "nth": 1,
-     "code": "EACCES"
+     "code": "EACCES",
+     "outcome": "terminal"
     }
    ],
    "settle": [
@@ -355,12 +367,10 @@
      "remains_at_settle": [
       "tree/",
       "tree/a",
-      "tree/m",
       "tree/z"
      ],
      "late_calls": [
-      "settle unlink tree/a",
-      "unlink tree/m"
+      "settle unlink tree/a EACCES"
      ]
     },
     "linux": {
@@ -377,7 +387,7 @@
       "tree/z"
      ],
      "late_calls": [
-      "settle unlink tree/a"
+      "settle unlink tree/a EACCES"
      ]
     }
    }
@@ -395,13 +405,15 @@
      "op": "unlink",
      "rel": "tree/a/x",
      "nth": 1,
-     "code": "EACCES"
+     "code": "EACCES",
+     "outcome": "terminal"
     },
     {
      "op": "unlink",
      "rel": "tree/b",
      "nth": 1,
-     "code": "EACCES"
+     "code": "EACCES",
+     "outcome": "terminal"
     }
    ],
    "settle": [
@@ -425,7 +437,7 @@
       "tree/b"
      ],
      "late_calls": [
-      "settle unlink tree/b"
+      "settle unlink tree/b EACCES"
      ]
     },
     "linux": {
@@ -444,7 +456,7 @@
       "tree/b"
      ],
      "late_calls": [
-      "settle unlink tree/b"
+      "settle unlink tree/b EACCES"
      ]
     }
    }
@@ -462,13 +474,15 @@
      "op": "unlink",
      "rel": "tree/a/x",
      "nth": 1,
-     "code": "EACCES"
+     "code": "EACCES",
+     "outcome": "terminal"
     },
     {
      "op": "unlink",
      "rel": "tree/b",
      "nth": 1,
-     "code": "EACCES"
+     "code": "EACCES",
+     "outcome": "terminal"
     }
    ],
    "settle": [
@@ -492,7 +506,7 @@
       "tree/b"
      ],
      "late_calls": [
-      "settle unlink tree/a/x"
+      "settle unlink tree/a/x EACCES"
      ]
     },
     "linux": {
@@ -511,7 +525,7 @@
       "tree/b"
      ],
      "late_calls": [
-      "settle unlink tree/a/x"
+      "settle unlink tree/a/x EACCES"
      ]
     }
    }
@@ -528,13 +542,15 @@
      "op": "rmdir",
      "rel": "tree/a",
      "nth": 1,
-     "code": "EACCES"
+     "code": "EACCES",
+     "outcome": "terminal"
     },
     {
      "op": "unlink",
      "rel": "tree/b",
      "nth": 1,
-     "code": "EACCES"
+     "code": "EACCES",
+     "outcome": "terminal"
     }
    ],
    "settle": [
@@ -556,7 +572,7 @@
       "tree/b"
      ],
      "late_calls": [
-      "settle unlink tree/b"
+      "settle unlink tree/b EACCES"
      ]
     },
     "linux": {
@@ -573,7 +589,7 @@
       "tree/b"
      ],
      "late_calls": [
-      "settle unlink tree/b"
+      "settle unlink tree/b EACCES"
      ]
     }
    }
@@ -590,13 +606,15 @@
      "op": "rmdir",
      "rel": "tree/a",
      "nth": 1,
-     "code": "EACCES"
+     "code": "EACCES",
+     "outcome": "terminal"
     },
     {
      "op": "unlink",
      "rel": "tree/b",
      "nth": 1,
-     "code": "EACCES"
+     "code": "EACCES",
+     "outcome": "terminal"
     }
    ],
    "settle": [
@@ -618,7 +636,7 @@
       "tree/b"
      ],
      "late_calls": [
-      "settle rmdir tree/a"
+      "settle rmdir tree/a EACCES"
      ]
     },
     "linux": {
@@ -635,7 +653,7 @@
       "tree/b"
      ],
      "late_calls": [
-      "settle rmdir tree/a"
+      "settle rmdir tree/a EACCES"
      ]
     }
    }
@@ -652,7 +670,8 @@
      "op": "unlink",
      "rel": "tree/a",
      "nth": 1,
-     "code": "EACCES"
+     "code": "EACCES",
+     "outcome": "terminal"
     }
    ],
    "pi": {
@@ -702,7 +721,8 @@
      "op": "unlink",
      "rel": "tree/b",
      "nth": 1,
-     "code": "EACCES"
+     "code": "EACCES",
+     "outcome": "terminal"
     }
    ],
    "pi": {
@@ -747,7 +767,8 @@
      "op": "unlink",
      "rel": "tree/a/x",
      "nth": 1,
-     "code": "EACCES"
+     "code": "EACCES",
+     "outcome": "terminal"
     }
    ],
    "pi": {
@@ -796,7 +817,8 @@
      "op": "readdir",
      "rel": "tree/a",
      "nth": 1,
-     "code": "EACCES"
+     "code": "EACCES",
+     "outcome": "terminal"
     }
    ],
    "pi": {
@@ -845,7 +867,8 @@
      "op": "lstat",
      "rel": "tree/a",
      "nth": 1,
-     "code": "EACCES"
+     "code": "EACCES",
+     "outcome": "recovered"
     }
    ],
    "pi": {
@@ -878,7 +901,8 @@
      "op": "rmdir",
      "rel": "tree/a",
      "nth": 1,
-     "code": "EACCES"
+     "code": "EACCES",
+     "outcome": "terminal"
     }
    ],
    "pi": {
@@ -933,7 +957,8 @@
      "op": "rmdir",
      "rel": "tree/a",
      "nth": 2,
-     "code": "EACCES"
+     "code": "EACCES",
+     "outcome": "terminal"
     }
    ],
    "pi": {
@@ -978,7 +1003,8 @@
      "op": "readdir",
      "rel": "tree",
      "nth": 1,
-     "code": "EACCES"
+     "code": "EACCES",
+     "outcome": "terminal"
     }
    ],
    "pi": {
@@ -1031,7 +1057,8 @@
      "op": "rmdir",
      "rel": "tree",
      "nth": 1,
-     "code": "EACCES"
+     "code": "EACCES",
+     "outcome": "terminal"
     }
    ],
    "pi": {
@@ -1084,7 +1111,8 @@
      "op": "rmdir",
      "rel": "tree",
      "nth": 2,
-     "code": "EACCES"
+     "code": "EACCES",
+     "outcome": "terminal"
     }
    ],
    "pi": {
@@ -1109,6 +1137,327 @@
       "tree/"
      ],
      "late_calls": []
+    }
+   }
+  },
+  {
+   "id": "X1-recovered-then-terminal",
+   "fixture": [
+    "tree/",
+    "tree/a",
+    "tree/b"
+   ],
+   "inject": [
+    {
+     "op": "lstat",
+     "rel": "tree/a",
+     "nth": 1,
+     "code": "EACCES",
+     "outcome": "recovered"
+    },
+    {
+     "op": "unlink",
+     "rel": "tree/b",
+     "nth": 1,
+     "code": "EBUSY",
+     "outcome": "terminal"
+    }
+   ],
+   "pi": {
+    "win32": {
+     "result": "unknown",
+     "path": "tree/b",
+     "remains_after_drain": [
+      "tree/",
+      "tree/b"
+     ],
+     "remains_at_settle": [
+      "tree/",
+      "tree/b"
+     ],
+     "late_calls": []
+    },
+    "linux": {
+     "result": "unknown",
+     "path": "tree/b",
+     "remains_after_drain": [
+      "tree/",
+      "tree/b"
+     ],
+     "remains_at_settle": [
+      "tree/",
+      "tree/b"
+     ],
+     "late_calls": []
+    }
+   }
+  },
+  {
+   "id": "X2-terminal-then-recovered",
+   "fixture": [
+    "tree/",
+    "tree/a",
+    "tree/b"
+   ],
+   "inject": [
+    {
+     "op": "unlink",
+     "rel": "tree/a",
+     "nth": 1,
+     "code": "EBUSY",
+     "outcome": "terminal"
+    },
+    {
+     "op": "lstat",
+     "rel": "tree/b",
+     "nth": 1,
+     "code": "EACCES",
+     "outcome": "recovered"
+    }
+   ],
+   "pi": {
+    "win32": {
+     "result": "unknown",
+     "path": "tree/a",
+     "remains_after_drain": [
+      "tree/",
+      "tree/a"
+     ],
+     "remains_at_settle": [
+      "tree/",
+      "tree/a"
+     ],
+     "late_calls": []
+    },
+    "linux": {
+     "result": "unknown",
+     "path": "tree/a",
+     "remains_after_drain": [
+      "tree/",
+      "tree/a"
+     ],
+     "remains_at_settle": [
+      "tree/",
+      "tree/a"
+     ],
+     "late_calls": []
+    }
+   }
+  },
+  {
+   "id": "X3-nested-recovered-then-terminal",
+   "fixture": [
+    "tree/",
+    "tree/a/",
+    "tree/a/x",
+    "tree/b"
+   ],
+   "inject": [
+    {
+     "op": "lstat",
+     "rel": "tree/a/x",
+     "nth": 1,
+     "code": "EACCES",
+     "outcome": "recovered"
+    },
+    {
+     "op": "unlink",
+     "rel": "tree/b",
+     "nth": 1,
+     "code": "EBUSY",
+     "outcome": "terminal"
+    }
+   ],
+   "pi": {
+    "win32": {
+     "result": "unknown",
+     "path": "tree/b",
+     "remains_after_drain": [
+      "tree/",
+      "tree/b"
+     ],
+     "remains_at_settle": [
+      "tree/",
+      "tree/a/",
+      "tree/a/x",
+      "tree/b"
+     ],
+     "late_calls": [
+      "rmdir tree/a",
+      "fail rmdir tree/a ENOTEMPTY",
+      "readdir tree/a",
+      "lstat tree/a/x",
+      "settle lstat tree/a/x EACCES",
+      "unlink tree/a/x",
+      "rmdir tree/a"
+     ]
+    },
+    "linux": {
+     "result": "unknown",
+     "path": "tree/b",
+     "remains_after_drain": [
+      "tree/",
+      "tree/b"
+     ],
+     "remains_at_settle": [
+      "tree/",
+      "tree/a/",
+      "tree/a/x",
+      "tree/b"
+     ],
+     "late_calls": [
+      "fail rmdir tree/a ENOTEMPTY",
+      "readdir tree/a",
+      "lstat tree/a/x",
+      "settle lstat tree/a/x EACCES",
+      "unlink tree/a/x",
+      "rmdir tree/a"
+     ]
+    }
+   }
+  },
+  {
+   "id": "X4-recovered-directory-then-terminal",
+   "fixture": [
+    "tree/",
+    "tree/a/",
+    "tree/a/x",
+    "tree/b"
+   ],
+   "inject": [
+    {
+     "op": "lstat",
+     "rel": "tree/a",
+     "nth": 1,
+     "code": "EACCES",
+     "outcome": "recovered"
+    },
+    {
+     "op": "unlink",
+     "rel": "tree/b",
+     "nth": 1,
+     "code": "EBUSY",
+     "outcome": "terminal"
+    }
+   ],
+   "pi": {
+    "win32": {
+     "result": "unknown",
+     "path": "tree/b",
+     "remains_after_drain": [
+      "tree/",
+      "tree/b"
+     ],
+     "remains_at_settle": [
+      "tree/",
+      "tree/a/",
+      "tree/a/x",
+      "tree/b"
+     ],
+     "late_calls": [
+      "fail unlink tree/a EPERM",
+      "chmod tree/a",
+      "stat tree/a",
+      "rmdir tree/a",
+      "fail rmdir tree/a ENOTEMPTY",
+      "readdir tree/a",
+      "lstat tree/a/x",
+      "unlink tree/a/x",
+      "rmdir tree/a"
+     ]
+    },
+    "linux": {
+     "result": "unknown",
+     "path": "tree/b",
+     "remains_after_drain": [
+      "tree/",
+      "tree/b"
+     ],
+     "remains_at_settle": [
+      "tree/",
+      "tree/a/",
+      "tree/a/x",
+      "tree/b"
+     ],
+     "late_calls": [
+      "fail unlink tree/a EISDIR",
+      "rmdir tree/a",
+      "fail rmdir tree/a ENOTEMPTY",
+      "readdir tree/a",
+      "lstat tree/a/x",
+      "unlink tree/a/x",
+      "rmdir tree/a"
+     ]
+    }
+   }
+  },
+  {
+   "id": "X5-two-terminal-around-recovered",
+   "fixture": [
+    "tree/",
+    "tree/a",
+    "tree/m",
+    "tree/z"
+   ],
+   "inject": [
+    {
+     "op": "unlink",
+     "rel": "tree/a",
+     "nth": 1,
+     "code": "EACCES",
+     "outcome": "terminal"
+    },
+    {
+     "op": "lstat",
+     "rel": "tree/m",
+     "nth": 1,
+     "code": "EACCES",
+     "outcome": "recovered"
+    },
+    {
+     "op": "unlink",
+     "rel": "tree/z",
+     "nth": 1,
+     "code": "EBUSY",
+     "outcome": "terminal"
+    }
+   ],
+   "pi": {
+    "win32": {
+     "result": "permission_denied",
+     "path": "tree/a",
+     "remains_after_drain": [
+      "tree/",
+      "tree/a",
+      "tree/z"
+     ],
+     "remains_at_settle": [
+      "tree/",
+      "tree/a",
+      "tree/z"
+     ],
+     "late_calls": [
+      "unlink tree/z",
+      "settle unlink tree/z EBUSY"
+     ]
+    },
+    "linux": {
+     "result": "permission_denied",
+     "path": "tree/a",
+     "remains_after_drain": [
+      "tree/",
+      "tree/a",
+      "tree/z"
+     ],
+     "remains_at_settle": [
+      "tree/",
+      "tree/a",
+      "tree/z"
+     ],
+     "late_calls": [
+      "unlink tree/z",
+      "settle unlink tree/z EBUSY"
+     ]
     }
    }
   }

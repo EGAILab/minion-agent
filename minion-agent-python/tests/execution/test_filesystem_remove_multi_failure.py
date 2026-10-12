@@ -58,7 +58,8 @@ class _Run:
         self.root = root
         self.plans = [dict(plan) for plan in plans]
         self.calls: dict[str, int] = {}
-        self.failures: list[tuple[str, str]] = []  # (rel, code), in the order the binding met them
+        # Every injected fault, as (op, rel, code), in the order the binding met it.
+        self.failures: list[tuple[str, str, str]] = []
 
     def wrap(self, op: str, real: Callable[..., Any]) -> Callable[..., Any]:
         def call(p: Any, *args: Any, **kwargs: Any) -> Any:
@@ -70,7 +71,7 @@ class _Run:
                     for plan in self.plans:
                         if (plan["op"], plan["rel"], plan["nth"]) == (op, rel, self.calls[key]):
                             plan["fired"] = True
-                            self.failures.append((rel, plan["code"]))
+                            self.failures.append((op, rel, plan["code"]))
                             raise _error(plan["code"], os.fspath(p))
             return real(p, *args, **kwargs)
 
@@ -142,7 +143,14 @@ def _violations(row: dict[str, Any], obs: dict[str, Any]) -> list[str]:
         # A fired failure that the rules recover from (B2: a child's classification `lstat`
         # failing is unlinked as itself) selects nothing.
         return problems
-    first_rel, first_code = obs["failures"][0]
+    # CE-L12D008-01 R3/R5: the FIRST TERMINAL failure the binding met, by the matrix's declared
+    # outcomes (verified against pinned Pi by the shared comparator) -- never a recovered fault.
+    terminal = {(q["op"], q["rel"]) for q in row["inject"] if q["outcome"] == "terminal"}
+    met = [(rel, code) for op, rel, code in obs["failures"] if (op, rel) in terminal]
+    if not met:
+        problems.append("selection: no terminal failure was met for the reported error")
+        return problems
+    first_rel, first_code = met[0]
     if (obs["path"], obs["result"]) != (first_rel, CODE_OF[first_code]):
         problems.append(
             f"selection: reported {obs['path']} {obs['result']},"
@@ -287,3 +295,17 @@ async def test_stop_at_first_failure_breaks_extent_somewhere(
         "the stop-at-first-failure control left the drained extent intact on every single-failure"
         " row"
     )
+
+
+async def test_recovered_fault_is_never_the_selection(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # CE-L12D008-01: on the real X1 run (a recovered classification fault on `a`, then a terminal
+    # failure on `b`) the binding is accepted; the same observation reporting the recovered `a`
+    # instead is rejected on selection -- the helper never treats a recovered fault as terminal.
+    row = ROWS["X1-recovered-then-terminal"]
+    obs = await _observe(row, tmp_path, monkeypatch)
+    assert [op for op, _, _ in obs["failures"]].count("lstat") == 1  # the recovered fault did fire
+    assert _violations(row, obs) == []
+    wrong = {**obs, "path": "tree/a", "result": CODE_OF["EACCES"]}
+    assert any(v.startswith("selection: reported") for v in _violations(row, wrong))

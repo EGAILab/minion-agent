@@ -8,7 +8,7 @@ witnesses:
 - bash_abort_during
 builtin_bash:
   command: printf 'before\n'; sleep 5
-  abort_after_ms: 400
+  abort_on_output: before
   expect:
     win32:
       is_error: true

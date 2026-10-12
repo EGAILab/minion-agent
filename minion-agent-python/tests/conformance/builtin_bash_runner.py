@@ -44,6 +44,60 @@ def _units_slice(text: str, start: int, end: int | None = None) -> str:
     return chunk.decode("utf-16-le", "surrogatepass")
 
 
+class _TappedStream:
+    """The command's output stream as the tool reads it, watched for the marker: once the bytes
+    delivered so far contain it, the call's signal is aborted on the next loop turn -- after the
+    tool has taken in the chunk that completed it."""
+
+    def __init__(self, inner: Any, watch: _AbortOnOutput) -> None:
+        self._inner = inner
+        self._watch = watch
+
+    async def read_chunk(self) -> Any:
+        result = await self._inner.read_chunk()
+        chunk = getattr(result, "value", None)
+        if isinstance(chunk, bytes):
+            self._watch.saw(chunk)
+        return result
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._inner, name)
+
+
+class _AbortOnOutput:
+    """`abort_on_output` (`TEST-BASH-ABORT-TIMING`, #197): wraps the tool's `ctx.subprocess`
+    seam and aborts the call's signal once the command's output delivered to the tool contains
+    the marker -- "abort during the command" by an event, not a wall-clock delay that shell
+    start-up under load can outrun. Minion's `bash` emits no partial updates (spec tools.md,
+    Owner Q2), so the delivered output, not `tools/update`, is the observable event."""
+
+    def __init__(self, inner: Any, marker: bytes, controller: RunAbortController) -> None:
+        self._inner = inner
+        self._marker = marker
+        self._controller = controller
+        self._seen = b""
+        self._fired = False
+
+    def saw(self, chunk: bytes) -> None:
+        self._seen += chunk
+        if not self._fired and self._marker in self._seen:
+            self._fired = True
+            asyncio.get_running_loop().call_soon(self._controller.abort)
+
+    async def spawn(self, argv: Any, options: Any = None) -> Any:
+        result = await self._inner.spawn(argv, options)
+        process = getattr(result, "value", None)
+        if process is not None:
+            for name in ("stdout", "stderr"):
+                stream = getattr(process, name)
+                if stream is not None:
+                    setattr(process, name, _TappedStream(stream, self))
+        return result
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._inner, name)
+
+
 async def run_builtin_bash_scenario(document: dict[str, Any]) -> dict[str, Any] | None:
     """Returns `{observed, expected}` for the host's platform, or `None` when the scenario has no
     expectation for it."""
@@ -54,12 +108,15 @@ async def run_builtin_bash_scenario(document: dict[str, Any]) -> dict[str, Any] 
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp).resolve()
         cwd = str(root / "missing") if spec.get("missing_cwd") else str(root)
-        tool = create_bash_tool(LocalFileSystem(str(root)), LocalSubprocess(cwd))
+        controller = RunAbortController()
+        subprocess: Any = LocalSubprocess(cwd)
+        if "abort_on_output" in spec:
+            subprocess = _AbortOnOutput(subprocess, spec["abort_on_output"].encode(), controller)
+        tool = create_bash_tool(LocalFileSystem(str(root)), subprocess)
         registry = ToolRegistry()
         registry.register(tool)
         ctx = Context()
         declare_tools_events(ctx.events)
-        controller = RunAbortController()
         if spec.get("signal") == "pre_aborted":
             controller.abort()
         arguments: dict[str, Any] = {"command": spec["command"]}

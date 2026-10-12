@@ -6491,7 +6491,13 @@ rows:
     drained oracle tests/execution/data/div008_pi.json; controls stop-at-first-failure and report-last-failure)
   python: 'CONTRACT_DRAFT (L12-D008, minion-agent#215): execution/filesystem.py _rimraf continues past failures
     and raises the first failure encountered; implementation candidate in the paired code PR.'
-  rust: 'NOT_IMPLEMENTED (L12-D008 Rust pass follows the Python candidate''s review).'
+  rust: 'IMPLEMENTATION_CANDIDATE (L12-D008, minion-agent#215): execution/filesystem/rimraf.rs
+    retains the first terminal error, continues siblings, and skips final rmdir only for a failed subtree.
+    Permanent real-provider witnesses: rimraf/tests/div008.rs; byte-copied shared matrix/Pi oracles:
+    filesystem/div008-data; scripts/div008-probe.py invokes shared div008_compare.py v3;
+    scripts/div008-negative-controls.py requires intended-witness kills after green baselines.
+    Assurance: minion-agent-docs assurance/layers/12-l12-d008-rust-implementation.md.
+    Independent Rust closure review pending; not certified.'
   disposition: intentional divergence
 - id: EXEC-003
   phase: 6

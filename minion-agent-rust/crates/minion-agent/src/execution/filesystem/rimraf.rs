@@ -116,7 +116,9 @@ fn directory_retry(e: &io::Error) -> bool {
 enum Work {
     Entry(PathBuf),
     Directory(PathBuf, Option<io::Error>),
-    FinalDirectory(PathBuf),
+    // The counter at descent distinguishes failures in this subtree from an
+    // earlier sibling's failure. No ancestry scan or recursive call is needed.
+    FinalDirectory(PathBuf, usize),
 }
 
 pub(super) async fn remove(
@@ -137,61 +139,76 @@ pub(super) async fn remove(
         Err(e) => return Err(native_error(e, path)),
     }
     let mut stack = vec![Work::Entry(path.to_owned())];
+    let mut failures = 0;
+    let mut first_error = None;
     while let Some(work) = stack.pop() {
-        match work {
-            Work::Entry(p) => {
-                let classification = ops.lstat(&p).await;
-                match classification {
-                    Ok(m) if m.is_dir() && !m.file_type().is_symlink() => {
-                        stack.push(Work::Directory(p, None));
-                        continue;
-                    }
-                    Err(e) if missing(&e) => continue,
-                    Err(e) if cfg!(windows) && eperm(&e) => {
-                        recover(&p, e, ops, &mut stack).await?;
-                        continue;
-                    }
-                    _ => (),
+        if let Err(error) = step(work, ops, &mut stack, failures).await {
+            failures += 1;
+            first_error.get_or_insert(error);
+        }
+    }
+    first_error.map_or(Ok(()), Err)
+}
+
+async fn step(
+    work: Work,
+    ops: &dyn Operations,
+    stack: &mut Vec<Work>,
+    failures: usize,
+) -> Result<(), FsError> {
+    match work {
+        Work::Entry(p) => {
+            let classification = ops.lstat(&p).await;
+            match classification {
+                Ok(m) if m.is_dir() && !m.file_type().is_symlink() => {
+                    stack.push(Work::Directory(p, None));
+                    return Ok(());
                 }
-                match ops.unlink(&p).await {
-                    Ok(()) => (),
-                    Err(e) if missing(&e) => (),
-                    Err(e) if cfg!(windows) && eperm(&e) => recover(&p, e, ops, &mut stack).await?,
-                    Err(e)
-                        if e.kind() == io::ErrorKind::IsADirectory
-                            || (!cfg!(windows) && eperm(&e)) =>
-                    {
-                        stack.push(Work::Directory(p, Some(e)))
-                    }
-                    Err(e) => return Err(native_error(e, &p)),
+                Err(e) if missing(&e) => return Ok(()),
+                Err(e) if cfg!(windows) && eperm(&e) => {
+                    recover(&p, e, ops, stack).await?;
+                    return Ok(());
+                }
+                _ => (),
+            }
+            match ops.unlink(&p).await {
+                Ok(()) => (),
+                Err(e) if missing(&e) => (),
+                Err(e) if cfg!(windows) && eperm(&e) => recover(&p, e, ops, stack).await?,
+                Err(e)
+                    if e.kind() == io::ErrorKind::IsADirectory || (!cfg!(windows) && eperm(&e)) =>
+                {
+                    stack.push(Work::Directory(p, Some(e)))
+                }
+                Err(e) => return Err(native_error(e, &p)),
+            }
+        }
+        Work::Directory(p, original) => match ops.rmdir(&p).await {
+            Ok(()) => (),
+            Err(e) if missing(&e) => (),
+            Err(e) if enotdir(&e) => {
+                if let Some(e) = original {
+                    return Err(native_error(e, &p));
                 }
             }
-            Work::Directory(p, original) => match ops.rmdir(&p).await {
-                Ok(()) => (),
-                Err(e) if missing(&e) => (),
-                Err(e) if enotdir(&e) => {
-                    if let Some(e) = original {
-                        return Err(native_error(e, &p));
-                    }
-                }
-                Err(e) if directory_retry(&e) => {
-                    let children = match ops.readdir(&p).await {
-                        Ok(children) => children,
-                        Err(e) if missing(&e) => continue,
-                        Err(e) => return Err(native_error(e, &p)),
-                    };
-                    stack.push(Work::FinalDirectory(p));
-                    // Reverse push, not reverse processing: native enumeration order survives.
-                    stack.extend(children.into_iter().rev().map(Work::Entry));
-                }
-                Err(e) => return Err(native_error(e, &p)),
-            },
-            Work::FinalDirectory(p) => match ops.rmdir(&p).await {
-                Ok(()) => (),
-                Err(e) if missing(&e) => (),
-                Err(e) => return Err(native_error(e, &p)),
-            },
-        }
+            Err(e) if directory_retry(&e) => {
+                let children = match ops.readdir(&p).await {
+                    Ok(children) => children,
+                    Err(e) if missing(&e) => return Ok(()),
+                    Err(e) => return Err(native_error(e, &p)),
+                };
+                stack.push(Work::FinalDirectory(p, failures));
+                // Reverse push, not reverse processing: native enumeration order survives.
+                stack.extend(children.into_iter().rev().map(Work::Entry));
+            }
+            Err(e) => return Err(native_error(e, &p)),
+        },
+        Work::FinalDirectory(_, before) if before != failures => (),
+        Work::FinalDirectory(p, _) => match ops.rmdir(&p).await {
+            Ok(()) => (),
+            Err(e) if missing(&e) => (),
+            Err(e) => return Err(native_error(e, &p)),
+        },
     }
     Ok(())
 }

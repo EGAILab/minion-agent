@@ -2,6 +2,8 @@ use super::*;
 use serde_json::{Value, json};
 use std::{collections::BTreeMap, sync::Mutex};
 
+mod div008;
+
 #[cfg(windows)]
 #[derive(Debug, Default)]
 struct DeniedHandles(std::sync::atomic::AtomicUsize);

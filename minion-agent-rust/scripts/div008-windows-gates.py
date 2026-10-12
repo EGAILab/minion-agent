@@ -2,7 +2,7 @@
 
 Dot-source .agents/project-environment.ps1 and pass a NEW contained --logs path
 and a --control-tree ending in control-code/minion-agent-rust. Both Cargo caches
-remain the project's shared platform cache. No process is killed or target cleaned.
+use separate per-platform gate/control targets. No process is killed or target cleaned.
 """
 import argparse
 import os
@@ -10,6 +10,7 @@ from pathlib import Path
 import stat
 import subprocess
 import sys
+import importlib.util
 
 p = argparse.ArgumentParser()
 p.add_argument("--logs", type=Path, required=True)
@@ -49,8 +50,16 @@ os.environ["MINION_SEARCH_ENGINE_ARTIFACTS"] = str(root / ".toolchain/search-eng
 os.environ["PATH"] = str(root / ".toolchain/icu-78.3-src/icu/bin64") + os.pathsep + os.environ["PATH"]
 if os.environ.get("CARGO_BUILD_JOBS") != "4":
     raise RuntimeError("source project-environment.ps1 first (four Cargo jobs)")
+gate_target = checked(root / '.tmp/cache/cargo-target/windows')
+os.environ['CARGO_TARGET_DIR'] = str(gate_target)
+os.environ['MINION_CONTROL_CARGO_TARGET'] = str(root / '.tmp/cache/cargo-target/windows-controls')
+spec = importlib.util.spec_from_file_location('cargo_cache_safety', tree / 'scripts/cargo-cache-safety.py')
+cache_safety = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(cache_safety)
+cache_safety.refresh(tree)  # content-neutral: defeat foreign/mutant mtime freshness
 
 commands = [
+    ("cache-safety-check", [sys.executable, "scripts/cargo-cache-safety-check.py"]),
     ("error-codes-anchor-check", [sys.executable, "scripts/error-codes-negative-controls.py", "--tree", str(tree), "--check-anchors"]),
     ("native-fs-check", ["cargo", "check", "-p", "minion-agent-native-fs"]),
     ("fmt", ["cargo", "fmt", "--all", "--", "--check"]),
@@ -61,6 +70,7 @@ commands = [
     ("rimraf", ["cargo", "test", "-p", "minion-agent", "--lib", "execution::filesystem::rimraf::tests", "--", "--nocapture"]),
     ("error-codes-controls", [sys.executable, "scripts/error-codes-negative-controls.py", "--tree", str(control_tree), "--logs", str(logs / "error-codes-control-details")]),
     ("div008-controls", [sys.executable, "scripts/div008-negative-controls.py", "--tree", str(control_tree), "--logs", str(logs / "div008-control-details")]),
+    ("cache-regression", [sys.executable, "scripts/cargo-cache-regression.py", "--tree", str(tree), "--control-tree", str(control_tree), "--logs", str(logs / 'cache-regression')]),
 ]
 for name, command in commands:
     with checked(logs / (name + ".log")).open("w", encoding="utf-8") as output:

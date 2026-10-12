@@ -11,6 +11,11 @@ from pathlib import Path
 import stat
 import subprocess
 import sys
+import importlib.util
+
+_spec = importlib.util.spec_from_file_location('cargo_cache_safety', Path(__file__).with_name('cargo-cache-safety.py'))
+cache_safety = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(cache_safety)
 
 p = argparse.ArgumentParser()
 p.add_argument("--tree", type=Path, required=True)
@@ -170,6 +175,9 @@ if a.check_anchors:
     sys.exit(0)
 if a.logs is None:
     p.error("--logs is required unless --check-anchors is used")
+os.environ['CARGO_TARGET_DIR'] = cache_safety.control_target()
+cache_safety.refresh(tree)
+print('CONTROL TARGET ' + os.environ['CARGO_TARGET_DIR'], flush=True)
 logs = checked(a.logs)
 checked(logs).mkdir(parents=True, exist_ok=True)
 

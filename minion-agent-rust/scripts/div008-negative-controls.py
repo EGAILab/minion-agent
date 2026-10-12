@@ -8,6 +8,11 @@ import os
 from pathlib import Path
 import stat
 import subprocess
+import importlib.util
+
+_spec = importlib.util.spec_from_file_location('cargo_cache_safety', Path(__file__).with_name('cargo-cache-safety.py'))
+cache_safety = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(cache_safety)
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tree", type=Path, required=True)
@@ -36,6 +41,9 @@ def checked(path):
 tree = checked(args.tree)
 if "control-code" not in tree.parts:
     raise RuntimeError("only a disposable control-code copy may be mutated")
+os.environ['CARGO_TARGET_DIR'] = cache_safety.control_target()
+cache_safety.refresh(tree)
+print('CONTROL TARGET ' + os.environ['CARGO_TARGET_DIR'], flush=True)
 logs = checked(args.logs)
 checked(logs).mkdir(parents=True, exist_ok=True)
 source = checked(tree / "crates/minion-agent/src/execution/filesystem/rimraf.rs")

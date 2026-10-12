@@ -4,6 +4,7 @@
 set -eu
 export TMP=/tmp TEMP=/tmp TMPDIR=/tmp
 export CARGO_HOME=/cargo-home CARGO_TARGET_DIR=/target CARGO_BUILD_JOBS=4
+export MINION_CONTROL_CARGO_TARGET=/control-target
 export RUSTUP_HOME=/cargo-home/rustup RUSTUP_TOOLCHAIN=1.97.1
 export RUST_ICU_MAJOR_VERSION_NUMBER=78
 export RUSTFLAGS='-L native=/build/icu/lib'
@@ -17,7 +18,7 @@ mkdir -p /tmp/l12d008/work /tmp/l12d008/fixtures /tmp/l12d008/uid-logs /tmp/bin
 chmod 777 /tmp/l12d008/fixtures /tmp/l12d008/uid-logs
 export MINION_FIXTURE_ROOT=/tmp/l12d008/fixtures
 export TMP="$MINION_FIXTURE_ROOT" TEMP="$MINION_FIXTURE_ROOT" TMPDIR="$MINION_FIXTURE_ROOT"
-cp -rp /source/. /tmp/l12d008/work/
+cp -r /source/. /tmp/l12d008/work/
 cp /node /tmp/bin/node
 chmod +x /tmp/bin/node
 export PATH=/tmp/bin:/cargo-home/rustup/toolchains/1.97.1-x86_64-unknown-linux-gnu/bin:$PATH
@@ -25,6 +26,8 @@ find /tmp/l12d008/work -name '*.sh' -exec sed -i 's/\r$//' {} +
 cd /tmp/l12d008/work/minion-agent-rust
 rustc --version
 node --version
+python3 scripts/cargo-cache-safety.py --tree "$PWD" > /logs/source-freshness.log 2>&1
+python3 scripts/cargo-cache-safety-check.py > /logs/cache-safety-check.log 2>&1
 # Refactors must not strand previously certified exact-source controls.
 mkdir -p /tmp/l12d007
 python3 scripts/error-codes-negative-controls.py --tree "$PWD" --check-anchors > /logs/error-codes-anchor-check.log 2>&1
@@ -82,4 +85,6 @@ error_codes_status=$?
 set -e
 cp -r /tmp/l12d007/controls /logs/error-codes-control-details
 if [ "$error_codes_status" -ne 0 ]; then exit "$error_codes_status"; fi
+python3 scripts/cargo-cache-regression.py --tree "$PWD" --control-tree /tmp/l12d007/control-code/minion-agent-rust --logs /tmp/l12d007/cache-regression > /logs/cache-regression.log 2>&1
+cp -r /tmp/l12d007/cache-regression /logs/cache-regression-details
 echo 'L12-D008 LINUX G3, UNPRIVILEGED PROBE/CORPORA AND CONTROLS PASS'

@@ -11,8 +11,9 @@ import subprocess
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--tree', type=Path, required=True)
-parser.add_argument('--logs', type=Path, required=True)
-parser.add_argument('--target-dir', type=Path, required=True)
+parser.add_argument('--logs', type=Path)
+parser.add_argument('--target-dir', type=Path)
+parser.add_argument('--check-anchors', action='store_true')
 args = parser.parse_args()
 boundary = Path('E:/AI/Projects/OpenMinds/Minions/Minion-Agent') if os.name == 'nt' else Path('/tmp/wp133d')
 
@@ -34,21 +35,8 @@ def checked(path, root=boundary):
 
 
 tree = checked(args.tree)
-if 'control-code' not in tree.parts:
+if not args.check_anchors and 'control-code' not in tree.parts:
     raise RuntimeError('disposable control-code tree required')
-target = args.target_dir
-if os.name == 'nt':
-    target = checked(target)
-    if '.tmp' not in target.parts or not target.name.endswith('-controls'):
-        raise RuntimeError('dedicated project-local controls target required')
-else:
-    if target != Path('/control-target') or not stat.S_ISDIR(target.lstat().st_mode) or target.is_symlink():
-        raise RuntimeError('contained E: controls cache bind at /control-target required')
-if target.resolve() == Path(os.environ['CARGO_TARGET_DIR']).resolve():
-    raise RuntimeError('control and gate targets must differ')
-env = dict(os.environ, CARGO_TARGET_DIR=str(target))
-logs = checked(args.logs)
-checked(logs).mkdir()
 source = checked(tree / 'crates/minion-agent/tests/support/bash_abort_on_output.rs')
 original = source.read_bytes()
 text = original.decode().replace('\r\n', '\n')
@@ -79,6 +67,25 @@ controls = [
 for name, _, mutated, _ in controls:
     if mutated == text:
         raise RuntimeError('INVALID no-op: ' + name)
+    print('ANCHOR PASS ' + name, flush=True)
+if args.check_anchors:
+    print('ANCHORS PASS 5/5; no Cargo, source touch or log creation', flush=True)
+    raise SystemExit(0)
+if args.logs is None or args.target_dir is None:
+    parser.error('--logs and --target-dir required for the native batch')
+target = args.target_dir
+if os.name == 'nt':
+    target = checked(target)
+    if '.tmp' not in target.parts or not target.name.endswith('-controls'):
+        raise RuntimeError('dedicated project-local controls target required')
+else:
+    if target != Path('/control-target') or not stat.S_ISDIR(target.lstat().st_mode) or target.is_symlink():
+        raise RuntimeError('contained E: controls cache bind at /control-target required')
+if target.resolve() == Path(os.environ['CARGO_TARGET_DIR']).resolve():
+    raise RuntimeError('control and gate targets must differ')
+env = dict(os.environ, CARGO_TARGET_DIR=str(target))
+logs = checked(args.logs)
+checked(logs).mkdir()
 
 # Fresh workspace-member sources before ANY baseline, not just the mutated file.
 for directory, dirs, files in os.walk(tree, followlinks=False):

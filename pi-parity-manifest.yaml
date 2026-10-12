@@ -6489,15 +6489,18 @@ rows:
     self-test and real-row controls)
   - minion-agent-python/tests/execution/test_filesystem_remove_multi_failure.py (20 rows incl. boundaries B1-B7 against the pinned-Pi
     drained oracle tests/execution/data/div008_pi.json; controls stop-at-first-failure and report-last-failure)
-  python: 'CONTRACT_DRAFT (L12-D008, minion-agent#215): execution/filesystem.py _rimraf continues past failures
-    and raises the first failure encountered; implementation candidate in the paired code PR.'
-  rust: 'IMPLEMENTATION_CANDIDATE (L12-D008, minion-agent#215): execution/filesystem/rimraf.rs
+  python: 'CERTIFIED_CLOSED (L12-D008, minion-agent#215): execution/filesystem.py _rimraf continues past
+    failures and raises the first failure encountered; approved and merged (code #216 -> e925266b, docs #294 ->
+    4eba7f6a; final review #215 issuecomment-6123253770).'
+  rust: 'CERTIFIED_CLOSED (L12-D008, minion-agent#215): execution/filesystem/rimraf.rs
     retains the first terminal error, continues siblings, and skips final rmdir only for a failed subtree.
     Permanent real-provider witnesses: rimraf/tests/div008.rs; byte-copied shared matrix/Pi oracles:
     filesystem/div008-data; scripts/div008-probe.py invokes shared div008_compare.py v3;
-    scripts/div008-negative-controls.py requires intended-witness kills after green baselines.
-    Assurance: minion-agent-docs assurance/layers/12-l12-d008-rust-implementation.md.
-    Independent Rust closure review pending; not certified.'
+    scripts/div008-negative-controls.py requires intended-witness kills after green baselines; mutation
+    controls build only in a dedicated controls target (L12D008-RR002). Assurance: minion-agent-docs
+    assurance/layers/12-l12-d008-rust-implementation.md. Approved and merged (code #219 -> f7400987, docs
+    #296 -> 299dba21; closure review 3 #215 issuecomment-6134407241). CERTIFIED_CLOSED cross-language.
+    Non-blocking follow-up L12D008-RR003: parameterize the gate/controls targets in the launchers.'
   disposition: intentional divergence
 - id: EXEC-003
   phase: 6

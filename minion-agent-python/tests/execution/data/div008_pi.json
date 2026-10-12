@@ -1,0 +1,785 @@
+{
+ "about": "L12-D008 / DIV-008 oracle (minion-agent#215): pinned Pi's real NodeExecutionEnv.remove over minion-agent-docs assurance/layers/data/l12-d008/div008-matrix.json, measured by div008-pi-probe.mjs on Windows and on Linux (uid 1000), after Pi's in-flight removals drained. Generated, not edited.",
+ "sources": {
+  "matrix_sha256": "1bab2e4d1cc6f0c7ac8a761b1219f1c7620ed6c7400b451a950f9a8eef955467",
+  "probe_sha256": "81f6b2aa6ababe34f013df2ae9a8ef17f922c040b8477bad237493ea2e4fa3a9",
+  "pi": "b7bb00b936dbe21b8e160b3e89efdec361846699"
+ },
+ "rows": [
+  {
+   "id": "M1-two-files-settle-ab",
+   "fixture": [
+    "tree/",
+    "tree/a",
+    "tree/b"
+   ],
+   "inject": [
+    {
+     "op": "unlink",
+     "rel": "tree/a",
+     "nth": 1,
+     "code": "EACCES"
+    },
+    {
+     "op": "unlink",
+     "rel": "tree/b",
+     "nth": 1,
+     "code": "EACCES"
+    }
+   ],
+   "settle": [
+    "tree/a",
+    "tree/b"
+   ],
+   "pi": {
+    "win32": {
+     "result": "permission_denied",
+     "path": "tree/a",
+     "remains_after_drain": [
+      "tree/",
+      "tree/a",
+      "tree/b"
+     ],
+     "remains_at_settle": [
+      "tree/",
+      "tree/a",
+      "tree/b"
+     ],
+     "late_calls": [
+      "settle unlink tree/b"
+     ]
+    },
+    "linux": {
+     "result": "permission_denied",
+     "path": "tree/a",
+     "remains_after_drain": [
+      "tree/",
+      "tree/a",
+      "tree/b"
+     ],
+     "remains_at_settle": [
+      "tree/",
+      "tree/a",
+      "tree/b"
+     ],
+     "late_calls": [
+      "settle unlink tree/b"
+     ]
+    }
+   }
+  },
+  {
+   "id": "M2-two-files-settle-ba",
+   "fixture": [
+    "tree/",
+    "tree/a",
+    "tree/b"
+   ],
+   "inject": [
+    {
+     "op": "unlink",
+     "rel": "tree/a",
+     "nth": 1,
+     "code": "EACCES"
+    },
+    {
+     "op": "unlink",
+     "rel": "tree/b",
+     "nth": 1,
+     "code": "EACCES"
+    }
+   ],
+   "settle": [
+    "tree/b",
+    "tree/a"
+   ],
+   "pi": {
+    "win32": {
+     "result": "permission_denied",
+     "path": "tree/b",
+     "remains_after_drain": [
+      "tree/",
+      "tree/a",
+      "tree/b"
+     ],
+     "remains_at_settle": [
+      "tree/",
+      "tree/a",
+      "tree/b"
+     ],
+     "late_calls": [
+      "settle unlink tree/a"
+     ]
+    },
+    "linux": {
+     "result": "permission_denied",
+     "path": "tree/b",
+     "remains_after_drain": [
+      "tree/",
+      "tree/a",
+      "tree/b"
+     ],
+     "remains_at_settle": [
+      "tree/",
+      "tree/a",
+      "tree/b"
+     ],
+     "late_calls": [
+      "settle unlink tree/a"
+     ]
+    }
+   }
+  },
+  {
+   "id": "M3-diff-codes-settle-ab",
+   "fixture": [
+    "tree/",
+    "tree/a",
+    "tree/b"
+   ],
+   "inject": [
+    {
+     "op": "unlink",
+     "rel": "tree/a",
+     "nth": 1,
+     "code": "EACCES"
+    },
+    {
+     "op": "unlink",
+     "rel": "tree/b",
+     "nth": 1,
+     "code": "EBUSY"
+    }
+   ],
+   "settle": [
+    "tree/a",
+    "tree/b"
+   ],
+   "pi": {
+    "win32": {
+     "result": "permission_denied",
+     "path": "tree/a",
+     "remains_after_drain": [
+      "tree/",
+      "tree/a",
+      "tree/b"
+     ],
+     "remains_at_settle": [
+      "tree/",
+      "tree/a",
+      "tree/b"
+     ],
+     "late_calls": [
+      "settle unlink tree/b"
+     ]
+    },
+    "linux": {
+     "result": "permission_denied",
+     "path": "tree/a",
+     "remains_after_drain": [
+      "tree/",
+      "tree/a",
+      "tree/b"
+     ],
+     "remains_at_settle": [
+      "tree/",
+      "tree/a",
+      "tree/b"
+     ],
+     "late_calls": [
+      "settle unlink tree/b"
+     ]
+    }
+   }
+  },
+  {
+   "id": "M4-diff-codes-settle-ba",
+   "fixture": [
+    "tree/",
+    "tree/a",
+    "tree/b"
+   ],
+   "inject": [
+    {
+     "op": "unlink",
+     "rel": "tree/a",
+     "nth": 1,
+     "code": "EACCES"
+    },
+    {
+     "op": "unlink",
+     "rel": "tree/b",
+     "nth": 1,
+     "code": "EBUSY"
+    }
+   ],
+   "settle": [
+    "tree/b",
+    "tree/a"
+   ],
+   "pi": {
+    "win32": {
+     "result": "unknown",
+     "path": "tree/b",
+     "remains_after_drain": [
+      "tree/",
+      "tree/a",
+      "tree/b"
+     ],
+     "remains_at_settle": [
+      "tree/",
+      "tree/a",
+      "tree/b"
+     ],
+     "late_calls": [
+      "settle unlink tree/a"
+     ]
+    },
+    "linux": {
+     "result": "unknown",
+     "path": "tree/b",
+     "remains_after_drain": [
+      "tree/",
+      "tree/a",
+      "tree/b"
+     ],
+     "remains_at_settle": [
+      "tree/",
+      "tree/a",
+      "tree/b"
+     ],
+     "late_calls": [
+      "settle unlink tree/a"
+     ]
+    }
+   }
+  },
+  {
+   "id": "M5-sibling-between-settle-az",
+   "fixture": [
+    "tree/",
+    "tree/a",
+    "tree/m",
+    "tree/z"
+   ],
+   "inject": [
+    {
+     "op": "unlink",
+     "rel": "tree/a",
+     "nth": 1,
+     "code": "EACCES"
+    },
+    {
+     "op": "unlink",
+     "rel": "tree/z",
+     "nth": 1,
+     "code": "EACCES"
+    }
+   ],
+   "settle": [
+    "tree/a",
+    "tree/z"
+   ],
+   "pi": {
+    "win32": {
+     "result": "permission_denied",
+     "path": "tree/a",
+     "remains_after_drain": [
+      "tree/",
+      "tree/a",
+      "tree/z"
+     ],
+     "remains_at_settle": [
+      "tree/",
+      "tree/a",
+      "tree/z"
+     ],
+     "late_calls": [
+      "settle unlink tree/z"
+     ]
+    },
+    "linux": {
+     "result": "permission_denied",
+     "path": "tree/a",
+     "remains_after_drain": [
+      "tree/",
+      "tree/a",
+      "tree/z"
+     ],
+     "remains_at_settle": [
+      "tree/",
+      "tree/a",
+      "tree/z"
+     ],
+     "late_calls": [
+      "settle unlink tree/z"
+     ]
+    }
+   }
+  },
+  {
+   "id": "M6-sibling-between-settle-za",
+   "fixture": [
+    "tree/",
+    "tree/a",
+    "tree/m",
+    "tree/z"
+   ],
+   "inject": [
+    {
+     "op": "unlink",
+     "rel": "tree/a",
+     "nth": 1,
+     "code": "EACCES"
+    },
+    {
+     "op": "unlink",
+     "rel": "tree/z",
+     "nth": 1,
+     "code": "EACCES"
+    }
+   ],
+   "settle": [
+    "tree/z",
+    "tree/a"
+   ],
+   "pi": {
+    "win32": {
+     "result": "permission_denied",
+     "path": "tree/z",
+     "remains_after_drain": [
+      "tree/",
+      "tree/a",
+      "tree/z"
+     ],
+     "remains_at_settle": [
+      "tree/",
+      "tree/a",
+      "tree/z"
+     ],
+     "late_calls": [
+      "settle unlink tree/a"
+     ]
+    },
+    "linux": {
+     "result": "permission_denied",
+     "path": "tree/z",
+     "remains_after_drain": [
+      "tree/",
+      "tree/a",
+      "tree/z"
+     ],
+     "remains_at_settle": [
+      "tree/",
+      "tree/a",
+      "tree/z"
+     ],
+     "late_calls": [
+      "settle unlink tree/a"
+     ]
+    }
+   }
+  },
+  {
+   "id": "M7-nested-settle-deep-first",
+   "fixture": [
+    "tree/",
+    "tree/a/",
+    "tree/a/x",
+    "tree/b"
+   ],
+   "inject": [
+    {
+     "op": "unlink",
+     "rel": "tree/a/x",
+     "nth": 1,
+     "code": "EACCES"
+    },
+    {
+     "op": "unlink",
+     "rel": "tree/b",
+     "nth": 1,
+     "code": "EACCES"
+    }
+   ],
+   "settle": [
+    "tree/a/x",
+    "tree/b"
+   ],
+   "pi": {
+    "win32": {
+     "result": "permission_denied",
+     "path": "tree/a/x",
+     "remains_after_drain": [
+      "tree/",
+      "tree/a/",
+      "tree/a/x",
+      "tree/b"
+     ],
+     "remains_at_settle": [
+      "tree/",
+      "tree/a/",
+      "tree/a/x",
+      "tree/b"
+     ],
+     "late_calls": [
+      "settle unlink tree/b"
+     ]
+    },
+    "linux": {
+     "result": "permission_denied",
+     "path": "tree/a/x",
+     "remains_after_drain": [
+      "tree/",
+      "tree/a/",
+      "tree/a/x",
+      "tree/b"
+     ],
+     "remains_at_settle": [
+      "tree/",
+      "tree/a/",
+      "tree/a/x",
+      "tree/b"
+     ],
+     "late_calls": [
+      "settle unlink tree/b"
+     ]
+    }
+   }
+  },
+  {
+   "id": "M8-nested-settle-shallow-first",
+   "fixture": [
+    "tree/",
+    "tree/a/",
+    "tree/a/x",
+    "tree/b"
+   ],
+   "inject": [
+    {
+     "op": "unlink",
+     "rel": "tree/a/x",
+     "nth": 1,
+     "code": "EACCES"
+    },
+    {
+     "op": "unlink",
+     "rel": "tree/b",
+     "nth": 1,
+     "code": "EACCES"
+    }
+   ],
+   "settle": [
+    "tree/b",
+    "tree/a/x"
+   ],
+   "pi": {
+    "win32": {
+     "result": "permission_denied",
+     "path": "tree/b",
+     "remains_after_drain": [
+      "tree/",
+      "tree/a/",
+      "tree/a/x",
+      "tree/b"
+     ],
+     "remains_at_settle": [
+      "tree/",
+      "tree/a/",
+      "tree/a/x",
+      "tree/b"
+     ],
+     "late_calls": [
+      "settle unlink tree/a/x"
+     ]
+    },
+    "linux": {
+     "result": "permission_denied",
+     "path": "tree/b",
+     "remains_after_drain": [
+      "tree/",
+      "tree/a/",
+      "tree/a/x",
+      "tree/b"
+     ],
+     "remains_at_settle": [
+      "tree/",
+      "tree/a/",
+      "tree/a/x",
+      "tree/b"
+     ],
+     "late_calls": [
+      "settle unlink tree/a/x"
+     ]
+    }
+   }
+  },
+  {
+   "id": "M9-dir-child-and-file-settle-dir-first",
+   "fixture": [
+    "tree/",
+    "tree/a/",
+    "tree/b"
+   ],
+   "inject": [
+    {
+     "op": "rmdir",
+     "rel": "tree/a",
+     "nth": 1,
+     "code": "EACCES"
+    },
+    {
+     "op": "unlink",
+     "rel": "tree/b",
+     "nth": 1,
+     "code": "EACCES"
+    }
+   ],
+   "settle": [
+    "tree/a",
+    "tree/b"
+   ],
+   "pi": {
+    "win32": {
+     "result": "permission_denied",
+     "path": "tree/a",
+     "remains_after_drain": [
+      "tree/",
+      "tree/a/",
+      "tree/b"
+     ],
+     "remains_at_settle": [
+      "tree/",
+      "tree/a/",
+      "tree/b"
+     ],
+     "late_calls": [
+      "settle unlink tree/b"
+     ]
+    },
+    "linux": {
+     "result": "permission_denied",
+     "path": "tree/a",
+     "remains_after_drain": [
+      "tree/",
+      "tree/a/",
+      "tree/b"
+     ],
+     "remains_at_settle": [
+      "tree/",
+      "tree/a/",
+      "tree/b"
+     ],
+     "late_calls": [
+      "settle unlink tree/b"
+     ]
+    }
+   }
+  },
+  {
+   "id": "M10-dir-child-and-file-settle-file-first",
+   "fixture": [
+    "tree/",
+    "tree/a/",
+    "tree/b"
+   ],
+   "inject": [
+    {
+     "op": "rmdir",
+     "rel": "tree/a",
+     "nth": 1,
+     "code": "EACCES"
+    },
+    {
+     "op": "unlink",
+     "rel": "tree/b",
+     "nth": 1,
+     "code": "EACCES"
+    }
+   ],
+   "settle": [
+    "tree/b",
+    "tree/a"
+   ],
+   "pi": {
+    "win32": {
+     "result": "permission_denied",
+     "path": "tree/b",
+     "remains_after_drain": [
+      "tree/",
+      "tree/a/",
+      "tree/b"
+     ],
+     "remains_at_settle": [
+      "tree/",
+      "tree/a/",
+      "tree/b"
+     ],
+     "late_calls": [
+      "settle rmdir tree/a"
+     ]
+    },
+    "linux": {
+     "result": "permission_denied",
+     "path": "tree/b",
+     "remains_after_drain": [
+      "tree/",
+      "tree/a/",
+      "tree/b"
+     ],
+     "remains_at_settle": [
+      "tree/",
+      "tree/a/",
+      "tree/b"
+     ],
+     "late_calls": [
+      "settle rmdir tree/a"
+     ]
+    }
+   }
+  },
+  {
+   "id": "S1-single-failure-before-sibling",
+   "fixture": [
+    "tree/",
+    "tree/a",
+    "tree/b"
+   ],
+   "inject": [
+    {
+     "op": "unlink",
+     "rel": "tree/a",
+     "nth": 1,
+     "code": "EACCES"
+    }
+   ],
+   "pi": {
+    "win32": {
+     "result": "permission_denied",
+     "path": "tree/a",
+     "remains_after_drain": [
+      "tree/",
+      "tree/a"
+     ],
+     "remains_at_settle": [
+      "tree/",
+      "tree/a",
+      "tree/b"
+     ],
+     "late_calls": [
+      "unlink tree/b"
+     ]
+    },
+    "linux": {
+     "result": "permission_denied",
+     "path": "tree/a",
+     "remains_after_drain": [
+      "tree/",
+      "tree/a"
+     ],
+     "remains_at_settle": [
+      "tree/",
+      "tree/a",
+      "tree/b"
+     ],
+     "late_calls": [
+      "unlink tree/b"
+     ]
+    }
+   }
+  },
+  {
+   "id": "S2-single-failure-after-sibling",
+   "fixture": [
+    "tree/",
+    "tree/a",
+    "tree/b"
+   ],
+   "inject": [
+    {
+     "op": "unlink",
+     "rel": "tree/b",
+     "nth": 1,
+     "code": "EACCES"
+    }
+   ],
+   "pi": {
+    "win32": {
+     "result": "permission_denied",
+     "path": "tree/b",
+     "remains_after_drain": [
+      "tree/",
+      "tree/b"
+     ],
+     "remains_at_settle": [
+      "tree/",
+      "tree/b"
+     ],
+     "late_calls": []
+    },
+    "linux": {
+     "result": "permission_denied",
+     "path": "tree/b",
+     "remains_after_drain": [
+      "tree/",
+      "tree/b"
+     ],
+     "remains_at_settle": [
+      "tree/",
+      "tree/b"
+     ],
+     "late_calls": []
+    }
+   }
+  },
+  {
+   "id": "S3-single-nested-failure",
+   "fixture": [
+    "tree/",
+    "tree/a/",
+    "tree/a/x",
+    "tree/b"
+   ],
+   "inject": [
+    {
+     "op": "unlink",
+     "rel": "tree/a/x",
+     "nth": 1,
+     "code": "EACCES"
+    }
+   ],
+   "pi": {
+    "win32": {
+     "result": "permission_denied",
+     "path": "tree/a/x",
+     "remains_after_drain": [
+      "tree/",
+      "tree/a/",
+      "tree/a/x"
+     ],
+     "remains_at_settle": [
+      "tree/",
+      "tree/a/",
+      "tree/a/x"
+     ],
+     "late_calls": []
+    },
+    "linux": {
+     "result": "permission_denied",
+     "path": "tree/a/x",
+     "remains_after_drain": [
+      "tree/",
+      "tree/a/",
+      "tree/a/x"
+     ],
+     "remains_at_settle": [
+      "tree/",
+      "tree/a/",
+      "tree/a/x"
+     ],
+     "late_calls": []
+    }
+   }
+  }
+ ]
+}

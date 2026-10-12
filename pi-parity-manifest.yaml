@@ -6467,6 +6467,29 @@ rows:
     Assurance: minion-agent-docs assurance/layers/12-l12-d007-rust-implementation.md.
     Independent Rust closure review pending; #127 and #133-F2 excluded.'
   disposition: adopted
+- id: EXEC-002-DIV-008
+  phase: 6
+  pi: 'packages/agent/src/harness/env/nodejs.ts NodeExecutionEnv.remove -> fs.promises.rm -> Node v22.15.1
+    lib/internal/fs/rimraf.js (blob 24bf3f46) _rmchildren: every child''s rimraf starts before any settles; the
+    first error callback is reported (done guard) while the other removals run on; the directory''s final rmdir
+    only after every child succeeded'
+  surface: Layer 12, L12-D008 -- recursive remove with several failing children
+  rule: 'DIV-008 (assurance/pi-divergences.md; Owner decision on minion-agent#127, amended by the Owner''s
+    extent decision #215 issuecomment-6118734550). spec/execution.md section 19.5 rule 4 as amended and section
+    20: the traversal is sequential, depth first, in host enumeration order, and continues past failures; when
+    remove returns exactly the failing entries and their ancestors remain (required parity with pinned Pi''s
+    drained state). Divergence (selection and timing only): the FIRST FAILURE ENCOUNTERED is reported, where
+    pinned Pi reports the first to settle, and remove returns after every child was attempted, where pinned Pi
+    may return before its other removals finish.'
+  tests:
+  - minion-agent-docs assurance/layers/data/l12-d008/ (div008-matrix.json; pinned-Pi probe with settlement and
+    drained snapshots, Windows and Linux; binding probe; div008_compare.py with its self-test)
+  - minion-agent-python/tests/execution/test_filesystem_remove_multi_failure.py (13 rows against the pinned-Pi
+    drained oracle tests/execution/data/div008_pi.json; controls stop-at-first-failure and report-last-failure)
+  python: 'CONTRACT_DRAFT (L12-D008, minion-agent#215): execution/filesystem.py _rimraf continues past failures
+    and raises the first failure encountered; implementation candidate in the paired code PR.'
+  rust: 'NOT_IMPLEMENTED (L12-D008 Rust pass follows the Python candidate''s review).'
+  disposition: intentional divergence
 - id: EXEC-003
   phase: 6
   pi: 'no direct Pi source for FsTarget itself -- see spec/execution.md §4; but the target_key

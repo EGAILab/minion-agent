@@ -6477,14 +6477,17 @@ rows:
   rule: 'DIV-008 (assurance/pi-divergences.md; Owner decision on minion-agent#127, amended by the Owner''s
     extent decision #215 issuecomment-6118734550). spec/execution.md section 19.5 rule 4 as amended and section
     20: the traversal is sequential, depth first, in host enumeration order, and continues past failures; when
-    remove returns exactly the failing entries and their ancestors remain (required parity with pinned Pi''s
-    drained state). Divergence (selection and timing only): the FIRST FAILURE ENCOUNTERED is reported, where
+    remove returns, every reachable removable entry is gone, a failed entry remains with its ancestors, and an
+    entry that could not be entered (listing, or first rmdir, failed) keeps its whole unvisited subtree
+    (L12D008-C001) -- required parity with pinned Pi''s drained state. Divergence (selection and timing only):
+    the FIRST FAILURE ENCOUNTERED is reported, with that failure''s code, where
     pinned Pi reports the first to settle, and remove returns after every child was attempted, where pinned Pi
     may return before its other removals finish.'
   tests:
   - minion-agent-docs assurance/layers/data/l12-d008/ (div008-matrix.json; pinned-Pi probe with settlement and
-    drained snapshots, Windows and Linux; binding probe; div008_compare.py with its self-test)
-  - minion-agent-python/tests/execution/test_filesystem_remove_multi_failure.py (13 rows against the pinned-Pi
+    drained snapshots, Windows and Linux; binding probe; div008_compare.py with readiness and code checks, its
+    self-test and real-row controls)
+  - minion-agent-python/tests/execution/test_filesystem_remove_multi_failure.py (20 rows incl. boundaries B1-B7 against the pinned-Pi
     drained oracle tests/execution/data/div008_pi.json; controls stop-at-first-failure and report-last-failure)
   python: 'CONTRACT_DRAFT (L12-D008, minion-agent#215): execution/filesystem.py _rimraf continues past failures
     and raises the first failure encountered; implementation candidate in the paired code PR.'

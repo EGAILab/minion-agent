@@ -7,8 +7,9 @@ Windows and Linux after its in-flight removals drained) runs through the real
 observation must satisfy, against pinned Pi on this platform:
 
 - EXTENT (required parity, Owner decision #215 issuecomment-6118734550): what remains equals what
-  pinned Pi leaves once its in-flight removals drain -- every removable entry is gone, the
-  failing entries and their ancestors stay;
+  pinned Pi leaves once its in-flight removals drain -- every reachable removable entry is gone;
+  an entry whose own removal failed stays, with its ancestors; a failure that prevents entering a
+  subtree (listing, the first rmdir) keeps that unvisited subtree (L12D008-C001, rows B1-B7);
 - COMPLETE: every injected failure fires, so no sibling was skipped after a failure;
 - SELECTION (DIV-008): the reported failure is the FIRST failure the binding encountered, in its
   own (host enumeration) order, with that failure's code; where pinned Pi's first-SETTLED
@@ -135,6 +136,12 @@ def _violations(row: dict[str, Any], obs: dict[str, Any]) -> list[str]:
         problems.append(f"extent: {obs['remains']} != Pi after drain {pi['remains_after_drain']}")
     if obs["unfired"]:
         problems.append(f"complete: never attempted {obs['unfired']}")
+    if (obs["result"] == "ok") != (pi["result"] == "ok"):
+        problems.append(f"outcome: {obs['result']} != Pi {pi['result']}")
+    if obs["result"] == "ok":
+        # A fired failure that the rules recover from (B2: a child's classification `lstat`
+        # failing is unlinked as itself) selects nothing.
+        return problems
     first_rel, first_code = obs["failures"][0]
     if (obs["path"], obs["result"]) != (first_rel, CODE_OF[first_code]):
         problems.append(

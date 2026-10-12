@@ -1,7 +1,7 @@
 {
  "about": "L12-D008 / DIV-008 oracle (minion-agent#215): pinned Pi's real NodeExecutionEnv.remove over minion-agent-docs assurance/layers/data/l12-d008/div008-matrix.json, measured by div008-pi-probe.mjs on Windows and on Linux (uid 1000), after Pi's in-flight removals drained. Generated, not edited.",
  "sources": {
-  "matrix_sha256": "1bab2e4d1cc6f0c7ac8a761b1219f1c7620ed6c7400b451a950f9a8eef955467",
+  "matrix_sha256": "8fb49d13ed4b6dc0d90bf7e5498e53ee566bea73cf3f40854c4db24d21714356",
   "probe_sha256": "81f6b2aa6ababe34f013df2ae9a8ef17f922c040b8477bad237493ea2e4fa3a9",
   "pi": "b7bb00b936dbe21b8e160b3e89efdec361846699"
  },
@@ -355,10 +355,12 @@
      "remains_at_settle": [
       "tree/",
       "tree/a",
+      "tree/m",
       "tree/z"
      ],
      "late_calls": [
-      "settle unlink tree/a"
+      "settle unlink tree/a",
+      "unlink tree/m"
      ]
     },
     "linux": {
@@ -776,6 +778,335 @@
       "tree/",
       "tree/a/",
       "tree/a/x"
+     ],
+     "late_calls": []
+    }
+   }
+  },
+  {
+   "id": "B1-child-listing-fails",
+   "fixture": [
+    "tree/",
+    "tree/a/",
+    "tree/a/x",
+    "tree/b"
+   ],
+   "inject": [
+    {
+     "op": "readdir",
+     "rel": "tree/a",
+     "nth": 1,
+     "code": "EACCES"
+    }
+   ],
+   "pi": {
+    "win32": {
+     "result": "permission_denied",
+     "path": "tree/a",
+     "remains_after_drain": [
+      "tree/",
+      "tree/a/",
+      "tree/a/x"
+     ],
+     "remains_at_settle": [
+      "tree/",
+      "tree/a/",
+      "tree/a/x"
+     ],
+     "late_calls": []
+    },
+    "linux": {
+     "result": "permission_denied",
+     "path": "tree/a",
+     "remains_after_drain": [
+      "tree/",
+      "tree/a/",
+      "tree/a/x"
+     ],
+     "remains_at_settle": [
+      "tree/",
+      "tree/a/",
+      "tree/a/x"
+     ],
+     "late_calls": []
+    }
+   }
+  },
+  {
+   "id": "B2-child-classification-fails",
+   "fixture": [
+    "tree/",
+    "tree/a/",
+    "tree/a/x",
+    "tree/b"
+   ],
+   "inject": [
+    {
+     "op": "lstat",
+     "rel": "tree/a",
+     "nth": 1,
+     "code": "EACCES"
+    }
+   ],
+   "pi": {
+    "win32": {
+     "result": "ok",
+     "path": null,
+     "remains_after_drain": [],
+     "remains_at_settle": [],
+     "late_calls": []
+    },
+    "linux": {
+     "result": "ok",
+     "path": null,
+     "remains_after_drain": [],
+     "remains_at_settle": [],
+     "late_calls": []
+    }
+   }
+  },
+  {
+   "id": "B3-child-first-rmdir-fails",
+   "fixture": [
+    "tree/",
+    "tree/a/",
+    "tree/a/x",
+    "tree/b"
+   ],
+   "inject": [
+    {
+     "op": "rmdir",
+     "rel": "tree/a",
+     "nth": 1,
+     "code": "EACCES"
+    }
+   ],
+   "pi": {
+    "win32": {
+     "result": "permission_denied",
+     "path": "tree/a",
+     "remains_after_drain": [
+      "tree/",
+      "tree/a/",
+      "tree/a/x"
+     ],
+     "remains_at_settle": [
+      "tree/",
+      "tree/a/",
+      "tree/a/x",
+      "tree/b"
+     ],
+     "late_calls": [
+      "unlink tree/b"
+     ]
+    },
+    "linux": {
+     "result": "permission_denied",
+     "path": "tree/a",
+     "remains_after_drain": [
+      "tree/",
+      "tree/a/",
+      "tree/a/x"
+     ],
+     "remains_at_settle": [
+      "tree/",
+      "tree/a/",
+      "tree/a/x",
+      "tree/b"
+     ],
+     "late_calls": [
+      "unlink tree/b"
+     ]
+    }
+   }
+  },
+  {
+   "id": "B4-child-final-rmdir-fails",
+   "fixture": [
+    "tree/",
+    "tree/a/",
+    "tree/a/x",
+    "tree/b"
+   ],
+   "inject": [
+    {
+     "op": "rmdir",
+     "rel": "tree/a",
+     "nth": 2,
+     "code": "EACCES"
+    }
+   ],
+   "pi": {
+    "win32": {
+     "result": "permission_denied",
+     "path": "tree/a",
+     "remains_after_drain": [
+      "tree/",
+      "tree/a/"
+     ],
+     "remains_at_settle": [
+      "tree/",
+      "tree/a/"
+     ],
+     "late_calls": []
+    },
+    "linux": {
+     "result": "permission_denied",
+     "path": "tree/a",
+     "remains_after_drain": [
+      "tree/",
+      "tree/a/"
+     ],
+     "remains_at_settle": [
+      "tree/",
+      "tree/a/"
+     ],
+     "late_calls": []
+    }
+   }
+  },
+  {
+   "id": "B5-target-listing-fails",
+   "fixture": [
+    "tree/",
+    "tree/a/",
+    "tree/a/x",
+    "tree/b"
+   ],
+   "inject": [
+    {
+     "op": "readdir",
+     "rel": "tree",
+     "nth": 1,
+     "code": "EACCES"
+    }
+   ],
+   "pi": {
+    "win32": {
+     "result": "permission_denied",
+     "path": "tree",
+     "remains_after_drain": [
+      "tree/",
+      "tree/a/",
+      "tree/a/x",
+      "tree/b"
+     ],
+     "remains_at_settle": [
+      "tree/",
+      "tree/a/",
+      "tree/a/x",
+      "tree/b"
+     ],
+     "late_calls": []
+    },
+    "linux": {
+     "result": "permission_denied",
+     "path": "tree",
+     "remains_after_drain": [
+      "tree/",
+      "tree/a/",
+      "tree/a/x",
+      "tree/b"
+     ],
+     "remains_at_settle": [
+      "tree/",
+      "tree/a/",
+      "tree/a/x",
+      "tree/b"
+     ],
+     "late_calls": []
+    }
+   }
+  },
+  {
+   "id": "B6-target-first-rmdir-fails",
+   "fixture": [
+    "tree/",
+    "tree/a/",
+    "tree/a/x",
+    "tree/b"
+   ],
+   "inject": [
+    {
+     "op": "rmdir",
+     "rel": "tree",
+     "nth": 1,
+     "code": "EACCES"
+    }
+   ],
+   "pi": {
+    "win32": {
+     "result": "permission_denied",
+     "path": "tree",
+     "remains_after_drain": [
+      "tree/",
+      "tree/a/",
+      "tree/a/x",
+      "tree/b"
+     ],
+     "remains_at_settle": [
+      "tree/",
+      "tree/a/",
+      "tree/a/x",
+      "tree/b"
+     ],
+     "late_calls": []
+    },
+    "linux": {
+     "result": "permission_denied",
+     "path": "tree",
+     "remains_after_drain": [
+      "tree/",
+      "tree/a/",
+      "tree/a/x",
+      "tree/b"
+     ],
+     "remains_at_settle": [
+      "tree/",
+      "tree/a/",
+      "tree/a/x",
+      "tree/b"
+     ],
+     "late_calls": []
+    }
+   }
+  },
+  {
+   "id": "B7-target-final-rmdir-fails",
+   "fixture": [
+    "tree/",
+    "tree/a/",
+    "tree/a/x",
+    "tree/b"
+   ],
+   "inject": [
+    {
+     "op": "rmdir",
+     "rel": "tree",
+     "nth": 2,
+     "code": "EACCES"
+    }
+   ],
+   "pi": {
+    "win32": {
+     "result": "permission_denied",
+     "path": "tree",
+     "remains_after_drain": [
+      "tree/"
+     ],
+     "remains_at_settle": [
+      "tree/"
+     ],
+     "late_calls": []
+    },
+    "linux": {
+     "result": "permission_denied",
+     "path": "tree",
+     "remains_after_drain": [
+      "tree/"
+     ],
+     "remains_at_settle": [
+      "tree/"
      ],
      "late_calls": []
     }

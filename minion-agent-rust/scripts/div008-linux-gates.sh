@@ -25,6 +25,9 @@ find /tmp/l12d008/work -name '*.sh' -exec sed -i 's/\r$//' {} +
 cd /tmp/l12d008/work/minion-agent-rust
 rustc --version
 node --version
+# Refactors must not strand previously certified exact-source controls.
+mkdir -p /tmp/l12d007
+python3 scripts/error-codes-negative-controls.py --tree "$PWD" --check-anchors > /logs/error-codes-anchor-check.log 2>&1
 cargo check -p minion-agent-native-fs > /logs/native-fs-check.log 2>&1
 cargo fmt --all -- --check > /logs/fmt.log 2>&1
 cargo clippy --workspace --all-targets --all-features -- -D warnings > /logs/clippy.log 2>&1
@@ -66,4 +69,17 @@ control_status=$?
 set -e
 cp -r /tmp/l12d008/controls /logs/control-details
 if [ "$control_status" -ne 0 ]; then exit "$control_status"; fi
+# L12-D007 controls have their own strictly contained /tmp/l12d007 sandbox.
+mkdir /tmp/l12d007/control-code
+cp -r /tmp/l12d008/work/minion-agent-rust /tmp/l12d007/control-code/
+cp -r /tmp/l12d008/work/conformance /tmp/l12d007/control-code/
+mkdir -p /tmp/l12d007/control-code/minion-agent-python/tests/skills/data /tmp/l12d007/control-code/minion-agent-python/tests/execution/data/r002_ada_oracle
+cp /tmp/l12d008/work/minion-agent-python/tests/skills/data/frontmatter-corpus.json /tmp/l12d008/work/minion-agent-python/tests/skills/data/ignore-corpus.json /tmp/l12d007/control-code/minion-agent-python/tests/skills/data/
+cp /tmp/l12d008/work/minion-agent-python/tests/execution/data/r002_ada_oracle/systematic_ada292.txt /tmp/l12d007/control-code/minion-agent-python/tests/execution/data/r002_ada_oracle/
+set +e
+python3 scripts/error-codes-negative-controls.py --tree /tmp/l12d007/control-code/minion-agent-rust --logs /tmp/l12d007/controls > /logs/error-codes-controls.log 2>&1
+error_codes_status=$?
+set -e
+cp -r /tmp/l12d007/controls /logs/error-codes-control-details
+if [ "$error_codes_status" -ne 0 ]; then exit "$error_codes_status"; fi
 echo 'L12-D008 LINUX G3, UNPRIVILEGED PROBE/CORPORA AND CONTROLS PASS'

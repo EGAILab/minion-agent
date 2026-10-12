@@ -8,34 +8,39 @@ controls are explicitly N/A on Linux, never credited as kills there.
 import argparse
 import os
 from pathlib import Path
+import stat
 import subprocess
 import sys
 
 p = argparse.ArgumentParser()
 p.add_argument("--tree", type=Path, required=True)
-p.add_argument("--logs", type=Path, required=True)
+p.add_argument("--logs", type=Path)
+p.add_argument("--check-anchors", action="store_true", help="resolve all platform mutations without Cargo or writes")
 a = p.parse_args()
-boundary = Path("E:/AI/Projects/OpenMinds/Minions/Minion-Agent") if os.name == "nt" else Path("/tmp/l12d007")
+boundary = Path("E:/AI/Projects/OpenMinds/Minions/Minion-Agent") if os.name == "nt" else Path("/tmp" if a.check_anchors else "/tmp/l12d007")
 boundary = boundary.resolve(strict=True)
 
 def checked(path):
     path = Path(path)
     if ".." in path.parts or not path.is_absolute() or not path.is_relative_to(boundary) or path == boundary:
         raise RuntimeError(f"unsafe control target: {path}")
+    # Throwing, no-follow inspection: unknown outcomes never mean absence.
+    # Walk from the drive/root too, so a link above the sandbox cannot redirect.
     for parent in [*reversed(path.parents), path]:
-        if parent == boundary or parent.is_relative_to(boundary):
-            if parent.is_symlink():
-                raise RuntimeError(f"link in control target: {parent}")
+        try:
+            metadata = parent.lstat()
+        except FileNotFoundError:
+            break
+        if stat.S_ISLNK(metadata.st_mode) or getattr(metadata, "st_file_attributes", 0) & 1024:
+            raise RuntimeError(f"link/reparse in control target: {parent}")
     real = path.resolve(strict=False)
     if not real.is_relative_to(boundary) or real == boundary:
         raise RuntimeError(f"outside control target: {path}")
     return path
 
 tree = checked(a.tree)
-if "control-code" not in tree.parts:
+if not a.check_anchors and "control-code" not in tree.parts:
     raise RuntimeError("a disposable control-code copy is required")
-logs = checked(a.logs)
-logs.mkdir(parents=True, exist_ok=True)
 rimraf = checked(tree / "crates/minion-agent/src/execution/filesystem/rimraf.rs")
 fs = checked(tree / "crates/minion-agent/src/execution/filesystem.rs")
 native = checked(tree / "crates/minion-agent-native-fs/src/lib.rs")
@@ -47,30 +52,44 @@ def replace(text, old, new):
     return text.replace(old, new)
 
 controls = []
-def control(name, row, file, old, new, windows=False):
-    if windows and os.name != "nt":
-        print(f"NOT_APPLICABLE {name}: Windows fixWinEPERM/native IO only", flush=True)
-        return
-    controls.append((name, row, file, lambda text: replace(text, old, new)))
+all_controls = []
+
+def register(name, row, file, mutation, windows=False, linux=False):
+    item = (name, row, file, mutation)
+    all_controls.append(item)
+    if (windows and os.name != "nt") or (linux and os.name == "nt"):
+        print(f"NOT_APPLICABLE {name}: platform-specific native witness", flush=True)
+    else:
+        controls.append(item)
+def control(name, row, file, old, new, windows=False, linux=False):
+    register(name, row, file, lambda text: replace(text, old, new), windows, linux)
 
 control("N1-directory-error-caught-as-classification", "E1-child-rmdir-fails", rimraf,
-    "                Err(e) => return Err(native_error(e, &p)),\n            },\n            Work::FinalDirectory",
-    "                Err(_) => ops.unlink(&p).await.map_err(|e| native_error(e, &p))?,\n            },\n            Work::FinalDirectory")
+    "            Err(e) => return Err(native_error(e, &p)),\n        },\n        Work::FinalDirectory(_, before)",
+    "            Err(_) => ops.unlink(&p).await.map_err(|e| native_error(e, &p))?,\n        },\n        Work::FinalDirectory(_, before)")
 control("N2-retry-child-rmdir", "E1-child-rmdir-fails", rimraf,
-    "                Err(e) => return Err(native_error(e, &p)),\n            },\n            Work::FinalDirectory",
-    "                Err(_) => ops.rmdir(&p).await.map_err(|e| native_error(e, &p))?,\n            },\n            Work::FinalDirectory")
+    "            Err(e) => return Err(native_error(e, &p)),\n        },\n        Work::FinalDirectory(_, before)",
+    "            Err(_) => ops.rmdir(&p).await.map_err(|e| native_error(e, &p))?,\n        },\n        Work::FinalDirectory(_, before)")
 control("N3-swallow-child-unlink-failure", "E2-inner-unlink-fails", rimraf,
-    "                    Err(e) => return Err(native_error(e, &p)),\n                }\n            }\n            Work::Directory",
-    "                    Err(_) => (),\n                }\n            }\n            Work::Directory")
-control("N4-ancestor-error-origin", "E2-inner-unlink-fails", rimraf,
-    "                    Err(e) => return Err(native_error(e, &p)),\n                }\n            }\n            Work::Directory",
-    "                    Err(e) => return Err(native_error(e, path)),\n                }\n            }\n            Work::Directory")
+    "                Err(e) => return Err(native_error(e, &p)),\n            }\n        }\n        Work::Directory",
+    "                Err(_) => (),\n            }\n        }\n        Work::Directory")
+def ancestor_error(text):
+    # Preserve the original wrong origin (the remove target), not merely the
+    # child's immediate parent. Pass it to step only inside this mutant.
+    text = replace(text, "step(work, ops, &mut stack, failures).await",
+        "step(work, ops, &mut stack, failures, path).await")
+    text = replace(text, "    failures: usize,\n) -> Result<(), FsError> {",
+        "    failures: usize,\n    root_path: &Path,\n) -> Result<(), FsError> {")
+    return replace(text,
+        "                Err(e) => return Err(native_error(e, &p)),\n            }\n        }\n        Work::Directory",
+        "                Err(e) => return Err(native_error(e, root_path)),\n            }\n        }\n        Work::Directory")
+register("N4-ancestor-error-origin", "E2-inner-unlink-fails", rimraf, ancestor_error)
 control("N5-enumerate-before-rmdir", "E5-child-rmdir-busy", rimraf,
-    "            Work::Directory(p, original) => match ops.rmdir(&p).await {",
-    "            Work::Directory(p, original) => match { let _ = ops.readdir(&p).await; ops.rmdir(&p).await } {")
+    "        Work::Directory(p, original) => match ops.rmdir(&p).await {",
+    "        Work::Directory(p, original) => match { let _ = ops.readdir(&p).await; ops.rmdir(&p).await } {")
 control("N6-classification-eperm-skips-recovery", "L3-chmod-fails", rimraf,
-    "                    Err(e) if cfg!(windows) && eperm(&e) => {\n                        recover(&p, e, ops, &mut stack).await?;\n                        continue;\n                    }",
-    "                    Err(e) if cfg!(windows) && eperm(&e) => { let _ = e; }", True)
+    "                Err(e) if cfg!(windows) && eperm(&e) => {\n                    recover(&p, e, ops, stack).await?;\n                    return Ok(());\n                }",
+    "                Err(e) if cfg!(windows) && eperm(&e) => { let _ = e; }", True)
 control("N7-correction-error-replaces-original", "U2-chmod-fails", rimraf,
     "            Err(native_error(original, p))\n        };", "            Err(native_error(e, p))\n        };", True)
 control("N8-correction-required-to-retry", "U1-file-recovered", rimraf,
@@ -82,13 +101,10 @@ def follow_correction(text):
     return head + "pub fn clear_readonly_entry(" + replace(tail,
         ".custom_flags(FILE_FLAG_OPEN_REPARSE_POINT | FILE_FLAG_BACKUP_SEMANTICS)",
         ".custom_flags(FILE_FLAG_BACKUP_SEMANTICS)")
-if os.name == "nt":
-    controls.append(("N10-correction-follows-link", "U7-link-to-readonly-target", native, follow_correction))
-else:
-    print("NOT_APPLICABLE N10: Windows own-entry attribute correction", flush=True)
+register("N10-correction-follows-link", "U7-link-to-readonly-target", native, follow_correction, windows=True)
 control("N11-nonrecursive-file-bypasses-shared-routing", "T1-single-file-recovered", rimraf,
-    "            Work::Entry(p) => {",
-    "            Work::Entry(p) => { if !recursive && p == path { ops.unlink(&p).await.map_err(|e| native_error(e, &p))?; continue; }")
+    "    let mut stack = vec![Work::Entry(path.to_owned())];",
+    "    if !recursive { return ops.unlink(path).await.map_err(|e| native_error(e, path)); }\n    let mut stack = vec![Work::Entry(path.to_owned())];")
 control("N12-validation-routed-to-recovery", "V1-validation-eperm-file", rimraf,
     "        Err(e) => return Err(native_error(e, path)),",
     "        Err(e) if eperm(&e) => { ops.chmod(path).await.map_err(|e| native_error(e, path))?; let _ = ops.stat(path).await; },\n        Err(e) => return Err(native_error(e, path)),", True)
@@ -96,13 +112,19 @@ control("N12-validation-routed-to-recovery", "V1-validation-eperm-file", rimraf,
 def cached_validation(text):
     clone = "validation.as_ref().map(|m| m.clone()).map_err(|e| e.raw_os_error().map(io::Error::from_raw_os_error).unwrap_or_else(|| io::Error::new(e.kind(), e.to_string())))"
     text = replace(text, "    match ops.lstat(path).await {", f"    let validation = ops.lstat(path).await;\n    match {clone} {{")
+    # The cached value now lives in remove(), while classification is in step().
+    # Thread it through only in this mutant to retain the same wrong behavior.
+    text = replace(text, "step(work, ops, &mut stack, failures).await",
+        "step(work, ops, &mut stack, failures, &validation).await")
+    text = replace(text, "    failures: usize,\n) -> Result<(), FsError> {",
+        "    failures: usize,\n    validation: &io::Result<std::fs::Metadata>,\n) -> Result<(), FsError> {")
     return replace(text, "let classification = ops.lstat(&p).await;", f"let classification = {clone};")
-controls.append(("N13-reuse-validation-no-classification", "V2-classification-eperm-file", rimraf, cached_validation))
+register("N13-reuse-validation-no-classification", "V2-classification-eperm-file", rimraf, cached_validation)
 control("N14-force-validation-returns-early", "V9-validation-enoent-force", rimraf,
     "        Err(e) if force && missing(&e) => (),", "        Err(e) if force && missing(&e) => return Ok(()),")
 control("child-vanish-windows-only", "@execution::filesystem::rimraf::tests::a_child_vanishing_between_enumeration_and_lstat_is_removed_on_every_platform", rimraf,
-    "                    Err(e) if missing(&e) => continue,\n                    Err(e) if cfg!(windows)",
-    "                    Err(e) if missing(&e) => { if cfg!(windows) { continue; } return Err(native_error(e, &p)); },\n                    Err(e) if cfg!(windows)") if os.name != "nt" else None
+    "                Err(e) if missing(&e) => return Ok(()),\n                Err(e) if cfg!(windows)",
+    "                Err(e) if missing(&e) => { if cfg!(windows) { return Ok(()); } return Err(native_error(e, &p)); },\n                Err(e) if cfg!(windows)", linux=True)
 control("handle-denial-keeps-access-code", "@execution::filesystem::rimraf::tests::actual_provider_handle_failures_are_unknown_before_eof_and_keep_the_logical_path", fs,
     "if error.raw_os_error() == Some(5)", "if false && error.raw_os_error() == Some(5)", True)
 control("raw-code-collapses-to-error-kind", "@execution::filesystem::l12d007_handle_tests::literal_win32_mapping_is_not_the_std_error_kind_mapping", fs,
@@ -118,20 +140,17 @@ def std_classification(text):
         "    if !directory\n        && attributes & FILE_ATTRIBUTE_DIRECTORY != 0\n        && attributes & FILE_ATTRIBUTE_REPARSE_POINT == 0\n    {",
         "    if !directory && metadata.is_dir() && !metadata.file_type().is_symlink() {")
     return text
-if os.name == "nt":
-    for link_row in ("U8-dirlink-unlink-eperm", "L10-dirlink-lstat-eperm", "U9-junction-unlink-eperm", "L11-junction-lstat-eperm"):
-        controls.append(("std-classification-" + link_row, link_row, native, std_classification))
-else:
-    print("NOT_APPLICABLE std-classification: Windows raw-attribute classification", flush=True)
+for link_row in ("U8-dirlink-unlink-eperm", "L10-dirlink-lstat-eperm", "U9-junction-unlink-eperm", "L11-junction-lstat-eperm"):
+    register("std-classification-" + link_row, link_row, native, std_classification, windows=True)
 control("readdir-missing-is-error", "@execution::filesystem::rimraf::tests::disappearance_at_readdir_is_accepted", rimraf,
-    "                        Err(e) if missing(&e) => continue,",
-    "                        Err(e) if missing(&e) => return Err(native_error(e, &p)),")
+    "                    Err(e) if missing(&e) => return Ok(()),",
+    "                    Err(e) if missing(&e) => return Err(native_error(e, &p)),")
 control("first-rmdir-missing-is-error", "@execution::filesystem::rimraf::tests::disappearance_at_first_rmdir_is_accepted", rimraf,
-    "                Err(e) if missing(&e) => (),\n                Err(e) if enotdir(&e) => {",
-    "                Err(e) if missing(&e) => return Err(native_error(e, &p)),\n                Err(e) if enotdir(&e) => {")
+    "            Err(e) if missing(&e) => (),\n            Err(e) if enotdir(&e) => {",
+    "            Err(e) if missing(&e) => return Err(native_error(e, &p)),\n            Err(e) if enotdir(&e) => {")
 control("final-rmdir-missing-is-error", "@execution::filesystem::rimraf::tests::disappearance_at_final_rmdir_is_accepted", rimraf,
-    "            Work::FinalDirectory(p) => match ops.rmdir(&p).await {\n                Ok(()) => (),\n                Err(e) if missing(&e) => (),",
-    "            Work::FinalDirectory(p) => match ops.rmdir(&p).await {\n                Ok(()) => (),\n                Err(e) if missing(&e) => return Err(native_error(e, &p)),")
+    "        Work::FinalDirectory(p, _) => match ops.rmdir(&p).await {\n            Ok(()) => (),\n            Err(e) if missing(&e) => (),",
+    "        Work::FinalDirectory(p, _) => match ops.rmdir(&p).await {\n            Ok(()) => (),\n            Err(e) if missing(&e) => return Err(native_error(e, &p)),")
 control("retry-unlink-missing-is-error", "@execution::filesystem::rimraf::tests::disappearance_at_retry_unlink_is_accepted", rimraf,
     "            Err(e) if missing(&e) => Ok(()),\n            Err(e) => Err(native_error(e, p)),",
     "            Err(e) if missing(&e) => Err(native_error(e, p)),\n            Err(e) => Err(native_error(e, p)),", True)
@@ -139,6 +158,20 @@ control("reparse-any-tag-is-link", "@native:tests::directory_reparse_payloads_ke
     "        _ => false,\n    }\n}", "        _ => true,\n    }\n}")
 matrix_test = "execution::filesystem::rimraf::tests::l12d007_all_41_pi_routing_rows_match_and_injections_fire"
 link_test = "execution::filesystem::rimraf::tests::directory_link_recovery_matches_pinned_pi"
+
+# Resolve all platform mutations before any Cargo invocation or source write.
+# Helper mutations are exercised too, including their multiple exact anchors.
+for name, _, file, mutation in all_controls:
+    if mutation(originals[file]) == originals[file]:
+        raise RuntimeError(f"INVALID no-op {name}")
+    print(f"ANCHOR PASS {name}", flush=True)
+print(f"ANCHORS: {len(all_controls)} mutations uniquely resolved (all platforms)", flush=True)
+if a.check_anchors:
+    sys.exit(0)
+if a.logs is None:
+    p.error("--logs is required unless --check-anchors is used")
+logs = checked(a.logs)
+checked(logs).mkdir(parents=True, exist_ok=True)
 
 def run(name, row, mutant=False):
     package = "minion-agent-native-fs" if row.startswith("@native:") else "minion-agent"

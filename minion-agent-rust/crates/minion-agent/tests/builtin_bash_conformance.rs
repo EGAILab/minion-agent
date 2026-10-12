@@ -13,7 +13,7 @@ use minion_agent::{
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use std::{
-    path::Path,
+    path::{Path, PathBuf},
     sync::{
         Arc,
         atomic::{AtomicBool, AtomicUsize, Ordering},
@@ -24,6 +24,23 @@ mod capabilities {
 }
 #[path = "support/bash_abort_on_output.rs"]
 mod abort_output;
+#[path = "support/fs_containment.rs"]
+mod fs_containment;
+
+struct Fixture(PathBuf);
+impl Fixture {
+    fn new() -> Self {
+        Self(fs_containment::sandbox("bash"))
+    }
+    fn path(&self) -> &Path {
+        &self.0
+    }
+}
+impl Drop for Fixture {
+    fn drop(&mut self) {
+        fs_containment::cleanup(&self.0);
+    }
+}
 
 async fn execute_case(dir: &Path, cwd: &Path, case: &Value, delay: std::time::Duration) -> Value {
     let runtime = Runtime::new();
@@ -121,12 +138,10 @@ async fn real_detached_descendant_inherits_pipes_but_is_not_killed_by_settlement
         .trim(),
         "v22.15.1"
     );
-    let dir = tempfile::tempdir().unwrap();
-    std::fs::write(
-        dir.path().join("parent.cjs"),
-        include_bytes!("data/bash-descendant.cjs"),
-    )
-    .unwrap();
+    let dir = Fixture::new();
+    let parent = dir.path().join("parent.cjs");
+    fs_containment::check(dir.path(), &parent);
+    std::fs::write(&parent, include_bytes!("data/bash-descendant.cjs")).unwrap();
     let tool = create_bash_tool(
         Arc::new(LocalFileSystem::new(dir.path())),
         Arc::new(LocalSubprocess::new(dir.path())),
@@ -184,7 +199,7 @@ async fn canonical_bash_real_capabilities_and_layer_six() {
         if expected.is_null() {
             continue;
         }
-        let dir = tempfile::tempdir().unwrap();
+        let dir = Fixture::new();
         let cwd = if case["missing_cwd"] == true {
             dir.path().join("missing")
         } else {
@@ -203,7 +218,9 @@ async fn canonical_bash_real_capabilities_and_layer_six() {
                     .map(str::to_owned)
             });
         let full_output = if let Some(path) = &full_path {
+            fs_containment::check(&fs_containment::base(), Path::new(path));
             let bytes = std::fs::read(path).unwrap();
+            fs_containment::check_entry(&fs_containment::base(), Path::new(path));
             std::fs::remove_file(path).unwrap();
             text = text.replace(path, "<FULL_OUTPUT>");
             json!({"size":bytes.len(),"sha256":format!("{:x}",Sha256::digest(&bytes))})
@@ -271,7 +288,7 @@ async fn output_abort_holds_under_slow_start_and_wall_clock_control_loses_before
     let case = &document["builtin_bash"];
     assert_eq!(case["abort_on_output"], "before");
     assert!(case.get("abort_after_ms").is_none());
-    let dir = tempfile::tempdir().unwrap();
+    let dir = Fixture::new();
     let result = execute_case(
         dir.path(),
         dir.path(),

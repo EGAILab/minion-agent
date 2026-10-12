@@ -1033,7 +1033,7 @@ class _Emptying:
     """One directory on `_rimraf`'s explicit stack: its children still to remove (in reverse, so the
     next one pops off the end) and whether any child under it has failed."""
 
-    __slots__ = ("directory", "remaining", "failed")
+    __slots__ = ("directory", "failed", "remaining")
 
     def __init__(self, directory: str, children: list[str]) -> None:
         self.directory = directory

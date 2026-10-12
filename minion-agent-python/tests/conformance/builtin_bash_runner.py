@@ -87,12 +87,18 @@ class _AbortOnOutput:
     async def spawn(self, argv: Any, options: Any = None) -> Any:
         result = await self._inner.spawn(argv, options)
         process = getattr(result, "value", None)
-        if process is not None:
+        # Only the COMMAND process is watched (WP133D001-R001): the certified command spawn carries
+        # the call's own signal; the shell lookup (`where`/`which`, `bash_shell.lookup`) is spawned
+        # without one, and its output is never the command's.
+        if process is not None and self.is_command(options):
             for name in ("stdout", "stderr"):
                 stream = getattr(process, name)
                 if stream is not None:
                     setattr(process, name, _TappedStream(stream, self))
         return result
+
+    def is_command(self, options: Any) -> bool:
+        return getattr(options, "signal", None) is self._controller.signal
 
     def __getattr__(self, name: str) -> Any:
         return getattr(self._inner, name)

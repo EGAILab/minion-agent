@@ -7325,6 +7325,36 @@ rows:
     minion-agent-rust/scripts/l12-d002-negative-controls.py (nine disposable-source controls).
     Certified (L12-D002 Rust closure review, minion-agent#145 issuecomment-5976898729).
   disposition: intentional divergence
+- id: EXEC-013
+  phase: 6
+  pi: 'Node v22.15.1 lib/child_process.js normalizeSpawnArguments and validateArgumentNullCheck,
+    lib/internal/errors.js ERR_INVALID_ARG_VALUE, lib/internal/util/inspect.js strEscape/formatPrimitive
+    (as reached by pinned Pi b7bb00b9 coding-agent core/tools/find.ts:269, grep.ts:226 and bash.ts:103, each of
+    which surfaces the synchronous throw unchanged)'
+  surface: Layer 12 delta L12-D011 -- a NUL-containing spawn input (executable, argument, cwd, effective
+    environment entry) fails ctx.subprocess.spawn before any process starts; find, grep and bash surface it
+  rule: 'CONTRACT_DRAFT (L12-D011, minion-agent#224; provenance #195; Owner decisions #195
+    issuecomment-6137514688 and #224 issuecomment-6137796390). After the existing pre-abort check and before the
+    native spawn, the first NUL-containing input in Node''s order -- the executable (`file`), each argument in order
+    (argv position j >= 1 is `args[j-1]`), `options.cwd`, then each effective environment entry, key before value
+    (Windows: ascending UTF-16 code-unit order of the retained names, no duplicate arbitration; POSIX: ECMAScript
+    own-property order of the composed environment) -- yields Err(spawn_error) whose message is Node''s literal
+    ERR_INVALID_ARG_VALUE text: "The <argument|property> ''<name>'' must be a string without null bytes. Received
+    <inspected>" (cwd: "must be a string, Uint8Array, or URL without null bytes"), <inspected> being
+    util.inspect of the JavaScript-string value (before any OS projection) cut to 128 UTF-16 units plus "...".
+    No process starts; no native exception escapes. find, grep and bash surface that message unchanged (no
+    "Failed to run ..." or shell start-failure wrapper), through a binding-internal distinction, not string
+    matching. Windows raw-subprocess exception: a NUL in a case-colliding entry Node would drop is still reported
+    (Minion keeps both entries); section 15.5 consumer arbitration is unchanged. Full rules: spec/execution.md
+    section 21.'
+  tests:
+  - conformance/agent/spawn-nul/spawn-nul.json (generated from pinned Node and Pi on Windows and Linux by
+    minion-agent-docs assurance/layers/data/l12-d011/gen)
+  python: 'NOT_IMPLEMENTED (L12-D011 contract draft): execution/subprocess.py LocalSubprocess.spawn raises
+    ValueError today (#195 characterization).'
+  rust: 'NOT_IMPLEMENTED (L12-D011 contract draft): execution/subprocess.rs maps the native InvalidInput to
+    spawn_error with the OS text; tools add their wrappers (#195 characterization, source reading).'
+  disposition: adopted
 - id: TOOL-025
   phase: 6
   pi: 'packages/coding-agent/src/core/tools/read.ts (schema lines 21-25; execute lines 223-334);

@@ -1438,3 +1438,54 @@ def test_arg_isolation_schema_rejects_malformed_documents(mutation: Any) -> None
     )
     mutation(document)
     assert list(_arg_isolation_validator().iter_errors(document))
+
+
+# --- L12-D011 (minion-agent#224): spawn-nul corpus -----------------------------------------------
+
+SPAWN_NUL_SCHEMA = CONFORMANCE / "schema" / "spawn-nul-scenario.schema.json"
+SPAWN_NUL_DIR = CONFORMANCE / "agent" / "spawn-nul"
+
+
+def _spawn_nul_validator() -> Draft202012Validator:
+    return Draft202012Validator(json.loads(SPAWN_NUL_SCHEMA.read_text(encoding="utf-8")))
+
+
+def test_spawn_nul_schema_is_wellformed() -> None:
+    Draft202012Validator.check_schema(json.loads(SPAWN_NUL_SCHEMA.read_text(encoding="utf-8")))
+
+
+@pytest.mark.parametrize(
+    "scenario", sorted(SPAWN_NUL_DIR.glob("*.json")), ids=lambda value: value.stem
+)
+def test_spawn_nul_scenario_validates(scenario: Path) -> None:
+    assert not list(
+        _spawn_nul_validator().iter_errors(json.loads(scenario.read_text(encoding="utf-8")))
+    )
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        lambda d: d["spawn_nul"]["cases"][0].pop("expect"),
+        lambda d: d["spawn_nul"]["cases"][0]["expect"].pop("win32"),
+        lambda d: d["spawn_nul"]["cases"][0]["expect"]["linux"].pop("message"),
+        lambda d: d["spawn_nul"]["cases"][0]["expect"]["linux"].__setitem__("code", "unknown"),
+        lambda d: d["spawn_nul"]["cases"][0].__setitem__("argv", ["x"]),
+        lambda d: d["spawn_nul"]["cases"][0].__setitem__("argv", []),
+        lambda d: d["spawn_nul"]["cases"][0].__setitem__("env", [[{"utf16": [65]}]]),
+        lambda d: d["spawn_nul"]["tools"][0].__setitem__("tool", "ls"),
+        lambda d: d["spawn_nul"]["tools"][0]["expect"]["linux"].pop("text"),
+        lambda d: d.__setitem__("platforms", ["darwin"]),
+    ],
+)
+def test_spawn_nul_schema_rejects_malformed_documents(mutation: Any) -> None:
+    document = json.loads((SPAWN_NUL_DIR / "spawn-nul.json").read_text(encoding="utf-8"))
+    mutation(document)
+    assert list(_spawn_nul_validator().iter_errors(document))
+
+
+def test_spawn_nul_aborted_outcome_carries_no_message() -> None:
+    document = json.loads((SPAWN_NUL_DIR / "spawn-nul.json").read_text(encoding="utf-8"))
+    aborted = next(c for c in document["spawn_nul"]["cases"] if c["pre_aborted"])
+    aborted["expect"]["linux"]["message"] = {"utf16": [97]}
+    assert list(_spawn_nul_validator().iter_errors(document))

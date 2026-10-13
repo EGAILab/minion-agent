@@ -13,6 +13,11 @@ use std::{
     sync::atomic::{AtomicBool, AtomicUsize, Ordering},
 };
 use tokio::sync::{Notify, watch};
+mod capabilities {
+    pub use crate::execution::*;
+}
+#[path = "../../../tests/support/bash_abort_on_output.rs"]
+mod abort_output;
 
 #[derive(Default)]
 struct Gate {
@@ -575,6 +580,203 @@ impl ToolExecutionSignal for TestSignal {
     fn is_cancelled(&self) -> bool {
         self.0.load(Ordering::SeqCst)
     }
+}
+
+#[tokio::test]
+async fn abort_output_fixture_real_lookup_never_aborts_the_command() {
+    let dir = tempfile::tempdir().unwrap();
+    let fs = Arc::new(Fs::new(dir.path()));
+    let lookup = Proc::new(
+        vec![Chunk::Bytes(b"C:\\before\\Git\\bin\\bash.exe\r\n".to_vec())],
+        vec![],
+        Some(Some(0)),
+    );
+    let command = Proc::new(
+        vec![Chunk::Bytes(b"done\n".to_vec())],
+        vec![],
+        Some(Some(0)),
+    );
+    let inner = Spawns::new(dir.path(), Platform::Windows, vec![lookup, command]);
+    let signal = Arc::new(TestSignal(AtomicBool::new(false)));
+    let cancel = signal.clone();
+    let tap = Arc::new(abort_output::AbortOnOutput::new(
+        Arc::new(abort_output::SlowCommand(inner.clone(), Duration::ZERO)),
+        "before".into(),
+        Arc::new(move || cancel.0.store(true, Ordering::SeqCst)),
+    ));
+    let mut call = request(None);
+    call.signal = Some(signal.clone());
+    let result = execute(fs, tap, BashToolOptions::default(), call).await;
+    for _ in 0..8 {
+        tokio::task::yield_now().await;
+    }
+    assert!(
+        !signal.is_cancelled(),
+        "lookup must not abort the call: only command output is watched"
+    );
+    assert_eq!(text(result.unwrap()), "done\n");
+    let calls = inner.calls.lock();
+    assert_eq!(calls.len(), 2);
+    assert_eq!(calls[0].0, ["where", "bash.exe"]);
+    assert!(calls[0].1.signal.is_none());
+    assert!(calls[1].1.signal.is_some());
+}
+
+#[tokio::test]
+async fn abort_output_fixture_split_marker_is_delivered_before_one_abort_and_close_delegates() {
+    let dir = tempfile::tempdir().unwrap();
+    let output = Proc::new(
+        vec![
+            Chunk::Bytes(b"befo".to_vec()),
+            Chunk::Bytes(b"re\n".to_vec()),
+            Chunk::Bytes(b"before again".to_vec()),
+        ],
+        vec![],
+        Some(Some(0)),
+    );
+    let inner = Spawns::new(dir.path(), Platform::Posix, vec![output.clone()]);
+    let signal = Arc::new(TestSignal(AtomicBool::new(false)));
+    let calls = Arc::new(AtomicUsize::new(0));
+    let (cancel, count) = (signal.clone(), calls.clone());
+    let tap = abort_output::AbortOnOutput::new(
+        inner,
+        "before".into(),
+        Arc::new(move || {
+            count.fetch_add(1, Ordering::SeqCst);
+            cancel.0.store(true, Ordering::SeqCst);
+        }),
+    );
+    let process = tap
+        .spawn(
+            &["bash".into()],
+            SpawnOptions {
+                signal: Some(Arc::new(Signal(signal.clone()))),
+                ..SpawnOptions::default()
+            },
+        )
+        .await
+        .unwrap();
+    let stream = process.stdout().unwrap();
+    assert_eq!(stream.read_chunk().await.unwrap(), Some(b"befo".to_vec()));
+    assert!(!signal.is_cancelled());
+    assert_eq!(stream.read_chunk().await.unwrap(), Some(b"re\n".to_vec()));
+    assert!(
+        !signal.is_cancelled(),
+        "completing output must be delivered before abort"
+    );
+    for _ in 0..8 {
+        tokio::task::yield_now().await;
+    }
+    assert!(signal.is_cancelled(), "split output marker must abort");
+    assert_eq!(
+        stream.read_chunk().await.unwrap(),
+        Some(b"before again".to_vec())
+    );
+    for _ in 0..8 {
+        tokio::task::yield_now().await;
+    }
+    assert_eq!(calls.load(Ordering::SeqCst), 1, "abort once only");
+    stream.close().await;
+    assert!(output.stdout.closed.load(Ordering::SeqCst));
+    assert_eq!(process.pid(), output.pid());
+    assert_eq!(process.wait().await.unwrap().exit_code, Some(0));
+    process.terminate().await;
+    assert_eq!(output.kills.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test]
+async fn abort_output_fixture_utf8_suffix_does_not_trigger_a_premature_replacement() {
+    let dir = tempfile::tempdir().unwrap();
+    let output = Proc::new(
+        vec![
+            Chunk::Bytes(vec![0xc3]),
+            Chunk::Bytes(vec![0xa9]),
+            Chunk::Bytes(vec![0xff]),
+        ],
+        vec![],
+        Some(Some(0)),
+    );
+    let inner = Spawns::new(dir.path(), Platform::Posix, vec![output]);
+    let signal = Arc::new(TestSignal(AtomicBool::new(false)));
+    let cancel = signal.clone();
+    let tap = abort_output::AbortOnOutput::new(
+        inner,
+        "\u{fffd}".into(),
+        Arc::new(move || cancel.0.store(true, Ordering::SeqCst)),
+    );
+    let process = tap
+        .spawn(
+            &["bash".into()],
+            SpawnOptions {
+                signal: Some(Arc::new(Signal(signal.clone()))),
+                ..SpawnOptions::default()
+            },
+        )
+        .await
+        .unwrap();
+    let stream = process.stdout().unwrap();
+    assert_eq!(stream.read_chunk().await.unwrap(), Some(vec![0xc3]));
+    for _ in 0..8 {
+        tokio::task::yield_now().await;
+    }
+    assert!(
+        !signal.is_cancelled(),
+        "incomplete UTF8 is not replacement output yet"
+    );
+    assert_eq!(stream.read_chunk().await.unwrap(), Some(vec![0xa9]));
+    for _ in 0..8 {
+        tokio::task::yield_now().await;
+    }
+    assert!(!signal.is_cancelled());
+    assert_eq!(stream.read_chunk().await.unwrap(), Some(vec![0xff]));
+    for _ in 0..8 {
+        tokio::task::yield_now().await;
+    }
+    assert!(signal.is_cancelled());
+}
+
+#[tokio::test]
+async fn abort_output_fixture_watches_stderr_and_combines_delivery_order() {
+    let dir = tempfile::tempdir().unwrap();
+    let output = Proc::new(
+        vec![Chunk::Bytes(b"be".to_vec())],
+        vec![Chunk::Bytes(b"fore".to_vec())],
+        Some(Some(0)),
+    );
+    let inner = Spawns::new(dir.path(), Platform::Posix, vec![output]);
+    let signal = Arc::new(TestSignal(AtomicBool::new(false)));
+    let cancel = signal.clone();
+    let tap = abort_output::AbortOnOutput::new(
+        inner,
+        "before".into(),
+        Arc::new(move || cancel.0.store(true, Ordering::SeqCst)),
+    );
+    let process = tap
+        .spawn(
+            &["bash".into()],
+            SpawnOptions {
+                signal: Some(Arc::new(Signal(signal.clone()))),
+                ..SpawnOptions::default()
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        process.stdout().unwrap().read_chunk().await.unwrap(),
+        Some(b"be".to_vec())
+    );
+    assert_eq!(
+        process.stderr().unwrap().read_chunk().await.unwrap(),
+        Some(b"fore".to_vec())
+    );
+    assert!(
+        !signal.is_cancelled(),
+        "stderr output must be delivered before abort"
+    );
+    for _ in 0..8 {
+        tokio::task::yield_now().await;
+    }
+    assert!(signal.is_cancelled(), "stderr marker must abort");
 }
 
 #[tokio::test(start_paused = true)]

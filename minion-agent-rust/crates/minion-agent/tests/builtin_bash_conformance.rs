@@ -13,12 +13,108 @@ use minion_agent::{
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use std::{
-    path::Path,
+    path::{Path, PathBuf},
     sync::{
         Arc,
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicUsize, Ordering},
     },
 };
+mod capabilities {
+    pub use minion_agent::execution::*;
+}
+#[path = "support/bash_abort_on_output.rs"]
+mod abort_output;
+#[path = "support/fs_containment.rs"]
+mod fs_containment;
+
+struct Fixture(PathBuf);
+impl Fixture {
+    fn new() -> Self {
+        Self(fs_containment::sandbox("bash"))
+    }
+    fn path(&self) -> &Path {
+        &self.0
+    }
+}
+impl Drop for Fixture {
+    fn drop(&mut self) {
+        fs_containment::cleanup(&self.0);
+    }
+}
+
+async fn execute_case(dir: &Path, cwd: &Path, case: &Value, delay: std::time::Duration) -> Value {
+    let runtime = Runtime::new();
+    let signal = Arc::new(Signal::default());
+    if case["signal"] == "pre_aborted" {
+        signal.0.store(true, Ordering::SeqCst);
+    }
+    let mut subprocess: Arc<dyn minion_agent::execution::Subprocess> =
+        Arc::new(LocalSubprocess::new(cwd));
+    if !delay.is_zero() {
+        subprocess = Arc::new(abort_output::SlowCommand(subprocess, delay));
+    }
+    if let Some(marker) = case.get("abort_on_output") {
+        let cancel = signal.clone();
+        subprocess = Arc::new(abort_output::AbortOnOutput::new(
+            subprocess,
+            marker
+                .as_str()
+                .expect("schema: abort_on_output string")
+                .to_owned(),
+            Arc::new(move || cancel.0.store(true, Ordering::SeqCst)),
+        ));
+    }
+    let tool = create_bash_tool(
+        Arc::new(LocalFileSystem::new(dir)),
+        subprocess,
+        BashToolOptions::default(),
+    )
+    .unwrap();
+    runtime.tools().register_for_scope(None, tool).unwrap();
+    let mut arguments: RawValue =
+        serde_json::from_value(json!({"command":case["command"]})).unwrap();
+    if let Some(timeout) = case.get("timeout") {
+        let value = if timeout == "Infinity" {
+            RawValue::Number(RawNumber::new(f64::INFINITY).unwrap())
+        } else {
+            serde_json::from_value(timeout.clone()).unwrap()
+        };
+        let RawValue::Object(object) = &mut arguments else {
+            unreachable!()
+        };
+        object.insert("timeout".into(), value);
+    }
+    let abort = case["abort_after_ms"].as_u64().map(|ms| {
+        let signal = signal.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_millis(ms)).await;
+            signal.0.store(true, Ordering::SeqCst);
+        })
+    });
+    let updates = Arc::new(AtomicUsize::new(0));
+    let update_count = updates.clone();
+    let batch = execute_tool_calls(
+        &runtime.context(),
+        &[ToolCall::new_raw("case", "bash", arguments)],
+        ToolExecutionOptions::new(StopReason::ToolUse, 0.0)
+            .with_signal(signal)
+            .with_execution_update(move |_| {
+                update_count.fetch_add(1, Ordering::SeqCst);
+                async { Ok(()) }
+            }),
+    )
+    .await
+    .unwrap();
+    if let Some(abort) = abort {
+        abort.abort();
+    }
+    assert_eq!(
+        updates.load(Ordering::SeqCst),
+        0,
+        "bash emits zero partial updates; trigger stays at subprocess seam"
+    );
+    serde_json::to_value(&batch.messages[0]).unwrap()
+}
 
 #[derive(Default)]
 struct Signal(AtomicBool);
@@ -42,12 +138,10 @@ async fn real_detached_descendant_inherits_pipes_but_is_not_killed_by_settlement
         .trim(),
         "v22.15.1"
     );
-    let dir = tempfile::tempdir().unwrap();
-    std::fs::write(
-        dir.path().join("parent.cjs"),
-        include_bytes!("data/bash-descendant.cjs"),
-    )
-    .unwrap();
+    let dir = Fixture::new();
+    let parent = dir.path().join("parent.cjs");
+    fs_containment::check(dir.path(), &parent);
+    std::fs::write(&parent, include_bytes!("data/bash-descendant.cjs")).unwrap();
     let tool = create_bash_tool(
         Arc::new(LocalFileSystem::new(dir.path())),
         Arc::new(LocalSubprocess::new(dir.path())),
@@ -105,55 +199,13 @@ async fn canonical_bash_real_capabilities_and_layer_six() {
         if expected.is_null() {
             continue;
         }
-        let dir = tempfile::tempdir().unwrap();
+        let dir = Fixture::new();
         let cwd = if case["missing_cwd"] == true {
             dir.path().join("missing")
         } else {
             dir.path().to_path_buf()
         };
-        let runtime = Runtime::new();
-        let tool = create_bash_tool(
-            Arc::new(LocalFileSystem::new(dir.path())),
-            Arc::new(LocalSubprocess::new(&cwd)),
-            BashToolOptions::default(),
-        )
-        .unwrap();
-        runtime.tools().register_for_scope(None, tool).unwrap();
-        let signal = Arc::new(Signal::default());
-        if case["signal"] == "pre_aborted" {
-            signal.0.store(true, Ordering::SeqCst);
-        }
-        let mut arguments: RawValue =
-            serde_json::from_value(json!({"command":case["command"]})).unwrap();
-        if let Some(timeout) = case.get("timeout") {
-            let value = if timeout == "Infinity" {
-                RawValue::Number(RawNumber::new(f64::INFINITY).unwrap())
-            } else {
-                serde_json::from_value(timeout.clone()).unwrap()
-            };
-            let RawValue::Object(object) = &mut arguments else {
-                unreachable!()
-            };
-            object.insert("timeout".into(), value);
-        }
-        let abort = case["abort_after_ms"].as_u64().map(|ms| {
-            let signal = signal.clone();
-            tokio::spawn(async move {
-                tokio::time::sleep(std::time::Duration::from_millis(ms)).await;
-                signal.0.store(true, Ordering::SeqCst);
-            })
-        });
-        let batch = execute_tool_calls(
-            &runtime.context(),
-            &[ToolCall::new_raw("case", "bash", arguments)],
-            ToolExecutionOptions::new(StopReason::ToolUse, 0.0).with_signal(signal),
-        )
-        .await
-        .unwrap();
-        if let Some(abort) = abort {
-            abort.abort();
-        }
-        let result = serde_json::to_value(&batch.messages[0]).unwrap();
+        let result = execute_case(dir.path(), &cwd, case, std::time::Duration::ZERO).await;
         let mut text = result["content"][0]["text"].as_str().unwrap().to_owned();
         let mut details = result["details"].clone();
         let full_path = details["fullOutputPath"]
@@ -166,7 +218,9 @@ async fn canonical_bash_real_capabilities_and_layer_six() {
                     .map(str::to_owned)
             });
         let full_output = if let Some(path) = &full_path {
+            fs_containment::check(&fs_containment::base(), Path::new(path));
             let bytes = std::fs::read(path).unwrap();
+            fs_containment::check_entry(&fs_containment::base(), Path::new(path));
             std::fs::remove_file(path).unwrap();
             text = text.replace(path, "<FULL_OUTPUT>");
             json!({"size":bytes.len(),"sha256":format!("{:x}",Sha256::digest(&bytes))})
@@ -223,5 +277,46 @@ async fn canonical_bash_real_capabilities_and_layer_six() {
     eprintln!(
         "builtin bash: {count} canonical documents on {}",
         if cfg!(windows) { "win32" } else { "linux" }
+    );
+}
+
+#[tokio::test]
+async fn output_abort_holds_under_slow_start_and_wall_clock_control_loses_before() {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../../conformance/agent/builtin-bash/builtin-bash-abort-during.yaml");
+    let document: Value = serde_yaml::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+    let case = &document["builtin_bash"];
+    assert_eq!(case["abort_on_output"], "before");
+    assert!(case.get("abort_after_ms").is_none());
+    let dir = Fixture::new();
+    let result = execute_case(
+        dir.path(),
+        dir.path(),
+        case,
+        std::time::Duration::from_millis(600),
+    )
+    .await;
+    let platform = if cfg!(windows) { "win32" } else { "linux" };
+    assert_eq!(
+        result["content"][0]["text"], case["expect"][platform]["text"],
+        "output trigger retains delivered before under slow startup"
+    );
+    assert_eq!(result["is_error"], true);
+    let mut timer = case.clone();
+    timer.as_object_mut().unwrap().remove("abort_on_output");
+    timer["abort_after_ms"] = json!(400);
+    let result = execute_case(
+        dir.path(),
+        dir.path(),
+        &timer,
+        std::time::Duration::from_millis(600),
+    )
+    .await;
+    assert!(
+        !result["content"][0]["text"]
+            .as_str()
+            .unwrap()
+            .contains("before"),
+        "wall-clock control must reproduce the lost-output flake"
     );
 }

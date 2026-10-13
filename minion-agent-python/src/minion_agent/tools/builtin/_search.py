@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from ...execution import Err
+from ...execution.spawn_nul import argv_rejection
 from ...execution.subprocess import Process, ReadableStream, SpawnOptions, Subprocess
 from ...execution.world import ExecutionWorldIdentity
 from ...runtime.signal import RunSignal
@@ -144,11 +145,21 @@ async def spawn_engine(subprocess: Subprocess, argv: list[str], failure: str) ->
     """Spawn with Pi's `spawn` defaults: inherited environment, stdin ignored, stdout/stderr piped.
     A spawn failure is Pi's `Failed to run <engine>: <cause>` with the Layer-12 message as cause.
     Every argument takes its scalar form first (each unpaired surrogate becomes U+FFFD), as Node
-    does at the OS boundary -- the WP-13.3 argv projection rule (`WP133-AUD-R001`)."""
+    does at the OS boundary -- the WP-13.3 argv projection rule (`WP133-AUD-R001`).
+
+    `L12-D011` (spec/execution.md section 21.5): a NUL in the assembled argv is Node's synchronous
+    spawn throw, which Pi surfaces UNCHANGED -- checked on the unprojected argv, so the diagnostic
+    shows the JavaScript-string value; a seam rejection of the cwd or environment is surfaced the
+    same way. Every other spawn failure keeps the prefix."""
+    rejected = argv_rejection(argv)
+    if rejected is not None:
+        raise BuiltinToolError(rejected.message)
     spawned = await subprocess.spawn(
         [scalar_command(arg) for arg in argv], SpawnOptions(inherit_env=True)
     )
     if isinstance(spawned, Err):
+        if spawned.error.nul_input:
+            raise BuiltinToolError(spawned.error.message)
         raise BuiltinToolError(f"{failure}: {spawned.error.message}")
     return EngineRun(spawned.value)
 

@@ -16,6 +16,7 @@ from typing import Any
 
 from ...execution import Err, FileSystem, FsErrorCode, Platform
 from ...execution.errors import SubprocessErrorCode
+from ...execution.spawn_nul import argv_rejection
 from ...execution.subprocess import (
     Process,
     ReadableStream,
@@ -338,6 +339,14 @@ def create_bash_tool(
         await _check_cwd(fs, subprocess.platform, subprocess.cwd)
         projected = scalar_command(command)
         via_stdin = config.transport == "stdin"
+        # `L12-D011` (spec/execution.md section 21.5): a NUL in the ARGV-transported command is
+        # Node's synchronous spawn throw, surfaced unchanged; checked on the unprojected argv so the
+        # diagnostic shows the JavaScript-string value. A stdin-transported command is not argv.
+        rejected = argv_rejection(
+            [config.shell, *config.args] if via_stdin else [config.shell, *config.args, command]
+        )
+        if rejected is not None:
+            raise BuiltinToolError(rejected.message)
         argv = (
             [config.shell, *config.args] if via_stdin else [config.shell, *config.args, projected]
         )
@@ -353,6 +362,8 @@ def create_bash_tool(
         if isinstance(spawned, Err):
             if spawned.error.code == SubprocessErrorCode.ABORTED:
                 raise _Aborted
+            if spawned.error.nul_input:  # a NUL in the effective cwd or environment (section 21)
+                raise BuiltinToolError(spawned.error.message)
             raise BuiltinToolError(f"Failed to start the shell {config.shell}")
         process = spawned.value
         run = _Run(fs, process)

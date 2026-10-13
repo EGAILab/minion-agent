@@ -7333,12 +7333,15 @@ rows:
     which surfaces the synchronous throw unchanged)'
   surface: Layer 12 delta L12-D011 -- a NUL-containing spawn input (executable, argument, cwd, effective
     environment entry) fails ctx.subprocess.spawn before any process starts; find, grep and bash surface it
-  rule: 'CONTRACT_DRAFT (L12-D011, minion-agent#224; provenance #195; Owner decisions #195
-    issuecomment-6137514688 and #224 issuecomment-6137796390). After the existing pre-abort check and before the
-    native spawn, the first NUL-containing input in Node''s order -- the executable (`file`), each argument in order
-    (argv position j >= 1 is `args[j-1]`), `options.cwd`, then each effective environment entry, key before value
-    (Windows: ascending UTF-16 code-unit order of the retained names, no duplicate arbitration; POSIX: ECMAScript
-    own-property order of the composed environment) -- yields Err(spawn_error) whose message is Node''s literal
+  rule: 'CONTRACT_DRAFT revision 1 (L12-D011, minion-agent#224; provenance #195; Owner decisions #195
+    issuecomment-6137514688, #224 issuecomment-6137796390 and issuecomment-6141307443). After the existing
+    pre-abort check and before the native spawn, the first NUL-containing input in this order -- the executable
+    (`file`), each argument in order (argv position j >= 1 is `args[j-1]`), the EFFECTIVE cwd (`options.cwd`: the
+    supplied cwd resolved by the certified section 6 rule -- file:// decoded once, malformed-URL literal fallback --
+    or the provider default), then each effective environment entry, name before value (Windows: ascending UTF-16
+    code-unit order of every retained name, no duplicate arbitration; POSIX: integer-index names ascending, then the
+    call''s overlay names in insertion order, then baseline-only names in UTF-16 order, an overlay-owned name using
+    its effective value -- section 15.3 preserved) -- yields Err(spawn_error) whose message is Node''s literal
     ERR_INVALID_ARG_VALUE text: "The <argument|property> ''<name>'' must be a string without null bytes. Received
     <inspected>" (cwd: "must be a string, Uint8Array, or URL without null bytes"), <inspected> being
     util.inspect of the JavaScript-string value (before any OS projection) cut to 128 UTF-16 units plus "...".

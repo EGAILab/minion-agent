@@ -1,97 +1,378 @@
 {
  "$schema": "https://json-schema.org/draft/2020-12/schema",
- "$comment": "Post-certification delta L12-D011 (EXEC-013; minion-agent#224, provenance #195): a NUL-containing spawn input fails ctx.subprocess.spawn before any process starts, with spawn_error and pinned Node v22.15.1's literal ERR_INVALID_ARG_VALUE message (spec/execution.md section 21). Scenarios live in conformance/agent/spawn-nul/*.json. A `cases` entry calls the binding's real local ctx.subprocess.spawn ONCE: argv as given (argv[0] the executable), SpawnOptions{cwd, env (the ORDERED pairs, inserted in order), inherit_env} and, when pre_aborted, an already-aborted signal; the runner compares the Err code and, unless `message` is \"os\", the exact message; Ok is a failure. A `tools` entry runs the binding's real find, grep or bash tool through the Layer-06 execute pipeline in a fresh, empty, .git-free working directory with the platform's arguments and compares is_error and the exact text. Every string is {\"utf16\": code units} (the JavaScript-string domain).",
+ "$comment": "Post-certification delta L12-D011 (EXEC-013; minion-agent#224, provenance #195): a NUL-containing spawn input fails ctx.subprocess.spawn before any process starts, with spawn_error and pinned Node v22.15.1's literal ERR_INVALID_ARG_VALUE message (spec/execution.md section 21). Scenarios live in conformance/agent/spawn-nul/*.json. A `cases` entry constructs the binding's real local ctx.subprocess provider with `provider_cwd` (the platform's value) and, when `baseline` is not null, that CONFIGURED baseline in the given presentation order (a fixture; null = the live baseline), then calls spawn ONCE: argv as given (argv[0] the executable; a {linux, win32} element picks the platform's value), SpawnOptions{cwd (raw, as supplied; null = not supplied), env (the ORDERED overlay pairs, inserted in order), inherit_env} and, when pre_aborted, an already-aborted signal; the runner compares the Err code and, unless `message` is \"os\", the exact message; Ok is a failure. A `tools` entry runs the binding's real find, grep or bash tool through the Layer-06 execute pipeline in a fresh, empty, .git-free working directory with the platform's arguments and compares is_error and the exact text. Every string is {\"utf16\": code units} (the JavaScript-string domain).",
  "type": "object",
- "required": ["name", "family", "authority", "pi_revision", "requirements", "witnesses", "platforms", "notes", "spawn_nul"],
+ "required": [
+  "name",
+  "family",
+  "authority",
+  "pi_revision",
+  "requirements",
+  "witnesses",
+  "platforms",
+  "notes",
+  "spawn_nul"
+ ],
  "additionalProperties": false,
  "properties": {
-  "name": {"type": "string"},
-  "family": {"const": "agent"},
-  "authority": {"type": "string"},
-  "pi_revision": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
-  "requirements": {"type": "array", "items": {"type": "string"}, "minItems": 1},
-  "witnesses": {"type": "array", "items": {"type": "string"}, "minItems": 1},
-  "platforms": {"type": "array", "items": {"enum": ["linux", "win32"]}, "minItems": 1},
-  "notes": {"type": "string"},
+  "name": {
+   "type": "string"
+  },
+  "family": {
+   "const": "agent"
+  },
+  "authority": {
+   "type": "string"
+  },
+  "pi_revision": {
+   "type": "string",
+   "pattern": "^[0-9a-f]{40}$"
+  },
+  "requirements": {
+   "type": "array",
+   "items": {
+    "type": "string"
+   },
+   "minItems": 1
+  },
+  "witnesses": {
+   "type": "array",
+   "items": {
+    "type": "string"
+   },
+   "minItems": 1
+  },
+  "platforms": {
+   "type": "array",
+   "items": {
+    "enum": [
+     "linux",
+     "win32"
+    ]
+   },
+   "minItems": 1
+  },
+  "notes": {
+   "type": "string"
+  },
   "spawn_nul": {
    "type": "object",
-   "required": ["cases", "tools"],
+   "required": [
+    "cases",
+    "tools"
+   ],
    "additionalProperties": false,
    "properties": {
-    "cases": {"type": "array", "items": {"$ref": "#/$defs/case"}, "minItems": 1},
-    "tools": {"type": "array", "items": {"$ref": "#/$defs/tool"}}
+    "cases": {
+     "type": "array",
+     "items": {
+      "$ref": "#/$defs/case"
+     },
+     "minItems": 1
+    },
+    "tools": {
+     "type": "array",
+     "items": {
+      "$ref": "#/$defs/tool"
+     }
+    }
    }
   }
  },
  "$defs": {
-  "units": {"type": "array", "items": {"type": "integer", "minimum": 0, "maximum": 65535}},
-  "text": {"type": "object", "required": ["utf16"], "additionalProperties": false, "properties": {"utf16": {"$ref": "#/$defs/units"}}},
-  "case": {
+  "units": {
+   "type": "array",
+   "items": {
+    "type": "integer",
+    "minimum": 0,
+    "maximum": 65535
+   }
+  },
+  "text": {
    "type": "object",
-   "required": ["id", "argv", "cwd", "env", "inherit_env", "pre_aborted", "expect"],
+   "required": [
+    "utf16"
+   ],
    "additionalProperties": false,
    "properties": {
-    "id": {"type": "string"},
-    "argv": {"type": "array", "items": {"$ref": "#/$defs/text"}, "minItems": 1},
-    "cwd": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/text"}]},
-    "env": {"oneOf": [{"type": "null"}, {"type": "array", "items": {"type": "array", "prefixItems": [{"$ref": "#/$defs/text"}, {"$ref": "#/$defs/text"}], "minItems": 2, "maxItems": 2}}]},
-    "inherit_env": {"type": "boolean"},
-    "pre_aborted": {"type": "boolean"},
+    "utf16": {
+     "$ref": "#/$defs/units"
+    }
+   }
+  },
+  "case": {
+   "type": "object",
+   "required": [
+    "id",
+    "argv",
+    "cwd",
+    "provider_cwd",
+    "baseline",
+    "env",
+    "inherit_env",
+    "pre_aborted",
+    "expect"
+   ],
+   "additionalProperties": false,
+   "properties": {
+    "id": {
+     "type": "string"
+    },
+    "argv": {
+     "type": "array",
+     "items": {
+      "$ref": "#/$defs/platformText"
+     },
+     "minItems": 1
+    },
+    "cwd": {
+     "oneOf": [
+      {
+       "type": "null"
+      },
+      {
+       "$ref": "#/$defs/platformText"
+      }
+     ]
+    },
+    "env": {
+     "oneOf": [
+      {
+       "type": "null"
+      },
+      {
+       "$ref": "#/$defs/pairs"
+      }
+     ]
+    },
+    "inherit_env": {
+     "type": "boolean"
+    },
+    "pre_aborted": {
+     "type": "boolean"
+    },
     "expect": {
      "type": "object",
-     "required": ["linux", "win32"],
+     "required": [
+      "linux",
+      "win32"
+     ],
      "additionalProperties": false,
-     "properties": {"linux": {"$ref": "#/$defs/outcome"}, "win32": {"$ref": "#/$defs/outcome"}}
+     "properties": {
+      "linux": {
+       "$ref": "#/$defs/outcome"
+      },
+      "win32": {
+       "$ref": "#/$defs/outcome"
+      }
+     }
+    },
+    "provider_cwd": {
+     "type": "object",
+     "required": [
+      "linux",
+      "win32"
+     ],
+     "additionalProperties": false,
+     "properties": {
+      "linux": {
+       "$ref": "#/$defs/text"
+      },
+      "win32": {
+       "$ref": "#/$defs/text"
+      }
+     }
+    },
+    "baseline": {
+     "oneOf": [
+      {
+       "type": "null"
+      },
+      {
+       "$ref": "#/$defs/pairs"
+      }
+     ]
     }
    }
   },
   "outcome": {
    "type": "object",
-   "required": ["code"],
+   "required": [
+    "code"
+   ],
    "additionalProperties": false,
    "properties": {
-    "code": {"enum": ["spawn_error", "aborted"]},
-    "message": {"oneOf": [{"const": "os"}, {"$ref": "#/$defs/text"}]},
-    "node_contrast": {"type": "string"}
+    "code": {
+     "enum": [
+      "spawn_error",
+      "aborted"
+     ]
+    },
+    "message": {
+     "oneOf": [
+      {
+       "const": "os"
+      },
+      {
+       "$ref": "#/$defs/text"
+      }
+     ]
+    },
+    "node_contrast": {
+     "type": "string"
+    }
    },
    "allOf": [
-    {"if": {"properties": {"code": {"const": "spawn_error"}}}, "then": {"required": ["message"]}},
-    {"if": {"properties": {"code": {"const": "aborted"}}}, "then": {"not": {"required": ["message"]}}}
+    {
+     "if": {
+      "properties": {
+       "code": {
+        "const": "spawn_error"
+       }
+      }
+     },
+     "then": {
+      "required": [
+       "message"
+      ]
+     }
+    },
+    {
+     "if": {
+      "properties": {
+       "code": {
+        "const": "aborted"
+       }
+      }
+     },
+     "then": {
+      "not": {
+       "required": [
+        "message"
+       ]
+      }
+     }
+    }
    ]
   },
   "tool": {
    "type": "object",
-   "required": ["id", "tool", "arguments", "pre_aborted", "expect"],
+   "required": [
+    "id",
+    "tool",
+    "arguments",
+    "pre_aborted",
+    "expect"
+   ],
    "additionalProperties": false,
    "properties": {
-    "id": {"type": "string"},
-    "tool": {"enum": ["find", "grep", "bash"]},
+    "id": {
+     "type": "string"
+    },
+    "tool": {
+     "enum": [
+      "find",
+      "grep",
+      "bash"
+     ]
+    },
     "arguments": {
      "type": "object",
-     "required": ["linux", "win32"],
+     "required": [
+      "linux",
+      "win32"
+     ],
      "additionalProperties": false,
      "properties": {
-      "linux": {"type": "object", "additionalProperties": {"$ref": "#/$defs/text"}},
-      "win32": {"type": "object", "additionalProperties": {"$ref": "#/$defs/text"}}
+      "linux": {
+       "type": "object",
+       "additionalProperties": {
+        "$ref": "#/$defs/text"
+       }
+      },
+      "win32": {
+       "type": "object",
+       "additionalProperties": {
+        "$ref": "#/$defs/text"
+       }
+      }
      }
     },
-    "pre_aborted": {"type": "boolean"},
+    "pre_aborted": {
+     "type": "boolean"
+    },
     "expect": {
      "type": "object",
-     "required": ["linux", "win32"],
+     "required": [
+      "linux",
+      "win32"
+     ],
      "additionalProperties": false,
      "properties": {
-      "linux": {"$ref": "#/$defs/tool_outcome"},
-      "win32": {"$ref": "#/$defs/tool_outcome"}
+      "linux": {
+       "$ref": "#/$defs/tool_outcome"
+      },
+      "win32": {
+       "$ref": "#/$defs/tool_outcome"
+      }
      }
     }
    }
   },
   "tool_outcome": {
    "type": "object",
-   "required": ["is_error", "text"],
+   "required": [
+    "is_error",
+    "text"
+   ],
    "additionalProperties": false,
-   "properties": {"is_error": {"type": "boolean"}, "text": {"$ref": "#/$defs/text"}}
+   "properties": {
+    "is_error": {
+     "type": "boolean"
+    },
+    "text": {
+     "$ref": "#/$defs/text"
+    }
+   }
+  },
+  "platformText": {
+   "oneOf": [
+    {
+     "$ref": "#/$defs/text"
+    },
+    {
+     "type": "object",
+     "required": [
+      "linux",
+      "win32"
+     ],
+     "additionalProperties": false,
+     "properties": {
+      "linux": {
+       "$ref": "#/$defs/text"
+      },
+      "win32": {
+       "$ref": "#/$defs/text"
+      }
+     }
+    }
+   ]
+  },
+  "pairs": {
+   "type": "array",
+   "items": {
+    "type": "array",
+    "prefixItems": [
+     {
+      "$ref": "#/$defs/text"
+     },
+     {
+      "$ref": "#/$defs/text"
+     }
+    ],
+    "minItems": 2,
+    "maxItems": 2
+   }
   }
  }
 }

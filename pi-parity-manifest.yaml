@@ -7333,7 +7333,8 @@ rows:
     which surfaces the synchronous throw unchanged)'
   surface: Layer 12 delta L12-D011 -- a NUL-containing spawn input (executable, argument, cwd, effective
     environment entry) fails ctx.subprocess.spawn before any process starts; find, grep and bash surface it
-  rule: 'CONTRACT_DRAFT revision 1 (L12-D011, minion-agent#224; provenance #195; Owner decisions #195
+  rule: 'CONTRACT APPROVED (L12-D011 review 3, minion-agent#224 issuecomment-6145618255; merged code #225 ->
+    be02f9f3, docs #301 -> a080af46; provenance #195; Owner decisions #195
     issuecomment-6137514688, #224 issuecomment-6137796390 and issuecomment-6141307443). After the existing
     pre-abort check and before the native spawn, the first NUL-containing input in this order -- the executable
     (`file`), each argument in order (argv position j >= 1 is `args[j-1]`), the EFFECTIVE cwd (`options.cwd`: the
@@ -7353,8 +7354,13 @@ rows:
   tests:
   - conformance/agent/spawn-nul/spawn-nul.json (generated from pinned Node and Pi on Windows and Linux by
     minion-agent-docs assurance/layers/data/l12-d011/gen)
-  python: 'NOT_IMPLEMENTED (L12-D011 contract draft): execution/subprocess.py LocalSubprocess.spawn raises
-    ValueError today (#195 characterization).'
+  python: 'IMPLEMENTATION_CANDIDATE (L12-D011, minion-agent#224): execution/spawn_nul.py (Node inspect subset,
+    the diagnostic, the section 21.3 order, one validator); LocalSubprocess.spawn checks argv, the effective cwd and
+    the effective environment after the pre-abort check and before any native call (SubprocessError.nul_input);
+    tools/builtin/_search.py spawn_engine and bash.py check the unprojected argv before the WP-13.3 projection and
+    surface a marked rejection unchanged. Witnesses: tests/execution/test_spawn_nul.py,
+    tests/conformance/test_spawn_nul_conformance.py; controls scripts/l12_d011_negative_controls.py (14).
+    Independent implementation review pending; not certified.'
   rust: 'NOT_IMPLEMENTED (L12-D011 contract draft): execution/subprocess.rs maps the native InvalidInput to
     spawn_error with the OS text; tools add their wrappers (#195 characterization, source reading).'
   disposition: adopted

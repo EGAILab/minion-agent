@@ -1,0 +1,19 @@
+    Checking tokio v1.44.2
+    Checking minion-agent-pinned-icu v0.1.0 (E:\AI\Projects\OpenMinds\Minions\Minion-Agent\review-worktrees\codex-wp133d001-rust-code\minion-agent-rust\crates\minion-agent-pinned-icu)
+    Checking minion-agent-native-fs v0.1.0 (E:\AI\Projects\OpenMinds\Minions\Minion-Agent\review-worktrees\codex-wp133d001-rust-code\minion-agent-rust\crates\minion-agent-native-fs)
+    Checking minion-agent-native-env v0.1.0 (E:\AI\Projects\OpenMinds\Minions\Minion-Agent\review-worktrees\codex-wp133d001-rust-code\minion-agent-rust\crates\minion-agent-native-env)
+ Documenting minion-agent-pinned-icu v0.1.0 (E:\AI\Projects\OpenMinds\Minions\Minion-Agent\review-worktrees\codex-wp133d001-rust-code\minion-agent-rust\crates\minion-agent-pinned-icu)
+ Documenting minion-agent-native-fs v0.1.0 (E:\AI\Projects\OpenMinds\Minions\Minion-Agent\review-worktrees\codex-wp133d001-rust-code\minion-agent-rust\crates\minion-agent-native-fs)
+ Documenting xtask v0.1.0 (E:\AI\Projects\OpenMinds\Minions\Minion-Agent\review-worktrees\codex-wp133d001-rust-code\minion-agent-rust\xtask)
+    Checking hyper v1.11.0
+    Checking tokio-rustls v0.26.5
+    Checking tower v0.5.3
+ Documenting minion-agent-native-env v0.1.0 (E:\AI\Projects\OpenMinds\Minions\Minion-Agent\review-worktrees\codex-wp133d001-rust-code\minion-agent-rust\crates\minion-agent-native-env)
+    Checking hyper-util v0.1.20
+    Checking tower-http v0.6.11
+    Checking hyper-rustls v0.27.9
+    Checking reqwest v0.12.28
+    Checking jsonschema v0.33.0
+ Documenting minion-agent v0.1.0 (E:\AI\Projects\OpenMinds\Minions\Minion-Agent\review-worktrees\codex-wp133d001-rust-code\minion-agent-rust\crates\minion-agent)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 44.44s
+   Generated E:\AI\Projects\OpenMinds\Minions\Minion-Agent\.tmp\cache\cargo-target\windows\doc\minion_agent\index.html and 4 other files

@@ -1,0 +1,19 @@
+   Compiling minion-agent v0.1.0 (/tmp/wp133d/control-code/minion-agent-rust/crates/minion-agent)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 25.99s
+     Running unittests src/lib.rs (/control-target/debug/deps/minion_agent-335d1094328aafbe)
+
+running 1 test
+
+thread 'tools::builtin::bash::tests::abort_output_fixture_split_marker_is_delivered_before_one_abort_and_close_delegates' (19534) panicked at crates/minion-agent/src/tools/builtin/bash_tests.rs:670:5:
+split output marker must abort
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test tools::builtin::bash::tests::abort_output_fixture_split_marker_is_delivered_before_one_abort_and_close_delegates ... FAILED
+
+failures:
+
+failures:
+    tools::builtin::bash::tests::abort_output_fixture_split_marker_is_delivered_before_one_abort_and_close_delegates
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 198 filtered out; finished in 0.04s
+
+error: test failed, to rerun pass `-p minion-agent --lib`

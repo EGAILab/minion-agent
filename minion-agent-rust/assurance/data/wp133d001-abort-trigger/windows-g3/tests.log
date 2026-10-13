@@ -1,0 +1,1337 @@
+   Compiling minion-agent-pinned-icu v0.1.0 (E:\AI\Projects\OpenMinds\Minions\Minion-Agent\review-worktrees\codex-wp133d001-rust-code\minion-agent-rust\crates\minion-agent-pinned-icu)
+   Compiling minion-agent-native-fs v0.1.0 (E:\AI\Projects\OpenMinds\Minions\Minion-Agent\review-worktrees\codex-wp133d001-rust-code\minion-agent-rust\crates\minion-agent-native-fs)
+   Compiling minion-agent-native-env v0.1.0 (E:\AI\Projects\OpenMinds\Minions\Minion-Agent\review-worktrees\codex-wp133d001-rust-code\minion-agent-rust\crates\minion-agent-native-env)
+   Compiling xtask v0.1.0 (E:\AI\Projects\OpenMinds\Minions\Minion-Agent\review-worktrees\codex-wp133d001-rust-code\minion-agent-rust\xtask)
+   Compiling minion-agent v0.1.0 (E:\AI\Projects\OpenMinds\Minions\Minion-Agent\review-worktrees\codex-wp133d001-rust-code\minion-agent-rust\crates\minion-agent)
+warning: linker stdout: LINK : warning LNK4098: defaultlib 'LIBCMT' conflicts with use of other libs; use /NODEFAULTLIB:library
+  |
+  = note: `#[warn(linker_messages)]` on by default
+
+warning: `minion-agent` (test "llm_assistant_stream") generated 1 warning
+warning: `minion-agent` (test "llm_service_conformance") generated 1 warning (1 duplicate)
+warning: `minion-agent` (test "builtin_edit_prepare") generated 1 warning (1 duplicate)
+warning: `minion-agent` (test "prepared_runtime_conformance") generated 1 warning (1 duplicate)
+warning: `minion-agent` (test "runtime_conformance") generated 1 warning (1 duplicate)
+warning: `minion-agent` (test "raw_arguments_conformance") generated 1 warning (1 duplicate)
+warning: `minion-agent` (test "argument_object_order") generated 1 warning (1 duplicate)
+warning: `minion-agent` (test "builtin_tool_conformance") generated 1 warning (1 duplicate)
+warning: `minion-agent` (test "auth_device_code_conformance") generated 1 warning (1 duplicate)
+warning: `minion-agent` (test "arg_isolation_conformance") generated 1 warning (1 duplicate)
+warning: `minion-agent` (test "execution_nul") generated 1 warning (1 duplicate)
+warning: `minion-agent` (test "llm_conformance") generated 1 warning (1 duplicate)
+warning: `minion-agent` (test "xform_conformance") generated 1 warning (1 duplicate)
+warning: `minion-agent` (test "runtime_scope") generated 1 warning (1 duplicate)
+warning: `minion-agent` (test "runtime_fiber") generated 1 warning (1 duplicate)
+warning: `minion-agent` (test "builtin_search_conformance") generated 1 warning (1 duplicate)
+warning: `minion-agent` (test "tool_execution_context") generated 1 warning (1 duplicate)
+warning: `minion-agent` (test "prepared_runtime_edit_conformance") generated 1 warning (1 duplicate)
+warning: `minion-agent` (test "agent_state") generated 1 warning (1 duplicate)
+warning: `minion-agent` (test "argument_object_performance") generated 1 warning (1 duplicate)
+warning: `minion-agent` (test "tool_result_domain_conformance") generated 1 warning (1 duplicate)
+warning: `minion-agent` (test "tool_model") generated 1 warning (1 duplicate)
+warning: `minion-agent` (test "builtin_edit_diff") generated 1 warning (1 duplicate)
+warning: `minion-agent` (test "llm_vocabulary") generated 1 warning (1 duplicate)
+warning: `minion-agent` (test "execution_readability") generated 1 warning (1 duplicate)
+warning: `minion-agent` (test "fs_remove_readonly_conformance") generated 1 warning (1 duplicate)
+warning: `minion-agent` (test "agent_inbox_conformance") generated 1 warning (1 duplicate)
+warning: `minion-agent` (test "agent_loop_events") generated 1 warning (1 duplicate)
+warning: `minion-agent` (test "builtin_bash_conformance") generated 1 warning (1 duplicate)
+warning: `minion-agent` (test "agent_loop_pump") generated 1 warning (1 duplicate)
+warning: `minion-agent` (test "runtime_service") generated 1 warning (1 duplicate)
+warning: `minion-agent` (test "runtime_disposable") generated 1 warning (1 duplicate)
+warning: `minion-agent` (test "tool_execution_conformance") generated 1 warning (1 duplicate)
+warning: `minion-agent` (test "builtin_edit_fuzzy") generated 1 warning (1 duplicate)
+warning: `minion-agent` (test "auth_foundation") generated 1 warning (1 duplicate)
+warning: `minion-agent` (test "builtin_edit_apply") generated 1 warning (1 duplicate)
+warning: `minion-agent` (test "argument_graph_identity") generated 1 warning (1 duplicate)
+warning: `minion-agent` (test "fs_path_domain") generated 1 warning (1 duplicate)
+warning: `minion-agent` (test "runtime_schema") generated 1 warning (1 duplicate)
+warning: `minion-agent` (test "session_conformance") generated 1 warning (1 duplicate)
+warning: `minion-agent` (test "builtin_mutation_corpus") generated 1 warning (1 duplicate)
+warning: `minion-agent` (test "fs_path_domain_conformance") generated 1 warning (1 duplicate)
+warning: `minion-agent` (test "auth_pass2") generated 1 warning (1 duplicate)
+warning: `minion-agent` (test "schema_domain_conformance") generated 1 warning (1 duplicate)
+warning: `minion-agent` (test "agent_loop_conformance") generated 1 warning (1 duplicate)
+warning: `minion-agent` (test "execution_stream_close") generated 1 warning (1 duplicate)
+warning: `minion-agent` (test "prepared_string_conformance") generated 1 warning (1 duplicate)
+warning: `minion-agent` (test "execution_world") generated 1 warning (1 duplicate)
+warning: `minion-agent` (test "execution_process") generated 1 warning (1 duplicate)
+warning: `minion-agent` (test "prepared_runtime_value") generated 1 warning (1 duplicate)
+warning: `minion-agent` (test "agent_loop_tools") generated 1 warning (1 duplicate)
+warning: `minion-agent` (test "key_order_conformance") generated 1 warning (1 duplicate)
+warning: `minion-agent` (test "tool_registry_conformance") generated 1 warning (1 duplicate)
+warning: `minion-agent` (test "execution_filesystem") generated 1 warning (1 duplicate)
+warning: `minion-agent` (test "prompt_assembly_conformance") generated 1 warning (1 duplicate)
+warning: `minion-agent` (test "raw_arguments") generated 1 warning (1 duplicate)
+warning: `minion-agent` (test "wp132_key_order_independence") generated 1 warning (1 duplicate)
+warning: `minion-agent` (test "execution_append_completion") generated 1 warning (1 duplicate)
+warning: `minion-agent` (test "llm_transform") generated 1 warning (1 duplicate)
+warning: `minion-agent` (test "agent_inbox") generated 1 warning (1 duplicate)
+warning: `minion-agent` (test "agent_loop_state") generated 1 warning (1 duplicate)
+warning: `minion-agent` (test "execution_shell") generated 1 warning (1 duplicate)
+warning: `minion-agent` (test "session") generated 1 warning (1 duplicate)
+warning: `minion-agent` (test "builtin_mutation_conformance") generated 1 warning (1 duplicate)
+warning: `minion-agent` (test "prepared_string_edit_conformance") generated 1 warning (1 duplicate)
+warning: `minion-agent` (test "runtime_observer") generated 1 warning (1 duplicate)
+warning: `minion-agent` (test "tool_registry_lifecycle") generated 1 warning (1 duplicate)
+warning: `minion-agent` (test "tool_registry") generated 1 warning (1 duplicate)
+warning: `minion-agent` (test "runtime_event") generated 1 warning (1 duplicate)
+warning: `minion-agent` (test "tool_result_values") generated 1 warning (1 duplicate)
+warning: `minion-agent` (test "execution_environment") generated 1 warning (1 duplicate)
+warning: `minion-agent` (test "skill_discovery") generated 1 warning (1 duplicate)
+warning: `minion-agent` (test "builtin_mutation_write") generated 1 warning (1 duplicate)
+warning: `minion-agent` (test "agent_loop_failure") generated 1 warning (1 duplicate)
+warning: `minion-agent` (test "execution_read_write_access") generated 1 warning (1 duplicate)
+warning: `minion-agent` (test "llm_adapter") generated 1 warning (1 duplicate)
+warning: `minion-agent` (test "runtime_coordinator") generated 1 warning (1 duplicate)
+warning: `minion-agent` (test "tool_execution") generated 1 warning (1 duplicate)
+warning: `minion-agent` (lib test) generated 1 warning (1 duplicate)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 9m 21s
+     Running unittests src\lib.rs (E:\AI\Projects\OpenMinds\Minions\Minion-Agent\.tmp\cache\cargo-target\windows\debug\deps\minion_agent-018b651718ebce67.exe)
+
+running 205 tests
+test agent_loop::driver::tests::continuation_validation_is_exact_and_does_not_start_a_run ... ok
+test agent_loop::driver::tests::assistant_last_steering_pre_drain_is_admitted_once_without_a_second_claim ... ok
+test agent_loop::driver::tests::plain_continuation_keeps_history_out_of_the_run_accumulator ... ok
+test agent_loop::driver::tests::active_entry_errors_keep_their_distinct_exact_messages ... ok
+test agent_loop::driver::tests::exception_after_abort_is_represented_as_aborted_and_uses_live_persistent_model ... ok
+test agent_loop::driver::tests::only_unknown_model_resolution_is_an_eager_llm_start_error ... ok
+test agent_loop::driver::tests::assistant_last_follow_up_pre_drain_still_performs_the_initial_steering_poll ... ok
+test agent_loop::driver::tests::pre_step_observes_reasons_and_can_replace_admitted_messages ... ok
+test agent_loop::driver::tests::abort_requested_during_agent_end_settles_before_the_signal_clears ... ok
+test agent_loop::driver::tests::pre_step_prepare_and_stopping_observe_the_active_signal ... ok
+test agent_loop::driver::tests::one_signal_reaches_lifecycle_transform_and_provider_then_clears ... ok
+test agent_loop::driver::tests::prompt_accepts_every_typed_message_variant_without_normalizing_it ... ok
+test agent_loop::driver::tests::prompt_assembler_absent_keeps_corrected_header ... ok
+test agent_loop::driver::tests::prompt_assembler_empty_override_bypasses_callback ... ok
+test agent_loop::driver::tests::prompt_assembler_preserves_genuine_eager_model_failure ... ok
+test agent_loop::driver::tests::prompt_assembler_failure_settles_without_provider_request ... ok
+test agent_loop::driver::tests::prompt_is_reduced_before_dispatch_and_completed_before_steering_is_claimed ... ok
+test agent_loop::driver::tests::prompt_assembler_uses_snapshot_order_without_mutating_base ... ok
+test agent_loop::driver::tests::represented_error_and_aborted_results_are_classified_without_post_turn_work ... ok
+test agent_loop::driver::tests::provider_turn_uses_the_prepared_snapshot_and_forwards_every_complete_partial ... ok
+test agent_loop::driver::tests::request_header_rejected_step_publishes_nothing ... ok
+test agent_loop::driver::tests::request_header_is_visible_to_transform_and_survives_abort ... ok
+test agent_loop::driver::tests::represented_terminals_skip_every_post_turn_decision_and_leave_queues_unclaimed ... ok
+test agent_loop::driver::tests::request_header_schema_failure_precedes_publication_and_transform ... ok
+test agent_loop::driver::tests::steering_without_tool_continuation_starts_the_next_turn ... ok
+test agent_loop::driver::tests::steering_and_follow_up_use_independently_configurable_all_policies ... ok
+test agent_loop::driver::tests::text_and_images_normalize_to_one_user_message_in_exact_order ... ok
+test agent_loop::driver::tests::stop_precedes_queue_claim_and_leaves_follow_up_pending ... ok
+test agent_loop::driver::tests::tool_listener_failure_preserves_the_raw_listener_message ... ok
+test agent_loop::driver::tests::transform_context_is_provider_local_and_cannot_replace_signal_metadata ... ok
+test agent_loop::driver::tests::wp142_composer_publishes_exact_prompt_and_retained_configuration ... ok
+test argument_object::tests::both_partitions_support_lookup_mutable_entry_and_removal_without_reordering ... ok
+test argument_object::tests::every_mutation_keeps_index_first_and_ordinary_insertion_order ... ok
+test argument_object::tests::recognition_is_canonical_ascii_and_total ... ok
+test agent_loop::driver::tests::tool_execution_uses_the_run_snapshot_after_live_registry_replacement ... ok
+test agent_loop::driver::tests::per_call_context_is_fresh_in_one_batch_and_prior_snapshot_is_immutable ... ok
+test agent_loop::driver::tests::tool_events_are_live_and_pending_state_spans_the_update_window ... ok
+test agent_loop::driver::tests::prompt_assembler_later_failure_keeps_only_the_prior_header ... ok
+test agent_loop::driver::tests::concurrent_agents_share_a_registration_without_sharing_context ... ok
+test agent_loop::driver::tests::prepare_next_turn_replaces_context_model_and_thinking_for_this_run_only ... ok
+test agent_loop::driver::tests::terminate_suppresses_only_tool_driven_continuation ... ok
+test agent_loop::driver::tests::added_tool_names_extend_only_the_run_local_snapshot_in_order ... ok
+test auth::http_transport::tests::response_body_is_lazy_bom_stripped_cached_and_discardable ... ok
+test agent_loop::driver::tests::wp142_prepare_next_turn_replaces_one_configuration_and_tool_snapshot ... ok
+test agent_loop::driver::tests::wp142_composer_follows_growth_and_replacement_not_live_registry ... ok
+test auth::openai_codex::tests::jwt_decode_rejects_url_alphabet_bad_padding_and_json_constants ... ok
+test auth::openai_codex::tests::account_projection_uses_open_extra_and_bearer_auth ... ok
+test agent_loop::driver::tests::dynamically_added_tool_is_available_to_the_next_turn_only_through_run_growth ... ok
+test agent_loop::driver::tests::successful_run_continues_for_tools_steering_and_follow_up_in_pi_order ... ok
+test agent_loop::driver::tests::prepare_next_turn_replacement_does_not_leak_to_a_later_run_snapshot ... ok
+test auth::openai_codex::tests::jwt_decode_uses_forgiving_base64_latin1_and_javascript_numbers ... ok
+test auth::openai_codex_oauth::tests::number_coercion_matches_javascript_discriminators ... ok
+test auth::openai_codex_oauth::tests::invalid_response_error_preserves_javascript_surrogate_rendering ... ok
+test auth::openai_codex_oauth::tests::parser_preserves_whatwg_boundaries ... ok
+test auth::openai_codex_oauth::tests::device_flow_uses_real_poller_emits_event_and_sends_exact_requests ... ok
+test auth::openai_codex_oauth::tests::status_only_branches_do_not_read_bodies_and_non_success_read_failures_fall_back ... ok
+test execution::filesystem::l12d007_handle_tests::read_write_handle_denial_is_unknown_but_open_denial_is_permission_denied ... ok
+test auth::openai_codex_oauth::tests::strict_response_field_types_cover_all_six_prov_016_fields ... ok
+test auth::openai_codex_oauth::tests::browser_bind_failure_silently_falls_back_to_manual_input ... ok
+test auth::openai_codex_oauth::tests::empty_manual_input_cancels_the_server_and_fails_without_exchange ... ok
+test auth::openai_codex_oauth::tests::browser_manual_path_notifies_then_prompts_and_exchanges_with_local_pkce ... ok
+test execution::filesystem::other_classification::entry_probe_unclassified_target_falls_through_to_other_on_every_host ... ok
+test agent_loop::driver::tests::prompt_assembler_seven_requests_follow_context_snapshots_not_registry_churn ... ok
+test auth::openai_codex_oauth::tests::browser_callback_wins_the_race_and_supplies_the_exchange_code ... ok
+test execution::filesystem::l12d007_handle_tests::literal_win32_mapping_is_not_the_std_error_kind_mapping ... ok
+test auth::openai_codex_oauth::tests::callback_route_checks_path_state_and_empty_code ... ok
+test agent_loop::driver::tests::twenty_one_tool_turns_are_not_capped ... ok
+test execution::filesystem::tests::concrete_tokio_raw_enumerator_has_no_direct_metadata_probe ... ok
+test auth::openai_codex_oauth::tests::browser_notify_failure_remains_before_the_cleanup_boundary ... ok
+test execution::filesystem::tests::file_url_conversion_applies_node_platform_rules_after_ada_parsing ... ok
+test execution::filesystem::tests::host_read_write_errors_preserve_the_combined_querys_error_class ... ok
+test execution::filesystem::tests::host_readability_errors_never_report_missing_provider_capability ... ok
+test execution::filesystem::tests::l12d006_other_invalid_input_keeps_invalid ... ok
+test auth::http_transport::tests::cancellation_drops_an_in_flight_operation_promptly ... ok
+test execution::filesystem::tests::mkdir_walk_failed_stat_is_enotdir_only_with_pending_children ... ok
+test execution::filesystem::tests::raw_listing_invokes_only_enumeration_and_zero_per_entry_probes ... ok
+test execution::filesystem::tests::exact_ada_292_host_oracle_matches_all_8246_cases ... ok
+test execution::filesystem::tests::windows_call_not_implemented_is_unknown_not_missing_capability ... ok
+test execution::filesystem::tests::windows_combined_access_calls_one_probe_and_rejects_nul_first ... ok
+test execution::path::tests::file_url_has_its_own_scalar_boundary ... ok
+test execution::path::tests::lexical_paths_do_not_project_surrogates ... ok
+test execution::path::tests::scalar_resolution_preserves_the_certified_existing_binding ... ok
+test execution::subprocess::tests::explicit_termination_preserves_the_os_reported_exit_code ... ok
+test execution::subprocess::tests::failed_kill_helper_does_not_reclassify_an_already_claimed_signal ... ok
+test execution::subprocess::tests::first_successful_cause_claim_wins_a_signal_natural_exit_race ... ok
+test execution::subprocess::tests::signal_termination_remains_an_aborted_error ... ok
+test execution::filesystem::readonly_tests::readonly_correction_addresses_the_link_not_its_external_target ... ok
+test javascript::tests::loads_uses_ieee_754_and_rejects_non_json_constants ... ok
+test javascript::tests::stringify_matches_discriminating_ecmascript_boundaries ... ok
+test javascript::tests::strings_preserve_unpaired_surrogates_and_combine_valid_pairs ... ok
+test javascript::tests::trim_uses_the_ecmascript_set_including_bom ... ok
+test runtime::event::tests::pending_registration_is_never_admitted_while_owner_removal_races_dispatch ... ok
+test execution::filesystem::tests::list_dir_failure_names_the_vanished_native_entry_not_the_directory ... ok
+test execution::filesystem::readonly_tests::readonly_directory_nonrecursive_refusal_does_not_clear_the_attribute ... ok
+test execution::filesystem::tests::real_tokio_raw_listing_invokes_zero_probe_operations ... ok
+test execution::filesystem::rimraf::tests::a_child_vanishing_between_enumeration_and_lstat_is_removed_on_every_platform ... ok
+test execution::subprocess::tests::target_exit_settles_without_waiting_for_a_hung_kill_helper ... ok
+test execution::filesystem::readonly_tests::readonly_directory_real_remove_handles_target_and_tree ... ok
+test system_prompt::tests::dirname_uses_utf16_not_scalar_indices ... ok
+test system_prompt::tests::metadata_is_additive_and_uses_js_not_rust_whitespace ... ok
+test execution::filesystem::rimraf::tests::disappearance_at_first_rmdir_is_accepted ... ok
+test execution::filesystem::rimraf::tests::actual_provider_handle_failures_are_unknown_before_eof_and_keep_the_logical_path ... ok
+test execution::filesystem::rimraf::tests::disappearance_at_readdir_is_accepted ... ok
+test execution::filesystem::readonly_tests::readonly_directory_correction_keeps_the_existing_long_path_boundary ... ok
+test tools::builtin::bash::tests::abort_output_fixture_utf8_suffix_does_not_trigger_a_premature_replacement ... ok
+test tools::builtin::bash::tests::abort_output_fixture_split_marker_is_delivered_before_one_abort_and_close_delegates ... ok
+test tools::builtin::bash::tests::abort_output_fixture_watches_stderr_and_combines_delivery_order ... ok
+test tools::builtin::bash::tests::bash_abort_arriving_during_discovery_is_not_a_spawn_failure ... ok
+test execution::filesystem::rimraf::tests::disappearance_at_final_rmdir_is_accepted ... ok
+test tools::builtin::bash::tests::bash_cancel_drops_the_writer_future_and_no_write_outlives_the_call ... ok
+test tools::builtin::bash::tests::bash_append_failure_uses_own_error_and_prerequisites_are_not_fabricated ... ok
+test tools::builtin::bash::tests::bash_context_env_is_explicit_clean_and_provider_snapshot_is_per_call ... ok
+test tools::builtin::bash::tests::bash_disabled_context_is_removed_signal_delegated_and_worlds_checked ... ok
+test tools::builtin::bash::tests::bash_empty_override_falls_through_custom_missing_fails_and_windows_lookup_probes ... ok
+test execution::filesystem::rimraf::tests::disappearance_at_retry_unlink_is_accepted ... ok
+test tools::builtin::bash::tests::bash_file_failure_kills_before_own_error_and_discards_output ... ok
+test tools::builtin::bash::tests::bash_legacy_stdin_does_not_block_timeout_and_command_uses_usv_projection ... ok
+test tools::builtin::bash::tests::bash_lookup_timeout_after_exit_keeps_zero_and_releases_pipes ... ok
+test tools::builtin::bash::tests::bash_lookup_waits_for_exit_and_both_eof_not_command_grace ... ok
+test tools::builtin::bash::tests::bash_lookup_retains_the_budget_crossing_stdout_chunk ... ok
+test tools::builtin::bash::tests::bash_lookup_combined_budget_keeps_exited_status_and_kills_only_unexited ... ok
+test tools::builtin::bash::tests::bash_precheck_order_timeout_before_abort_before_shell_and_cwd ... ok
+test tools::builtin::bash::tests::bash_settlement_waits_for_output_resets_grace_and_releases_both_pipes ... ok
+test tools::builtin::bash::tests::bash_spawn_failure_has_own_text_and_zero_updates ... ok
+test tools::builtin::bash::tests::bash_lookup_selection_uses_real_status_truthiness_and_buffer_utf8 ... ok
+test tools::builtin::bash::tests::bash_stdout_stderr_share_one_decoder_in_read_completion_order ... ok
+test tools::builtin::bash::tests::bash_command_projection_argv_and_stdin_preserves_pairs_replaces_lone_units ... ok
+test tools::builtin::bash_output::tests::merged_decoder_bom_eof_and_raw_bytes ... ok
+test tools::builtin::bash_output::tests::raw_threshold_opens_a_log_even_when_bom_stripping_avoids_truncation ... ok
+test tools::builtin::bash::tests::bash_nonzero_empty_output_and_notice_precede_the_status ... ok
+test tools::builtin::bash_output::tests::rolling_tail_and_total_projection ... ok
+test tools::builtin::bash::tests::bash_persistence_join_freezes_timeout_and_abort_and_preserves_raw_bytes ... ok
+test tools::builtin::bash::tests::bash_timer_is_whole_ms_minimum_one_and_abort_wins_during_grace ... ok
+test tools::builtin::bash_output::tests::pinned_boundary_probe_all_ten_rolling_rows ... ok
+test skills::frontmatter::tests::collection_depth_is_exactly_64_and_root_counts ... ok
+test execution::filesystem::rimraf::tests::removal_walk_uses_constant_interpreter_stack_for_deep_trees ... ok
+test execution::filesystem::rimraf::tests::directory_link_recovery_matches_pinned_pi ... ok
+test skills::frontmatter::tests::shared_subset_corpus ... ok
+test execution::filesystem::rimraf::tests::l12d007_all_41_pi_routing_rows_match_and_injections_fire ... ok
+test tools::builtin::image::tests::scale_hint_rounds_exact_binary64_like_ecmascript_to_fixed ... ok
+test tools::builtin::mime::tests::apng_animation_control_before_idat_is_not_a_supported_still_image ... ok
+test tools::builtin::mime::tests::sniff_is_content_not_extension ... ok
+test tools::builtin::mutation_queue::tests::completion_latch_remembers_a_release_before_the_waiter_is_polled ... ok
+test tools::builtin::mutation_queue::tests::equal_paths_on_different_provider_instances_do_not_share_a_lock ... ok
+test tools::builtin::mutation_queue::tests::registration_order_survives_reverse_worker_poll_order ... ok
+test skills::ignore::tests::utf16_prefix_and_nonunicode_case_folding_are_lossless ... ok
+test tools::builtin::numeric::tests::negative_and_fractional_slice_indices_match_js ... ok
+test tools::builtin::paths::tests::malformed_file_url_rejected_before_any_provider ... ok
+test tools::builtin::paths::tests::unicode_space_and_one_at_only ... ok
+test tools::builtin::paths::tests::windows_drive_shape_is_ascii_only_and_preserves_shell_boundaries ... ok
+test tools::builtin::search_engines::tests::non_local_world_has_exact_text_without_store_consultation ... ok
+test tools::builtin::mutation_queue::tests::same_key_waits_until_drop_then_drops_its_tail ... ok
+test tools::builtin::search_glob::tests::separators_classes_and_alternation_context ... ok
+test tools::builtin::search_node_lower::tests::node_unicode16_lowercase_is_not_host_unicode17 ... ok
+test tools::builtin::search_paths::tests::logical_surrogate_root_is_not_its_native_replacement ... ok
+test tools::builtin::search_paths::tests::windows_relative_is_case_insensitive_not_prefix_matching ... ok
+test tools::builtin::search_run::tests::completion_requires_exit_and_both_eofs ... ok
+test tools::builtin::search_run::tests::every_exit_and_eof_abort_is_inside_the_window_but_close_is_outside ... ok
+test tools::builtin::search_run::tests::held_limit_stop_acknowledgement_does_not_extend_completion ... ok
+test tools::builtin::search_run::tests::readline_handles_cr_and_utf8_chunks_without_stripping_bom ... ok
+test tools::builtin::search_engines::tests::staging_cannot_publish_a_partial_binary_at_the_fixed_name ... ok
+test tools::builtin::search_tests::diagnostic_rerun_abort_between_runs_prevents_spawn ... ok
+test tools::builtin::search_tests::diagnostic_rerun_completion_excludes_disposal_abort ... ok
+test tools::builtin::search_tests::diagnostic_rerun_abort_during_wait_settles_before_stop_ack ... ok
+test tools::builtin::search_tests::diagnostic_rerun_without_abort_keeps_diagnostic ... ok
+test tools::builtin::search_tests::diagnostic_rerun_is_verified_again_and_preserves_pi_text ... ok
+test tools::builtin::search_tests::grep_counts_uncollected_matches_without_reordering ... ok
+test tools::builtin::search_tests::find_stream_order_duplicates_and_untrimmed_empty_decision ... ok
+test tools::builtin::bash::tests::bash_windows_probe_selection_and_nonfollowing_cwd_are_distinct ... ok
+test tools::builtin::search_text::tests::surrogate_cut_and_empty_body_do_not_lossily_serialize ... ok
+test tools::builtin::text::tests::fractional_and_negative_js_slice_domain ... ok
+test tools::builtin::text::tests::user_limit_notice_does_not_fabricate_truncation_details ... ok
+test tools::builtin::truncate::tests::first_line_overflow_and_empty_shape ... ok
+test tools::builtin::truncate::tests::head_truncation_keeps_only_complete_lines_and_selected_counts ... ok
+test tools::execution::live_update_tests::an_update_reserved_before_execute_settles_keeps_the_join_open ... ok
+test tools::prepared::string_tests::non_scalar_keys_are_addressable_and_json_conversion_never_normalizes ... ok
+test tools::prepared::string_tests::scalar_and_non_scalar_strings_have_exact_units_and_explicit_projection ... ok
+test tools::builtin::search_tests::real_factories_reproduce_the_fourteen_pi_abort_partition_cells ... ok
+test tools::prepared_validation::tests::declared_numeric_and_nullable_positions_are_finite_only ... ok
+test skills::discovery::tests::invalid_ignore_path_emits_one_diagnostic_and_skips_only_that_entry ... ok
+test tools::prepared_validation::tests::non_finite_does_not_impersonate_null_string_const_or_enum ... ok
+test tools::prepared_validation::tests::integer_valued_length_constraints_and_invalid_schemas_keep_engine_behavior ... ok
+test tools::prepared_validation::tests::numeric_keywords_ignore_non_finite_values_but_constrain_finite_values ... ok
+test tools::prepared_validation::tests::older_draft_bound_modifiers_and_finite_siblings_keep_their_rules ... ok
+test tools::prepared_validation::tests::private_string_tags_cannot_collide_with_schema_or_runtime_literals ... ok
+test tools::builtin::bash::tests::abort_output_fixture_real_lookup_never_aborts_the_command ... ok
+test tools::builtin::edit_apply::tests::exact_matching_can_target_one_half_of_an_astral_pair ... ok
+test tools::prepared_validation::tests::runtime_surrogates_validate_without_scalar_normalization ... ok
+test tools::prepared_validation::tests::tags_do_not_collide_with_real_values_or_schema_constants ... ok
+test tools::prepared_validation::tests::schema_literals_names_regexes_and_local_refs_keep_utf16_identity ... ok
+test tools::prepared_validation::tests::unique_items_preserves_distinct_categories_and_duplicate_detection ... ok
+test tools::prepared_validation::tests::numeric_keyword_applicability_survives_composition_references_and_arrays ... ok
+test tools::builtin::edit_apply::tests::unicode16_nfkc_preserves_lone_units_and_composes_valid_runs ... ok
+test tools::prepared_validation::tests::runtime_keys_use_real_unicode_patterns_and_nested_reference_validation ... ok
+test tools::prepared_validation::tests::nested_constraints_references_and_complete_unconstrained_union_branches ... ok
+test tools::builtin::search_tests::managed_store_verifies_every_use_and_provisioning_is_idempotent ... ok
+test tools::builtin::image::tests::no_resize_fast_path_keeps_exact_input_bytes ... ok
+test tools::builtin::image::tests::real_read_image_serializes_standard_canonical_base64 ... ok
+test tools::builtin::image::tests::bmp_conversion_matches_pinned_photon_bytes ... ok
+test tools::builtin::image::tests::resize_hint_uses_exact_2150_to_2000_scale ... ok
+test tools::builtin::image::tests::exact_base64_ceiling_does_not_use_the_no_resize_fast_path ... ok
+test tools::builtin::image::tests::bmp_conversion_then_resize_matches_pinned_photon_bytes ... ok
+test tools::builtin::image::tests::bmp_to_jpeg_hint_uses_final_mime_and_first_eligible_quality ... ok
+test skills::ignore::tests::ignore_parent_chain_is_stack_independent_and_cache_is_invalidated ... ok
+test skills::ignore::tests::shared_ignore_corpus ... ok
+
+test result: ok. 205 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 8.68s
+
+     Running tests\agent_inbox.rs (E:\AI\Projects\OpenMinds\Minions\Minion-Agent\.tmp\cache\cargo-target\windows\debug\deps\agent_inbox-055f604aff6b2737.exe)
+
+running 6 tests
+test inbox_accepts_the_complete_pinned_agent_message_domain ... ok
+test injection_is_steering_without_requesting_wake_or_consuming_content ... ok
+test queues_clear_independently_and_clear_all_preserves_wake ... ok
+test claims_are_fifo_and_queue_modes_are_exact ... ok
+test target_pending_is_a_non_consuming_fifo_snapshot ... ok
+test envelopes_have_unique_stable_ids_and_preserve_opaque_origins ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests\agent_inbox_conformance.rs (E:\AI\Projects\OpenMinds\Minions\Minion-Agent\.tmp\cache\cargo-target\windows\debug\deps\agent_inbox_conformance-ed55a54746149395.exe)
+
+running 1 test
+test all_layer_07_inbox_scenarios_drive_the_real_rust_inbox ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.94s
+
+     Running tests\agent_loop_conformance.rs (E:\AI\Projects\OpenMinds\Minions\Minion-Agent\.tmp\cache\cargo-target\windows\debug\deps\agent_loop_conformance-c4ae449f86511e26.exe)
+
+running 10 tests
+test request_header_unknown_model ... ok
+test request_header_provider_error ... ok
+test request_header_transform_first ... ok
+test request_header_literal_override ... ok
+test request_header_single_request ... ok
+test request_header_transform_later ... ok
+test request_header_request_order ... ok
+test request_header_full_schema_identity ... ok
+test discovery_classifies_every_agent_document_by_semantic_shape ... ok
+test all_layer_08_scenarios_drive_the_real_rust_agent_loop ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.12s
+
+     Running tests\agent_loop_continuation.rs (E:\AI\Projects\OpenMinds\Minions\Minion-Agent\.tmp\cache\cargo-target\windows\debug\deps\agent_loop_continuation-bbd2e518bc2d7bd8.exe)
+
+running 2 tests
+test stopping_defaults_to_continue_without_a_concrete_opinion ... ok
+test stopping_uses_the_first_concrete_listener_opinion ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests\agent_loop_events.rs (E:\AI\Projects\OpenMinds\Minions\Minion-Agent\.tmp\cache\cargo-target\windows\debug\deps\agent_loop_events-a056a7bdf7ea50c4.exe)
+
+running 5 tests
+test every_agent_event_variant_preserves_its_complete_typed_payload ... ok
+test run_and_decision_vocabulary_uses_owned_typed_snapshots_and_exact_wire_names ... ok
+test first_agent_listener_error_prevents_later_listeners ... ok
+test eagerly_ready_listeners_still_have_a_scheduling_boundary_between_them ... ok
+test agent_listeners_are_awaited_serially_in_registration_order ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests\agent_loop_failure.rs (E:\AI\Projects\OpenMinds\Minions\Minion-Agent\.tmp\cache\cargo-target\windows\debug\deps\agent_loop_failure-7cc7f143894d17be.exe)
+
+running 14 tests
+test public_entry_errors_keep_their_exact_distinct_messages ... ok
+test recovery_listener_failure_interrupts_recovery_but_guard_still_settles ... ok
+test ordinary_listener_failure_recovers_without_inventing_turn_start ... ok
+test unknown_model_remains_eager_and_does_not_synthesize_failure ... ok
+test every_recovery_listener_boundary_interrupts_only_after_its_own_reduction ... ok
+test exhausted_adapter_settles_as_a_represented_terminal ... ok
+test no_start_provider_message_listener_failure_enters_recovery ... ok
+test public_continue_runs_from_an_existing_non_assistant_transcript ... ok
+test ordinary_agent_end_listener_failure_is_recovered_inside_the_run_boundary ... ok
+test run_local_model_replacement_does_not_change_synthesized_failure_identity ... ok
+test post_turn_listener_failure_enters_recovery_with_raw_message ... ok
+test public_prompt_runs_the_complete_state_machine_and_settles_idle ... ok
+test persistent_model_mutation_during_run_is_read_live_by_failure_settlement ... ok
+test public_prompt_preserves_typed_batches_and_text_image_convenience_input ... ok
+
+test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests\agent_loop_pump.rs (E:\AI\Projects\OpenMinds\Minions\Minion-Agent\.tmp\cache\cargo-target\windows\debug\deps\agent_loop_pump-10b1d846a346171d.exe)
+
+running 8 tests
+test pump_consumes_wake_without_treating_steering_as_next_turn_work ... ok
+test claim_all_pump_exposes_every_cause_and_consumes_wake_only_when_idle ... ok
+test assistant_last_continue_uses_the_claimed_envelopes_as_run_causes ... ok
+test assistant_last_followup_continue_uses_that_exact_envelope_as_the_cause ... ok
+test failure_agent_end_retains_the_run_causes ... ok
+test pump_opens_a_second_run_when_should_stop_leaves_followup_pending ... ok
+test one_at_a_time_followups_accumulate_causes_on_the_same_run ... ok
+test prompt_and_plain_continue_have_no_queued_input_causes ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests\agent_loop_state.rs (E:\AI\Projects\OpenMinds\Minions\Minion-Agent\.tmp\cache\cargo-target\windows\debug\deps\agent_loop_state-e598514d652c7a3f.exe)
+
+running 7 tests
+test message_reduction_tracks_complete_partial_and_appends_only_at_end ... ok
+test error_persists_after_agent_end_and_finish_until_the_next_run_starts ... ok
+test begin_run_is_an_atomic_single_authority_transition ... ok
+test failed_snapshot_resolution_rolls_back_every_entry_mutation ... ok
+test finish_run_unconditionally_clears_transient_state_and_returns_idle ... ok
+test tool_reduction_adds_and_removes_only_the_matching_pending_call ... ok
+test run_snapshot_is_one_time_owned_top_level_state_with_shared_tool_identity ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests\agent_loop_tools.rs (E:\AI\Projects\OpenMinds\Minions\Minion-Agent\.tmp\cache\cargo-target\windows\debug\deps\agent_loop_tools-6df8f4e818ca0494.exe)
+
+running 5 tests
+test live_start_failure_prevents_the_execute_body ... ok
+test update_listener_failure_propagates_before_finalization_and_end ... ok
+test structured_update_starts_eagerly_and_joins_before_end ... ok
+test parallel_end_callbacks_follow_completion_while_messages_remain_source_ordered ... ok
+test first_rejected_update_fails_fast_while_another_dispatch_remains_live ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running tests\agent_state.rs (E:\AI\Projects\OpenMinds\Minions\Minion-Agent\.tmp\cache\cargo-target\windows\debug\deps\agent_state-7ed2ca58688565ca.exe)
+
+running 7 tests
+test agent_level_inbox_surface_delegates_without_adding_run_timing ... ok
+test state_has_the_approved_initial_vocabulary_and_mutable_configuration ... ok
+test abort_authority_is_agent_owned_and_each_run_gets_a_fresh_read_only_signal ... ok
+test active_reset_is_exact_and_atomic ... ok
+test messages_are_a_live_session_projection_and_tools_are_total ... ok
+test reset_uses_session_reset_and_preserves_wake_configuration_and_identity ... ok
+test tools_are_a_live_layer_05_projection_and_survive_reset ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests\arg_isolation_conformance.rs (E:\AI\Projects\OpenMinds\Minions\Minion-Agent\.tmp\cache\cargo-target\windows\debug\deps\arg_isolation_conformance-6d8971030342bdc8.exe)
+
+running 8 tests
+test retained_aliases_across_object_array_frontiers_are_fresh_and_shared ... ok
+test one_graph_reaches_every_listener_and_execute ... ok
+test reused_child_is_isolated_from_the_prepared_source ... ok
+test alias_identity_survives_validation ... ok
+test enumeration_order_survives_validation ... ok
+test runtime_values_survive_validation ... ok
+test raw_mutation_isolation_and_update_delivery ... ok
+test complete_acyclic_corpus_through_real_preflight ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.32s
+
+     Running tests\argument_graph_identity.rs (E:\AI\Projects\OpenMinds\Minions\Minion-Agent\.tmp\cache\cargo-target\windows\debug\deps\argument_graph_identity-be096ee60f030250.exe)
+
+running 6 tests
+test raw_to_prepared_preserves_shared_object_and_array_aliases ... ok
+test array_append_insert_replace_and_extend_keep_the_supplied_handles ... ok
+test object_attachment_keeps_the_exact_retained_child_identity ... ok
+test structured_clone_copies_the_graph_but_not_its_aliases_in_either_frontier_order ... ok
+test raw_event_listeners_live_deliveries_and_retained_array_root_share_identity ... ok
+test shim_objects_are_isolated_but_hooks_share_one_alias_preserving_graph ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running tests\argument_object_order.rs (E:\AI\Projects\OpenMinds\Minions\Minion-Agent\.tmp\cache\cargo-target\windows\debug\deps\argument_object_order-e7a59ff16662ce34.exe)
+
+running 4 tests
+test explicit_wrong_storage_controls_are_distinguished ... ok
+test duplicate_properties_keep_first_position_and_last_value ... ok
+test prepared_and_replacement_values_do_not_impose_sorted_key_order ... ok
+test raw_decode_and_serialization_keep_the_same_order_recursively ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests\argument_object_performance.rs (E:\AI\Projects\OpenMinds\Minions\Minion-Agent\.tmp\cache\cargo-target\windows\debug\deps\argument_object_performance-fed2c4ca15f1e2ba.exe)
+
+running 1 test
+test fifty_thousand_mixed_properties_build_quickly_even_with_descending_indices ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.08s
+
+     Running tests\auth_device_code_conformance.rs (E:\AI\Projects\OpenMinds\Minions\Minion-Agent\.tmp\cache\cargo-target\windows\debug\deps\auth_device_code_conformance-d52837c31d712eaa.exe)
+
+running 1 test
+test all_layer_11_device_code_scenarios_drive_the_real_rust_state_machine ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests\auth_foundation.rs (E:\AI\Projects\OpenMinds\Minions\Minion-Agent\.tmp\cache\cargo-target\windows\debug\deps\auth_foundation-d925ff49cf88ea99.exe)
+
+running 13 tests
+test pkce_matches_rfc_vector_and_generation_shape ... ok
+test credential_handles_preserve_live_scalar_and_nested_aliasing ... ok
+test device_polling_uses_server_interval_and_terminal_outcomes ... ok
+test abortable_sleep_models_settimeout_boundaries ... ok
+test poll_loop_normalizes_negative_infinity_before_the_timer_boundary ... ok
+test refresh_nan_suppresses_work_and_combined_signal_honors_deadline ... ok
+test store_reads_expose_the_same_live_credential_and_none_does_not_delete ... ok
+test refresh_post_validation_uses_the_effective_default_threshold ... ok
+test store_preserves_insertion_order_and_stale_absence ... ok
+test store_serializes_same_provider_and_failure_does_not_sour_chain ... ok
+test refresh_double_checks_and_refreshes_once ... ok
+test cancellation_returns_promptly_and_discards_late_modify_result ... ok
+test queued_abort_prevents_the_queued_callback_from_running ... ok
+
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running tests\auth_pass2.rs (E:\AI\Projects\OpenMinds\Minions\Minion-Agent\.tmp\cache\cargo-target\windows\debug\deps\auth_pass2-15436db43264b54a.exe)
+
+running 4 tests
+test provider_auth_enforces_at_least_one_method ... ok
+test auth_vocabulary_fields_are_mutable_and_subscription_is_three_valued ... ok
+test codex_oauth_composite_has_the_approved_public_identity ... ok
+test provider_interaction_is_an_auth_interaction_and_select_has_no_signal ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests\builtin_bash_conformance.rs (E:\AI\Projects\OpenMinds\Minions\Minion-Agent\.tmp\cache\cargo-target\windows\debug\deps\builtin_bash_conformance-2dd866123ea0c567.exe)
+
+running 4 tests
+test fs_containment::containment_refuses_unsafe_raw_mutation_names_before_dispatch ... ok
+test real_detached_descendant_inherits_pipes_but_is_not_killed_by_settlement ... ok
+test output_abort_holds_under_slow_start_and_wall_clock_control_loses_before ... ok
+test canonical_bash_real_capabilities_and_layer_six ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 31.45s
+
+     Running tests\builtin_edit_apply.rs (E:\AI\Projects\OpenMinds\Minions\Minion-Agent\.tmp\cache\cargo-target\windows\debug\deps\builtin_edit_apply-64c80883456a36dc.exe)
+
+running 4 tests
+test exact_match_is_still_counted_in_fuzzy_space ... ok
+test overlapping_edits_and_empty_normalized_match_keep_pi_diagnostics ... ok
+test fuzzy_changes_preserve_untouched_original_lines ... ok
+test replacements_are_matched_against_the_original_not_incrementally ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.53s
+
+     Running tests\builtin_edit_diff.rs (E:\AI\Projects\OpenMinds\Minions\Minion-Agent\.tmp\cache\cargo-target\windows\debug\deps\builtin_edit_diff-3025f270c0479ab8.exe)
+
+running 1 test
+test every_successful_authority_corpus_diff_and_patch_is_byte_exact ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.16s
+
+     Running tests\builtin_edit_fuzzy.rs (E:\AI\Projects\OpenMinds\Minions\Minion-Agent\.tmp\cache\cargo-target\windows\debug\deps\builtin_edit_fuzzy-50ecb31fe3500943.exe)
+
+running 2 tests
+test normalization_is_unicode16_and_uses_javascript_whitespace ... ok
+test pinned_fuzzy_fixture_is_replayed_against_production ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.78s
+
+     Running tests\builtin_edit_prepare.rs (E:\AI\Projects\OpenMinds\Minions\Minion-Agent\.tmp\cache\cargo-target\windows\debug\deps\builtin_edit_prepare-6ad0f6993a501de3.exe)
+
+running 3 tests
+test preparation_leaves_invalid_json_and_non_edit_objects_unchanged ... ok
+test preparation_preserves_json_parse_overflow_and_negative_zero ... ok
+test preparation_accepts_single_object_and_appends_legacy_fields ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests\builtin_mutation_conformance.rs (E:\AI\Projects\OpenMinds\Minions\Minion-Agent\.tmp\cache\cargo-target\windows\debug\deps\builtin_mutation_conformance-877c7c1f93f0a5fe.exe)
+
+running 4 tests
+test virtual_quiescence_fires_abort_listener_timers_even_at_ten_seconds ... ok
+test queue_evidence_kills_early_abort_result_controls_at_all_three_timer_scales ... ok
+test scalar_non_corpus_subset_and_all_queue_documents ... ok
+test complete_builtin_mutation_case_corpus_including_unpaired_arguments has been running for over 60 seconds
+test complete_builtin_mutation_case_corpus_including_unpaired_arguments ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 271.63s
+
+     Running tests\builtin_mutation_corpus.rs (E:\AI\Projects\OpenMinds\Minions\Minion-Agent\.tmp\cache\cargo-target\windows\debug\deps\builtin_mutation_corpus-d30e5a94b893be2c.exe)
+
+running 2 tests
+test provider_gate_released_before_arrival_is_level_triggered ... ok
+test scalar_json_authority_subset_runs_through_real_tools_and_layer_six has been running for over 60 seconds
+test scalar_json_authority_subset_runs_through_real_tools_and_layer_six ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 265.60s
+
+     Running tests\builtin_mutation_write.rs (E:\AI\Projects\OpenMinds\Minions\Minion-Agent\.tmp\cache\cargo-target\windows\debug\deps\builtin_mutation_write-4a89915f3dce496b.exe)
+
+running 3 tests
+test direct_aborted_execution_registers_but_does_not_create_parents ... ok
+test parent_creation_error_keeps_the_argument_and_deterministic_cause ... ok
+test write_uses_the_filesystem_and_reports_utf16_units_not_bytes ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests\builtin_search_conformance.rs (E:\AI\Projects\OpenMinds\Minions\Minion-Agent\.tmp\cache\cargo-target\windows\debug\deps\builtin_search_conformance-f441ee74fecf6772.exe)
+
+running 2 tests
+test comparisons_reject_fabrication_duplicates_and_wrong_order ... ok
+test canonical_search_real_engines_and_layer_six ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 38.31s
+
+     Running tests\builtin_tool_conformance.rs (E:\AI\Projects\OpenMinds\Minions\Minion-Agent\.tmp\cache\cargo-target\windows\debug\deps\builtin_tool_conformance-771eb3e98c4967a4.exe)
+
+running 2 tests
+test abort_during_read_binary_file_wins_at_worker_settlement ... ok
+test every_builtin_scenario_uses_real_rust_tools_and_execution ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 23.04s
+
+     Running tests\execution_append_completion.rs (E:\AI\Projects\OpenMinds\Minions\Minion-Agent\.tmp\cache\cargo-target\windows\debug\deps\execution_append_completion-bff4bcf0e2ac208a.exe)
+
+running 2 tests
+test append_waits_for_write_completion_and_does_not_inspect_an_aborted_signal ... ok
+test append_waits_for_write_completion_without_a_signal ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests\execution_environment.rs (E:\AI\Projects\OpenMinds\Minions\Minion-Agent\.tmp\cache\cargo-target\windows\debug\deps\execution_environment-ec920f504b6f2372.exe)
+
+running 10 tests
+test snapshot_native_lookup_counts_units_without_consumer_arbitration ... ok
+test snapshots_and_consumer_copies_are_isolated ... ok
+test posix_lossless_entries_exact_lookup_and_node_decode ... ok
+test windows_pairs_and_lone_units_use_generalized_utf8 ... ok
+test local_declaration_and_configured_baseline_stay_fixed ... ok
+test vendored_native_table_has_exact_shared_bytes ... ok
+test live_native_table_matches_pinned_table_on_this_host ... ok
+test configured_baseline_rebuild_matches_real_inheritance_and_false_is_exact ... ok
+test fake_windows_world_composition_uses_provider_not_host ... ok
+test windows_arbitration_is_uppercase_and_utf16_first_in_both_orders ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 7.23s
+
+     Running tests\execution_filesystem.rs (E:\AI\Projects\OpenMinds\Minions\Minion-Agent\.tmp\cache\cargo-target\windows\debug\deps\execution_filesystem-f49f4c6a311d9b15.exe)
+
+running 16 tests
+test entry_probe_kind_serializes_with_the_exact_shared_vocabulary ... ok
+test providers_without_the_extension_report_not_supported ... ok
+test max_lines_at_or_below_zero_does_not_touch_the_file ... ok
+test extension_cancellation_rules_are_deliberately_asymmetric ... ok
+test lexical_join_and_utf8_decoding_match_the_pi_surface ... ok
+test rename_replaces_an_existing_destination ... ok
+test layer13_consumption_shape_checks_the_cap_before_the_next_probe ... ok
+test probe_identity_uses_the_resolved_addressed_path_not_raw_input_or_target ... ok
+test temp_file_gets_a_private_directory_and_cleanup_is_a_noop ... ok
+test raw_directory_listing_preserves_provider_order_and_does_not_follow_entries ... ok
+test cancellation_matches_the_operation_specific_contract ... ok
+test entry_probe_classifies_plain_and_symlinked_files_and_directories ... ok
+test broken_symlink_is_a_per_probe_error_and_a_caller_can_continue ... ok
+test fs_target_is_location_based_provider_scoped_and_live ... ok
+test existing_listing_and_metadata_behavior_remains_unchanged ... ok
+test local_filesystem_covers_reads_writes_metadata_and_removal ... ok
+
+test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests\execution_nul.rs (E:\AI\Projects\OpenMinds\Minions\Minion-Agent\.tmp\cache\cargo-target\windows\debug\deps\execution_nul-a065effb2b94a2df.exe)
+
+running 7 tests
+test containment::containment_refuses_unsafe_raw_mutation_names_before_dispatch ... ok
+test canonical_path_checks_the_whole_argument_before_a_missing_prefix ... ok
+test nul_is_unknown_and_the_fallback_is_lossless ... ok
+test the_resolved_file_url_is_the_nul_argument ... ok
+test temporary_creation_keeps_each_operation_fallback ... ok
+test a_final_nul_keeps_the_parent_creation_effect ... ok
+test the_real_tools_render_the_certified_nul_failure ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s
+
+     Running tests\execution_process.rs (E:\AI\Projects\OpenMinds\Minions\Minion-Agent\.tmp\cache\cargo-target\windows\debug\deps\execution_process-3773c7c9ec574b41.exe)
+
+running 6 tests
+test spawn_is_argv_direct_and_wait_is_repeatable ... ok
+test cwd_uses_the_filesystem_lexical_normalization_rule ... ok
+test missing_program_and_missing_cwd_are_spawn_errors ... ok
+test piped_stdin_and_environment_are_typed_and_live ... ok
+test explicit_termination_is_success_with_the_os_reported_exit_code ... ok
+test spawn_signal_controls_pre_and_post_spawn_cancellation ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.58s
+
+     Running tests\execution_read_write_access.rs (E:\AI\Projects\OpenMinds\Minions\Minion-Agent\.tmp\cache\cargo-target\windows\debug\deps\execution_read_write_access-5e5fe5980d1458e8.exe)
+
+running 7 tests
+test signal_is_accepted_but_not_inspected ... ok
+test missing_dangling_non_directory_and_nul_have_host_classes ... ok
+test windows::read_only_file_denied_but_read_only_directory_is_allowed ... ok
+test windows::sharing_violation_uses_the_existing_filesystem_error_mapper ... ok
+test accessible_file_and_directory_are_nonmutating_access_answers ... ok
+test windows::deny_write_and_deny_read_acls_both_fail_combined_access ... ok
+test windows::directory_probe_requires_add_file_but_not_delete_child ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+
+     Running tests\execution_readability.rs (E:\AI\Projects\OpenMinds\Minions\Minion-Agent\.tmp\cache\cargo-target\windows\debug\deps\execution_readability-d40eeb759fdb36ce.exe)
+
+running 6 tests
+test pre_aborted_signal_is_not_inspected ... ok
+test symlink_is_followed_and_dangling_symlink_is_not_found ... ok
+test missing_and_embedded_nul_are_distinct_host_error_classes ... ok
+test readable_file_directory_and_relative_path_do_not_consume_content ... ok
+test windows_deny_list_directory_acl_is_permission_denied ... ok
+test windows_deny_read_acl_is_not_mistaken_for_existence ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s
+
+     Running tests\execution_shell.rs (E:\AI\Projects\OpenMinds\Minions\Minion-Agent\.tmp\cache\cargo-target\windows\debug\deps\execution_shell-f455f131df32c1e3.exe)
+
+running 8 tests
+test inherit_env_controls_the_provider_base_environment ... ok
+test shell_resolution_precedes_the_cwd_existence_check ... ok
+test timeout_validation_and_preabort_happen_before_spawn ... ok
+test shell_accumulates_streams_invokes_callbacks_and_preserves_nonzero_exit ... ok
+test shell_cwd_uses_the_filesystem_lexical_normalization_rule ... ok
+test callback_failure_terminates_and_wins_classification ... ok
+test cleanup_terminates_active_commands_without_classifying_abort ... ok
+test runtime_timeout_and_signal_are_distinct ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.79s
+
+     Running tests\execution_stream_close.rs (E:\AI\Projects\OpenMinds\Minions\Minion-Agent\.tmp\cache\cargo-target\windows\debug\deps\execution_stream_close-dd4688750cc6d04d.exe)
+
+running 7 tests
+test d002_child_fixture ... ok
+test cancellation_of_a_waiter_does_not_poison_later_waits ... ok
+test exit_is_independent_of_inherited_pipes_and_late_output_is_readable ... ok
+test close_abandons_unread_output ... ok
+test terminate_after_settlement_releases_even_retained_stream_handles ... ok
+test closing_the_read_end_preserves_a_descendant_and_releases_the_pipe ... ok
+test close_wakes_a_pending_read_and_does_not_close_the_sibling_or_kill ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+     Running tests\execution_world.rs (E:\AI\Projects\OpenMinds\Minions\Minion-Agent\.tmp\cache\cargo-target\windows\debug\deps\execution_world-aee67acc96dddb21.exe)
+
+running 4 tests
+test compatibility_is_equality_only_and_symmetric ... ok
+test validation_accepts_equal_worlds_and_ignores_unpassed_providers ... ok
+test validation_reports_every_incompatible_pair_in_input_order ... ok
+test local_provider_bundle_shares_one_world_and_uses_ctx_service_names ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests\fs_path_domain.rs (E:\AI\Projects\OpenMinds\Minions\Minion-Agent\.tmp\cache\cargo-target\windows\debug\deps\fs_path_domain-4c1d0fb0de1e64e7.exe)
+
+running 7 tests
+test containment::containment_refuses_unsafe_raw_mutation_names_before_dispatch ... ok
+test abort_has_a_logical_path_and_does_not_touch_the_native_file ... ok
+test rename_error_always_names_the_native_source_not_the_destination ... ok
+test listing_joins_native_entry_names_to_the_logical_directory ... ok
+test native_names_logical_metadata_and_location_keys_are_distinct_carriers ... ok
+test valid_pairs_survive_and_every_lone_unit_projects_independently ... ok
+test nul_binding_refusals_keep_the_logical_no_path_fallback ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests\fs_path_domain_conformance.rs (E:\AI\Projects\OpenMinds\Minions\Minion-Agent\.tmp\cache\cargo-target\windows\debug\deps\fs_path_domain_conformance-e1e28e25c9014c7d.exe)
+
+running 2 tests
+test containment::containment_refuses_unsafe_raw_mutation_names_before_dispatch ... ok
+test full_accepted_fs_path_domain_corpus ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 13.89s
+
+     Running tests\fs_remove_readonly_conformance.rs (E:\AI\Projects\OpenMinds\Minions\Minion-Agent\.tmp\cache\cargo-target\windows\debug\deps\fs_remove_readonly_conformance-c2b5fb2d76d3632c.exe)
+
+running 2 tests
+test containment::containment_refuses_unsafe_raw_mutation_names_before_dispatch ... ok
+test canonical_fs_remove_readonly ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.72s
+
+     Running tests\key_order_conformance.rs (E:\AI\Projects\OpenMinds\Minions\Minion-Agent\.tmp\cache\cargo-target\windows\debug\deps\key_order_conformance-f4ca54dc8d807920.exe)
+
+running 1 test
+test complete_key_order_corpus_through_real_tool_events_and_session ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.11s
+
+     Running tests\llm_adapter.rs (E:\AI\Projects\OpenMinds\Minions\Minion-Agent\.tmp\cache\cargo-target\windows\debug\deps\llm_adapter-f766b3c46f6a00e7.exe)
+
+running 7 tests
+test unknown_model_fails_before_adapter_stream_creation ... ok
+test registration_handles_are_repeatable_stale_safe_and_owned_per_call ... ok
+test one_registration_handle_owns_every_identity_in_that_call ... ok
+test multi_identity_withdrawal_removes_only_entries_the_call_still_owns ... ok
+test scripted_adapter_records_requests_and_only_emits_raw_script_items ... ok
+test resolved_adapter_detection_failure_settles_in_band ... ok
+test exhausted_scripted_adapter_settles_in_band ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests\llm_assistant_stream.rs (E:\AI\Projects\OpenMinds\Minions\Minion-Agent\.tmp\cache\cargo-target\windows\debug\deps\llm_assistant_stream-47071119721ca4a6.exe)
+
+running 5 tests
+test premature_eof_synthesizes_error_terminal_preserving_partial ... ok
+test cancellation_settles_aborted ... ok
+test malformed_terminal_error_is_normalized_without_weakening_public_shape ... ok
+test normal_terminal_fuses_without_exposing_post_terminal_items ... ok
+test adapter_error_settles_in_band_and_preserves_partial ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests\llm_conformance.rs (E:\AI\Projects\OpenMinds\Minions\Minion-Agent\.tmp\cache\cargo-target\windows\debug\deps\llm_conformance-0329ddb35b966812.exe)
+
+running 2 tests
+test eager_invalid_model_case_uses_real_service_lookup ... ok
+test layer_02_stream_contract_cases_drive_the_real_typed_rust_seam ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests\llm_service_conformance.rs (E:\AI\Projects\OpenMinds\Minions\Minion-Agent\.tmp\cache\cargo-target\windows\debug\deps\llm_service_conformance-c8de25bf6a81bf50.exe)
+
+running 2 tests
+test canonical_reference_validation_rejects_ambiguous_or_dangling_operations ... ok
+test all_layer_10_scenarios_drive_the_real_rust_llm_service ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests\llm_transform.rs (E:\AI\Projects\OpenMinds\Minions\Minion-Agent\.tmp\cache\cargo-target\windows\debug\deps\llm_transform-743362ecff5d3095.exe)
+
+running 16 tests
+test image_placeholder_suppression_is_per_run_and_per_message ... ok
+test transform_returns_values_without_mutating_the_source_history ... ok
+test error_and_aborted_assistants_are_excluded_without_orphan_results ... ok
+test every_identity_component_participates_in_signature_compatibility ... ok
+test string_user_content_is_preserved_for_every_target_capability_and_identity ... ok
+test same_model_never_invokes_the_id_policy ... ok
+test resolved_calls_do_not_synthesize_and_normalized_orphans_use_transformed_ids ... ok
+test same_model_thinking_retains_only_the_certified_cases ... ok
+test id_policy_runs_in_transcript_order_and_rewrites_each_matching_result ... ok
+test normalizer_returning_empty_string_preserves_real_result_and_synthesizes_orphan ... ok
+test cross_model_thinking_and_signatures_are_made_compatible ... ok
+test image_capability_preserves_or_downgrades_role_specific_blocks ... ok
+test unresolved_calls_synthesize_ordered_required_results_before_interruptions ... ok
+test transforming_assistant_content_preserves_every_unrelated_rich_field ... ok
+test injected_id_policy_receives_original_assistant_and_rewrites_matching_results ... ok
+test legacy_null_content_is_normalized_by_the_library_before_typed_transformation ... ok
+
+test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests\llm_vocabulary.rs (E:\AI\Projects\OpenMinds\Minions\Minion-Agent\.tmp\cache\cargo-target\windows\debug\deps\llm_vocabulary-cd3b0758ff6d13a4.exe)
+
+running 7 tests
+test model_identity_requires_all_three_non_empty_components ... ok
+test model_identity_deserialization_uses_the_same_validation_boundary ... ok
+test model_identity_has_value_equality_and_round_trips ... ok
+test image_references_require_content_addressed_identity ... ok
+test thinking_redacted_defaults_false_when_absent ... ok
+test tool_result_requires_and_round_trips_the_real_tool_name ... ok
+test core_vocabulary_uses_canonical_snake_case_and_omits_absent_fields ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests\prepared_runtime_conformance.rs (E:\AI\Projects\OpenMinds\Minions\Minion-Agent\.tmp\cache\cargo-target\windows\debug\deps\prepared_runtime_conformance-990f2a7b1202891f.exe)
+
+running 4 tests
+test preflight_rejects_wrong_pointer_sets_and_overflow_finite_tokens ... ok
+test pre_execute_replacement_carries_the_runtime_domain_without_revalidation_or_json_projection ... ok
+test canonical_delta_gate_uses_real_preparation_validation_hooks_and_execute ... ok
+test five_preparation_mutants_and_hook_loss_are_killed_by_the_same_canonical_observations ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.57s
+
+     Running tests\prepared_runtime_edit_conformance.rs (E:\AI\Projects\OpenMinds\Minions\Minion-Agent\.tmp\cache\cargo-target\windows\debug\deps\prepared_runtime_edit_conformance-49a5608195b5e3fb.exe)
+
+running 1 test
+test gate_wp132_real_edit_preserves_prepared_numeric_domain_at_the_hook ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.78s
+
+     Running tests\prepared_runtime_value.rs (E:\AI\Projects\OpenMinds\Minions\Minion-Agent\.tmp\cache\cargo-target\windows\debug\deps\prepared_runtime_value-d980a01c37d762e3.exe)
+
+running 4 tests
+test prepared_domain_preserves_every_binary64_category ... ok
+test numbers_are_not_obtained_by_coercing_strings ... ok
+test nested_non_finite_values_are_neither_strings_nor_null_and_conversion_is_fallible ... ok
+test json_round_trip_is_exact_and_keeps_missing_null_false_and_empty_distinct ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests\prepared_string_conformance.rs (E:\AI\Projects\OpenMinds\Minions\Minion-Agent\.tmp\cache\cargo-target\windows\debug\deps\prepared_string_conformance-a85d81d7ec3a69e1.exe)
+
+running 2 tests
+test wrong_string_boundaries_are_discriminated ... ok
+test delta_canonical_through_real_preparation_hooks_and_execute ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.71s
+
+     Running tests\prepared_string_edit_conformance.rs (E:\AI\Projects\OpenMinds\Minions\Minion-Agent\.tmp\cache\cargo-target\windows\debug\deps\prepared_string_edit_conformance-ccb24f85c4ccfca4.exe)
+
+running 1 test
+test gate_wp132_real_edit_preserves_all_prepared_strings_and_file_bytes ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 15.23s
+
+     Running tests\prompt_assembly_conformance.rs (E:\AI\Projects\OpenMinds\Minions\Minion-Agent\.tmp\cache\cargo-target\windows\debug\deps\prompt_assembly_conformance-830bb634ab795286.exe)
+
+running 5 tests
+test scalar_domain_preflight ... ok
+test canonical_compose ... ok
+test canonical_invocation ... ok
+test canonical_tools_section ... ok
+test canonical_skills_block ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.65s
+
+     Running tests\raw_arguments.rs (E:\AI\Projects\OpenMinds\Minions\Minion-Agent\.tmp\cache\cargo-target\windows\debug\deps\raw_arguments-180091624778311e.exe)
+
+running 5 tests
+test decoder_is_binary64_utf16_and_never_repairs_with_replacement ... ok
+test literal_utf16_argument_text_is_not_forced_through_utf8_replacement ... ok
+test projections_are_explicit_and_json_compatible_values_remain_compatible ... ok
+test log_is_live_typed_and_fork_compaction_replay_keep_values ... ok
+test raw_preparation_callback_observes_original_domain ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running tests\raw_arguments_conformance.rs (E:\AI\Projects\OpenMinds\Minions\Minion-Agent\.tmp\cache\cargo-target\windows\debug\deps\raw_arguments_conformance-4a273d1f9c67f62c.exe)
+
+running 1 test
+test raw_arguments_canonical_live_boundaries ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.35s
+
+     Running tests\runtime_conformance.rs (E:\AI\Projects\OpenMinds\Minions\Minion-Agent\.tmp\cache\cargo-target\windows\debug\deps\runtime_conformance-e0db0df072878b98.exe)
+
+running 1 test
+test canonical_runtime_scenarios_use_the_real_typed_runtime ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.28s
+
+     Running tests\runtime_coordinator.rs (E:\AI\Projects\OpenMinds\Minions\Minion-Agent\.tmp\cache\cargo-target\windows\debug\deps\runtime_coordinator-78fd500a0f57f884.exe)
+
+running 10 tests
+test provider_absence_keeps_a_real_runtime_dependent_pending ... ok
+test runtime_context_is_a_coordinated_read_view ... ok
+test provider_appearance_reaches_dependents_before_an_unrelated_failure_aborts_the_pass ... ok
+test provider_appearance_activates_a_real_runtime_dependent ... ok
+test provider_appearance_reconciles_every_affected_dependent_before_returning_first_error ... ok
+test a_failed_reconciliation_settles_the_fiber_and_does_not_poison_the_runtime ... ok
+test provider_revocation_reconciles_the_dependent_without_a_caller_driven_pass ... ok
+test dependency_revocation_from_inside_loading_invalidates_without_self_joining ... ok
+test one_provider_reconciles_multiple_independent_dependents ... ok
+test revocation_settles_all_affected_dependents_when_one_cleanup_fails ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests\runtime_disposable.rs (E:\AI\Projects\OpenMinds\Minions\Minion-Agent\.tmp\cache\cargo-target\windows\debug\deps\runtime_disposable-682cde0902392d94.exe)
+
+running 11 tests
+test close_prevents_later_effect_registration ... ok
+test normative_names_reject_empty_uppercase_and_malformed_values ... ok
+test disposal_returns_failures_in_reverse_execution_order_after_running_every_entry ... ok
+test a_second_bulk_disposal_is_a_no_op ... ok
+test normative_names_have_value_identity_and_accept_qualified_events ... ok
+test dropped_bulk_owner_transfers_the_full_aggregate_to_a_survivor ... ok
+test a_handle_winning_the_slot_leaves_bulk_unwind_as_a_no_op ... ok
+test pending_followers_keep_the_aggregate_after_the_owner_is_dropped ... ok
+test bulk_unwind_winning_the_slot_leaves_the_handle_as_a_no_op ... ok
+test concurrent_bulk_unwind_waits_for_the_owner_and_does_not_split_errors ... ok
+test disposers_run_sequentially_in_reverse_order ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests\runtime_event.rs (E:\AI\Projects\OpenMinds\Minions\Minion-Agent\.tmp\cache\cargo-target\windows\debug\deps\runtime_event-0ea5a9cccbf18816.exe)
+
+running 20 tests
+test declarations_are_idempotent_only_for_the_same_mode_and_rust_contract ... ok
+test registration_and_dispatch_reject_undeclared_or_incompatible_specs ... ok
+test a_closed_lifecycle_owner_rejects_and_removes_a_listener_registration ... ok
+test listener_registration_is_owned_by_its_effect_store ... ok
+test registration_and_dispatch_validate_scope_tree_and_activity ... ok
+test tagged_listener_cleanup_is_owned_by_its_scope_not_the_supplied_store ... ok
+test inactive_scope_tags_are_not_admitted_but_untagged_listeners_always_are ... ok
+test empty_waterfall_invokes_the_required_terminal ... ok
+test parallel_without_failures_has_no_result ... ok
+test next_rejects_a_second_call_while_the_first_call_is_pending ... ok
+test parallel_callbacks_overlap_and_failures_keep_registration_order ... ok
+test emit_is_synchronous_and_follows_global_registration_order ... ok
+test a_dispatch_uses_its_listener_snapshot_even_when_a_handle_is_disposed ... ok
+test serial_runs_in_registration_order_and_returns_the_last_result ... ok
+test listener_callback_is_dropped_after_releasing_the_event_mutex ... ok
+test the_first_terminal_is_retained_when_a_contract_is_redeclared ... ok
+test handle_and_effect_unwind_race_to_remove_a_listener_exactly_once ... ok
+test waterfall_short_circuits_without_running_downstream ... ok
+test waterfall_supports_replacement_delegation_and_both_result_transformations ... ok
+test waterfall_delegation_is_stack_safe_for_a_deep_listener_chain ... ok
+
+test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+
+     Running tests\runtime_fiber.rs (E:\AI\Projects\OpenMinds\Minions\Minion-Agent\.tmp\cache\cargo-target\windows\debug\deps\runtime_fiber-82895fac51ac9eff.exe)
+
+running 24 tests
+test config_is_deserialized_and_validated_before_a_fiber_is_created ... ok
+test a_late_dispose_joiner_gets_failures_from_already_completed_reverse_cleanup ... ok
+test active_dependency_loss_unloads_in_reverse_and_can_load_again ... ok
+test dependency_loss_cleanup_failure_still_settles_pending_and_surfaces ... ok
+test dispose_joins_an_in_flight_unload_and_observes_its_cleanup_error ... ok
+test dependency_invalidation_wins_over_a_simultaneous_init_error ... ok
+test disposal_during_loading_never_transiently_activates_or_unloads ... ok
+test a_pending_disposal_request_prevents_a_racing_load ... ok
+test aborting_reconciliation_during_loading_does_not_abandon_the_transition ... ok
+test dependency_loss_during_loading_never_transiently_activates ... ok
+test commit_rechecks_dependency_visibility_without_a_notification ... ok
+test a_synchronous_initializer_panic_unwinds_owned_effects_before_propagating ... ok
+test initialization_failure_unwinds_then_remains_failed_until_disposal ... ok
+test dropping_an_unpolled_disposal_future_leaves_a_sticky_drivable_request ... ok
+test aborting_disposal_during_unwind_leaves_a_joinable_shared_transition ... ok
+test active_dependency_invalidation_is_sticky_and_immediately_invisible ... ok
+test initialization_and_cleanup_failures_still_settle_failed_and_both_surface ... ok
+test initializer_panic_does_not_swallow_a_cleanup_failure ... ok
+test invalidation_closes_effect_creation_before_unwind_begins ... ok
+test panics_are_not_converted_into_plugin_initialization_failures ... ok
+test requesting_active_disposal_immediately_closes_service_visibility ... ok
+test pending_disposes_directly_and_disposed_dispose_is_a_no_op ... ok
+test trace_subscription_carries_the_complete_transition_history ... ok
+test transitions_for_one_fiber_are_serialized ... ok
+
+test result: ok. 24 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests\runtime_observer.rs (E:\AI\Projects\OpenMinds\Minions\Minion-Agent\.tmp\cache\cargo-target\windows\debug\deps\runtime_observer-bb1e99d4028e4ae1.exe)
+
+running 4 tests
+test observer_records_effect_boundaries_from_the_real_context ... ok
+test scoped_context_routes_effect_ownership_and_observes_real_scope_disposal ... ok
+test state_observer_may_reenter_the_fiber_without_deadlocking ... ok
+test observer_records_inline_revocation_order_without_driving_transitions ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests\runtime_schema.rs (E:\AI\Projects\OpenMinds\Minions\Minion-Agent\.tmp\cache\cargo-target\windows\debug\deps\runtime_schema-1d5ecc94be5f3354.exe)
+
+running 3 tests
+test runtime_schema_preserves_utf16_values_and_keys_and_refuses_lossy_projection ... ok
+test argument_sharing_does_not_introduce_a_runtime_schema_mutation_surface ... ok
+test scalar_schema_projection_and_domain_checks_remain_explicit ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests\runtime_scope.rs (E:\AI\Projects\OpenMinds\Minions\Minion-Agent\.tmp\cache\cargo-target\windows\debug\deps\runtime_scope-f3f434d620a02864.exe)
+
+running 7 tests
+test scoped_entries_are_visible_nearest_first_without_sibling_or_descendant_leaks ... ok
+test a_dropped_scope_disposal_caller_does_not_strand_the_shared_failure_aggregate ... ok
+test concurrent_scope_disposals_join_one_full_subtree_unwind ... ok
+test scope_disposal_joiners_receive_the_full_descendant_and_parent_failure_aggregate ... ok
+test scope_removal_wins_before_handle_when_its_registration_is_newest ... ok
+test handle_removal_wins_while_scope_disposal_is_blocked_before_registration ... ok
+test disposing_a_scope_makes_its_subtree_ineligible_before_descendant_effects_settle ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests\runtime_service.rs (E:\AI\Projects\OpenMinds\Minions\Minion-Agent\.tmp\cache\cargo-target\windows\debug\deps\runtime_service-f794defd99c25499.exe)
+
+running 12 tests
+test visibility_check_may_reenter_the_registry_without_a_global_lock ... ok
+test active_provider_resolves_through_the_typed_name_key ... ok
+test loading_and_unloading_owners_are_invisible_but_still_occupy_the_slot ... ok
+test optional_check_predicate_narrows_visibility_including_scope_eligibility ... ok
+test registration_disposal_is_safe_after_the_registry_is_dropped ... ok
+test owner_effect_unwind_removes_the_registration_exactly_once ... ok
+test service_name_type_contract_survives_temporary_unload ... ok
+test removing_the_current_provider_never_reveals_a_fallback ... ok
+test closing_the_owner_before_effect_acceptance_never_publishes_the_service ... ok
+test service_value_destructor_may_reenter_registry_after_removal ... ok
+test concurrent_providers_that_both_pass_preflight_still_commit_one_exclusive_slot ... ok
+test rejected_concurrent_provider_drops_user_value_after_releasing_its_effect_lock ... ok
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests\scaffold.rs (E:\AI\Projects\OpenMinds\Minions\Minion-Agent\.tmp\cache\cargo-target\windows\debug\deps\scaffold-7d736bdc317312f5.exe)
+
+running 1 test
+test package_exposes_a_non_empty_version ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests\schema_domain_conformance.rs (E:\AI\Projects\OpenMinds\Minions\Minion-Agent\.tmp\cache\cargo-target\windows\debug\deps\schema_domain_conformance-26a0cf01a8752402.exe)
+
+running 1 test
+test schema_domain_cases_use_real_registration_and_unprepared_execution ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.66s
+
+     Running tests\session.rs (E:\AI\Projects\OpenMinds\Minions\Minion-Agent\.tmp\cache\cargo-target\windows\debug\deps\session-370e059f81b354c9.exe)
+
+running 9 tests
+test event_identity_is_open_validated_and_compared_by_value ... ok
+test a_fork_rejects_a_boundary_beyond_the_committed_tip ... ok
+test open_event_is_log_only_unless_explicitly_surface_admitted ... ok
+test append_is_gapless_and_message_round_trips_through_the_log ... ok
+test string_and_block_user_content_remain_distinct_through_fork_derivation ... ok
+test reset_compaction_and_fork_are_derived_by_the_real_session ... ok
+test artifacts_are_content_addressed_and_headers_reconstruct_real_state ... ok
+test concurrent_appends_allocate_sequence_in_committed_log_order ... ok
+test concurrent_compaction_marker_provenance_matches_its_serialized_snapshot ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests\session_conformance.rs (E:\AI\Projects\OpenMinds\Minions\Minion-Agent\.tmp\cache\cargo-target\windows\debug\deps\session_conformance-e516bc6cb40fe564.exe)
+
+running 1 test
+test all_current_layer_session_scenarios_drive_the_real_typed_rust_session ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.22s
+
+     Running tests\skill_discovery.rs (E:\AI\Projects\OpenMinds\Minions\Minion-Agent\.tmp\cache\cargo-target\windows\debug\deps\skill_discovery-c372ea16a0a23751.exe)
+
+running 6 tests
+test raw_name_collation_is_not_lowercased_or_lexical ... ok
+test application_mapping_failure_is_not_a_diagnostic ... ok
+test filesystem_origin_names_and_diagnostic_interpolation_preserve_units ... ok
+test sourced_records_are_writable_and_preserve_opaque_source_identity ... ok
+test walk_has_no_binding_depth_bound ... ok
+test canonical_skill_discovery has been running for over 60 seconds
+test canonical_skill_discovery ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 133.58s
+
+     Running tests\tool_execution.rs (E:\AI\Projects\OpenMinds\Minions\Minion-Agent\.tmp\cache\cargo-target\windows\debug\deps\tool_execution-d91173bb20ddb18d.exe)
+
+running 26 tests
+test length_stop_emits_results_without_resolving_or_invoking_tools ... ok
+test malformed_schema_is_an_isolated_validation_error_instead_of_a_panic ... ok
+test before_hook_block_without_reason_or_termination_uses_pis_defaults ... ok
+test batch_execution_uses_the_authoritative_registry_and_preserves_source_identity ... ok
+test parallel_completion_events_and_final_messages_have_distinct_deterministic_orders ... ok
+test parallel_abort_stops_future_preflight_but_runs_already_prepared_calls ... ok
+test abort_signal_reaches_before_execute_and_after_hooks_with_one_identity ... ok
+test one_sequential_tool_makes_the_entire_batch_sequential ... ok
+test prepare_can_invalidate_arguments_and_capability_errors_keep_only_the_message ... ok
+test after_hooks_accumulate_allowed_fields_and_preserve_authoritative_fields_per_listener ... ok
+test parallel_preflight_settles_in_source_order_before_any_prepared_execute ... ok
+test parallel_batch_preflights_every_valid_call_before_either_execute_begins ... ok
+test hook_failures_short_circuit_with_pi_stage_reachability ... ok
+test before_hook_block_termination_reaches_end_events_and_the_nonempty_batch_fold ... ok
+test every_generated_error_has_empty_object_details_and_success_preserves_its_details ... ok
+test aborted_block_is_aborted_but_hook_failure_still_wins ... ok
+test raw_after_listener_failure_replaces_one_result_without_aborting_siblings ... ok
+test raw_nullish_after_replacements_preserve_accumulated_values_between_listeners ... ok
+test unknown_tool_is_an_isolated_semantic_error ... ok
+test raw_after_listener_is_normalized_before_the_next_listener_and_final_result ... ok
+test sequential_abort_truncates_future_calls_after_complete_lifecycle ... ok
+test signal_and_execution_metadata_pass_through_without_namespace_lookup_semantics ... ok
+test updates_are_emitted_live_and_ignored_after_execute_settles ... ok
+test prepared_arguments_are_validated_against_the_raw_json_schema ... ok
+test before_hooks_form_a_registration_order_waterfall_after_validation ... ok
+test prepare_runs_before_validation_and_can_repair_raw_arguments ... ok
+
+test result: ok. 26 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+     Running tests\tool_execution_conformance.rs (E:\AI\Projects\OpenMinds\Minions\Minion-Agent\.tmp\cache\cargo-target\windows\debug\deps\tool_execution_conformance-ac0f46bea74d1f93.exe)
+
+running 3 tests
+test a_blocked_call_may_end_the_turn_reaches_the_real_layer_06_terminate_fold ... ok
+test corrected_unknown_tool_cross_layer_evidence_uses_the_real_rust_tool_executor ... ok
+test all_layer_06_scenarios_drive_the_real_rust_tool_executor ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.12s
+
+     Running tests\tool_execution_context.rs (E:\AI\Projects\OpenMinds\Minions\Minion-Agent\.tmp\cache\cargo-target\windows\debug\deps\tool_execution_context-7b99a471ab02beb7.exe)
+
+running 6 tests
+test snapshot_is_owned_and_preserves_absent_and_off ... ok
+test provider_not_sampled_for_missing_or_preaborted_calls ... ok
+test context_absent_without_provider_and_ignoring_context_is_valid ... ok
+test provider_runs_after_before_hooks_and_never_for_a_blocked_call ... ok
+test provider_failure_is_a_tool_error_with_end_and_healthy_sibling ... ok
+test a_tool_ignoring_the_new_field_has_identical_results ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running tests\tool_model.rs (E:\AI\Projects\OpenMinds\Minions\Minion-Agent\.tmp\cache\cargo-target\windows\debug\deps\tool_model-d7b1d0e03f59c189.exe)
+
+running 7 tests
+test parameters_reject_every_non_object_container ... ok
+test constrained_sampling_rejects_true_while_projection_null_round_trips_absence ... ok
+test parameters_accept_and_preserve_every_object_valued_schema_shape ... ok
+test constrained_sampling_preserves_absent_false_json_schema_and_grammar ... ok
+test absent_execution_mode_remains_distinct_from_parallel ... ok
+test grammar_variants_accept_only_the_two_independently_optional_pi_keys ... ok
+test agent_tool_definition_projects_metadata_without_invoking_capabilities ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests\tool_registry.rs (E:\AI\Projects\OpenMinds\Minions\Minion-Agent\.tmp\cache\cargo-target\windows\debug\deps\tool_registry-eab9d213c5cdb527.exe)
+
+running 4 tests
+test nearest_and_earliest_registration_wins_with_live_fallback ... ok
+test withdrawal_is_idempotent_and_restores_farther_registration ... ok
+test visibility_is_nearest_first_without_descendant_or_sibling_leaks ... ok
+test unknown_and_disposed_requesters_observe_nothing ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests\tool_registry_conformance.rs (E:\AI\Projects\OpenMinds\Minions\Minion-Agent\.tmp\cache\cargo-target\windows\debug\deps\tool_registry_conformance-72379aeb0e2c21e0.exe)
+
+running 8 tests
+test unknown_mount_plugin_is_rejected_directly ... ok
+test self_parent_is_rejected_directly ... ok
+test unknown_withdrawal_plugin_is_rejected_directly ... ok
+test unknown_scope_parent_is_rejected_before_runtime_construction ... ok
+test scope_parent_cycle_is_rejected_directly ... ok
+test unknown_query_scope_is_rejected_directly ... ok
+test unknown_disposal_scope_is_rejected_directly ... ok
+test all_layer_05_scenarios_drive_the_real_runtime_tool_registry ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests\tool_registry_lifecycle.rs (E:\AI\Projects\OpenMinds\Minions\Minion-Agent\.tmp\cache\cargo-target\windows\debug\deps\tool_registry_lifecycle-847d140a74c4d464.exe)
+
+running 4 tests
+test disposed_scope_observation_uses_the_real_runtime_scope_handle ... ok
+test scoped_registration_survives_plugin_unmount_and_is_owned_by_scope ... ok
+test explicit_withdrawal_composes_safely_with_both_lifecycle_owners ... ok
+test unscoped_registration_is_owned_by_the_registering_fiber ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests\tool_result_domain_conformance.rs (E:\AI\Projects\OpenMinds\Minions\Minion-Agent\.tmp\cache\cargo-target\windows\debug\deps\tool_result_domain_conformance-7f9e24d5ad03f81c.exe)
+
+running 3 tests
+test result_number_preflight_refuses_noncanonical_or_overflowing_literals ... ok
+test real_agent_session_tool_result_domain ... ok
+test wp132_real_edit_result_preserves_surrogate_through_agent_and_session ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.54s
+
+     Running tests\tool_result_values.rs (E:\AI\Projects\OpenMinds\Minions\Minion-Agent\.tmp\cache\cargo-target\windows\debug\deps\tool_result_values-825214ffe19583a8.exe)
+
+running 2 tests
+test typed_session_preserves_every_result_domain_member_without_json ... ok
+test result_json_boundary_is_explicit_and_finite_scalar_roundtrip_is_compatible ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests\wp132_key_order_independence.rs (E:\AI\Projects\OpenMinds\Minions\Minion-Agent\.tmp\cache\cargo-target\windows\debug\deps\wp132_key_order_independence-c47530d774c48122.exe)
+
+running 3 tests
+test witness_detects_an_order_leaking_result_control ... ok
+test owned_outputs_are_independent_of_distinct_raw_key_enumerations ... ok
+test nested_json_string_and_same_target_queue_are_order_independent ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 26.46s
+
+     Running tests\xform_conformance.rs (E:\AI\Projects\OpenMinds\Minions\Minion-Agent\.tmp\cache\cargo-target\windows\debug\deps\xform_conformance-576b88a687120921.exe)
+
+running 1 test
+test all_layer_04_scenarios_drive_the_real_typed_rust_transformer ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s
+
+     Running unittests src\lib.rs (E:\AI\Projects\OpenMinds\Minions\Minion-Agent\.tmp\cache\cargo-target\windows\debug\deps\minion_agent_native_env-212bc40b1ec3c92c.exe)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src\lib.rs (E:\AI\Projects\OpenMinds\Minions\Minion-Agent\.tmp\cache\cargo-target\windows\debug\deps\minion_agent_native_fs-868af746a5f4ff72.exe)
+
+running 1 test
+test tests::directory_reparse_payloads_keep_libuv_readlink_acceptance ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src\lib.rs (E:\AI\Projects\OpenMinds\Minions\Minion-Agent\.tmp\cache\cargo-target\windows\debug\deps\minion_agent_pinned_icu-cc3e8720e018c64b.exe)
+
+running 8 tests
+test tests::failed_or_truncated_module_path_lookup_is_never_skipped ... ok
+test tests::identity_rejects_an_unlisted_duplicate_and_missing_required_role ... ok
+test tests::failed_or_truncated_lookup_prevents_sort ... ok
+test tests::failed_or_truncated_lookup_fails_the_whole_inventory ... ok
+test tests::identity_checks_every_loaded_instance_and_required_role ... ok
+test tests::sort_fails_closed_on_mismatching_identity ... ok
+test tests::sort_checks_second_same_name_instance_and_accepts_identical_twin ... ok
+test tests::pinned_sort_uses_stable_root_lowercase_and_normalization ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.73s
+
+     Running unittests src\lib.rs (E:\AI\Projects\OpenMinds\Minions\Minion-Agent\.tmp\cache\cargo-target\windows\debug\deps\xtask-101df7f44521c20e.exe)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src\main.rs (E:\AI\Projects\OpenMinds\Minions\Minion-Agent\.tmp\cache\cargo-target\windows\debug\deps\xtask-9d0691b99ea55619.exe)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests\cli.rs (E:\AI\Projects\OpenMinds\Minions\Minion-Agent\.tmp\cache\cargo-target\windows\debug\deps\cli-984e05705c33f48c.exe)
+
+running 6 tests
+test conformance_verify_is_dispatched_instead_of_rejected_as_unsupported ... ok
+test help_prints_usage ... ok
+test missing_command_fails ... ok
+test unknown_command_fails ... ok
+test accepts_non_conformance_top_level_commands ... ok
+test conformance_requires_a_supported_subcommand ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s
+
+     Running tests\conformance_layout.rs (E:\AI\Projects\OpenMinds\Minions\Minion-Agent\.tmp\cache\cargo-target\windows\debug\deps\conformance_layout-a4d497e5036ef302.exe)
+
+running 4 tests
+test rejects_a_missing_root_parity_manifest ... ok
+test rejects_a_missing_canonical_family ... ok
+test accepts_the_single_root_contract_layout ... ok
+test rejects_a_private_rust_conformance_snapshot ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests minion_agent
+
+running 2 tests
+test crates\minion-agent\src\execution\subprocess.rs - execution::subprocess::LocalSubprocess (line 111) ... ok
+test crates\minion-agent\src\execution\environment.rs - execution::environment::EnvSnapshot (line 45) ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+
+running 2 tests
+test crates\minion-agent\src\execution\subprocess.rs - execution::subprocess::LocalSubprocess (line 105) - compile fail ... ok
+test crates\minion-agent\src\execution\environment.rs - execution::environment::EnvSnapshot (line 37) - compile fail ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.25s
+
+all doctests ran in 6.14s; merged doctests compilation took 5.09s
+   Doc-tests minion_agent_native_env
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests minion_agent_native_fs
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests minion_agent_pinned_icu
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests xtask
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

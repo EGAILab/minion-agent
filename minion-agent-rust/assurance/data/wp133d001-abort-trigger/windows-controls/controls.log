@@ -1,0 +1,12 @@
+ANCHOR PASS all-spawns
+ANCHOR PASS no-cross-chunk-marker
+ANCHOR PASS abort-before-delivery
+ANCHOR PASS stderr-not-watched
+ANCHOR PASS premature-utf8-replacement
+BASELINE 5/5 intended witnesses selected and passed
+KILLED all-spawns: lookup must not abort the call
+KILLED no-cross-chunk-marker: split output marker must abort
+KILLED abort-before-delivery: completing output must be delivered before abort
+KILLED stderr-not-watched: stderr marker must abort
+KILLED premature-utf8-replacement: incomplete UTF8 is not replacement output yet
+WP133D001 CONTROLS PASS 5/5; restored baseline green

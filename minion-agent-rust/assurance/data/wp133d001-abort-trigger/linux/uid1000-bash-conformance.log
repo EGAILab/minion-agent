@@ -1,0 +1,35 @@
+
+running 4 tests
+
+thread 'fs_containment::containment_refuses_unsafe_raw_mutation_names_before_dispatch' (18375) panicked at crates/minion-agent/tests/support/fs_containment.rs:249:5:
+fixture parent traversal input
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+thread 'fs_containment::containment_refuses_unsafe_raw_mutation_names_before_dispatch' (18375) panicked at crates/minion-agent/tests/support/fs_containment.rs:249:5:
+fixture parent traversal input
+
+thread 'fs_containment::containment_refuses_unsafe_raw_mutation_names_before_dispatch' (18375) panicked at crates/minion-agent/tests/support/fs_containment.rs:253:5:
+drive-relative fixture input
+
+thread 'fs_containment::containment_refuses_unsafe_raw_mutation_names_before_dispatch' (18375) panicked at crates/minion-agent/tests/support/fs_containment.rs:253:5:
+drive-relative fixture input
+
+thread 'fs_containment::containment_refuses_unsafe_raw_mutation_names_before_dispatch' (18375) panicked at crates/minion-agent/tests/support/fs_containment.rs:253:5:
+drive-relative fixture input
+
+thread 'fs_containment::containment_refuses_unsafe_raw_mutation_names_before_dispatch' (18375) panicked at crates/minion-agent/tests/support/fs_containment.rs:245:5:
+absolute fixture mutation input
+
+thread 'fs_containment::containment_refuses_unsafe_raw_mutation_names_before_dispatch' (18375) panicked at crates/minion-agent/tests/support/fs_containment.rs:245:5:
+absolute fixture mutation input
+
+thread 'fs_containment::containment_refuses_unsafe_raw_mutation_names_before_dispatch' (18375) panicked at crates/minion-agent/tests/support/fs_containment.rs:257:5:
+colon fixture names require ./
+test fs_containment::containment_refuses_unsafe_raw_mutation_names_before_dispatch ... ok
+test real_detached_descendant_inherits_pipes_but_is_not_killed_by_settlement ... ok
+test output_abort_holds_under_slow_start_and_wall_clock_control_loses_before ... ok
+builtin bash: 36 canonical documents on linux
+test canonical_bash_real_capabilities_and_layer_six ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.45s
+

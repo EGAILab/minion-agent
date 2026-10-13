@@ -1,0 +1,6 @@
+ANCHOR PASS all-spawns
+ANCHOR PASS no-cross-chunk-marker
+ANCHOR PASS abort-before-delivery
+ANCHOR PASS stderr-not-watched
+ANCHOR PASS premature-utf8-replacement
+ANCHORS PASS 5/5; no Cargo, source touch or log creation

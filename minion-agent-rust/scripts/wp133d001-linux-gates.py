@@ -85,6 +85,7 @@ mkdir(fixtures)
 os.chmod(checked(fixtures), 0o777)
 copy_tree(Path('/source/minion-agent-rust'), work / 'minion-agent-rust')
 copy_tree(Path('/source/conformance'), work / 'conformance')
+shutil.copyfile('/source/pi-parity-manifest.yaml', checked(work / 'pi-parity-manifest.yaml'))
 for relative in (
     'minion-agent-python/tests/skills/data/frontmatter-corpus.json',
     'minion-agent-python/tests/skills/data/ignore-corpus.json',

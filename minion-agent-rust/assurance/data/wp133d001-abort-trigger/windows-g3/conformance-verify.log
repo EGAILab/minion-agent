@@ -1,3 +1,0 @@
-   Compiling xtask v0.1.0 (E:\AI\Projects\OpenMinds\Minions\Minion-Agent\review-worktrees\codex-wp133d001-rust-code\minion-agent-rust\xtask)
-    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.79s
-     Running `E:\AI\Projects\OpenMinds\Minions\Minion-Agent\.tmp\cache\cargo-target\windows\debug\xtask.exe conformance verify`

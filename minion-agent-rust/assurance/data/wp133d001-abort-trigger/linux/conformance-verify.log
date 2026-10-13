@@ -1,3 +1,0 @@
-   Compiling xtask v0.1.0 (/tmp/wp133d/work/minion-agent-rust/xtask)
-    Finished `dev` profile [unoptimized + debuginfo] target(s) in 5.07s
-     Running `/target/debug/xtask conformance verify`

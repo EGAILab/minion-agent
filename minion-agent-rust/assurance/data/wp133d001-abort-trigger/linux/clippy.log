@@ -1,6 +1,0 @@
-    Checking minion-agent-pinned-icu v0.1.0 (/tmp/wp133d/work/minion-agent-rust/crates/minion-agent-pinned-icu)
-    Checking xtask v0.1.0 (/tmp/wp133d/work/minion-agent-rust/xtask)
-    Checking minion-agent-native-fs v0.1.0 (/tmp/wp133d/work/minion-agent-rust/crates/minion-agent-native-fs)
-    Checking minion-agent-native-env v0.1.0 (/tmp/wp133d/work/minion-agent-rust/crates/minion-agent-native-env)
-    Checking minion-agent v0.1.0 (/tmp/wp133d/work/minion-agent-rust/crates/minion-agent)
-    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1m 19s

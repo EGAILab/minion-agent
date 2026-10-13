@@ -26,6 +26,7 @@
         },
         "signal": { "const": "pre_aborted", "$comment": "aborted before the call: Layer 06 preflight answers it" },
         "abort_after_ms": { "type": "integer", "minimum": 0, "$comment": "the runner aborts the call's signal this long after starting it" },
+        "abort_on_output": { "type": "string", "minLength": 1, "$comment": "the runner aborts the call's signal once the command's output delivered to the tool (stdout and stderr, through the ctx.subprocess seam, in the order the tool reads it) contains this string, after the tool has taken in the chunk that completed it (TEST-BASH-ABORT-TIMING, #197): abort during the command by an event, not a wall-clock delay. Not tools/update: Minion's bash emits no partial updates (spec tools.md, Owner Q2)" },
         "missing_cwd": { "const": true, "$comment": "the provider's cwd is a non-existent child of the temporary directory" },
         "expect": {
           "type": "object",

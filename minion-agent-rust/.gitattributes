@@ -1,2 +1,4 @@
 # EXEC-010 artifact integrity is byte-based, including line endings, on every host.
 crates/minion-agent/src/execution/windows_upcase.json -text
+# Native gate evidence and its integrity ledger preserve captured bytes.
+assurance/data/wp133d001-abort-trigger/** -text

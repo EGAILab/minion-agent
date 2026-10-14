@@ -98,6 +98,52 @@ def test_env_check_order_both_platforms() -> None:
     assert env_check_order([FULLWIDTH, ASTRAL], [], Platform.POSIX) == [ASTRAL, FULLWIDTH]
 
 
+LONG = "1" * 4301  # beyond the host's default integer-string conversion limit (4300 digits)
+
+
+def test_index_domain_neighborhood_and_long_names() -> None:
+    """L12D011-I001: only canonical ASCII decimals 0..4294967294 are indices; a longer numeric name
+    is an ordinary name and is never converted."""
+    overlay = ["4294967294", "4294967295", "12345678901", "1234567890", "007", "١٢", "0", LONG]
+    baseline = ["1" * 5000, "Z"]
+    try:
+        order = env_check_order(baseline, overlay, Platform.POSIX)
+    except ValueError as error:  # pragma: no cover - the I001 defect
+        raise AssertionError(f"LONG NAME CONVERTED: {error}") from error
+    assert order == [
+        "0", "1234567890", "4294967294",
+        "4294967295", "12345678901", "007", "١٢", LONG,
+        "1" * 5000, "Z",
+    ], f"INDEX DOMAIN: {[n[:12] for n in order]}"  # fmt: skip
+    assert env_check_order(["1" * 5000, LONG], [], Platform.WINDOWS) == ["1" * 4301, "1" * 5000]
+
+
+async def test_long_numeric_env_name_is_an_ordinary_name_at_the_provider(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """L12D011-I001 at the real provider, POSIX branch: a non-NUL spawn with a long numeric name
+    reaches the native boundary unchanged; with a NUL entry K, K is reported, zero native calls."""
+    calls: list[Any] = []
+
+    async def boundary(*args: Any, **kwargs: Any) -> Any:
+        calls.append(args)
+        raise OSError(2, "native boundary reached")
+
+    monkeypatch.setattr(subprocess_module.asyncio, "create_subprocess_exec", boundary)
+    provider = LocalSubprocess(str(tmp_path))
+    monkeypatch.setattr(provider, "_platform", Platform.POSIX)
+    try:
+        plain = await provider.spawn(["x", "ok"], SpawnOptions(env={LONG: "ok"}, inherit_env=False))
+        bad = await provider.spawn(
+            ["x", "ok"], SpawnOptions(env={LONG: "ok", "K": "v" + N}, inherit_env=False)
+        )
+    except ValueError as error:  # pragma: no cover - the I001 defect
+        raise AssertionError(f"LONG NAME CONVERTED: {error}") from error
+    assert isinstance(plain, Err) and not plain.error.nul_input and len(calls) == 1
+    assert isinstance(bad, Err) and bad.error.nul_input and "options.env['K']" in bad.error.message
+    assert len(calls) == 1, "a rejected spawn reached the native boundary"
+
+
 def test_spawn_rejection_precedence_and_superseded_value() -> None:
     env = {"K": "ok"}  # the effective value; a superseded baseline value is never checked
     assert spawn_rejection(["x"], "/d", env, ["K"], ["K"], Platform.POSIX) is None
@@ -168,8 +214,9 @@ async def test_engine_keeps_its_prefix_for_a_non_nul_failure(tmp_path: Path) -> 
     fake = _FakeSubprocess(
         LocalSubprocess(str(tmp_path)), SubprocessError(SubprocessErrorCode.SPAWN_ERROR, "The fake")
     )
-    with pytest.raises(BuiltinToolError, match=r"^Failed to run fd: The fake$"):
+    with pytest.raises(BuiltinToolError) as caught:
         await _search.spawn_engine(fake, ["fd", "x"], "Failed to run fd")  # type: ignore[arg-type]
+    assert str(caught.value) == "Failed to run fd: The fake", f"PREFIX LOST: {caught.value}"
 
 
 async def test_engine_surfaces_a_seam_nul_rejection_unchanged(tmp_path: Path) -> None:
@@ -187,8 +234,11 @@ async def test_engine_diagnostic_shows_the_unprojected_value(tmp_path: Path) -> 
     fake = _FakeSubprocess(
         LocalSubprocess(str(tmp_path)), SubprocessError(SubprocessErrorCode.SPAWN_ERROR, "x")
     )
-    with pytest.raises(BuiltinToolError, match=r"Received '\\ud800\\x00'$"):
+    with pytest.raises(BuiltinToolError) as caught:
         await _search.spawn_engine(fake, ["fd", "\ud800" + N], "Failed to run fd")  # type: ignore[arg-type]
+    assert str(caught.value).endswith("Received '\\ud800\\x00'"), (
+        f"PROJECTED DIAGNOSTIC: {caught.value!a}"
+    )
     assert fake.calls == []
 
 

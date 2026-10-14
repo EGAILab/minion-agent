@@ -121,7 +121,10 @@ def _utf16_key(name: str) -> tuple[int, ...]:
 
 
 def _is_index(name: str) -> bool:
-    return _INDEX.fullmatch(name) is not None and int(name) <= _MAX_INDEX
+    """A canonical decimal integer index 0..4294967294 (section 21.3). The length bound comes
+    FIRST (L12D011-I001): an index has at most 10 ASCII digits, so a longer numeric-looking name is
+    an ordinary name and is never converted (no host integer-conversion limit can be reached)."""
+    return len(name) <= 10 and _INDEX.fullmatch(name) is not None and int(name) <= _MAX_INDEX
 
 
 def env_check_order(

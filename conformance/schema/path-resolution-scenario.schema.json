@@ -1,0 +1,76 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "$id": "https://minion-agent/conformance/schema/path-resolution-scenario.schema.json",
+ "title": "L12-D012 path-resolution scenario (spec/execution.md section 3.2; ctx.fs.absolute_path, lexical)",
+ "type": "object",
+ "required": ["name", "family", "authority", "pi_revision", "requirements", "witnesses", "platforms", "path_resolution"],
+ "additionalProperties": false,
+ "properties": {
+  "name": {"const": "path-resolution"},
+  "family": {"const": "agent"},
+  "authority": {"type": "string", "minLength": 1},
+  "pi_revision": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+  "requirements": {"type": "array", "items": {"enum": ["EXEC-002", "EXEC-005"]}, "minItems": 1, "uniqueItems": true},
+  "witnesses": {"type": "array", "items": {"type": "string"}, "minItems": 1},
+  "platforms": {"type": "array", "items": {"enum": ["linux", "win32"]}, "minItems": 1, "uniqueItems": true},
+  "notes": {"type": "string"},
+  "path_resolution": {
+   "type": "object",
+   "required": ["cases"],
+   "additionalProperties": false,
+   "properties": {"cases": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/case"}}}
+  }
+ },
+ "$defs": {
+  "units": {"type": "array", "items": {"type": "integer", "minimum": 0, "maximum": 65535}},
+  "text": {"type": "object", "required": ["utf16"], "additionalProperties": false, "properties": {"utf16": {"$ref": "#/$defs/units"}}},
+  "part": {
+   "$comment": "A template part: literal UTF-16 text; the drive letter of the child process's cwd (upper or lower case); or that cwd after its two-unit device (cwd_tail). Only host cases use templates; the runner fills them from the cwd it set for the child.",
+   "oneOf": [
+    {"$ref": "#/$defs/text"},
+    {"type": "object", "required": ["cwd_drive"], "additionalProperties": false, "properties": {"cwd_drive": {"enum": ["upper", "lower"]}}},
+    {"type": "object", "required": ["cwd_tail"], "additionalProperties": false, "properties": {"cwd_tail": {"const": true}}}
+   ]
+  },
+  "template": {"type": "object", "required": ["parts"], "additionalProperties": false, "properties": {"parts": {"type": "array", "items": {"$ref": "#/$defs/part"}}}},
+  "text_or_template": {"oneOf": [{"$ref": "#/$defs/text"}, {"$ref": "#/$defs/template"}]},
+  "drive_letter": {"type": "string", "pattern": "^[A-Z]$"},
+  "preconditions": {
+   "$comment": "Verified at runner entry; a run whose host state does not satisfy them REFUSES (fails closed) -- never rewrites the expectation.",
+   "type": "object",
+   "additionalProperties": false,
+   "properties": {
+    "absent_entries": {"type": "array", "items": {"$ref": "#/$defs/drive_letter"}, "uniqueItems": true},
+    "process_cwd_drive_not": {"type": "array", "items": {"$ref": "#/$defs/drive_letter"}, "uniqueItems": true}
+   }
+  },
+  "host": {
+   "$comment": "A host-state case: the runner launches a CHILD process running the real resolver seam, whose environment block carries exactly this per-drive entry (=<drive>:) and no other '='-prefixed entry, and whose cwd is a contained sandbox directory. drive 'cwd' means the child cwd's own drive. entry null means the entry is absent; a template with no parts is the empty string.",
+   "type": "object",
+   "required": ["drive", "entry"],
+   "additionalProperties": false,
+   "properties": {
+    "drive": {"oneOf": [{"const": "cwd"}, {"$ref": "#/$defs/drive_letter"}]},
+    "entry": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/template"}]}
+   }
+  },
+  "case": {
+   "type": "object",
+   "required": ["id", "platform", "provider_cwd", "input", "host", "preconditions", "expect"],
+   "additionalProperties": false,
+   "properties": {
+    "id": {"type": "string", "pattern": "^(win32|linux)/(baseline|host)/"},
+    "platform": {"enum": ["linux", "win32"]},
+    "provider_cwd": {"$ref": "#/$defs/text"},
+    "input": {"$ref": "#/$defs/text_or_template"},
+    "host": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/host"}]},
+    "preconditions": {"$ref": "#/$defs/preconditions"},
+    "expect": {"$ref": "#/$defs/text_or_template"}
+   },
+   "allOf": [
+    {"if": {"properties": {"host": {"type": "null"}}}, "then": {"properties": {"input": {"$ref": "#/$defs/text"}, "expect": {"$ref": "#/$defs/text"}}}},
+    {"if": {"properties": {"host": {"type": "object"}}}, "then": {"properties": {"platform": {"const": "win32"}}}}
+   ]
+  }
+ }
+}

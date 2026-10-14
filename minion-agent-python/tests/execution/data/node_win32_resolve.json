@@ -1,0 +1,271 @@
+{
+ "node": "v22.15.1",
+ "platform": "win32",
+ "rows": [
+  {
+   "base": "E:\\w\\v",
+   "input": "a/../b",
+   "out": "E:\\w\\v\\b"
+  },
+  {
+   "base": "E:\\w\\v",
+   "input": "..\\..\\..\\up",
+   "out": "E:\\up"
+  },
+  {
+   "base": "E:\\w\\v",
+   "input": ".\\.\\x\\.",
+   "out": "E:\\w\\v\\x"
+  },
+  {
+   "base": "E:\\w\\v",
+   "input": "x//y\\\\z",
+   "out": "E:\\w\\v\\x\\y\\z"
+  },
+  {
+   "base": "E:\\w\\v",
+   "input": "x\\..",
+   "out": "E:\\w\\v"
+  },
+  {
+   "base": "E:\\w\\v",
+   "input": "...\\x",
+   "out": "E:\\w\\v\\...\\x"
+  },
+  {
+   "base": "E:\\w\\v",
+   "input": "..x\\y",
+   "out": "E:\\w\\v\\..x\\y"
+  },
+  {
+   "base": "E:\\w\\v",
+   "input": "x\\..\\..\\y",
+   "out": "E:\\w\\y"
+  },
+  {
+   "base": "E:\\w\\v",
+   "input": "\\rooted\\x",
+   "out": "E:\\rooted\\x"
+  },
+  {
+   "base": "E:\\w\\v",
+   "input": "/",
+   "out": "E:\\"
+  },
+  {
+   "base": "E:\\w\\v",
+   "input": "\\",
+   "out": "E:\\"
+  },
+  {
+   "base": "E:\\w\\v",
+   "input": "a",
+   "out": "E:\\w\\v\\a"
+  },
+  {
+   "base": "E:\\w\\v",
+   "input": "\\\\srv\\share",
+   "out": "\\\\srv\\share\\"
+  },
+  {
+   "base": "E:\\w\\v",
+   "input": "\\\\srv",
+   "out": "E:\\srv"
+  },
+  {
+   "base": "E:\\w\\v",
+   "input": "\\\\srv\\",
+   "out": "E:\\srv"
+  },
+  {
+   "base": "E:\\w\\v",
+   "input": "\\\\srv\\share\\x\\..\\..",
+   "out": "\\\\srv\\share\\"
+  },
+  {
+   "base": "E:\\w\\v",
+   "input": "//a/b/c",
+   "out": "\\\\a\\b\\c"
+  },
+  {
+   "base": "E:\\w\\v",
+   "input": "\\\\\\x",
+   "out": "E:\\x"
+  },
+  {
+   "base": "E:\\w\\v",
+   "input": "e:",
+   "out": "e:\\w\\v"
+  },
+  {
+   "base": "E:\\w\\v",
+   "input": "E:rel\\..\\..",
+   "out": "E:\\w"
+  },
+  {
+   "base": "E:\\w\\v",
+   "input": "e:\\abs\\..",
+   "out": "e:\\"
+  },
+  {
+   "base": "E:\\w\\v",
+   "input": "z:\\q",
+   "out": "z:\\q"
+  },
+  {
+   "base": "E:\\w\\v",
+   "input": "",
+   "out": "E:\\w\\v"
+  },
+  {
+   "base": "E:\\w\\v",
+   "input": "x/./y/../z/",
+   "out": "E:\\w\\v\\x\\z"
+  },
+  {
+   "base": "\\\\srv\\share\\d",
+   "input": "a/../b",
+   "out": "\\\\srv\\share\\d\\b"
+  },
+  {
+   "base": "\\\\srv\\share\\d",
+   "input": "..\\..\\..\\up",
+   "out": "\\\\srv\\share\\up"
+  },
+  {
+   "base": "\\\\srv\\share\\d",
+   "input": ".\\.\\x\\.",
+   "out": "\\\\srv\\share\\d\\x"
+  },
+  {
+   "base": "\\\\srv\\share\\d",
+   "input": "x//y\\\\z",
+   "out": "\\\\srv\\share\\d\\x\\y\\z"
+  },
+  {
+   "base": "\\\\srv\\share\\d",
+   "input": "x\\..",
+   "out": "\\\\srv\\share\\d"
+  },
+  {
+   "base": "\\\\srv\\share\\d",
+   "input": "...\\x",
+   "out": "\\\\srv\\share\\d\\...\\x"
+  },
+  {
+   "base": "\\\\srv\\share\\d",
+   "input": "..x\\y",
+   "out": "\\\\srv\\share\\d\\..x\\y"
+  },
+  {
+   "base": "\\\\srv\\share\\d",
+   "input": "x\\..\\..\\y",
+   "out": "\\\\srv\\share\\y"
+  },
+  {
+   "base": "\\\\srv\\share\\d",
+   "input": "\\rooted\\x",
+   "out": "\\\\srv\\share\\rooted\\x"
+  },
+  {
+   "base": "\\\\srv\\share\\d",
+   "input": "/",
+   "out": "\\\\srv\\share\\"
+  },
+  {
+   "base": "\\\\srv\\share\\d",
+   "input": "\\",
+   "out": "\\\\srv\\share\\"
+  },
+  {
+   "base": "\\\\srv\\share\\d",
+   "input": "a",
+   "out": "\\\\srv\\share\\d\\a"
+  },
+  {
+   "base": "\\\\srv\\share\\d",
+   "input": "\\\\srv\\share",
+   "out": "\\\\srv\\share\\"
+  },
+  {
+   "base": "\\\\srv\\share\\d",
+   "input": "\\\\srv",
+   "out": "\\\\srv\\share\\srv"
+  },
+  {
+   "base": "\\\\srv\\share\\d",
+   "input": "\\\\srv\\",
+   "out": "\\\\srv\\share\\srv"
+  },
+  {
+   "base": "\\\\srv\\share\\d",
+   "input": "\\\\srv\\share\\x\\..\\..",
+   "out": "\\\\srv\\share\\"
+  },
+  {
+   "base": "\\\\srv\\share\\d",
+   "input": "//a/b/c",
+   "out": "\\\\a\\b\\c"
+  },
+  {
+   "base": "\\\\srv\\share\\d",
+   "input": "\\\\\\x",
+   "out": "\\\\srv\\share\\x"
+  },
+  {
+   "base": "\\\\srv\\share\\d",
+   "input": "e:\\abs\\..",
+   "out": "e:\\"
+  },
+  {
+   "base": "\\\\srv\\share\\d",
+   "input": "z:\\q",
+   "out": "z:\\q"
+  },
+  {
+   "base": "\\\\srv\\share\\d",
+   "input": "",
+   "out": "\\\\srv\\share\\d"
+  },
+  {
+   "base": "\\\\srv\\share\\d",
+   "input": "x/./y/../z/",
+   "out": "\\\\srv\\share\\d\\x\\z"
+  },
+  {
+   "entry": "relative",
+   "input": "a:..\\..\\leaf",
+   "out": "a:..\\leaf"
+  },
+  {
+   "entry": "relative\\x",
+   "input": "a:..\\..\\..\\leaf",
+   "out": "a:..\\leaf"
+  },
+  {
+   "entry": "..\\up",
+   "input": "a:leaf\\.",
+   "out": "a:\\leaf"
+  },
+  {
+   "entry": "\\\\srv\\share",
+   "input": "a:x",
+   "out": "a:x"
+  },
+  {
+   "entry": "r",
+   "input": "a:",
+   "out": "a:r"
+  },
+  {
+   "entry": "A:",
+   "input": "a:..\\leaf",
+   "out": "a:..\\leaf"
+  },
+  {
+   "entry": "A:rel\\..\\..",
+   "input": "a:leaf",
+   "out": "a:..\\leaf"
+  }
+ ]
+}

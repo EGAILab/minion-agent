@@ -143,6 +143,16 @@ def resolve_local_path(cwd: str, path: str) -> str:
         # on failure) reproduces that exact fallthrough.
         with suppress(ValueError, OSError):
             normalized = _file_url_to_path(normalized)
+    if os.name == "nt" and _is_other_drive_relative(cwd, normalized):
+        # L12-D012 (L12D012-F002): a drive-relative path on another drive than `cwd`'s takes
+        # Node's own `win32.resolve` branch -- the inherited per-drive entry (or the process cwd)
+        # is SELECTED first and only then device-checked. Every other path keeps the certified
+        # pipeline below, which already equals Pi there.
+        from . import _libuv_win32
+
+        return node_win32_resolve(
+            [cwd, normalized], inherited=_libuv_win32.inherited_drive_cwd, process_cwd=os.getcwd
+        )
     if os.path.isabs(normalized):
         resolved = os.path.normpath(normalized)
         if os.name == "nt":
@@ -156,6 +166,161 @@ def resolve_local_path(cwd: str, path: str) -> str:
                 resolved += os.sep
         return resolved
     return os.path.normpath(os.path.join(cwd, normalized))
+
+
+def _is_separator(char: str) -> bool:
+    return char in ("/", "\\")
+
+
+def _win32_root(path: str) -> tuple[str, int, bool]:
+    """Node v22.15.1 `path.win32.resolve`'s root match for one argument: (device, root end,
+    absolute). A UNC root `\\\\server\\share` is a device; `X:` is a device, absolute when a
+    separator follows; a leading separator alone is absolute without a device."""
+    length = len(path)
+    if length == 0:
+        return "", 0, False
+    if length == 1:
+        return ("", 1, True) if _is_separator(path) else ("", 0, False)
+    if _is_separator(path[0]):
+        if not _is_separator(path[1]):
+            return "", 1, True
+        j = last = 2
+        while j < length and not _is_separator(path[j]):
+            j += 1
+        if j < length and j != last:
+            first = path[last:j]
+            last = j
+            while j < length and _is_separator(path[j]):
+                j += 1
+            if j < length and j != last:
+                last = j
+                while j < length and not _is_separator(path[j]):
+                    j += 1
+                if j == length or j != last:
+                    return f"\\\\{first}\\{path[last:j]}", j, True
+        return "", 0, True
+    if path[0].isascii() and path[0].isalpha() and path[1] == ":":
+        if length > 2 and _is_separator(path[2]):
+            return path[:2], 3, True
+        return path[:2], 2, False
+    return "", 0, False
+
+
+def _node_normalize_string(path: str, allow_above_root: bool) -> str:
+    """Node v22.15.1 `lib/path.js` `normalizeString` with the win32 separator `\\` and either
+    separator recognized: `.` dropped, `..` folded (kept at the front only when
+    `allow_above_root`), separators collapsed."""
+    res = ""
+    last_segment_length = 0
+    last_slash = -1
+    dots = 0
+    char = ""
+    for i in range(len(path) + 1):
+        if i < len(path):
+            char = path[i]
+        elif _is_separator(char):
+            break
+        else:
+            char = "/"
+        if _is_separator(char):
+            if last_slash == i - 1 or dots == 1:
+                pass
+            elif dots == 2:
+                if len(res) < 2 or last_segment_length != 2 or not res.endswith(".."):
+                    if len(res) > 2:
+                        index = res.rfind("\\")
+                        if index == -1:
+                            res, last_segment_length = "", 0
+                        else:
+                            res = res[:index]
+                            last_segment_length = len(res) - 1 - res.rfind("\\")
+                        last_slash, dots = i, 0
+                        continue
+                    if res:
+                        res, last_segment_length = "", 0
+                        last_slash, dots = i, 0
+                        continue
+                if allow_above_root:
+                    res += "\\.." if res else ".."
+                    last_segment_length = 2
+            else:
+                segment = path[last_slash + 1 : i]
+                res = f"{res}\\{segment}" if res else segment
+                last_segment_length = i - last_slash - 1
+            last_slash, dots = i, 0
+        elif char == "." and dots != -1:
+            dots += 1
+        else:
+            dots = -1
+    return res
+
+
+def _select_drive_base(
+    device: str, inherited: Callable[[str], str | None], process_cwd: Callable[[], str]
+) -> str:
+    """The verbatim branch (Node v22.15.1, record section 3.1): `process.env['=' + device] ||
+    process.cwd()`, then the drive root only when the selected value's first two characters are
+    not the device (case-insensitively) and its third character is `\\`."""
+    path = inherited(device) or process_cwd()
+    if path[:2].lower() != device.lower() and path[2:3] == "\\":
+        path = f"{device}\\"
+    return path
+
+
+def node_win32_resolve(
+    paths: Sequence[str],
+    *,
+    inherited: Callable[[str], str | None],
+    process_cwd: Callable[[], str],
+) -> str:
+    """Node v22.15.1 `path.win32.resolve`, ported literally (L12-D012; record section 3.1).
+
+    Arguments are processed right to left. When a device is known but no absolute path yet, the
+    base is SELECTED first -- the inherited per-drive entry `=<device>` if non-empty, otherwise the
+    process cwd -- and only then device-checked: it is replaced by the drive root only when its
+    first two characters are not the device (case-insensitively) AND its third character is `\\`.
+    Any other selected value is parsed like an argument, so a value on another device is skipped
+    and the result may stay drive-relative (`a:leaf`). `inherited` and `process_cwd` are the two
+    host dependencies (the real ones: `_libuv_win32.inherited_drive_cwd`, `os.getcwd`)."""
+    resolved_device = ""
+    resolved_tail = ""
+    resolved_absolute = False
+    for i in range(len(paths) - 1, -2, -1):
+        if i >= 0:
+            path = paths[i]
+            if not path:
+                continue
+        elif not resolved_device:
+            path = process_cwd()
+        else:
+            path = _select_drive_base(resolved_device, inherited, process_cwd)
+        device, root_end, is_absolute = _win32_root(path)
+        if device:
+            if resolved_device:
+                if device.lower() != resolved_device.lower():
+                    continue
+            else:
+                resolved_device = device
+        if resolved_absolute:
+            if resolved_device:
+                break
+        else:
+            resolved_tail = f"{path[root_end:]}\\{resolved_tail}"
+            resolved_absolute = is_absolute
+            if is_absolute and resolved_device:
+                break
+    resolved_tail = _node_normalize_string(resolved_tail, not resolved_absolute)
+    if resolved_absolute:
+        return f"{resolved_device}\\{resolved_tail}"
+    return f"{resolved_device}{resolved_tail}" or "."
+
+
+def _is_other_drive_relative(cwd: str, path: str) -> bool:
+    """A drive-relative path (`X:` with no separator after it) whose device is not `cwd`'s."""
+    device, _, is_absolute = _win32_root(path)
+    if not device.endswith(":") or is_absolute:
+        return False
+    return _win32_root(cwd)[0].lower() != device.lower()
 
 
 _UNPAIRED_SURROGATE = re.compile(f"[{chr(0xD800)}-{chr(0xDFFF)}]")

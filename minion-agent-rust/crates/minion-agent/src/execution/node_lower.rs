@@ -1,4 +1,4 @@
-//! Node 22.15.1 / Unicode 16 default lowercase, for win32.relative comparison.
+//! Node 22.15.1 / Unicode 16 default lowercase, shared by path consumers.
 //! The table is generated exhaustively from the pinned runtime, not the host
 //! Rust Unicode version. Final_Sigma is the sole contextual default mapping.
 use std::sync::OnceLock;
@@ -15,10 +15,10 @@ fn in_ranges(value: u32, ranges: &[(u32, u32)]) -> bool {
         .get(index)
         .is_some_and(|&(start, end)| start <= value && value <= end)
 }
-pub(super) fn lower(units: &[u16]) -> Vec<u16> {
+pub(crate) fn lower(units: &[u16]) -> Vec<u16> {
     static TABLE: OnceLock<Table> = OnceLock::new();
     let table = TABLE.get_or_init(|| {
-        serde_json::from_str(include_str!("search_node_lower.json"))
+        serde_json::from_str(include_str!("node_lower.json"))
             .expect("pinned Node lowercase table")
     });
     let points: Vec<u32> = char::decode_utf16(units.iter().copied())

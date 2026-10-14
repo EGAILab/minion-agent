@@ -12,17 +12,57 @@ pub(crate) fn native(path: &FsPath) -> PathBuf {
     PathBuf::from(String::from_utf16_lossy(path.code_units()))
 }
 
+fn native_units(path: &Path) -> FsPath {
+    #[cfg(windows)]
+    let units = {
+        use std::os::windows::ffi::OsStrExt;
+        path.as_os_str().encode_wide().collect::<Vec<_>>()
+    };
+    #[cfg(not(windows))]
+    let units = path.to_string_lossy().encode_utf16().collect::<Vec<_>>();
+    FsPath::from_code_units(units)
+}
+
 pub(crate) fn from_native(path: &Path) -> FsPath {
-    let text = path.to_string_lossy();
+    let text = native_units(path);
     if cfg!(windows) {
-        if let Some(unc) = text.strip_prefix("\\\\?\\UNC\\") {
-            return format!("\\\\{unc}").into();
+        if starts(&text, "\\\\?\\UNC\\") {
+            let mut unc = vec![92, 92];
+            unc.extend_from_slice(&text.code_units()[8..]);
+            return FsPath::from_code_units(unc);
         }
-        if let Some(drive) = text.strip_prefix("\\\\?\\") {
-            return drive.into();
+        if starts(&text, "\\\\?\\") {
+            return FsPath::from_code_units(text.code_units()[4..].to_vec());
         }
     }
-    text.as_ref().into()
+    text
+}
+
+/// Node's native UTF-16 -> generalized UTF-8 -> replacement-decode boundary.
+/// A lone surrogate yields THREE replacements, unlike the separate OS-call
+/// projection in `native`. A valid pair remains a pair and a BOM is retained.
+pub(super) fn native_view(raw: &FsPath) -> FsPath {
+    let mut output = Vec::new();
+    for value in char::decode_utf16(raw.code_units().iter().copied()) {
+        match value {
+            Ok(value) => output.extend_from_slice(value.encode_utf16(&mut [0; 2])),
+            Err(_) => output.extend_from_slice(&[0xfffd; 3]),
+        }
+    }
+    FsPath::from_code_units(output)
+}
+
+fn inherited_drive_view(device: &[u16]) -> Option<FsPath> {
+    let mut name = vec![61];
+    name.extend_from_slice(device);
+    env::var_os(String::from_utf16_lossy(&name))
+        .map(|value| native_view(&native_units(Path::new(&value))))
+}
+
+fn process_cwd_view() -> FsPath {
+    native_view(&from_native(
+        &env::current_dir().expect("native process cwd for Node path resolution"),
+    ))
 }
 
 fn starts(path: &FsPath, prefix: &str) -> bool {
@@ -46,28 +86,25 @@ pub(crate) fn resolve(cwd: &Path, raw: &FsPath) -> FsPath {
         if let Some(converted) = file_url_to_js_path(raw, cfg!(windows)) {
             expanded = converted;
         }
-    } else if (raw == "~" || starts(raw, "~/") || starts(raw, "~\\"))
+    } else if (raw == "~" || starts(raw, "~/") || (cfg!(windows) && starts(raw, "~\\")))
         && let Some(home) = env::var_os("HOME").or_else(|| env::var_os("USERPROFILE"))
     {
         let home = from_native(Path::new(&home));
         let tail = FsPath::from_code_units(raw.code_units().get(2..).unwrap_or_default().to_vec());
         expanded = join(&[&home, &tail]);
     }
-    let units = expanded.code_units();
-    let rooted = units.first().is_some_and(|unit| separator(*unit));
-    let drive = cfg!(windows) && units.get(1) == Some(&58);
-    if drive || (rooted && !cfg!(windows)) || (cfg!(windows) && units.starts_with(&[92, 92])) {
-        normalize(units)
+    let base = from_native(cwd);
+    let parts = if super::path_resolve::is_absolute(&expanded, cfg!(windows)) {
+        vec![&expanded]
     } else {
-        let base = from_native(cwd);
-        if rooted && cfg!(windows) {
-            let mut value = base.code_units()[..2].to_vec();
-            value.extend_from_slice(units);
-            normalize(&value)
-        } else {
-            join(&[&base, &expanded])
-        }
-    }
+        vec![&base, &expanded]
+    };
+    super::path_resolve::resolve(
+        &parts,
+        cfg!(windows),
+        inherited_drive_view,
+        process_cwd_view,
+    )
 }
 
 pub(crate) fn join(parts: &[&FsPath]) -> FsPath {
@@ -149,8 +186,11 @@ fn normalize(units: &[u16]) -> FsPath {
     if root {
         output.push(slash);
     }
-    for component in components {
-        if !output.is_empty() && output.last() != Some(&slash) && output.last() != Some(&58) {
+    for (index, component) in components.into_iter().enumerate() {
+        if !output.is_empty()
+            && output.last() != Some(&slash)
+            && !(index == 0 && !root && cfg!(windows) && output.len() == 2 && output[1] == 58)
+        {
             output.push(slash);
         }
         output.extend_from_slice(component);
@@ -164,6 +204,114 @@ fn normalize(units: &[u16]) -> FsPath {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn canonical_baseline_through_real_provider() {
+        let corpus: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../../../conformance/agent/path-resolution/path-resolution.json"
+        ))
+        .unwrap();
+        let platform = if cfg!(windows) { "win32" } else { "linux" };
+        let mut count = 0;
+        for row in corpus["path_resolution"]["cases"].as_array().unwrap() {
+            if row["platform"] != platform || !row["host"].is_null() {
+                continue;
+            }
+            if cfg!(windows) {
+                for drive in row["preconditions"]["absent_entries"].as_array().unwrap() {
+                    let key = format!("={drive}:", drive = drive.as_str().unwrap());
+                    assert!(env::var_os(key).is_none(), "PRECONDITION REFUSED");
+                }
+                let cwd = env::current_dir().unwrap();
+                let drive = native_units(&cwd).code_units()[0] as u8;
+                for forbidden in row["preconditions"]["process_cwd_drive_not"]
+                    .as_array()
+                    .unwrap()
+                {
+                    assert_ne!(
+                        drive.to_ascii_uppercase(),
+                        forbidden.as_str().unwrap().as_bytes()[0],
+                        "PRECONDITION REFUSED"
+                    );
+                }
+            }
+            let decode = |value: &serde_json::Value| {
+                FsPath::from_code_units(serde_json::from_value(value["utf16"].clone()).unwrap())
+            };
+            let base = decode(&row["provider_cwd"]);
+            let provider = native(&base); // canonical provider cwds are scalar
+            let fs = super::super::LocalFileSystem::new(&provider);
+            let input = decode(&row["input"]);
+            assert_eq!(
+                fs.absolute_path(&input, None).await.unwrap(),
+                decode(&row["expect"]),
+                "{}",
+                row["id"]
+            );
+            count += 1;
+        }
+        assert_eq!(count, if cfg!(windows) { 23 } else { 25 });
+    }
+
+    /// External launcher supplies only raw inputs and preconditions, never an
+    /// expected result. Every case path is a VALUE: no I/O uses it as a target.
+    #[tokio::test]
+    #[ignore = "explicit crafted-environment child, launched by path-resolution-probe.py"]
+    async fn native_observer() {
+        use serde_json::{Value, json};
+        let payload: Value =
+            serde_json::from_str(&env::var("MINION_PATH_PROBE").expect("probe payload")).unwrap();
+        let process = env::current_dir().unwrap();
+        let cwd = native_units(&process);
+        if cfg!(windows) {
+            for name in payload["absent_entries"].as_array().unwrap() {
+                assert!(
+                    env::var_os(format!("={}:", name.as_str().unwrap())).is_none(),
+                    "PRECONDITION REFUSED: inherited entry"
+                );
+            }
+            for drive in payload["process_cwd_drive_not"].as_array().unwrap() {
+                assert_ne!(
+                    (cwd.code_units()[0] as u8).to_ascii_uppercase(),
+                    drive.as_str().unwrap().as_bytes()[0],
+                    "PRECONDITION REFUSED: process cwd drive"
+                );
+            }
+        }
+        let base: Vec<u16> = serde_json::from_value(payload["provider_cwd"].clone()).unwrap();
+        #[cfg(windows)]
+        let provider = {
+            use std::os::windows::ffi::OsStringExt;
+            PathBuf::from(std::ffi::OsString::from_wide(&base))
+        };
+        #[cfg(not(windows))]
+        let provider = PathBuf::from(String::from_utf16(&base).unwrap());
+        let fs = super::super::LocalFileSystem::new(&provider);
+        let inputs: Vec<Vec<u16>> = serde_json::from_value(payload["inputs"].clone()).unwrap();
+        let mut rows = Vec::new();
+        for units in inputs {
+            let input = FsPath::from_code_units(units);
+            let actual = fs.absolute_path(&input, None).await.unwrap();
+            let logical = resolve(&provider, &input);
+            let scalar = String::from_utf16(input.code_units()).ok().map(|raw| {
+                native_units(&super::super::filesystem::resolve_local_path(
+                    &provider, &raw,
+                ))
+            });
+            rows.push(json!({"absolute_path":actual.code_units(),"logical":logical.code_units(),"scalar":scalar.map(|v|v.code_units().to_vec())}));
+        }
+        let entries = ["A", "E", "X"].map(|drive| {
+            (
+                drive,
+                env::var_os(format!("={drive}:"))
+                    .map(|value| native_units(Path::new(&value)).code_units().to_vec()),
+            )
+        });
+        println!(
+            "PATH_PROBE {}",
+            json!({"cwd":cwd.code_units(),"entries":entries,"rows":rows})
+        );
+    }
     #[test]
     fn scalar_resolution_preserves_the_certified_existing_binding() {
         let cwd = if cfg!(windows) {

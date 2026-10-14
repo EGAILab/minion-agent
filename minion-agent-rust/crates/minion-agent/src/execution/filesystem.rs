@@ -1,10 +1,9 @@
 use std::{
-    collections::VecDeque,
     env,
     fmt::Debug,
     future::Future,
     io,
-    path::{Component, Path, PathBuf},
+    path::{Path, PathBuf},
     sync::Arc,
     time::UNIX_EPOCH,
 };
@@ -14,6 +13,9 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use uuid::Uuid;
+
+#[cfg(test)]
+use std::path::Component;
 
 use super::path::{basename, from_native, join, native, resolve};
 use super::{AbortSignal, ExecutionWorldIdentity, FsError, FsErrorCode, FsPath};
@@ -1108,29 +1110,7 @@ fn remove_addressed(
 }
 
 pub(crate) fn resolve_local_path(cwd: &Path, raw: &str) -> PathBuf {
-    let expanded = expand_path(raw);
-    let path = if expanded.is_absolute() {
-        expanded
-    } else {
-        cwd.join(expanded)
-    };
-    lexical_normalize(&path)
-}
-
-fn expand_path(raw: &str) -> PathBuf {
-    if raw.starts_with("file://")
-        && let Some(path) = file_url_to_path(raw, cfg!(windows))
-    {
-        return PathBuf::from(path);
-    }
-    if raw == "~" || raw.starts_with("~/") || raw.starts_with("~\\") {
-        let home = env::var_os("HOME").or_else(|| env::var_os("USERPROFILE"));
-        if let Some(home) = home {
-            let rest = raw.strip_prefix('~').unwrap_or(raw);
-            return PathBuf::from(home).join(rest.trim_start_matches(['/', '\\']));
-        }
-    }
-    PathBuf::from(raw)
+    native(&resolve(cwd, &raw.into()))
 }
 
 /// Strict form of the already-certified file URL conversion, exposed for callers that must
@@ -1213,36 +1193,6 @@ fn hex_value(value: u8) -> Option<u8> {
         b'A'..=b'F' => Some(value - b'A' + 10),
         _ => None,
     }
-}
-
-fn lexical_normalize(path: &Path) -> PathBuf {
-    let mut prefix = None;
-    let mut root = false;
-    let mut parts = VecDeque::new();
-    for component in path.components() {
-        match component {
-            Component::Prefix(value) => prefix = Some(value.as_os_str().to_owned()),
-            Component::RootDir => root = true,
-            Component::CurDir => {}
-            Component::ParentDir => {
-                if parts.back().is_some_and(|part| part != "..") {
-                    parts.pop_back();
-                } else if !root {
-                    parts.push_back("..".into());
-                }
-            }
-            Component::Normal(value) => parts.push_back(value.to_owned()),
-        }
-    }
-    let mut result = PathBuf::new();
-    if let Some(prefix) = prefix {
-        result.push(prefix);
-    }
-    if root {
-        result.push(Path::new(std::path::MAIN_SEPARATOR_STR));
-    }
-    result.extend(parts);
-    result
 }
 
 fn map_fs_error(error: io::Error) -> FsError {

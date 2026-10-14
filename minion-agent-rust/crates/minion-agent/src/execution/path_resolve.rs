@@ -1,5 +1,6 @@
 //! Lexical Node v22.15.1 path.resolve on JavaScript UTF-16 strings.
 //! No PathBuf component interpretation and no filesystem access belong here.
+//! Adapted from Node's lib/path.js; see THIRD-PARTY-NOTICES.md.
 use super::{FsPath, node_lower::lower};
 
 fn sep(unit: u16, windows: bool) -> bool {
@@ -206,6 +207,27 @@ mod tests {
                 || panic!("unexpected native cwd read: {row}"),
             );
             assert_eq!(actual, row["out"].as_str().unwrap(), "{row}");
+        }
+    }
+
+    #[test]
+    fn node_logical_cwd_is_not_a_native_read() {
+        let fixture: Value =
+            serde_json::from_str(include_str!("../../tests/data/node_logical_cwd.json")).unwrap();
+        assert_eq!(fixture["rows"].as_array().unwrap().len(), 10);
+        for row in fixture["rows"].as_array().unwrap() {
+            let base = string(&row["cwd"]);
+            let input = string(&row["input"]);
+            assert_eq!(
+                resolve(
+                    &[&base, &input],
+                    row["platform"] == "win32",
+                    |_| panic!("logical cwd must not consult native env"),
+                    || panic!("logical cwd must not consult native cwd")
+                ),
+                string(&row["node"]),
+                "{row}"
+            );
         }
     }
 

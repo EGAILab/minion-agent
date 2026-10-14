@@ -45,8 +45,8 @@ def controls():
         ("raw-native-entry", EXEC + "path.rs", ".map(|value| native_view(&native_units(Path::new(&value))))",
          ".map(|value| { FIRE native_units(Path::new(&value)) })", "native", "entry/lone-high-backslash", True),
         ("raw-native-cwd", EXEC + "path.rs",
-         'native_view(&from_native(\n        &env::current_dir().expect("native process cwd for Node path resolution"),\n    ))',
-         '{ FIRE from_native(&env::current_dir().expect("native process cwd for Node path resolution")) }',
+         'native_view(&logical_provider_path(\n        &env::current_dir().expect("native process cwd for Node path resolution"),\n    ))',
+         '{ FIRE logical_provider_path(&env::current_dir().expect("native process cwd for Node path resolution")) }',
          "native", "cwd/lone-high/absent", True),
         ("logical-projected", EXEC + "path.rs", "let mut expanded = raw.clone();",
          "FIRE let mut expanded = native_view(raw);", PATHS + "lexical_paths_do_not_project_surrogates", "assertion `left == right` failed", False),
@@ -61,6 +61,8 @@ def controls():
         ("host-unicode-lowercase-regression", EXEC + "node_lower.rs", "let points: Vec<u32>",
          "FIRE return String::from_utf16_lossy(units).to_lowercase().encode_utf16().collect(); #[allow(unreachable_code)] let points: Vec<u32>",
          "execution::node_lower::tests::node_unicode16_lowercase_is_not_host_unicode17", "assertion `left == right` failed", False),
+        ("logical-provider-cwd-projected", EXEC + "path.rs", "let base = cwd.clone();",
+         "let base = { FIRE native_view(cwd) };", PATHS + "logical_provider_cwd_stays_raw", "high", False),
     ]
     return [(name, file, old, new.replace("FIRE", f'eprintln!("CONTROL FIRED {name}");'), witness, reason, native)
             for name, file, old, new, witness, reason, native in rows]
@@ -78,17 +80,22 @@ def main():
     assert not args.only or len(selected) == len(args.only), "unknown control"
     tree = safety.checked(args.tree, ROOT)
     originals = {file: (tree / file).read_text(encoding="utf-8") for _, file, *_ in controls()}
+    original_bytes = {file: (tree / file).read_bytes() for file in originals}
     for name, file, old, *_ in controls():
         assert originals[file].count(old) == 1, f"INVALID ANCHOR {name}: count={originals[file].count(old)}"
-    print("PATH CONTROL ANCHORS 12/12 MATCH ONCE", flush=True)
+    assert len(controls()) == 13, "all declared control classes must remain present"
+    print("PATH CONTROL ANCHORS 13/13 MATCH ONCE", flush=True)
     if args.check_anchors:
         return
     assert "control-code" in tree.parts, "explicit disposable control-code tree required"
     assert args.logs and args.control_target
-    target = safety.checked(args.control_target, safety.PROJECT) if os.name == "nt" else args.control_target
-    gate = Path(os.environ["CARGO_TARGET_DIR"])
+    target = safety.checked(args.control_target, safety.PROJECT).resolve(strict=False) if os.name == "nt" else args.control_target
+    gate = Path(os.environ["CARGO_TARGET_DIR"]).resolve(strict=False)
     assert target != gate and not target.is_relative_to(gate) and not gate.is_relative_to(target), "disjoint targets required"
-    assert "control" in target.name, "dedicated controls target required"
+    if os.name == "nt":
+        for platform in ("windows", "linux"):
+            shared_gate = (safety.PROJECT / ".tmp/cache/cargo-target" / platform).resolve(strict=False)
+            assert not target.is_relative_to(shared_gate) and not shared_gate.is_relative_to(target), "shared gate cache cannot be a controls target"
     if os.name != "nt":
         assert target == Path("/control-target") and target.is_dir(), "explicit controls bind required"
     os.environ["CARGO_TARGET_DIR"] = str(target)
@@ -125,7 +132,7 @@ def main():
                 continue
             binary = build(name + "-baseline")
             code, output = observe(name + "-baseline", binary, witness)
-            assert code == 0 and (witness == "native" or "1 passed; 0 failed" in output), f"INVALID BASELINE {name}"
+            assert code == 0 and (witness == "native" or "1 passed; 0 failed" in output) and "CONTROL FIRED " not in output, f"INVALID BASELINE {name}"
             source = safety.checked(tree / file, ROOT)
             safety.checked(source, ROOT).write_text(originals[file].replace(old, new), encoding="utf-8")
             binary = build(name)
@@ -137,14 +144,17 @@ def main():
                 killed = code == 101 and "1 failed" in output and witness + " ... FAILED" in output and reason in output and f"CONTROL FIRED {name}" in output
             assert killed, f"SURVIVED OR INVALID {name}: exit {code}; intended witness={reason}"
             results.append({"control": name, "status": "KILLED", "witness": witness, "reason": reason, "fired": True})
-            safety.checked(source, ROOT).write_text(originals[file], encoding="utf-8")
+            safety.checked(source, ROOT).write_bytes(original_bytes[file])
             print(json.dumps(results[-1]), flush=True)
     finally:
-        for file, content in originals.items():
-            safety.checked(tree / file, ROOT).write_text(content, encoding="utf-8")
+        for file, content in original_bytes.items():
+            safety.checked(tree / file, ROOT).write_bytes(content)
+    assert all((tree / file).read_bytes() == content for file, content in original_bytes.items()), "restoration must be byte-identical"
     binary = build("restored")
-    code, output = run("restored", [binary, "execution::path", "--nocapture"])
-    assert code == 0 and "0 failed" in output, "INVALID RESTORED BASELINE"
+    code, output = run("restored", [binary, "--nocapture"])
+    assert code == 0 and "0 failed" in output and "CONTROL FIRED " not in output, "INVALID RESTORED LIB BASELINE"
+    code, output = observe("restored-native", binary, "native")
+    assert code == 0 and "CONTROL FIRED " not in output, "INVALID RESTORED NATIVE BASELINE"
     with safety.checked(logs / "summary.json", ROOT).open("w", encoding="utf-8") as stream:
         json.dump({"controls": results, "restored": "GREEN"}, stream, indent=2)
     print(json.dumps({"killed": sum(row["status"] == "KILLED" for row in results), "not_applicable": sum(row["status"] == "NOT_APPLICABLE" for row in results), "restored": "GREEN"}), flush=True)

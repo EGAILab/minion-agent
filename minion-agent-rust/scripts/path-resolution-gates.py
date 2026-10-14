@@ -59,13 +59,19 @@ def copy_tree(source, destination, boundary=SCRATCH):
         for name in list(dirs):
             if name in ("target", ".git", "__pycache__"):
                 dirs.remove(name)
-            elif not stat.S_ISDIR((Path(directory) / name).lstat().st_mode):
-                raise RuntimeError("non-directory copy source")
+            else:
+                metadata = (Path(directory) / name).lstat()
+                if not stat.S_ISDIR(metadata.st_mode) or stat.S_ISLNK(metadata.st_mode) or getattr(metadata, "st_file_attributes", 0) & 1024:
+                    raise RuntimeError("non-plain directory copy source")
         for name in files:
             src = Path(directory) / name
-            if not stat.S_ISREG(src.lstat().st_mode):
+            metadata = src.lstat()
+            if not stat.S_ISREG(metadata.st_mode) or getattr(metadata, "st_file_attributes", 0) & 1024:
                 raise RuntimeError("non-regular copy source")
-            shutil.copyfile(src, checked(target / name, boundary))  # fresh mtimes, never copy2
+            destination_file = checked(target / name, boundary)
+            shutil.copyfile(src, destination_file)  # fresh mtimes, never copy2
+            if not WINDOWS and destination_file.suffix == ".sh":
+                checked(destination_file, boundary).write_bytes(destination_file.read_bytes().replace(b"\r\n", b"\n"))
 
 
 def workspace_copy(source, destination):
@@ -96,8 +102,11 @@ def main():
     if WINDOWS:
         tree = HERE
         checked(tree)
-        checked(args.gate_target)
-        checked(args.control_target)
+        args.gate_target = checked(args.gate_target).resolve(strict=False)
+        args.control_target = checked(args.control_target).resolve(strict=False)
+        for platform in ("windows", "linux"):
+            shared_gate = (PROJECT / ".tmp/cache/cargo-target" / platform).resolve(strict=False)
+            assert not args.control_target.is_relative_to(shared_gate) and not shared_gate.is_relative_to(args.control_target), "shared gate cache cannot be a controls target"
         assert os.environ.get("CARGO_BUILD_JOBS") == "4", "load project environment"
         os.environ.update({
             "RUST_ICU_MAJOR_VERSION_NUMBER": "78",
@@ -132,6 +141,10 @@ def main():
         })
     assert args.gate_target != args.control_target and not args.gate_target.is_relative_to(args.control_target) and not args.control_target.is_relative_to(args.gate_target)
     os.environ["CARGO_TARGET_DIR"] = str(args.gate_target)
+    with checked(logs / "targets.json", log_boundary).open("w", encoding="utf-8") as output:
+        json.dump({"gate_target": str(args.gate_target), "control_target": str(args.control_target),
+                   "source": str(tree), "cargo_jobs": os.environ["CARGO_BUILD_JOBS"],
+                   "phase": args.phase}, output, indent=2)
     spec = importlib.util.spec_from_file_location("cache_safety", tree / "scripts/cargo-cache-safety.py")
     safety = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(safety)
@@ -146,6 +159,9 @@ def main():
         if result.returncode:
             raise SystemExit(result.returncode)
 
+    if WINDOWS:
+        run("preflight", ["powershell", "-NoProfile", "-File", str(PROJECT / ".agents/gate-preflight.ps1"), "-MaxWaitMinutes", "0"])
+    run("versions", [sys.executable, "-c", "import subprocess,sys; print(sys.version); commands=[['rustc','--version'],['cargo','--version'],['node','--version']]; outputs=[subprocess.check_output(command,text=True).strip() for command in commands]; print('\\n'.join(outputs)); assert outputs[0].startswith('rustc 1.97.1 '); assert outputs[2]=='v22.15.1'"])
     run("path-anchors", [sys.executable, "scripts/path-resolution-negative-controls.py", "--tree", str(tree), "--check-anchors"])
     run("error-anchors", [sys.executable, "scripts/error-codes-negative-controls.py", "--tree", str(tree), "--check-anchors"])
     if args.phase != "controls":
@@ -162,7 +178,22 @@ def main():
         events = [json.loads(line) for line in (logs / "observer-build.log").read_text().splitlines() if line.startswith("{")]
         binaries = [row["executable"] for row in events if row.get("executable") and row.get("target", {}).get("name") == "minion_agent"]
         assert len(binaries) == 1
-        run("path-probe", [sys.executable, "scripts/path-resolution-probe.py", "--binary", binaries[0], "--sandbox", str(private / "probe-fixture")])
+        probe = [sys.executable, "scripts/path-resolution-probe.py", "--binary", binaries[0], "--sandbox", str(private / "probe-fixture" if WINDOWS else fixtures / "probe-fixture")]
+        if not WINDOWS:
+            probe = ["setpriv", "--reuid", "1000", "--regid", "1000", "--clear-groups", *probe]
+        run("path-probe", probe)
+        if not WINDOWS:
+            targets = ("fs_path_domain_conformance", "fs_remove_readonly_conformance", "fs_path_domain")
+            command = ["cargo", "test", "-p", "minion-agent", "--all-features"]
+            for target in targets:
+                command += ["--test", target]
+            run("uid-corpora-build", command + ["--no-run", "--message-format=json"])
+            events = [json.loads(line) for line in (logs / "uid-corpora-build.log").read_text().splitlines() if line.startswith("{")]
+            built = {row["target"]["name"]: row["executable"] for row in events if row.get("executable") and row.get("target", {}).get("name") in targets}
+            assert set(built) == set(targets)
+            for target, binary in built.items():
+                extra = ["--exact", "recursive_remove_single_failure_reports_the_inner_native_call", "--ignored"] if target == "fs_path_domain" else []
+                run("uid1000-" + target, ["setpriv", "--reuid", "1000", "--regid", "1000", "--clear-groups", binary, *extra, "--nocapture"])
     if args.phase != "gates":
         control_root = private / "control-code"
         workspace_copy(tree.parent, control_root)

@@ -24,7 +24,16 @@ fn native_units(path: &Path) -> FsPath {
 }
 
 pub(crate) fn from_native(path: &Path) -> FsPath {
-    let text = native_units(path);
+    // Preserve the certified native filesystem-result/display mapping. The raw
+    // codec below is scoped to logical cwd transport and selected native reads.
+    without_extended_prefix(path.to_string_lossy().as_ref().into())
+}
+
+fn logical_provider_path(path: &Path) -> FsPath {
+    without_extended_prefix(native_units(path))
+}
+
+fn without_extended_prefix(text: FsPath) -> FsPath {
     if cfg!(windows) {
         if starts(&text, "\\\\?\\UNC\\") {
             let mut unc = vec![92, 92];
@@ -60,7 +69,7 @@ fn inherited_drive_view(device: &[u16]) -> Option<FsPath> {
 }
 
 fn process_cwd_view() -> FsPath {
-    native_view(&from_native(
+    native_view(&logical_provider_path(
         &env::current_dir().expect("native process cwd for Node path resolution"),
     ))
 }
@@ -81,6 +90,12 @@ pub fn file_url_to_js_path(raw: &FsPath, windows: bool) -> Option<FsPath> {
 }
 
 pub(crate) fn resolve(cwd: &Path, raw: &FsPath) -> FsPath {
+    resolve_logical(&logical_provider_path(cwd), raw)
+}
+
+/// Logical cwd and input are both JavaScript strings. The OS-path convenience
+/// adapter above does not make this entry point project either string.
+pub(crate) fn resolve_logical(cwd: &FsPath, raw: &FsPath) -> FsPath {
     let mut expanded = raw.clone();
     if starts(raw, "file://") {
         if let Some(converted) = file_url_to_js_path(raw, cfg!(windows)) {
@@ -93,7 +108,7 @@ pub(crate) fn resolve(cwd: &Path, raw: &FsPath) -> FsPath {
         let tail = FsPath::from_code_units(raw.code_units().get(2..).unwrap_or_default().to_vec());
         expanded = join(&[&home, &tail]);
     }
-    let base = from_native(cwd);
+    let base = cwd.clone();
     let parts = if super::path_resolve::is_absolute(&expanded, cfg!(windows)) {
         vec![&expanded]
     } else {
@@ -206,6 +221,57 @@ mod tests {
     use super::*;
 
     #[tokio::test]
+    async fn logical_provider_cwd_stays_raw() {
+        let fixture: serde_json::Value =
+            serde_json::from_str(include_str!("../../tests/data/node_logical_cwd.json")).unwrap();
+        let platform = if cfg!(windows) { "win32" } else { "linux" };
+        let mut count = 0;
+        let mut providers = 0;
+        for row in fixture["rows"].as_array().unwrap() {
+            if row["platform"] != platform {
+                continue;
+            }
+            let decode = |field: &str| {
+                FsPath::from_code_units(serde_json::from_value(row[field].clone()).unwrap())
+            };
+            let cwd = decode("cwd");
+            let input = decode("input");
+            let expected = decode("node");
+            #[cfg(windows)]
+            let provider = {
+                use std::os::windows::ffi::OsStringExt;
+                Some(PathBuf::from(std::ffi::OsString::from_wide(
+                    cwd.code_units(),
+                )))
+            };
+            #[cfg(not(windows))]
+            let provider = String::from_utf16(cwd.code_units()).ok().map(PathBuf::from);
+            // A PathBuf can transport raw UTF-16 on Windows. On POSIX, the
+            // lossless logical entry point covers the non-scalar cwd domain;
+            // the public lossless carrier is the separate #224 / #228 work.
+            if let Some(provider) = provider {
+                let fs = super::super::LocalFileSystem::new(provider);
+                assert_eq!(
+                    fs.absolute_path(&input, None).await.unwrap(),
+                    expected,
+                    "real provider {}",
+                    row["label"]
+                );
+                providers += 1;
+            }
+            assert_eq!(
+                resolve_logical(&cwd, &input),
+                expected,
+                "logical cwd {}",
+                row["label"]
+            );
+            count += 1;
+        }
+        assert_eq!(count, 5);
+        assert_eq!(providers, if cfg!(windows) { 5 } else { 3 });
+    }
+
+    #[tokio::test]
     async fn canonical_baseline_through_real_provider() {
         let corpus: serde_json::Value = serde_json::from_str(include_str!(
             "../../../../../conformance/agent/path-resolution/path-resolution.json"
@@ -313,7 +379,7 @@ mod tests {
         );
     }
     #[test]
-    fn scalar_resolution_preserves_the_certified_existing_binding() {
+    fn scalar_and_lossless_adapters_share_the_resolver() {
         let cwd = if cfg!(windows) {
             Path::new("C:\\root")
         } else {

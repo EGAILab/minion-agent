@@ -7354,15 +7354,19 @@ rows:
   tests:
   - conformance/agent/spawn-nul/spawn-nul.json (generated from pinned Node and Pi on Windows and Linux by
     minion-agent-docs assurance/layers/data/l12-d011/gen)
-  python: 'IMPLEMENTATION_CANDIDATE (L12-D011, minion-agent#224): execution/spawn_nul.py (Node inspect subset,
-    the diagnostic, the section 21.3 order, one validator); LocalSubprocess.spawn checks argv, the effective cwd and
-    the effective environment after the pre-abort check and before any native call (SubprocessError.nul_input);
-    tools/builtin/_search.py spawn_engine and bash.py check the unprojected argv before the WP-13.3 projection and
-    surface a marked rejection unchanged. Witnesses: tests/execution/test_spawn_nul.py,
-    tests/conformance/test_spawn_nul_conformance.py; controls scripts/l12_d011_negative_controls.py (14).
-    Independent implementation review pending; not certified.'
-  rust: 'NOT_IMPLEMENTED (L12-D011 contract draft): execution/subprocess.rs maps the native InvalidInput to
-    spawn_error with the OS text; tools add their wrappers (#195 characterization, source reading).'
+  python: 'APPROVED AND MERGED (L12-D011, minion-agent#224: final complete review issuecomment-6163739593 at
+    code #226 f27b915e / docs #302 746ff9a5, merged -> f9935672 / f065a0c0; I001, I002 closed, N001 closed;
+    convergence episode CE-L12D011-01): execution/spawn_nul.py (Node inspect subset, the diagnostic, the section
+    21.3 order, one validator); LocalSubprocess.spawn checks argv, the effective cwd and the effective environment
+    after the pre-abort check and before any native call (SubprocessError.nul_input); tools/builtin/_search.py
+    spawn_engine and bash.py check the unprojected argv before the WP-13.3 projection and surface a marked
+    rejection unchanged. Witnesses: tests/execution/test_spawn_nul.py, tests/conformance/test_spawn_nul_conformance.py;
+    controls scripts/l12_d011_negative_controls.py (15, credited from observed exception identity and origin by
+    scripts/l12_d011_evidence.py; driver checks tests/scripts/test_l12_d011_control_driver.py). Linux configured
+    coverage/mypy limitation base-equal and disclosed, not waived. Cross-language NOT CLOSED.'
+  rust: 'NOT_IMPLEMENTED (L12-D011 contract approved and merged; Rust implementation pending, minion-agent#224):
+    execution/subprocess.rs maps the native InvalidInput to spawn_error with the OS text; tools add their wrappers
+    (#195 characterization, source reading).'
   disposition: adopted
 - id: TOOL-025
   phase: 6

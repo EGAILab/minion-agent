@@ -95,8 +95,13 @@ def real_inherited(device: str) -> str | None:
     return _libuv_win32.inherited_drive_cwd(device)
 
 
+def process_cwd() -> str:
+    """The runner's own process cwd (module-level, so the refusal controls can script it)."""
+    return os.getcwd()
+
+
 async def run_baseline_case(case: dict[str, Any]) -> str:
-    refusal = precondition_refusal(case, inherited=real_inherited, process_cwd=os.getcwd())
+    refusal = precondition_refusal(case, inherited=real_inherited, process_cwd=process_cwd())
     if refusal is not None:
         raise AssertionError(f"PRECONDITION REFUSED: {refusal}")
     result = await LocalFileSystem(text(case["provider_cwd"])).absolute_path(text(case["input"]))

@@ -5,7 +5,9 @@ section 3.2; record 12-l12-d012-path-colon.md sections 9 and 10) through the rea
 from __future__ import annotations
 
 import os
+import subprocess as subprocess_module
 import sys
+import types
 from pathlib import Path
 from typing import Any
 
@@ -13,6 +15,7 @@ import pytest
 
 from minion_agent.execution import filesystem
 
+from . import path_resolution_runner as runner
 from .path_resolution_runner import (
     DOCUMENT,
     HOST_PLATFORM,
@@ -129,7 +132,9 @@ def test_control_pairs_discriminate() -> None:
     assert observed["01"] == observed["02"] != observed["08"]
 
 
-def test_control_missing_precondition_refuses() -> None:
+def test_precondition_helper_truth_table() -> None:
+    """The precondition helper alone (supporting evidence; the entry-point enforcement controls
+    below are the L12D012-PY-I001 witnesses)."""
     case = BY_ID["win32/baseline/12"]
     assert precondition_refusal(case, inherited=lambda _: None, process_cwd="E:\\w") is None
     for entry in ("A:\\deep", ""):  # present -- including present but EMPTY -- refuses
@@ -140,6 +145,154 @@ def test_control_missing_precondition_refuses() -> None:
     assert precondition_refusal(case, inherited=lambda _: None, process_cwd="A:\\w") is not None
     host = BY_ID["win32/host/a-drive/01"]
     assert precondition_refusal(host, inherited=lambda _: None, process_cwd="C:\\w") is not None
+
+
+# --- entry-point enforcement controls (L12D012-PY-I001) ------------------------------------------
+# The ACTUAL runner entry points run under scripted host state (the inherited-entry lookup and the
+# process cwd are module-level in the runner; a host case's child cwd is its sandbox argument). No
+# case path and no scripted cwd is ever created, accessed or used as a real cwd: a refused run stops
+# before the provider or the child, and an admitted host run stops AT the child launch (a spy).
+
+
+class _Reached(Exception):
+    """The admitted host run reached the child launch (the spy stops it there)."""
+
+
+class _Observed:
+    def __init__(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        self.provider: list[str] = []
+        self.child: list[list[str]] = []
+        real = filesystem.LocalFileSystem.absolute_path
+
+        async def absolute_path(fs: Any, path: str, signal: Any = None) -> Any:
+            self.provider.append(path)
+            return await real(fs, path, signal)
+
+        def run(args: list[str], **_: Any) -> Any:
+            self.child.append(args)
+            raise _Reached
+
+        monkeypatch.setattr(filesystem.LocalFileSystem, "absolute_path", absolute_path)
+        monkeypatch.setattr(subprocess_module, "run", run)
+
+
+def _script(monkeypatch: pytest.MonkeyPatch, module: Any, entry: str | None, cwd: str) -> None:
+    monkeypatch.setattr(module, "real_inherited", lambda d: entry if d == "A:" else None)
+    monkeypatch.setattr(module, "process_cwd", lambda: cwd)
+
+
+async def _baseline_refused(module: Any, observed: _Observed) -> bool:
+    """The refusal witness: the entry point refuses, and the provider is never invoked."""
+    try:
+        await module.run_baseline_case(BY_ID["win32/baseline/12"])
+    except AssertionError as error:
+        return str(error).startswith("PRECONDITION REFUSED") and observed.provider == []
+    return False
+
+
+def _host_refused(module: Any, observed: _Observed, case_id: str, sandbox: str) -> bool:
+    try:
+        module.run_host_case(BY_ID[case_id], Path(sandbox))
+    except _Reached:
+        return False
+    except AssertionError as error:
+        return str(error).startswith("PRECONDITION REFUSED") and observed.child == []
+    return False
+
+
+FORBIDDEN_BASELINE = [
+    ("", "E:\\w"),
+    ("A:\\deep", "E:\\w"),
+    (None, "A:\\w"),
+    (None, "X:\\w"),
+    (None, "C:\\w"),
+]
+FORBIDDEN_HOST = [
+    ("win32/host/a-drive/01", "C:\\never-created"),
+    ("win32/host/a-drive/08", "A:\\never-created"),
+    ("win32/host/cwd-drive/01", "C:\\never-created"),
+]
+
+
+@pytest.mark.parametrize(("entry", "cwd"), FORBIDDEN_BASELINE)
+async def test_baseline_entry_refuses_before_the_provider(
+    entry: str | None, cwd: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Present (including present-but-EMPTY) =A:, or a process cwd on A:/X:/C:: refused, and the
+    real provider is never reached."""
+    observed = _Observed(monkeypatch)
+    _script(monkeypatch, runner, entry, cwd)
+    assert await _baseline_refused(runner, observed)
+
+
+async def test_baseline_entry_admits_and_reaches_the_seam(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Positive control: admissible state reaches the real `absolute_path` exactly once."""
+    observed = _Observed(monkeypatch)
+    _script(monkeypatch, runner, None, "E:\\w")
+    value = await runner.run_baseline_case(BY_ID["win32/baseline/12"])
+    assert observed.provider == ["a::/b"]
+    if HOST_PLATFORM == "win32":
+        assert value == text(BY_ID["win32/baseline/12"]["expect"])
+
+
+@pytest.mark.parametrize(("case_id", "sandbox"), FORBIDDEN_HOST)
+def test_host_entry_refuses_before_the_child(
+    case_id: str, sandbox: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    observed = _Observed(monkeypatch)
+    assert _host_refused(runner, observed, case_id, sandbox)
+
+
+def test_host_entry_admits_and_reaches_the_child(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Positive control: an admissible child cwd reaches the child launch (stopped by the spy)."""
+    observed = _Observed(monkeypatch)
+    with pytest.raises(_Reached):
+        runner.run_host_case(BY_ID["win32/host/a-drive/01"], Path("E:\\never-created"))
+    assert len(observed.child) == 1
+
+
+def _without_enforcement(marker: str) -> Any:
+    """The runner with ONE entry point's refusal branch removed, compiled in memory (nothing is
+    written); `marker` is that branch's exact source."""
+    source = Path(runner.__file__).read_text(encoding="utf-8")
+    assert source.count(marker) == 1
+    mutated = source.replace(marker, marker.replace("if refusal is not None:", "if False:"))
+    module = types.ModuleType("path_resolution_runner_without_enforcement")
+    module.__file__ = runner.__file__
+    exec(compile(mutated, runner.__file__, "exec"), module.__dict__)
+    return module
+
+
+_BASELINE_BRANCH = (
+    '    if refusal is not None:\n        raise AssertionError(f"PRECONDITION REFUSED: {refusal}")'
+)
+_HOST_BRANCH = (
+    "    if refusal is not None:\n"
+    '        raise AssertionError(f"PRECONDITION REFUSED (child cwd): {refusal}")'
+)
+
+
+@pytest.mark.parametrize(("entry", "cwd"), FORBIDDEN_BASELINE[:1] + FORBIDDEN_BASELINE[2:3])
+async def test_control_baseline_enforcement_omission_is_killed(
+    entry: str | None, cwd: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Known-bad (the reviewer's mutant): the baseline entry point without its refusal branch runs
+    the forbidden case through the provider, so the refusal witness above FAILS on it."""
+    mutant = _without_enforcement(_BASELINE_BRANCH)
+    observed = _Observed(monkeypatch)
+    _script(monkeypatch, mutant, entry, cwd)
+    assert not await _baseline_refused(mutant, observed)
+    assert observed.provider == ["a::/b"]
+
+
+@pytest.mark.parametrize(("case_id", "sandbox"), FORBIDDEN_HOST[:1])
+def test_control_host_enforcement_omission_is_killed(
+    case_id: str, sandbox: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    mutant = _without_enforcement(_HOST_BRANCH)
+    observed = _Observed(monkeypatch)
+    assert not _host_refused(mutant, observed, case_id, sandbox)
+    assert len(observed.child) == 1
 
 
 @pytest.mark.skipif(sys.platform != "win32", reason="the per-drive entry exists only on win32")

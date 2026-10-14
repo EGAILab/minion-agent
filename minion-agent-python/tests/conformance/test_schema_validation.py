@@ -1494,3 +1494,74 @@ def test_spawn_nul_aborted_outcome_carries_no_message() -> None:
     aborted = next(c for c in document["spawn_nul"]["cases"] if c["pre_aborted"])
     aborted["expect"]["linux"]["message"] = {"utf16": [97]}
     assert list(_spawn_nul_validator().iter_errors(document))
+
+
+# --- L12-D012 (minion-agent#229): path-resolution corpus ------------------------------------------
+
+PATH_RESOLUTION_SCHEMA = CONFORMANCE / "schema" / "path-resolution-scenario.schema.json"
+PATH_RESOLUTION_DIR = CONFORMANCE / "agent" / "path-resolution"
+
+
+def _path_resolution_validator() -> Draft202012Validator:
+    return Draft202012Validator(json.loads(PATH_RESOLUTION_SCHEMA.read_text(encoding="utf-8")))
+
+
+def _path_resolution_document() -> dict[str, Any]:
+    text = (PATH_RESOLUTION_DIR / "path-resolution.json").read_text(encoding="utf-8")
+    return json.loads(text)  # type: ignore[no-any-return]
+
+
+def test_path_resolution_schema_is_wellformed() -> None:
+    Draft202012Validator.check_schema(
+        json.loads(PATH_RESOLUTION_SCHEMA.read_text(encoding="utf-8"))
+    )
+
+
+@pytest.mark.parametrize(
+    "scenario", sorted(PATH_RESOLUTION_DIR.glob("*.json")), ids=lambda value: value.stem
+)
+def test_path_resolution_scenario_validates(scenario: Path) -> None:
+    assert not list(
+        _path_resolution_validator().iter_errors(json.loads(scenario.read_text(encoding="utf-8")))
+    )
+
+
+def _first(document: dict[str, Any], prefix: str) -> dict[str, Any]:
+    case: dict[str, Any] = next(
+        c for c in document["path_resolution"]["cases"] if c["id"].startswith(prefix)
+    )
+    return case
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        lambda d: _first(d, "win32/baseline/").pop("expect"),
+        lambda d: _first(d, "win32/baseline/").pop("preconditions"),
+        lambda d: _first(d, "win32/baseline/").__setitem__("expect", {"parts": []}),
+        lambda d: _first(d, "linux/baseline/").__setitem__("host", {"drive": "A", "entry": None}),
+        lambda d: _first(d, "win32/host/").__setitem__("host", {"drive": "a", "entry": None}),
+        lambda d: _first(d, "win32/host/").__setitem__("host", {"drive": "cwd"}),
+        lambda d: _first(d, "win32/host/")["expect"]["parts"].append({"cwd_tail": False}),
+        lambda d: _first(d, "win32/host/")["expect"]["parts"].append({"cwd_drive": "mixed"}),
+        lambda d: _first(d, "win32/host/")["preconditions"].__setitem__(
+            "process_cwd_drive_not", ["c"]
+        ),
+        lambda d: _first(d, "win32/host/").__setitem__("id", "darwin/host/01"),
+        lambda d: d.__setitem__("requirements", ["EXEC-013"]),
+        lambda d: d.__setitem__("platforms", ["darwin"]),
+    ],
+)
+def test_path_resolution_schema_rejects_malformed_documents(mutation: Any) -> None:
+    document = _path_resolution_document()
+    mutation(document)
+    assert list(_path_resolution_validator().iter_errors(document))
+
+
+def test_path_resolution_corpus_shape() -> None:
+    """23 win32 baseline + 32 win32 host-state + 25 linux baseline cases (record §§2, 3.2)."""
+    ids = [c["id"] for c in _path_resolution_document()["path_resolution"]["cases"]]
+    assert len(ids) == len(set(ids)) == 80
+    assert sum(i.startswith("win32/baseline/") for i in ids) == 23
+    assert sum(i.startswith("win32/host/") for i in ids) == 32
+    assert sum(i.startswith("linux/baseline/") for i in ids) == 25

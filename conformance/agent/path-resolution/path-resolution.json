@@ -1,0 +1,4177 @@
+{
+ "name": "path-resolution",
+ "family": "agent",
+ "authority": "pinned Pi b7bb00b9 packages/agent/src/harness/env/nodejs.ts:51-65 resolvePath (sliced unmodified) on native Node v22.15.1 path.resolve / fileURLToPath, generated natively on Windows 11 and on Linux (node:22.15.1-bookworm-slim) by minion-agent-docs assurance/layers/data/l12-d012/gen (L12-D012, minion-agent#229)",
+ "pi_revision": "b7bb00b936dbe21b8e160b3e89efdec361846699",
+ "requirements": [
+  "EXEC-002",
+  "EXEC-005"
+ ],
+ "witnesses": [
+  "fs_path_resolution_colon_and_drive_relative"
+ ],
+ "platforms": [
+  "linux",
+  "win32"
+ ],
+ "notes": "spec/execution.md section 3.2 (DIRECT_PI_PARITY), unchanged; record 12-l12-d012-path-colon.md. Lexical ctx.fs.absolute_path only: never create, write or use as a cwd any of these paths. baseline cases run in-process under VERIFIED preconditions (absent per-drive entries, process cwd drive) and REFUSE otherwise; host cases run the real resolver seam in a CHILD process whose environment block carries exactly the case's per-drive entry (and no other '='-prefixed entry) and whose cwd is a contained sandbox directory; cwd_drive / cwd_tail parts are filled from that child cwd.",
+ "path_resolution": {
+  "cases": [
+   {
+    "id": "win32/baseline/01",
+    "platform": "win32",
+    "provider_cwd": {
+     "utf16": [
+      67,
+      58,
+      92,
+      120
+     ]
+    },
+    "input": {
+     "utf16": [
+      102,
+      105,
+      108,
+      101,
+      58,
+      47,
+      47,
+      47,
+      67,
+      58,
+      47,
+      97,
+      37,
+      50,
+      70,
+      98
+     ]
+    },
+    "host": null,
+    "preconditions": {
+     "absent_entries": [
+      "A",
+      "X"
+     ],
+     "process_cwd_drive_not": [
+      "A",
+      "X",
+      "C"
+     ]
+    },
+    "expect": {
+     "utf16": [
+      67,
+      58,
+      92,
+      120,
+      92,
+      102,
+      105,
+      108,
+      101,
+      58,
+      92,
+      67,
+      58,
+      92,
+      97,
+      37,
+      50,
+      70,
+      98
+     ]
+    }
+   },
+   {
+    "id": "win32/baseline/02",
+    "platform": "win32",
+    "provider_cwd": {
+     "utf16": [
+      67,
+      58,
+      92,
+      120
+     ]
+    },
+    "input": {
+     "utf16": [
+      102,
+      105,
+      108,
+      101,
+      58,
+      47,
+      67,
+      58,
+      47,
+      97,
+      37,
+      50,
+      70,
+      98
+     ]
+    },
+    "host": null,
+    "preconditions": {
+     "absent_entries": [
+      "A",
+      "X"
+     ],
+     "process_cwd_drive_not": [
+      "A",
+      "X",
+      "C"
+     ]
+    },
+    "expect": {
+     "utf16": [
+      67,
+      58,
+      92,
+      120,
+      92,
+      102,
+      105,
+      108,
+      101,
+      58,
+      92,
+      67,
+      58,
+      92,
+      97,
+      37,
+      50,
+      70,
+      98
+     ]
+    }
+   },
+   {
+    "id": "win32/baseline/03",
+    "platform": "win32",
+    "provider_cwd": {
+     "utf16": [
+      67,
+      58,
+      92,
+      120
+     ]
+    },
+    "input": {
+     "utf16": [
+      102,
+      105,
+      108,
+      101,
+      58,
+      97,
+      37,
+      50,
+      70,
+      98
+     ]
+    },
+    "host": null,
+    "preconditions": {
+     "absent_entries": [
+      "A",
+      "X"
+     ],
+     "process_cwd_drive_not": [
+      "A",
+      "X",
+      "C"
+     ]
+    },
+    "expect": {
+     "utf16": [
+      67,
+      58,
+      92,
+      120,
+      92,
+      102,
+      105,
+      108,
+      101,
+      58,
+      97,
+      37,
+      50,
+      70,
+      98
+     ]
+    }
+   },
+   {
+    "id": "win32/baseline/04",
+    "platform": "win32",
+    "provider_cwd": {
+     "utf16": [
+      67,
+      58,
+      92,
+      120
+     ]
+    },
+    "input": {
+     "utf16": [
+      102,
+      105,
+      108,
+      101,
+      58,
+      47,
+      47,
+      47,
+      116,
+      109,
+      112,
+      47,
+      97,
+      37,
+      50,
+      70,
+      98
+     ]
+    },
+    "host": null,
+    "preconditions": {
+     "absent_entries": [
+      "A",
+      "X"
+     ],
+     "process_cwd_drive_not": [
+      "A",
+      "X",
+      "C"
+     ]
+    },
+    "expect": {
+     "utf16": [
+      67,
+      58,
+      92,
+      120,
+      92,
+      102,
+      105,
+      108,
+      101,
+      58,
+      92,
+      116,
+      109,
+      112,
+      92,
+      97,
+      37,
+      50,
+      70,
+      98
+     ]
+    }
+   },
+   {
+    "id": "win32/baseline/05",
+    "platform": "win32",
+    "provider_cwd": {
+     "utf16": [
+      67,
+      58,
+      92,
+      120
+     ]
+    },
+    "input": {
+     "utf16": [
+      102,
+      105,
+      108,
+      101,
+      58,
+      120,
+      47,
+      121,
+      37,
+      50,
+      70,
+      122
+     ]
+    },
+    "host": null,
+    "preconditions": {
+     "absent_entries": [
+      "A",
+      "X"
+     ],
+     "process_cwd_drive_not": [
+      "A",
+      "X",
+      "C"
+     ]
+    },
+    "expect": {
+     "utf16": [
+      67,
+      58,
+      92,
+      120,
+      92,
+      102,
+      105,
+      108,
+      101,
+      58,
+      120,
+      92,
+      121,
+      37,
+      50,
+      70,
+      122
+     ]
+    }
+   },
+   {
+    "id": "win32/baseline/06",
+    "platform": "win32",
+    "provider_cwd": {
+     "utf16": [
+      67,
+      58,
+      92,
+      120
+     ]
+    },
+    "input": {
+     "utf16": [
+      120,
+      47,
+      99,
+      58,
+      47,
+      100
+     ]
+    },
+    "host": null,
+    "preconditions": {
+     "absent_entries": [
+      "A",
+      "X"
+     ],
+     "process_cwd_drive_not": [
+      "A",
+      "X",
+      "C"
+     ]
+    },
+    "expect": {
+     "utf16": [
+      67,
+      58,
+      92,
+      120,
+      92,
+      120,
+      92,
+      99,
+      58,
+      92,
+      100
+     ]
+    }
+   },
+   {
+    "id": "win32/baseline/07",
+    "platform": "win32",
+    "provider_cwd": {
+     "utf16": [
+      67,
+      58,
+      92,
+      120
+     ]
+    },
+    "input": {
+     "utf16": [
+      120,
+      92,
+      99,
+      58,
+      92,
+      100
+     ]
+    },
+    "host": null,
+    "preconditions": {
+     "absent_entries": [
+      "A",
+      "X"
+     ],
+     "process_cwd_drive_not": [
+      "A",
+      "X",
+      "C"
+     ]
+    },
+    "expect": {
+     "utf16": [
+      67,
+      58,
+      92,
+      120,
+      92,
+      120,
+      92,
+      99,
+      58,
+      92,
+      100
+     ]
+    }
+   },
+   {
+    "id": "win32/baseline/08",
+    "platform": "win32",
+    "provider_cwd": {
+     "utf16": [
+      67,
+      58,
+      92,
+      120
+     ]
+    },
+    "input": {
+     "utf16": [
+      99,
+      58,
+      100
+     ]
+    },
+    "host": null,
+    "preconditions": {
+     "absent_entries": [
+      "A",
+      "X"
+     ],
+     "process_cwd_drive_not": [
+      "A",
+      "X",
+      "C"
+     ]
+    },
+    "expect": {
+     "utf16": [
+      99,
+      58,
+      92,
+      120,
+      92,
+      100
+     ]
+    }
+   },
+   {
+    "id": "win32/baseline/09",
+    "platform": "win32",
+    "provider_cwd": {
+     "utf16": [
+      67,
+      58,
+      92,
+      120
+     ]
+    },
+    "input": {
+     "utf16": [
+      120,
+      47,
+      99,
+      58
+     ]
+    },
+    "host": null,
+    "preconditions": {
+     "absent_entries": [
+      "A",
+      "X"
+     ],
+     "process_cwd_drive_not": [
+      "A",
+      "X",
+      "C"
+     ]
+    },
+    "expect": {
+     "utf16": [
+      67,
+      58,
+      92,
+      120,
+      92,
+      120,
+      92,
+      99,
+      58
+     ]
+    }
+   },
+   {
+    "id": "win32/baseline/10",
+    "platform": "win32",
+    "provider_cwd": {
+     "utf16": [
+      67,
+      58,
+      92,
+      120
+     ]
+    },
+    "input": {
+     "utf16": [
+      120,
+      47,
+      99,
+      58,
+      47
+     ]
+    },
+    "host": null,
+    "preconditions": {
+     "absent_entries": [
+      "A",
+      "X"
+     ],
+     "process_cwd_drive_not": [
+      "A",
+      "X",
+      "C"
+     ]
+    },
+    "expect": {
+     "utf16": [
+      67,
+      58,
+      92,
+      120,
+      92,
+      120,
+      92,
+      99,
+      58
+     ]
+    }
+   },
+   {
+    "id": "win32/baseline/11",
+    "platform": "win32",
+    "provider_cwd": {
+     "utf16": [
+      67,
+      58,
+      92,
+      120
+     ]
+    },
+    "input": {
+     "utf16": [
+      120,
+      47,
+      99,
+      58,
+      100,
+      47,
+      101
+     ]
+    },
+    "host": null,
+    "preconditions": {
+     "absent_entries": [
+      "A",
+      "X"
+     ],
+     "process_cwd_drive_not": [
+      "A",
+      "X",
+      "C"
+     ]
+    },
+    "expect": {
+     "utf16": [
+      67,
+      58,
+      92,
+      120,
+      92,
+      120,
+      92,
+      99,
+      58,
+      100,
+      92,
+      101
+     ]
+    }
+   },
+   {
+    "id": "win32/baseline/12",
+    "platform": "win32",
+    "provider_cwd": {
+     "utf16": [
+      67,
+      58,
+      92,
+      120
+     ]
+    },
+    "input": {
+     "utf16": [
+      97,
+      58,
+      58,
+      47,
+      98
+     ]
+    },
+    "host": null,
+    "preconditions": {
+     "absent_entries": [
+      "A",
+      "X"
+     ],
+     "process_cwd_drive_not": [
+      "A",
+      "X",
+      "C"
+     ]
+    },
+    "expect": {
+     "utf16": [
+      97,
+      58,
+      92,
+      58,
+      92,
+      98
+     ]
+    }
+   },
+   {
+    "id": "win32/baseline/13",
+    "platform": "win32",
+    "provider_cwd": {
+     "utf16": [
+      67,
+      58,
+      92,
+      120
+     ]
+    },
+    "input": {
+     "utf16": [
+      120,
+      47,
+      58,
+      47,
+      121
+     ]
+    },
+    "host": null,
+    "preconditions": {
+     "absent_entries": [
+      "A",
+      "X"
+     ],
+     "process_cwd_drive_not": [
+      "A",
+      "X",
+      "C"
+     ]
+    },
+    "expect": {
+     "utf16": [
+      67,
+      58,
+      92,
+      120,
+      92,
+      120,
+      92,
+      58,
+      92,
+      121
+     ]
+    }
+   },
+   {
+    "id": "win32/baseline/14",
+    "platform": "win32",
+    "provider_cwd": {
+     "utf16": [
+      67,
+      58,
+      92,
+      120
+     ]
+    },
+    "input": {
+     "utf16": [
+      58
+     ]
+    },
+    "host": null,
+    "preconditions": {
+     "absent_entries": [
+      "A",
+      "X"
+     ],
+     "process_cwd_drive_not": [
+      "A",
+      "X",
+      "C"
+     ]
+    },
+    "expect": {
+     "utf16": [
+      67,
+      58,
+      92,
+      120,
+      92,
+      58
+     ]
+    }
+   },
+   {
+    "id": "win32/baseline/15",
+    "platform": "win32",
+    "provider_cwd": {
+     "utf16": [
+      67,
+      58,
+      92,
+      120
+     ]
+    },
+    "input": {
+     "utf16": [
+      120,
+      58,
+      121,
+      58,
+      122,
+      47,
+      119
+     ]
+    },
+    "host": null,
+    "preconditions": {
+     "absent_entries": [
+      "A",
+      "X"
+     ],
+     "process_cwd_drive_not": [
+      "A",
+      "X",
+      "C"
+     ]
+    },
+    "expect": {
+     "utf16": [
+      120,
+      58,
+      92,
+      121,
+      58,
+      122,
+      92,
+      119
+     ]
+    }
+   },
+   {
+    "id": "win32/baseline/16",
+    "platform": "win32",
+    "provider_cwd": {
+     "utf16": [
+      67,
+      58,
+      92,
+      120
+     ]
+    },
+    "input": {
+     "utf16": [
+      120,
+      47,
+      67,
+      58,
+      47,
+      121
+     ]
+    },
+    "host": null,
+    "preconditions": {
+     "absent_entries": [
+      "A",
+      "X"
+     ],
+     "process_cwd_drive_not": [
+      "A",
+      "X",
+      "C"
+     ]
+    },
+    "expect": {
+     "utf16": [
+      67,
+      58,
+      92,
+      120,
+      92,
+      120,
+      92,
+      67,
+      58,
+      92,
+      121
+     ]
+    }
+   },
+   {
+    "id": "win32/baseline/17",
+    "platform": "win32",
+    "provider_cwd": {
+     "utf16": [
+      67,
+      58,
+      92,
+      120
+     ]
+    },
+    "input": {
+     "utf16": [
+      120,
+      47,
+      67,
+      58,
+      92,
+      121
+     ]
+    },
+    "host": null,
+    "preconditions": {
+     "absent_entries": [
+      "A",
+      "X"
+     ],
+     "process_cwd_drive_not": [
+      "A",
+      "X",
+      "C"
+     ]
+    },
+    "expect": {
+     "utf16": [
+      67,
+      58,
+      92,
+      120,
+      92,
+      120,
+      92,
+      67,
+      58,
+      92,
+      121
+     ]
+    }
+   },
+   {
+    "id": "win32/baseline/18",
+    "platform": "win32",
+    "provider_cwd": {
+     "utf16": [
+      67,
+      58,
+      92,
+      120
+     ]
+    },
+    "input": {
+     "utf16": [
+      120,
+      47,
+      47,
+      67,
+      58,
+      47,
+      121
+     ]
+    },
+    "host": null,
+    "preconditions": {
+     "absent_entries": [
+      "A",
+      "X"
+     ],
+     "process_cwd_drive_not": [
+      "A",
+      "X",
+      "C"
+     ]
+    },
+    "expect": {
+     "utf16": [
+      67,
+      58,
+      92,
+      120,
+      92,
+      120,
+      92,
+      67,
+      58,
+      92,
+      121
+     ]
+    }
+   },
+   {
+    "id": "win32/baseline/19",
+    "platform": "win32",
+    "provider_cwd": {
+     "utf16": [
+      67,
+      58,
+      92,
+      120
+     ]
+    },
+    "input": {
+     "utf16": [
+      97,
+      58,
+      47,
+      98
+     ]
+    },
+    "host": null,
+    "preconditions": {
+     "absent_entries": [
+      "A",
+      "X"
+     ],
+     "process_cwd_drive_not": [
+      "A",
+      "X",
+      "C"
+     ]
+    },
+    "expect": {
+     "utf16": [
+      97,
+      58,
+      92,
+      98
+     ]
+    }
+   },
+   {
+    "id": "win32/baseline/20",
+    "platform": "win32",
+    "provider_cwd": {
+     "utf16": [
+      67,
+      58,
+      92,
+      120
+     ]
+    },
+    "input": {
+     "utf16": [
+      67,
+      58,
+      92,
+      121
+     ]
+    },
+    "host": null,
+    "preconditions": {
+     "absent_entries": [
+      "A",
+      "X"
+     ],
+     "process_cwd_drive_not": [
+      "A",
+      "X",
+      "C"
+     ]
+    },
+    "expect": {
+     "utf16": [
+      67,
+      58,
+      92,
+      121
+     ]
+    }
+   },
+   {
+    "id": "win32/baseline/21",
+    "platform": "win32",
+    "provider_cwd": {
+     "utf16": [
+      67,
+      58,
+      92,
+      120
+     ]
+    },
+    "input": {
+     "utf16": [
+      67,
+      58,
+      121
+     ]
+    },
+    "host": null,
+    "preconditions": {
+     "absent_entries": [
+      "A",
+      "X"
+     ],
+     "process_cwd_drive_not": [
+      "A",
+      "X",
+      "C"
+     ]
+    },
+    "expect": {
+     "utf16": [
+      67,
+      58,
+      92,
+      120,
+      92,
+      121
+     ]
+    }
+   },
+   {
+    "id": "win32/baseline/22",
+    "platform": "win32",
+    "provider_cwd": {
+     "utf16": [
+      67,
+      58,
+      92,
+      120
+     ]
+    },
+    "input": {
+     "utf16": [
+      102,
+      105,
+      108,
+      101,
+      58,
+      47,
+      47,
+      47,
+      67,
+      58,
+      47,
+      97,
+      47,
+      98
+     ]
+    },
+    "host": null,
+    "preconditions": {
+     "absent_entries": [
+      "A",
+      "X"
+     ],
+     "process_cwd_drive_not": [
+      "A",
+      "X",
+      "C"
+     ]
+    },
+    "expect": {
+     "utf16": [
+      67,
+      58,
+      92,
+      97,
+      92,
+      98
+     ]
+    }
+   },
+   {
+    "id": "win32/baseline/23",
+    "platform": "win32",
+    "provider_cwd": {
+     "utf16": [
+      67,
+      58,
+      92,
+      120
+     ]
+    },
+    "input": {
+     "utf16": [
+      102,
+      105,
+      108,
+      101,
+      58,
+      47,
+      47,
+      47,
+      116,
+      109,
+      112,
+      47,
+      97
+     ]
+    },
+    "host": null,
+    "preconditions": {
+     "absent_entries": [
+      "A",
+      "X"
+     ],
+     "process_cwd_drive_not": [
+      "A",
+      "X",
+      "C"
+     ]
+    },
+    "expect": {
+     "utf16": [
+      67,
+      58,
+      92,
+      120,
+      92,
+      102,
+      105,
+      108,
+      101,
+      58,
+      92,
+      116,
+      109,
+      112,
+      92,
+      97
+     ]
+    }
+   },
+   {
+    "id": "win32/host/cwd-drive/01",
+    "platform": "win32",
+    "provider_cwd": {
+     "utf16": [
+      67,
+      58,
+      92,
+      120
+     ]
+    },
+    "input": {
+     "parts": [
+      {
+       "cwd_drive": "lower"
+      },
+      {
+       "utf16": [
+        58,
+        108,
+        101,
+        97,
+        102
+       ]
+      }
+     ]
+    },
+    "host": {
+     "drive": "cwd",
+     "entry": null
+    },
+    "preconditions": {
+     "process_cwd_drive_not": [
+      "C"
+     ]
+    },
+    "expect": {
+     "parts": [
+      {
+       "cwd_drive": "lower"
+      },
+      {
+       "utf16": [
+        58
+       ]
+      },
+      {
+       "cwd_tail": true
+      },
+      {
+       "utf16": [
+        92,
+        108,
+        101,
+        97,
+        102
+       ]
+      }
+     ]
+    }
+   },
+   {
+    "id": "win32/host/cwd-drive/02",
+    "platform": "win32",
+    "provider_cwd": {
+     "utf16": [
+      67,
+      58,
+      92,
+      120
+     ]
+    },
+    "input": {
+     "parts": [
+      {
+       "cwd_drive": "lower"
+      },
+      {
+       "utf16": [
+        58,
+        108,
+        101,
+        97,
+        102
+       ]
+      }
+     ]
+    },
+    "host": {
+     "drive": "cwd",
+     "entry": {
+      "parts": []
+     }
+    },
+    "preconditions": {
+     "process_cwd_drive_not": [
+      "C"
+     ]
+    },
+    "expect": {
+     "parts": [
+      {
+       "cwd_drive": "lower"
+      },
+      {
+       "utf16": [
+        58
+       ]
+      },
+      {
+       "cwd_tail": true
+      },
+      {
+       "utf16": [
+        92,
+        108,
+        101,
+        97,
+        102
+       ]
+      }
+     ]
+    }
+   },
+   {
+    "id": "win32/host/cwd-drive/03",
+    "platform": "win32",
+    "provider_cwd": {
+     "utf16": [
+      67,
+      58,
+      92,
+      120
+     ]
+    },
+    "input": {
+     "parts": [
+      {
+       "cwd_drive": "lower"
+      },
+      {
+       "utf16": [
+        58,
+        108,
+        101,
+        97,
+        102
+       ]
+      }
+     ]
+    },
+    "host": {
+     "drive": "cwd",
+     "entry": {
+      "parts": [
+       {
+        "cwd_drive": "upper"
+       },
+       {
+        "utf16": [
+         58,
+         92,
+         100,
+         101,
+         101,
+         112
+        ]
+       }
+      ]
+     }
+    },
+    "preconditions": {
+     "process_cwd_drive_not": [
+      "C"
+     ]
+    },
+    "expect": {
+     "parts": [
+      {
+       "cwd_drive": "lower"
+      },
+      {
+       "utf16": [
+        58,
+        92,
+        100,
+        101,
+        101,
+        112,
+        92,
+        108,
+        101,
+        97,
+        102
+       ]
+      }
+     ]
+    }
+   },
+   {
+    "id": "win32/host/cwd-drive/04",
+    "platform": "win32",
+    "provider_cwd": {
+     "utf16": [
+      67,
+      58,
+      92,
+      120
+     ]
+    },
+    "input": {
+     "parts": [
+      {
+       "cwd_drive": "lower"
+      },
+      {
+       "utf16": [
+        58,
+        108,
+        101,
+        97,
+        102
+       ]
+      }
+     ]
+    },
+    "host": {
+     "drive": "cwd",
+     "entry": {
+      "parts": [
+       {
+        "cwd_drive": "lower"
+       },
+       {
+        "utf16": [
+         58,
+         92,
+         100,
+         101,
+         101,
+         112
+        ]
+       }
+      ]
+     }
+    },
+    "preconditions": {
+     "process_cwd_drive_not": [
+      "C"
+     ]
+    },
+    "expect": {
+     "parts": [
+      {
+       "cwd_drive": "lower"
+      },
+      {
+       "utf16": [
+        58,
+        92,
+        100,
+        101,
+        101,
+        112,
+        92,
+        108,
+        101,
+        97,
+        102
+       ]
+      }
+     ]
+    }
+   },
+   {
+    "id": "win32/host/cwd-drive/05",
+    "platform": "win32",
+    "provider_cwd": {
+     "utf16": [
+      67,
+      58,
+      92,
+      120
+     ]
+    },
+    "input": {
+     "parts": [
+      {
+       "cwd_drive": "lower"
+      },
+      {
+       "utf16": [
+        58,
+        108,
+        101,
+        97,
+        102
+       ]
+      }
+     ]
+    },
+    "host": {
+     "drive": "cwd",
+     "entry": {
+      "parts": [
+       {
+        "cwd_drive": "upper"
+       },
+       {
+        "utf16": [
+         58,
+         47,
+         100,
+         101,
+         101,
+         112
+        ]
+       }
+      ]
+     }
+    },
+    "preconditions": {
+     "process_cwd_drive_not": [
+      "C"
+     ]
+    },
+    "expect": {
+     "parts": [
+      {
+       "cwd_drive": "lower"
+      },
+      {
+       "utf16": [
+        58,
+        92,
+        100,
+        101,
+        101,
+        112,
+        92,
+        108,
+        101,
+        97,
+        102
+       ]
+      }
+     ]
+    }
+   },
+   {
+    "id": "win32/host/cwd-drive/06",
+    "platform": "win32",
+    "provider_cwd": {
+     "utf16": [
+      67,
+      58,
+      92,
+      120
+     ]
+    },
+    "input": {
+     "parts": [
+      {
+       "cwd_drive": "lower"
+      },
+      {
+       "utf16": [
+        58,
+        108,
+        101,
+        97,
+        102
+       ]
+      }
+     ]
+    },
+    "host": {
+     "drive": "cwd",
+     "entry": {
+      "parts": [
+       {
+        "cwd_drive": "upper"
+       },
+       {
+        "utf16": [
+         58,
+         114,
+         101,
+         108
+        ]
+       }
+      ]
+     }
+    },
+    "preconditions": {
+     "process_cwd_drive_not": [
+      "C"
+     ]
+    },
+    "expect": {
+     "parts": [
+      {
+       "cwd_drive": "lower"
+      },
+      {
+       "utf16": [
+        58,
+        114,
+        101,
+        108,
+        92,
+        108,
+        101,
+        97,
+        102
+       ]
+      }
+     ]
+    }
+   },
+   {
+    "id": "win32/host/cwd-drive/07",
+    "platform": "win32",
+    "provider_cwd": {
+     "utf16": [
+      67,
+      58,
+      92,
+      120
+     ]
+    },
+    "input": {
+     "parts": [
+      {
+       "cwd_drive": "lower"
+      },
+      {
+       "utf16": [
+        58,
+        108,
+        101,
+        97,
+        102
+       ]
+      }
+     ]
+    },
+    "host": {
+     "drive": "cwd",
+     "entry": {
+      "parts": [
+       {
+        "cwd_drive": "upper"
+       },
+       {
+        "utf16": [
+         58
+        ]
+       }
+      ]
+     }
+    },
+    "preconditions": {
+     "process_cwd_drive_not": [
+      "C"
+     ]
+    },
+    "expect": {
+     "parts": [
+      {
+       "cwd_drive": "lower"
+      },
+      {
+       "utf16": [
+        58,
+        108,
+        101,
+        97,
+        102
+       ]
+      }
+     ]
+    }
+   },
+   {
+    "id": "win32/host/cwd-drive/08",
+    "platform": "win32",
+    "provider_cwd": {
+     "utf16": [
+      67,
+      58,
+      92,
+      120
+     ]
+    },
+    "input": {
+     "parts": [
+      {
+       "cwd_drive": "lower"
+      },
+      {
+       "utf16": [
+        58,
+        108,
+        101,
+        97,
+        102
+       ]
+      }
+     ]
+    },
+    "host": {
+     "drive": "cwd",
+     "entry": {
+      "parts": [
+       {
+        "utf16": [
+         88,
+         58,
+         92,
+         111,
+         116,
+         104,
+         101,
+         114
+        ]
+       }
+      ]
+     }
+    },
+    "preconditions": {
+     "process_cwd_drive_not": [
+      "C"
+     ]
+    },
+    "expect": {
+     "parts": [
+      {
+       "cwd_drive": "lower"
+      },
+      {
+       "utf16": [
+        58,
+        92,
+        108,
+        101,
+        97,
+        102
+       ]
+      }
+     ]
+    }
+   },
+   {
+    "id": "win32/host/cwd-drive/09",
+    "platform": "win32",
+    "provider_cwd": {
+     "utf16": [
+      67,
+      58,
+      92,
+      120
+     ]
+    },
+    "input": {
+     "parts": [
+      {
+       "cwd_drive": "lower"
+      },
+      {
+       "utf16": [
+        58,
+        108,
+        101,
+        97,
+        102
+       ]
+      }
+     ]
+    },
+    "host": {
+     "drive": "cwd",
+     "entry": {
+      "parts": [
+       {
+        "utf16": [
+         88,
+         58,
+         47,
+         111,
+         116,
+         104,
+         101,
+         114
+        ]
+       }
+      ]
+     }
+    },
+    "preconditions": {
+     "process_cwd_drive_not": [
+      "C"
+     ]
+    },
+    "expect": {
+     "parts": [
+      {
+       "cwd_drive": "lower"
+      },
+      {
+       "utf16": [
+        58,
+        108,
+        101,
+        97,
+        102
+       ]
+      }
+     ]
+    }
+   },
+   {
+    "id": "win32/host/cwd-drive/10",
+    "platform": "win32",
+    "provider_cwd": {
+     "utf16": [
+      67,
+      58,
+      92,
+      120
+     ]
+    },
+    "input": {
+     "parts": [
+      {
+       "cwd_drive": "lower"
+      },
+      {
+       "utf16": [
+        58,
+        108,
+        101,
+        97,
+        102
+       ]
+      }
+     ]
+    },
+    "host": {
+     "drive": "cwd",
+     "entry": {
+      "parts": [
+       {
+        "utf16": [
+         88,
+         58,
+         111,
+         116,
+         104,
+         101,
+         114
+        ]
+       }
+      ]
+     }
+    },
+    "preconditions": {
+     "process_cwd_drive_not": [
+      "C"
+     ]
+    },
+    "expect": {
+     "parts": [
+      {
+       "cwd_drive": "lower"
+      },
+      {
+       "utf16": [
+        58,
+        108,
+        101,
+        97,
+        102
+       ]
+      }
+     ]
+    }
+   },
+   {
+    "id": "win32/host/cwd-drive/11",
+    "platform": "win32",
+    "provider_cwd": {
+     "utf16": [
+      67,
+      58,
+      92,
+      120
+     ]
+    },
+    "input": {
+     "parts": [
+      {
+       "cwd_drive": "lower"
+      },
+      {
+       "utf16": [
+        58,
+        108,
+        101,
+        97,
+        102
+       ]
+      }
+     ]
+    },
+    "host": {
+     "drive": "cwd",
+     "entry": {
+      "parts": [
+       {
+        "utf16": [
+         88,
+         58
+        ]
+       }
+      ]
+     }
+    },
+    "preconditions": {
+     "process_cwd_drive_not": [
+      "C"
+     ]
+    },
+    "expect": {
+     "parts": [
+      {
+       "cwd_drive": "lower"
+      },
+      {
+       "utf16": [
+        58,
+        108,
+        101,
+        97,
+        102
+       ]
+      }
+     ]
+    }
+   },
+   {
+    "id": "win32/host/cwd-drive/12",
+    "platform": "win32",
+    "provider_cwd": {
+     "utf16": [
+      67,
+      58,
+      92,
+      120
+     ]
+    },
+    "input": {
+     "parts": [
+      {
+       "cwd_drive": "lower"
+      },
+      {
+       "utf16": [
+        58,
+        108,
+        101,
+        97,
+        102
+       ]
+      }
+     ]
+    },
+    "host": {
+     "drive": "cwd",
+     "entry": {
+      "parts": [
+       {
+        "utf16": [
+         114,
+         101,
+         108,
+         97,
+         116,
+         105,
+         118,
+         101
+        ]
+       }
+      ]
+     }
+    },
+    "preconditions": {
+     "process_cwd_drive_not": [
+      "C"
+     ]
+    },
+    "expect": {
+     "parts": [
+      {
+       "cwd_drive": "lower"
+      },
+      {
+       "utf16": [
+        58,
+        114,
+        101,
+        108,
+        97,
+        116,
+        105,
+        118,
+        101,
+        92,
+        108,
+        101,
+        97,
+        102
+       ]
+      }
+     ]
+    }
+   },
+   {
+    "id": "win32/host/cwd-drive/13",
+    "platform": "win32",
+    "provider_cwd": {
+     "utf16": [
+      67,
+      58,
+      92,
+      120
+     ]
+    },
+    "input": {
+     "parts": [
+      {
+       "cwd_drive": "lower"
+      },
+      {
+       "utf16": [
+        58,
+        108,
+        101,
+        97,
+        102
+       ]
+      }
+     ]
+    },
+    "host": {
+     "drive": "cwd",
+     "entry": {
+      "parts": [
+       {
+        "utf16": [
+         92,
+         100,
+         101,
+         101,
+         112
+        ]
+       }
+      ]
+     }
+    },
+    "preconditions": {
+     "process_cwd_drive_not": [
+      "C"
+     ]
+    },
+    "expect": {
+     "parts": [
+      {
+       "cwd_drive": "lower"
+      },
+      {
+       "utf16": [
+        58,
+        92,
+        100,
+        101,
+        101,
+        112,
+        92,
+        108,
+        101,
+        97,
+        102
+       ]
+      }
+     ]
+    }
+   },
+   {
+    "id": "win32/host/cwd-drive/14",
+    "platform": "win32",
+    "provider_cwd": {
+     "utf16": [
+      67,
+      58,
+      92,
+      120
+     ]
+    },
+    "input": {
+     "parts": [
+      {
+       "cwd_drive": "lower"
+      },
+      {
+       "utf16": [
+        58,
+        108,
+        101,
+        97,
+        102
+       ]
+      }
+     ]
+    },
+    "host": {
+     "drive": "cwd",
+     "entry": {
+      "parts": [
+       {
+        "utf16": [
+         47,
+         100,
+         101,
+         101,
+         112
+        ]
+       }
+      ]
+     }
+    },
+    "preconditions": {
+     "process_cwd_drive_not": [
+      "C"
+     ]
+    },
+    "expect": {
+     "parts": [
+      {
+       "cwd_drive": "lower"
+      },
+      {
+       "utf16": [
+        58,
+        92,
+        100,
+        101,
+        101,
+        112,
+        92,
+        108,
+        101,
+        97,
+        102
+       ]
+      }
+     ]
+    }
+   },
+   {
+    "id": "win32/host/cwd-drive/15",
+    "platform": "win32",
+    "provider_cwd": {
+     "utf16": [
+      67,
+      58,
+      92,
+      120
+     ]
+    },
+    "input": {
+     "parts": [
+      {
+       "cwd_drive": "lower"
+      },
+      {
+       "utf16": [
+        58,
+        108,
+        101,
+        97,
+        102
+       ]
+      }
+     ]
+    },
+    "host": {
+     "drive": "cwd",
+     "entry": {
+      "parts": [
+       {
+        "utf16": [
+         92,
+         92,
+         115,
+         114,
+         118,
+         92,
+         115,
+         104,
+         97,
+         114,
+         101
+        ]
+       }
+      ]
+     }
+    },
+    "preconditions": {
+     "process_cwd_drive_not": [
+      "C"
+     ]
+    },
+    "expect": {
+     "parts": [
+      {
+       "cwd_drive": "lower"
+      },
+      {
+       "utf16": [
+        58,
+        108,
+        101,
+        97,
+        102
+       ]
+      }
+     ]
+    }
+   },
+   {
+    "id": "win32/host/cwd-drive/16",
+    "platform": "win32",
+    "provider_cwd": {
+     "utf16": [
+      67,
+      58,
+      92,
+      120
+     ]
+    },
+    "input": {
+     "parts": [
+      {
+       "cwd_drive": "lower"
+      },
+      {
+       "utf16": [
+        58,
+        108,
+        101,
+        97,
+        102
+       ]
+      }
+     ]
+    },
+    "host": {
+     "drive": "cwd",
+     "entry": {
+      "parts": [
+       {
+        "utf16": [
+         114
+        ]
+       }
+      ]
+     }
+    },
+    "preconditions": {
+     "process_cwd_drive_not": [
+      "C"
+     ]
+    },
+    "expect": {
+     "parts": [
+      {
+       "cwd_drive": "lower"
+      },
+      {
+       "utf16": [
+        58,
+        114,
+        92,
+        108,
+        101,
+        97,
+        102
+       ]
+      }
+     ]
+    }
+   },
+   {
+    "id": "win32/host/a-drive/01",
+    "platform": "win32",
+    "provider_cwd": {
+     "utf16": [
+      67,
+      58,
+      92,
+      120
+     ]
+    },
+    "input": {
+     "utf16": [
+      97,
+      58,
+      108,
+      101,
+      97,
+      102
+     ]
+    },
+    "host": {
+     "drive": "A",
+     "entry": null
+    },
+    "preconditions": {
+     "process_cwd_drive_not": [
+      "A",
+      "C"
+     ]
+    },
+    "expect": {
+     "parts": [
+      {
+       "utf16": [
+        97,
+        58,
+        92,
+        108,
+        101,
+        97,
+        102
+       ]
+      }
+     ]
+    }
+   },
+   {
+    "id": "win32/host/a-drive/02",
+    "platform": "win32",
+    "provider_cwd": {
+     "utf16": [
+      67,
+      58,
+      92,
+      120
+     ]
+    },
+    "input": {
+     "utf16": [
+      97,
+      58,
+      108,
+      101,
+      97,
+      102
+     ]
+    },
+    "host": {
+     "drive": "A",
+     "entry": {
+      "parts": [
+       {
+        "utf16": []
+       }
+      ]
+     }
+    },
+    "preconditions": {
+     "process_cwd_drive_not": [
+      "A",
+      "C"
+     ]
+    },
+    "expect": {
+     "parts": [
+      {
+       "utf16": [
+        97,
+        58,
+        92,
+        108,
+        101,
+        97,
+        102
+       ]
+      }
+     ]
+    }
+   },
+   {
+    "id": "win32/host/a-drive/03",
+    "platform": "win32",
+    "provider_cwd": {
+     "utf16": [
+      67,
+      58,
+      92,
+      120
+     ]
+    },
+    "input": {
+     "utf16": [
+      97,
+      58,
+      108,
+      101,
+      97,
+      102
+     ]
+    },
+    "host": {
+     "drive": "A",
+     "entry": {
+      "parts": [
+       {
+        "utf16": [
+         65,
+         58,
+         92,
+         100,
+         101,
+         101,
+         112
+        ]
+       }
+      ]
+     }
+    },
+    "preconditions": {
+     "process_cwd_drive_not": [
+      "A",
+      "C"
+     ]
+    },
+    "expect": {
+     "parts": [
+      {
+       "utf16": [
+        97,
+        58,
+        92,
+        100,
+        101,
+        101,
+        112,
+        92,
+        108,
+        101,
+        97,
+        102
+       ]
+      }
+     ]
+    }
+   },
+   {
+    "id": "win32/host/a-drive/04",
+    "platform": "win32",
+    "provider_cwd": {
+     "utf16": [
+      67,
+      58,
+      92,
+      120
+     ]
+    },
+    "input": {
+     "utf16": [
+      97,
+      58,
+      108,
+      101,
+      97,
+      102
+     ]
+    },
+    "host": {
+     "drive": "A",
+     "entry": {
+      "parts": [
+       {
+        "utf16": [
+         97,
+         58,
+         92,
+         100,
+         101,
+         101,
+         112
+        ]
+       }
+      ]
+     }
+    },
+    "preconditions": {
+     "process_cwd_drive_not": [
+      "A",
+      "C"
+     ]
+    },
+    "expect": {
+     "parts": [
+      {
+       "utf16": [
+        97,
+        58,
+        92,
+        100,
+        101,
+        101,
+        112,
+        92,
+        108,
+        101,
+        97,
+        102
+       ]
+      }
+     ]
+    }
+   },
+   {
+    "id": "win32/host/a-drive/05",
+    "platform": "win32",
+    "provider_cwd": {
+     "utf16": [
+      67,
+      58,
+      92,
+      120
+     ]
+    },
+    "input": {
+     "utf16": [
+      97,
+      58,
+      108,
+      101,
+      97,
+      102
+     ]
+    },
+    "host": {
+     "drive": "A",
+     "entry": {
+      "parts": [
+       {
+        "utf16": [
+         65,
+         58,
+         47,
+         100,
+         101,
+         101,
+         112
+        ]
+       }
+      ]
+     }
+    },
+    "preconditions": {
+     "process_cwd_drive_not": [
+      "A",
+      "C"
+     ]
+    },
+    "expect": {
+     "parts": [
+      {
+       "utf16": [
+        97,
+        58,
+        92,
+        100,
+        101,
+        101,
+        112,
+        92,
+        108,
+        101,
+        97,
+        102
+       ]
+      }
+     ]
+    }
+   },
+   {
+    "id": "win32/host/a-drive/06",
+    "platform": "win32",
+    "provider_cwd": {
+     "utf16": [
+      67,
+      58,
+      92,
+      120
+     ]
+    },
+    "input": {
+     "utf16": [
+      97,
+      58,
+      108,
+      101,
+      97,
+      102
+     ]
+    },
+    "host": {
+     "drive": "A",
+     "entry": {
+      "parts": [
+       {
+        "utf16": [
+         65,
+         58,
+         114,
+         101,
+         108
+        ]
+       }
+      ]
+     }
+    },
+    "preconditions": {
+     "process_cwd_drive_not": [
+      "A",
+      "C"
+     ]
+    },
+    "expect": {
+     "parts": [
+      {
+       "utf16": [
+        97,
+        58,
+        114,
+        101,
+        108,
+        92,
+        108,
+        101,
+        97,
+        102
+       ]
+      }
+     ]
+    }
+   },
+   {
+    "id": "win32/host/a-drive/07",
+    "platform": "win32",
+    "provider_cwd": {
+     "utf16": [
+      67,
+      58,
+      92,
+      120
+     ]
+    },
+    "input": {
+     "utf16": [
+      97,
+      58,
+      108,
+      101,
+      97,
+      102
+     ]
+    },
+    "host": {
+     "drive": "A",
+     "entry": {
+      "parts": [
+       {
+        "utf16": [
+         65,
+         58
+        ]
+       }
+      ]
+     }
+    },
+    "preconditions": {
+     "process_cwd_drive_not": [
+      "A",
+      "C"
+     ]
+    },
+    "expect": {
+     "parts": [
+      {
+       "utf16": [
+        97,
+        58,
+        108,
+        101,
+        97,
+        102
+       ]
+      }
+     ]
+    }
+   },
+   {
+    "id": "win32/host/a-drive/08",
+    "platform": "win32",
+    "provider_cwd": {
+     "utf16": [
+      67,
+      58,
+      92,
+      120
+     ]
+    },
+    "input": {
+     "utf16": [
+      97,
+      58,
+      108,
+      101,
+      97,
+      102
+     ]
+    },
+    "host": {
+     "drive": "A",
+     "entry": {
+      "parts": [
+       {
+        "utf16": [
+         88,
+         58,
+         92,
+         111,
+         116,
+         104,
+         101,
+         114
+        ]
+       }
+      ]
+     }
+    },
+    "preconditions": {
+     "process_cwd_drive_not": [
+      "A",
+      "C"
+     ]
+    },
+    "expect": {
+     "parts": [
+      {
+       "utf16": [
+        97,
+        58,
+        92,
+        108,
+        101,
+        97,
+        102
+       ]
+      }
+     ]
+    }
+   },
+   {
+    "id": "win32/host/a-drive/09",
+    "platform": "win32",
+    "provider_cwd": {
+     "utf16": [
+      67,
+      58,
+      92,
+      120
+     ]
+    },
+    "input": {
+     "utf16": [
+      97,
+      58,
+      108,
+      101,
+      97,
+      102
+     ]
+    },
+    "host": {
+     "drive": "A",
+     "entry": {
+      "parts": [
+       {
+        "utf16": [
+         88,
+         58,
+         47,
+         111,
+         116,
+         104,
+         101,
+         114
+        ]
+       }
+      ]
+     }
+    },
+    "preconditions": {
+     "process_cwd_drive_not": [
+      "A",
+      "C"
+     ]
+    },
+    "expect": {
+     "parts": [
+      {
+       "utf16": [
+        97,
+        58,
+        108,
+        101,
+        97,
+        102
+       ]
+      }
+     ]
+    }
+   },
+   {
+    "id": "win32/host/a-drive/10",
+    "platform": "win32",
+    "provider_cwd": {
+     "utf16": [
+      67,
+      58,
+      92,
+      120
+     ]
+    },
+    "input": {
+     "utf16": [
+      97,
+      58,
+      108,
+      101,
+      97,
+      102
+     ]
+    },
+    "host": {
+     "drive": "A",
+     "entry": {
+      "parts": [
+       {
+        "utf16": [
+         88,
+         58,
+         111,
+         116,
+         104,
+         101,
+         114
+        ]
+       }
+      ]
+     }
+    },
+    "preconditions": {
+     "process_cwd_drive_not": [
+      "A",
+      "C"
+     ]
+    },
+    "expect": {
+     "parts": [
+      {
+       "utf16": [
+        97,
+        58,
+        108,
+        101,
+        97,
+        102
+       ]
+      }
+     ]
+    }
+   },
+   {
+    "id": "win32/host/a-drive/11",
+    "platform": "win32",
+    "provider_cwd": {
+     "utf16": [
+      67,
+      58,
+      92,
+      120
+     ]
+    },
+    "input": {
+     "utf16": [
+      97,
+      58,
+      108,
+      101,
+      97,
+      102
+     ]
+    },
+    "host": {
+     "drive": "A",
+     "entry": {
+      "parts": [
+       {
+        "utf16": [
+         88,
+         58
+        ]
+       }
+      ]
+     }
+    },
+    "preconditions": {
+     "process_cwd_drive_not": [
+      "A",
+      "C"
+     ]
+    },
+    "expect": {
+     "parts": [
+      {
+       "utf16": [
+        97,
+        58,
+        108,
+        101,
+        97,
+        102
+       ]
+      }
+     ]
+    }
+   },
+   {
+    "id": "win32/host/a-drive/12",
+    "platform": "win32",
+    "provider_cwd": {
+     "utf16": [
+      67,
+      58,
+      92,
+      120
+     ]
+    },
+    "input": {
+     "utf16": [
+      97,
+      58,
+      108,
+      101,
+      97,
+      102
+     ]
+    },
+    "host": {
+     "drive": "A",
+     "entry": {
+      "parts": [
+       {
+        "utf16": [
+         114,
+         101,
+         108,
+         97,
+         116,
+         105,
+         118,
+         101
+        ]
+       }
+      ]
+     }
+    },
+    "preconditions": {
+     "process_cwd_drive_not": [
+      "A",
+      "C"
+     ]
+    },
+    "expect": {
+     "parts": [
+      {
+       "utf16": [
+        97,
+        58,
+        114,
+        101,
+        108,
+        97,
+        116,
+        105,
+        118,
+        101,
+        92,
+        108,
+        101,
+        97,
+        102
+       ]
+      }
+     ]
+    }
+   },
+   {
+    "id": "win32/host/a-drive/13",
+    "platform": "win32",
+    "provider_cwd": {
+     "utf16": [
+      67,
+      58,
+      92,
+      120
+     ]
+    },
+    "input": {
+     "utf16": [
+      97,
+      58,
+      108,
+      101,
+      97,
+      102
+     ]
+    },
+    "host": {
+     "drive": "A",
+     "entry": {
+      "parts": [
+       {
+        "utf16": [
+         92,
+         100,
+         101,
+         101,
+         112
+        ]
+       }
+      ]
+     }
+    },
+    "preconditions": {
+     "process_cwd_drive_not": [
+      "A",
+      "C"
+     ]
+    },
+    "expect": {
+     "parts": [
+      {
+       "utf16": [
+        97,
+        58,
+        92,
+        100,
+        101,
+        101,
+        112,
+        92,
+        108,
+        101,
+        97,
+        102
+       ]
+      }
+     ]
+    }
+   },
+   {
+    "id": "win32/host/a-drive/14",
+    "platform": "win32",
+    "provider_cwd": {
+     "utf16": [
+      67,
+      58,
+      92,
+      120
+     ]
+    },
+    "input": {
+     "utf16": [
+      97,
+      58,
+      108,
+      101,
+      97,
+      102
+     ]
+    },
+    "host": {
+     "drive": "A",
+     "entry": {
+      "parts": [
+       {
+        "utf16": [
+         47,
+         100,
+         101,
+         101,
+         112
+        ]
+       }
+      ]
+     }
+    },
+    "preconditions": {
+     "process_cwd_drive_not": [
+      "A",
+      "C"
+     ]
+    },
+    "expect": {
+     "parts": [
+      {
+       "utf16": [
+        97,
+        58,
+        92,
+        100,
+        101,
+        101,
+        112,
+        92,
+        108,
+        101,
+        97,
+        102
+       ]
+      }
+     ]
+    }
+   },
+   {
+    "id": "win32/host/a-drive/15",
+    "platform": "win32",
+    "provider_cwd": {
+     "utf16": [
+      67,
+      58,
+      92,
+      120
+     ]
+    },
+    "input": {
+     "utf16": [
+      97,
+      58,
+      108,
+      101,
+      97,
+      102
+     ]
+    },
+    "host": {
+     "drive": "A",
+     "entry": {
+      "parts": [
+       {
+        "utf16": [
+         92,
+         92,
+         115,
+         114,
+         118,
+         92,
+         115,
+         104,
+         97,
+         114,
+         101
+        ]
+       }
+      ]
+     }
+    },
+    "preconditions": {
+     "process_cwd_drive_not": [
+      "A",
+      "C"
+     ]
+    },
+    "expect": {
+     "parts": [
+      {
+       "utf16": [
+        97,
+        58,
+        108,
+        101,
+        97,
+        102
+       ]
+      }
+     ]
+    }
+   },
+   {
+    "id": "win32/host/a-drive/16",
+    "platform": "win32",
+    "provider_cwd": {
+     "utf16": [
+      67,
+      58,
+      92,
+      120
+     ]
+    },
+    "input": {
+     "utf16": [
+      97,
+      58,
+      108,
+      101,
+      97,
+      102
+     ]
+    },
+    "host": {
+     "drive": "A",
+     "entry": {
+      "parts": [
+       {
+        "utf16": [
+         114
+        ]
+       }
+      ]
+     }
+    },
+    "preconditions": {
+     "process_cwd_drive_not": [
+      "A",
+      "C"
+     ]
+    },
+    "expect": {
+     "parts": [
+      {
+       "utf16": [
+        97,
+        58,
+        114,
+        92,
+        108,
+        101,
+        97,
+        102
+       ]
+      }
+     ]
+    }
+   },
+   {
+    "id": "linux/baseline/01",
+    "platform": "linux",
+    "provider_cwd": {
+     "utf16": [
+      47,
+      120
+     ]
+    },
+    "input": {
+     "utf16": [
+      102,
+      105,
+      108,
+      101,
+      58,
+      47,
+      47,
+      47,
+      67,
+      58,
+      47,
+      97,
+      37,
+      50,
+      70,
+      98
+     ]
+    },
+    "host": null,
+    "preconditions": {},
+    "expect": {
+     "utf16": [
+      47,
+      120,
+      47,
+      102,
+      105,
+      108,
+      101,
+      58,
+      47,
+      67,
+      58,
+      47,
+      97,
+      37,
+      50,
+      70,
+      98
+     ]
+    }
+   },
+   {
+    "id": "linux/baseline/02",
+    "platform": "linux",
+    "provider_cwd": {
+     "utf16": [
+      47,
+      120
+     ]
+    },
+    "input": {
+     "utf16": [
+      102,
+      105,
+      108,
+      101,
+      58,
+      47,
+      67,
+      58,
+      47,
+      97,
+      37,
+      50,
+      70,
+      98
+     ]
+    },
+    "host": null,
+    "preconditions": {},
+    "expect": {
+     "utf16": [
+      47,
+      120,
+      47,
+      102,
+      105,
+      108,
+      101,
+      58,
+      47,
+      67,
+      58,
+      47,
+      97,
+      37,
+      50,
+      70,
+      98
+     ]
+    }
+   },
+   {
+    "id": "linux/baseline/03",
+    "platform": "linux",
+    "provider_cwd": {
+     "utf16": [
+      47,
+      120
+     ]
+    },
+    "input": {
+     "utf16": [
+      102,
+      105,
+      108,
+      101,
+      58,
+      97,
+      37,
+      50,
+      70,
+      98
+     ]
+    },
+    "host": null,
+    "preconditions": {},
+    "expect": {
+     "utf16": [
+      47,
+      120,
+      47,
+      102,
+      105,
+      108,
+      101,
+      58,
+      97,
+      37,
+      50,
+      70,
+      98
+     ]
+    }
+   },
+   {
+    "id": "linux/baseline/04",
+    "platform": "linux",
+    "provider_cwd": {
+     "utf16": [
+      47,
+      120
+     ]
+    },
+    "input": {
+     "utf16": [
+      102,
+      105,
+      108,
+      101,
+      58,
+      47,
+      47,
+      47,
+      116,
+      109,
+      112,
+      47,
+      97,
+      37,
+      50,
+      70,
+      98
+     ]
+    },
+    "host": null,
+    "preconditions": {},
+    "expect": {
+     "utf16": [
+      47,
+      120,
+      47,
+      102,
+      105,
+      108,
+      101,
+      58,
+      47,
+      116,
+      109,
+      112,
+      47,
+      97,
+      37,
+      50,
+      70,
+      98
+     ]
+    }
+   },
+   {
+    "id": "linux/baseline/05",
+    "platform": "linux",
+    "provider_cwd": {
+     "utf16": [
+      47,
+      120
+     ]
+    },
+    "input": {
+     "utf16": [
+      102,
+      105,
+      108,
+      101,
+      58,
+      120,
+      47,
+      121,
+      37,
+      50,
+      70,
+      122
+     ]
+    },
+    "host": null,
+    "preconditions": {},
+    "expect": {
+     "utf16": [
+      47,
+      120,
+      47,
+      102,
+      105,
+      108,
+      101,
+      58,
+      120,
+      47,
+      121,
+      37,
+      50,
+      70,
+      122
+     ]
+    }
+   },
+   {
+    "id": "linux/baseline/06",
+    "platform": "linux",
+    "provider_cwd": {
+     "utf16": [
+      47,
+      120
+     ]
+    },
+    "input": {
+     "utf16": [
+      120,
+      47,
+      99,
+      58,
+      47,
+      100
+     ]
+    },
+    "host": null,
+    "preconditions": {},
+    "expect": {
+     "utf16": [
+      47,
+      120,
+      47,
+      120,
+      47,
+      99,
+      58,
+      47,
+      100
+     ]
+    }
+   },
+   {
+    "id": "linux/baseline/07",
+    "platform": "linux",
+    "provider_cwd": {
+     "utf16": [
+      47,
+      120
+     ]
+    },
+    "input": {
+     "utf16": [
+      120,
+      92,
+      99,
+      58,
+      92,
+      100
+     ]
+    },
+    "host": null,
+    "preconditions": {},
+    "expect": {
+     "utf16": [
+      47,
+      120,
+      47,
+      120,
+      92,
+      99,
+      58,
+      92,
+      100
+     ]
+    }
+   },
+   {
+    "id": "linux/baseline/08",
+    "platform": "linux",
+    "provider_cwd": {
+     "utf16": [
+      47,
+      120
+     ]
+    },
+    "input": {
+     "utf16": [
+      99,
+      58,
+      100
+     ]
+    },
+    "host": null,
+    "preconditions": {},
+    "expect": {
+     "utf16": [
+      47,
+      120,
+      47,
+      99,
+      58,
+      100
+     ]
+    }
+   },
+   {
+    "id": "linux/baseline/09",
+    "platform": "linux",
+    "provider_cwd": {
+     "utf16": [
+      47,
+      120
+     ]
+    },
+    "input": {
+     "utf16": [
+      120,
+      47,
+      99,
+      58
+     ]
+    },
+    "host": null,
+    "preconditions": {},
+    "expect": {
+     "utf16": [
+      47,
+      120,
+      47,
+      120,
+      47,
+      99,
+      58
+     ]
+    }
+   },
+   {
+    "id": "linux/baseline/10",
+    "platform": "linux",
+    "provider_cwd": {
+     "utf16": [
+      47,
+      120
+     ]
+    },
+    "input": {
+     "utf16": [
+      120,
+      47,
+      99,
+      58,
+      47
+     ]
+    },
+    "host": null,
+    "preconditions": {},
+    "expect": {
+     "utf16": [
+      47,
+      120,
+      47,
+      120,
+      47,
+      99,
+      58
+     ]
+    }
+   },
+   {
+    "id": "linux/baseline/11",
+    "platform": "linux",
+    "provider_cwd": {
+     "utf16": [
+      47,
+      120
+     ]
+    },
+    "input": {
+     "utf16": [
+      120,
+      47,
+      99,
+      58,
+      100,
+      47,
+      101
+     ]
+    },
+    "host": null,
+    "preconditions": {},
+    "expect": {
+     "utf16": [
+      47,
+      120,
+      47,
+      120,
+      47,
+      99,
+      58,
+      100,
+      47,
+      101
+     ]
+    }
+   },
+   {
+    "id": "linux/baseline/12",
+    "platform": "linux",
+    "provider_cwd": {
+     "utf16": [
+      47,
+      120
+     ]
+    },
+    "input": {
+     "utf16": [
+      97,
+      58,
+      58,
+      47,
+      98
+     ]
+    },
+    "host": null,
+    "preconditions": {},
+    "expect": {
+     "utf16": [
+      47,
+      120,
+      47,
+      97,
+      58,
+      58,
+      47,
+      98
+     ]
+    }
+   },
+   {
+    "id": "linux/baseline/13",
+    "platform": "linux",
+    "provider_cwd": {
+     "utf16": [
+      47,
+      120
+     ]
+    },
+    "input": {
+     "utf16": [
+      120,
+      47,
+      58,
+      47,
+      121
+     ]
+    },
+    "host": null,
+    "preconditions": {},
+    "expect": {
+     "utf16": [
+      47,
+      120,
+      47,
+      120,
+      47,
+      58,
+      47,
+      121
+     ]
+    }
+   },
+   {
+    "id": "linux/baseline/14",
+    "platform": "linux",
+    "provider_cwd": {
+     "utf16": [
+      47,
+      120
+     ]
+    },
+    "input": {
+     "utf16": [
+      58
+     ]
+    },
+    "host": null,
+    "preconditions": {},
+    "expect": {
+     "utf16": [
+      47,
+      120,
+      47,
+      58
+     ]
+    }
+   },
+   {
+    "id": "linux/baseline/15",
+    "platform": "linux",
+    "provider_cwd": {
+     "utf16": [
+      47,
+      120
+     ]
+    },
+    "input": {
+     "utf16": [
+      120,
+      58,
+      121,
+      58,
+      122,
+      47,
+      119
+     ]
+    },
+    "host": null,
+    "preconditions": {},
+    "expect": {
+     "utf16": [
+      47,
+      120,
+      47,
+      120,
+      58,
+      121,
+      58,
+      122,
+      47,
+      119
+     ]
+    }
+   },
+   {
+    "id": "linux/baseline/16",
+    "platform": "linux",
+    "provider_cwd": {
+     "utf16": [
+      47,
+      120
+     ]
+    },
+    "input": {
+     "utf16": [
+      120,
+      47,
+      67,
+      58,
+      47,
+      121
+     ]
+    },
+    "host": null,
+    "preconditions": {},
+    "expect": {
+     "utf16": [
+      47,
+      120,
+      47,
+      120,
+      47,
+      67,
+      58,
+      47,
+      121
+     ]
+    }
+   },
+   {
+    "id": "linux/baseline/17",
+    "platform": "linux",
+    "provider_cwd": {
+     "utf16": [
+      47,
+      120
+     ]
+    },
+    "input": {
+     "utf16": [
+      120,
+      47,
+      67,
+      58,
+      92,
+      121
+     ]
+    },
+    "host": null,
+    "preconditions": {},
+    "expect": {
+     "utf16": [
+      47,
+      120,
+      47,
+      120,
+      47,
+      67,
+      58,
+      92,
+      121
+     ]
+    }
+   },
+   {
+    "id": "linux/baseline/18",
+    "platform": "linux",
+    "provider_cwd": {
+     "utf16": [
+      47,
+      120
+     ]
+    },
+    "input": {
+     "utf16": [
+      120,
+      47,
+      47,
+      67,
+      58,
+      47,
+      121
+     ]
+    },
+    "host": null,
+    "preconditions": {},
+    "expect": {
+     "utf16": [
+      47,
+      120,
+      47,
+      120,
+      47,
+      67,
+      58,
+      47,
+      121
+     ]
+    }
+   },
+   {
+    "id": "linux/baseline/19",
+    "platform": "linux",
+    "provider_cwd": {
+     "utf16": [
+      47,
+      120
+     ]
+    },
+    "input": {
+     "utf16": [
+      97,
+      58,
+      47,
+      98
+     ]
+    },
+    "host": null,
+    "preconditions": {},
+    "expect": {
+     "utf16": [
+      47,
+      120,
+      47,
+      97,
+      58,
+      47,
+      98
+     ]
+    }
+   },
+   {
+    "id": "linux/baseline/20",
+    "platform": "linux",
+    "provider_cwd": {
+     "utf16": [
+      47,
+      120
+     ]
+    },
+    "input": {
+     "utf16": [
+      67,
+      58,
+      92,
+      121
+     ]
+    },
+    "host": null,
+    "preconditions": {},
+    "expect": {
+     "utf16": [
+      47,
+      120,
+      47,
+      67,
+      58,
+      92,
+      121
+     ]
+    }
+   },
+   {
+    "id": "linux/baseline/21",
+    "platform": "linux",
+    "provider_cwd": {
+     "utf16": [
+      47,
+      120
+     ]
+    },
+    "input": {
+     "utf16": [
+      67,
+      58,
+      121
+     ]
+    },
+    "host": null,
+    "preconditions": {},
+    "expect": {
+     "utf16": [
+      47,
+      120,
+      47,
+      67,
+      58,
+      121
+     ]
+    }
+   },
+   {
+    "id": "linux/baseline/22",
+    "platform": "linux",
+    "provider_cwd": {
+     "utf16": [
+      47,
+      120
+     ]
+    },
+    "input": {
+     "utf16": [
+      102,
+      105,
+      108,
+      101,
+      58,
+      47,
+      47,
+      47,
+      67,
+      58,
+      47,
+      97,
+      47,
+      98
+     ]
+    },
+    "host": null,
+    "preconditions": {},
+    "expect": {
+     "utf16": [
+      47,
+      67,
+      58,
+      47,
+      97,
+      47,
+      98
+     ]
+    }
+   },
+   {
+    "id": "linux/baseline/23",
+    "platform": "linux",
+    "provider_cwd": {
+     "utf16": [
+      47,
+      120
+     ]
+    },
+    "input": {
+     "utf16": [
+      102,
+      105,
+      108,
+      101,
+      58,
+      47,
+      47,
+      47,
+      116,
+      109,
+      112,
+      47,
+      97
+     ]
+    },
+    "host": null,
+    "preconditions": {},
+    "expect": {
+     "utf16": [
+      47,
+      116,
+      109,
+      112,
+      47,
+      97
+     ]
+    }
+   },
+   {
+    "id": "linux/baseline/24",
+    "platform": "linux",
+    "provider_cwd": {
+     "utf16": [
+      47,
+      120
+     ]
+    },
+    "input": {
+     "utf16": [
+      101,
+      58,
+      108,
+      101,
+      97,
+      102
+     ]
+    },
+    "host": null,
+    "preconditions": {},
+    "expect": {
+     "utf16": [
+      47,
+      120,
+      47,
+      101,
+      58,
+      108,
+      101,
+      97,
+      102
+     ]
+    }
+   },
+   {
+    "id": "linux/baseline/25",
+    "platform": "linux",
+    "provider_cwd": {
+     "utf16": [
+      47,
+      120
+     ]
+    },
+    "input": {
+     "utf16": [
+      97,
+      58,
+      108,
+      101,
+      97,
+      102
+     ]
+    },
+    "host": null,
+    "preconditions": {},
+    "expect": {
+     "utf16": [
+      47,
+      120,
+      47,
+      97,
+      58,
+      108,
+      101,
+      97,
+      102
+     ]
+    }
+   }
+  ]
+ }
+}

@@ -6357,6 +6357,12 @@ rows:
 
     Full detail: `spec/execution.md` §3, §3.1-§3.8.'
   tests:
+  - 'fs_path_resolution_colon_and_drive_relative -- L12-D012 (minion-agent#229; WORKFLOW 11.8.11(c), section 3.2
+    unchanged; CONTRACT_DRAFT): conformance/agent/path-resolution/path-resolution.json (80 cases generated from
+    pinned Pi resolvePath on native Node v22.15.1, Windows and Linux): colon-bearing components, the malformed
+    file: literal fallback, and the win32 drive-relative selection-then-check branch with its inherited per-drive
+    entry partition (host cases in crafted-environment child processes; verified preconditions, fail-closed).
+    REVALIDATE_REQUIRED: Python on win32 (L12D012-F002), Rust (L12D012-F001); certification history preserved.'
   - 'fs_path_javascript_string_domain -- L12-D001 (minion-agent#123; Owner decision FSP-Q001 Option 1; intentional
     divergence NONE; CONTRACT_DRAFT, Rust NOT_IMPLEMENTED): ctx.fs paths are JavaScript strings; the local provider
     projects unpaired surrogates to U+FFFD ONLY at the OS call (pinned Node), so canonical_path / listings / OS error
@@ -6874,6 +6880,9 @@ rows:
 
     Full detail: `spec/execution.md` §6.'
   tests:
+  - 'fs_path_resolution_colon_and_drive_relative -- L12-D012 (minion-agent#229): the spawn cwd uses the same section 3.2
+    resolver as ctx.fs.absolute_path; conformance/agent/path-resolution/path-resolution.json (CONTRACT_DRAFT).
+    REVALIDATE_REQUIRED: Python on win32 (L12D012-F002), Rust (L12D012-F001).'
   - minion-agent-rust/crates/minion-agent/tests/execution_process.rs
   - minion-agent-python/tests/execution/test_subprocess.py
   python: 'minion-agent-python/src/minion_agent/execution/subprocess.py; integration evidence in

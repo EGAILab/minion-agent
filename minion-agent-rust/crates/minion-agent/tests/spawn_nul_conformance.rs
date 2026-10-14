@@ -25,6 +25,8 @@ use std::{
         atomic::{AtomicBool, Ordering},
     },
 };
+#[path = "../src/spawn_nul_evidence.rs"]
+mod evidence;
 #[path = "support/fs_containment.rs"]
 mod fs_containment;
 
@@ -143,5 +145,89 @@ async fn spawn_nul_seven_canonical_tools_through_real_pipeline() {
             "{}: exact tool error units",
             row["id"]
         );
+    }
+}
+
+#[tokio::test]
+async fn spawn_nul_tools_preserve_lone_surrogate_and_cut_units() {
+    evidence::install();
+    for (units, inspected) in [
+        (
+            vec![0xd800, 0, 98],
+            "'\\ud800\\x00b'".encode_utf16().collect::<Vec<_>>(),
+        ),
+        (
+            {
+                let mut u = vec![65; 126];
+                u.extend([0xd83d, 0xde00, 0]);
+                u
+            },
+            {
+                let mut u = vec![39];
+                u.extend(vec![65; 126]);
+                u.push(0xd83d);
+                u.extend("...".encode_utf16());
+                u
+            },
+        ),
+    ] {
+        for (name, index) in [("find", 7), ("grep", 5), ("bash", 1)] {
+            let fixture = Fixture::new();
+            let fs = Arc::new(LocalFileSystem::new(&fixture.0));
+            let subprocess = Arc::new(LocalSubprocess::new(&fixture.0));
+            let engines = Arc::new(EngineNames);
+            let tool = match name {
+                "find" => create_find_tool(fs, subprocess, engines).unwrap(),
+                "grep" => create_grep_tool(fs, subprocess, engines).unwrap(),
+                _ => create_bash_tool(
+                    fs,
+                    subprocess,
+                    BashToolOptions {
+                        shell_path: Some(
+                            if cfg!(windows) {
+                                "C:/Program Files/Git/bin/bash.exe"
+                            } else {
+                                "/bin/bash"
+                            }
+                            .into(),
+                        ),
+                        ..BashToolOptions::default()
+                    },
+                )
+                .unwrap(),
+            };
+            let runtime = Runtime::new();
+            runtime.tools().register_for_scope(None, tool).unwrap();
+            let mut arguments: RawValue = serde_json::from_str("{}").unwrap();
+            let RawValue::Object(object) = &mut arguments else {
+                unreachable!()
+            };
+            object.insert(
+                if name == "bash" { "command" } else { "pattern" }.into(),
+                RawValue::String(JsString::from_code_units(units.clone())),
+            );
+            let batch = execute_tool_calls(
+                &runtime.context(),
+                &[ToolCall::new_raw("lossless", name, arguments)],
+                ToolExecutionOptions::new(StopReason::ToolUse, 0.0),
+            )
+            .await
+            .unwrap();
+            let ToolResultContentBlock::Text(text) = &batch.messages[0].content[0] else {
+                panic!("text result required")
+            };
+            let mut expected: Vec<u16> = format!(
+                "The argument 'args[{index}]' must be a string without null bytes. Received "
+            )
+            .encode_utf16()
+            .collect();
+            expected.extend_from_slice(&inspected);
+            assert_eq!(
+                text.text.code_units(),
+                expected,
+                "nul-tool-lossless-unit-message"
+            );
+            assert!(batch.messages[0].is_error, "nul-tool-lossless-is-error");
+        }
     }
 }

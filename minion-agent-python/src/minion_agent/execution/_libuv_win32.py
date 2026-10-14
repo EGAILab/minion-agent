@@ -327,3 +327,27 @@ def check_listable(path: str) -> None:
             raise NotADirectoryError(_errno.ENOTDIR, os.strerror(_errno.ENOTDIR), path)
     finally:
         _k32.CloseHandle(handle)
+
+
+_ERROR_ENVVAR_NOT_FOUND = 203
+_k32.GetEnvironmentVariableW.argtypes = [wintypes.LPCWSTR, wintypes.LPWSTR, wintypes.DWORD]
+_k32.GetEnvironmentVariableW.restype = wintypes.DWORD
+
+
+def inherited_drive_cwd(device: str) -> str | None:
+    """L12-D012 (spec/execution.md section 3.2; record 12-l12-d012-path-colon.md section 3): the
+    process's inherited per-drive cwd entry `=<device>` -- what Node's `process.env['=X:']` reads
+    in `path.win32.resolve`. Such entries are hidden from `os.environ` / `os.getenv` (CPython drops
+    `=`-prefixed names), so the Win32 environment block is read directly. None when absent; an
+    empty entry is returned as "" (Node's `||` then selects the process cwd)."""
+    name = f"={device}"
+    size = 260
+    while True:
+        buffer = ctypes.create_unicode_buffer(size)
+        ctypes.set_last_error(0)
+        length = _k32.GetEnvironmentVariableW(name, buffer, size)
+        if length == 0:
+            return None if ctypes.get_last_error() == _ERROR_ENVVAR_NOT_FOUND else ""
+        if length < size:
+            return buffer.value
+        size = length

@@ -6358,11 +6358,18 @@ rows:
     Full detail: `spec/execution.md` §3, §3.1-§3.8.'
   tests:
   - 'fs_path_resolution_colon_and_drive_relative -- L12-D012 (minion-agent#229; WORKFLOW 11.8.11(c), section 3.2
-    unchanged; CONTRACT_DRAFT): conformance/agent/path-resolution/path-resolution.json (80 cases generated from
-    pinned Pi resolvePath on native Node v22.15.1, Windows and Linux): colon-bearing components, the malformed
-    file: literal fallback, and the win32 drive-relative selection-then-check branch with its inherited per-drive
-    entry partition (host cases in crafted-environment child processes; verified preconditions, fail-closed).
-    REVALIDATE_REQUIRED: Python on win32 (L12D012-F002), Rust (L12D012-F001); certification history preserved.'
+    unchanged; contract approved and merged, code #230 -> 5a244f13 / docs #304 -> b0b3de6c):
+    conformance/agent/path-resolution/path-resolution.json (80 cases generated from pinned Pi resolvePath on native
+    Node v22.15.1, Windows and Linux): colon-bearing components, the malformed file: literal fallback, and the win32
+    drive-relative selection-then-check branch with its inherited per-drive entry partition (host cases in
+    crafted-environment child processes; verified preconditions, fail-closed). Python on win32 (L12D012-F002):
+    APPROVED AND MERGED (final complete review issuecomment-6179335846 at code #232 b7d046fe / docs #306 482d0c32,
+    merged -> 8bb165e5 / b2e8148c; PY-I001 and PY-I002 closed; convergence episode CE-L12D012-01): the selected value
+    is Node''s section 15 view of the native per-drive entry, else of the process cwd, indexed by UTF-16 code units;
+    witnesses tests/execution/test_path_resolution_port.py, tests/execution/test_path_resolution_selected_value.py,
+    tests/conformance/test_path_resolution_conformance.py. Linux configured coverage/mypy limitation base-equal and
+    disclosed, not waived. Rust (L12D012-F001): REVALIDATE_REQUIRED. Cross-language NOT CLOSED; certification
+    history preserved.'
   - 'fs_path_javascript_string_domain -- L12-D001 (minion-agent#123; Owner decision FSP-Q001 Option 1; intentional
     divergence NONE; CONTRACT_DRAFT, Rust NOT_IMPLEMENTED): ctx.fs paths are JavaScript strings; the local provider
     projects unpaired surrogates to U+FFFD ONLY at the OS call (pinned Node), so canonical_path / listings / OS error
@@ -6881,8 +6888,9 @@ rows:
     Full detail: `spec/execution.md` §6.'
   tests:
   - 'fs_path_resolution_colon_and_drive_relative -- L12-D012 (minion-agent#229): the spawn cwd uses the same section 3.2
-    resolver as ctx.fs.absolute_path; conformance/agent/path-resolution/path-resolution.json (CONTRACT_DRAFT).
-    REVALIDATE_REQUIRED: Python on win32 (L12D012-F002), Rust (L12D012-F001).'
+    resolver as ctx.fs.absolute_path; conformance/agent/path-resolution/path-resolution.json (contract approved and
+    merged). Python on win32 (L12D012-F002): APPROVED AND MERGED (code #232 -> 8bb165e5, docs #306 -> b2e8148c).
+    Rust (L12D012-F001): REVALIDATE_REQUIRED. Cross-language NOT CLOSED.'
   - minion-agent-rust/crates/minion-agent/tests/execution_process.rs
   - minion-agent-python/tests/execution/test_subprocess.py
   python: 'minion-agent-python/src/minion_agent/execution/subprocess.py; integration evidence in

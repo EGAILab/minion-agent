@@ -6,6 +6,7 @@ No target or fixture is cleaned. JSON records come from PanicHookInfo, not scrap
 exception-looking text. A red aggregate corpus is not a control baseline.
 """
 import argparse
+import hashlib
 import importlib.util
 import json
 import os
@@ -53,6 +54,11 @@ def test_name(witness):
     if witness == TOOL_UNIT_WITNESS:
         return witness
     return witness if '::' in witness else PREFIX + witness
+
+def log_name(name):
+    # Rust module separators are not legal Windows path components. Keep the
+    # full witness identity in the evidence, not in an unchecked file spelling.
+    return re.sub(r'[^A-Za-z0-9_-]', '_', name) + '-' + hashlib.sha256(name.encode()).hexdigest()[:8] + '.log'
 
 def origin_span(text, marker):
     index = text.index('"' + marker + '"')
@@ -112,7 +118,9 @@ def self_test():
         del missing[key]
         assert credit(101, output(missing), test, token, filename, span) == 'INVALID'
     assert credit(101, output(dict(base, unknown=True)), test, token, filename, span) == 'INVALID'
-    print('DRIVER SELF-TEST 26/26 PASS')
+    assert ':' not in log_name('baseline-tools::builtin::bash::tests::example')
+    assert log_name('a::b') != log_name('a__b')
+    print('DRIVER SELF-TEST 28/28 PASS')
 
 def main():
     parser = argparse.ArgumentParser()
@@ -175,7 +183,7 @@ def main():
         command = ['cargo', 'test', '-p', 'minion-agent', *target, test_name(witness), '--', '--exact', '--nocapture', '--test-threads=1']
         result = subprocess.run(command, cwd=tree, env=dict(env, MINION_NUL_EVIDENCE_TOKEN=token), capture_output=True, text=True, encoding='utf-8', errors='replace')
         output = result.stdout + result.stderr
-        safety.checked(logs / (name + '.log'), boundary).write_text(output, encoding='utf-8')
+        safety.checked(logs / log_name(name), boundary).write_text(output, encoding='utf-8')
         return result.returncode, output, token
     # Every selected witness must pass before the first mutation.
     for witness in dict.fromkeys(c[4] for c in selected):

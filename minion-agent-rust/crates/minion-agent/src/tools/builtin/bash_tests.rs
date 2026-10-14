@@ -155,6 +155,7 @@ struct Spawns {
     queue: Mutex<VecDeque<Arc<Proc>>>,
     calls: Mutex<Vec<(Vec<String>, SpawnOptions)>>,
     captures: AtomicUsize,
+    spawn_error: Option<SubprocessError>,
 }
 impl Spawns {
     fn new(root: &Path, platform: Platform, queue: Vec<Arc<Proc>>) -> Arc<Self> {
@@ -168,6 +169,7 @@ impl Spawns {
             queue: Mutex::new(queue.into()),
             calls: Mutex::new(vec![]),
             captures: AtomicUsize::new(0),
+            spawn_error: None,
         })
     }
 }
@@ -201,6 +203,9 @@ impl Subprocess for Spawns {
                 SubprocessErrorCode::Aborted,
                 "aborted",
             ));
+        }
+        if let Some(error) = &self.spawn_error {
+            return Err(error.clone());
         }
         self.queue
             .lock()
@@ -468,6 +473,140 @@ fn text(result: AgentToolResult) -> String {
         }
         _ => panic!("text"),
     }
+}
+
+#[tokio::test]
+async fn spawn_nul_bash_stdin_is_not_an_argument() {
+    crate::spawn_nul_evidence::install();
+    let root = Path::new(".");
+    let fs = Arc::new(Fs::new(root));
+    let mut process = Proc::new(vec![], vec![], Some(Some(0)));
+    let input = Arc::new(Input {
+        bytes: Mutex::default(),
+        gate: Arc::default(),
+        started: Arc::default(),
+        closed: AtomicBool::new(false),
+    });
+    input.gate.release();
+    Arc::get_mut(&mut process).unwrap().stdin = Some(input.clone());
+    let subprocess = Spawns::new(root, Platform::Windows, vec![process]);
+    let mut req = request(None);
+    req.params
+        .as_object_mut()
+        .unwrap()
+        .insert("command".into(), PreparedValue::String("a\0b".into()));
+    execute(
+        fs,
+        subprocess.clone(),
+        BashToolOptions {
+            shell_path: Some("C:/Windows/System32/bash.exe".into()),
+            ..BashToolOptions::default()
+        },
+        req,
+    )
+    .await
+    .unwrap();
+    assert_eq!(*input.bytes.lock(), b"a\0b", "stdin-nul-bytes-unchanged");
+    assert_eq!(
+        subprocess.calls.lock()[0].0,
+        ["C:/Windows/System32/bash.exe", "-s"],
+        "stdin-not-argv"
+    );
+}
+
+#[tokio::test]
+async fn spawn_nul_bash_consumer_arbitrates_windows_collisions() {
+    crate::spawn_nul_evidence::install();
+    let root = Path::new(".");
+    let fs = Arc::new(Fs::new(root));
+    let mut subprocess = Spawns::new(
+        root,
+        Platform::Windows,
+        vec![Proc::new(vec![], vec![], Some(Some(0)))],
+    );
+    Arc::get_mut(&mut subprocess).unwrap().env = EnvSnapshot::new(EnvEntries::Windows(vec![
+        ("K".into(), "ok".into()),
+        ("k".into(), "bad\0".into()),
+    ]));
+    execute(
+        fs,
+        subprocess.clone(),
+        BashToolOptions {
+            shell_path: Some("custom".into()),
+            ..BashToolOptions::default()
+        },
+        request(None),
+    )
+    .await
+    .unwrap();
+    let calls = subprocess.calls.lock();
+    assert_eq!(calls.len(), 1, "consumer-kept-only-valid-entry");
+    assert_eq!(calls[0].1.env.get("K").map(String::as_str), Some("ok"));
+    assert!(
+        !calls[0].1.env.contains_key("k"),
+        "consumer-dropped-invalid-collision"
+    );
+}
+
+#[tokio::test]
+async fn spawn_nul_bash_ordinary_error_text_is_not_a_mark() {
+    crate::spawn_nul_evidence::install();
+    let root = Path::new(".");
+    let fs = Arc::new(Fs::new(root));
+    let mut subprocess = Spawns::new(root, Platform::Posix, vec![]);
+    Arc::get_mut(&mut subprocess).unwrap().spawn_error = Some(SubprocessError::new(
+        SubprocessErrorCode::SpawnError,
+        "The argument 'args[1]' must be a string without null bytes. Received 'a\\x00b'",
+    ));
+    let error = execute(
+        fs,
+        subprocess,
+        BashToolOptions {
+            shell_path: Some("custom".into()),
+            ..BashToolOptions::default()
+        },
+        request(None),
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(
+        error.message().as_str(),
+        Some("Failed to start the shell custom"),
+        "ordinary-error-keeps-wrapper"
+    );
+}
+
+#[tokio::test]
+async fn spawn_nul_bash_diagnostic_passes_without_wrapper() {
+    crate::spawn_nul_evidence::install();
+    let root = Path::new(".");
+    let fs = Arc::new(Fs::new(root));
+    let subprocess = Spawns::new(root, Platform::Posix, vec![]);
+    let mut req = request(None);
+    req.params
+        .as_object_mut()
+        .unwrap()
+        .insert("command".into(), PreparedValue::String("a\0b".into()));
+    let error = execute(
+        fs,
+        subprocess.clone(),
+        BashToolOptions {
+            shell_path: Some("custom".into()),
+            ..BashToolOptions::default()
+        },
+        req,
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(
+        error.message().as_str(),
+        Some("The argument 'args[1]' must be a string without null bytes. Received 'a\\x00b'"),
+        "nul-tool-passthrough-exact"
+    );
+    assert!(
+        subprocess.calls.lock().is_empty(),
+        "nul-command-zero-spawns"
+    );
 }
 
 #[tokio::test(start_paused = true)]

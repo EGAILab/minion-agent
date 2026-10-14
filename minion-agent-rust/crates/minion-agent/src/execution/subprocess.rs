@@ -85,7 +85,7 @@ fn prepare_spawn<S: Subprocess + ?Sized>(
     provider: &S,
     argv: &[ResultString],
     options: &LosslessSpawnOptions,
-) -> Result<(ResultString, Vec<(ResultString, ResultString)>), SubprocessError> {
+) -> Result<ResultString, SubprocessError> {
     if options.signal.as_ref().is_some_and(|s| s.aborted()) {
         return Err(SubprocessError::new(
             SubprocessErrorCode::Aborted,
@@ -115,7 +115,7 @@ fn prepare_spawn<S: Subprocess + ?Sized>(
         provider.platform(),
     );
     super::spawn_nul::validate(argv, &cwd, &env)?;
-    Ok((cwd, env))
+    Ok(cwd)
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -324,6 +324,24 @@ impl Subprocess for LocalSubprocess {
     }
 
     fn base_env(&self) -> EnvSnapshot {
+        if let Some(entries) = &self.logical_base_env {
+            return EnvSnapshot::new(match self.platform() {
+                Platform::Windows => {
+                    EnvEntries::Windows(entries.iter().map(|(n, v)| (n.into(), v.into())).collect())
+                }
+                Platform::Posix => EnvEntries::Posix(
+                    entries
+                        .iter()
+                        .map(|(n, v)| {
+                            (
+                                String::from_utf16_lossy(n.code_units()).into_bytes(),
+                                String::from_utf16_lossy(v.code_units()).into_bytes(),
+                            )
+                        })
+                        .collect(),
+                ),
+            });
+        }
         EnvSnapshot::configured(self.platform(), &self.base_env)
     }
 
@@ -349,7 +367,7 @@ impl Subprocess for LocalSubprocess {
         argv: &[ResultString],
         options: LosslessSpawnOptions,
     ) -> Result<Arc<dyn Process>, SubprocessError> {
-        let (cwd, env) = prepare_spawn(self, argv, &options)?;
+        let cwd = prepare_spawn(self, argv, &options)?;
         let mut command = Command::new(String::from_utf16_lossy(argv[0].code_units()));
         command.args(
             argv[1..]
@@ -358,7 +376,12 @@ impl Subprocess for LocalSubprocess {
         );
         command.current_dir(super::path::native(&cwd));
         command.env_clear();
-        command.envs(env.into_iter().map(|(n, v)| {
+        // The diagnostic order is not the native environment insertion order.
+        // Preserve the certified baseline-then-overlay command composition.
+        if options.inherit_env {
+            command.envs(&self.base_env);
+        }
+        command.envs(options.env.iter().map(|(n, v)| {
             (
                 String::from_utf16_lossy(n.code_units()),
                 String::from_utf16_lossy(v.code_units()),

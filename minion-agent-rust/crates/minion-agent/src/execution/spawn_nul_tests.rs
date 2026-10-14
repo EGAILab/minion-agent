@@ -48,6 +48,107 @@ fn entries(value: &Value) -> Vec<(ResultString, ResultString)> {
         .unwrap_or_default()
 }
 
+async fn assert_canonical_case(id: &str) {
+    crate::spawn_nul_evidence::install();
+    let document: Value = serde_json::from_str(include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../../conformance/agent/spawn-nul/spawn-nul.json"
+    )))
+    .unwrap();
+    let platform = if cfg!(windows) { "win32" } else { "linux" };
+    let row = document["spawn_nul"]["cases"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|r| r["id"] == id)
+        .unwrap();
+    let calls = Arc::new(AtomicUsize::new(0));
+    let mut provider = LocalSubprocess::new(".")
+        .with_logical_cwd(string(selected(&row["provider_cwd"], platform)));
+    if !row["baseline"].is_null() {
+        provider = provider.with_lossless_base_env(entries(&row["baseline"]));
+    }
+    provider.native_spawn_calls = Some(calls.clone());
+    let argv: Vec<_> = row["argv"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|v| string(selected(v, platform)))
+        .collect();
+    let controller = super::super::CancellationController::default();
+    if row["pre_aborted"] == true {
+        controller.abort();
+    }
+    let error = provider
+        .spawn_lossless(
+            &argv,
+            LosslessSpawnOptions {
+                cwd: (!row["cwd"].is_null()).then(|| string(selected(&row["cwd"], platform))),
+                env: entries(&row["env"]),
+                inherit_env: row["inherit_env"].as_bool().unwrap(),
+                signal: Some(Arc::new(controller.signal())),
+                ..LosslessSpawnOptions::default()
+            },
+        )
+        .await
+        .err()
+        .unwrap();
+    let expected = &row["expect"][platform];
+    assert_eq!(
+        serde_json::to_value(error.code).unwrap(),
+        expected["code"],
+        "nul-control-error-code"
+    );
+    if let Some(message) = expected.get("message") {
+        let actual = error
+            .nul_diagnostic()
+            .cloned()
+            .unwrap_or_else(|| error.message.as_str().into());
+        assert_eq!(actual, string(message), "nul-control-exact-diagnostic");
+    }
+    assert_eq!(
+        calls.load(Ordering::SeqCst),
+        0,
+        "nul-control-zero-native-calls"
+    );
+}
+
+macro_rules! case_witness {
+    ($name:ident, $case:literal) => {
+        #[tokio::test]
+        async fn $name() {
+            assert_canonical_case($case).await;
+        }
+    };
+}
+case_witness!(witness_file, "name/file");
+case_witness!(witness_argument_index, "name/args-first-argument");
+case_witness!(
+    witness_first_invalid_argument,
+    "precedence/args-first-invalid-wins"
+);
+case_witness!(witness_effective_cwd, "cwd/file-url-percent-00");
+case_witness!(witness_default_cwd, "cwd/provider-default-nul");
+case_witness!(witness_raw_collision, "env/collision-valid-upper-nul-lower");
+case_witness!(
+    witness_env_name_before_value,
+    "env/name-before-value-same-entry"
+);
+case_witness!(witness_overlay_owner, "env/order-baseline-ZA-overlay-ZA");
+case_witness!(witness_baseline_presentation, "env/order-baseline-only-ZA");
+case_witness!(witness_integer_indices, "env/order-integer-index-names");
+case_witness!(witness_non_index_names, "env/order-non-index-controls");
+case_witness!(witness_utf16_order, "env/order-baseline-only-utf16-vs-utf8");
+case_witness!(witness_quote_choice, "fmt/single-and-double");
+case_witness!(witness_control_escape, "fmt/controls");
+case_witness!(witness_lone_surrogate, "fmt/lone-high-surrogate");
+case_witness!(
+    witness_split_surrogate_diagnostic,
+    "len/surrogate-pair-straddles-128"
+);
+case_witness!(witness_newline_split, "len/newline-split-over-76");
+case_witness!(witness_preabort, "abort/pre-aborted-before-nul");
+
 #[tokio::test]
 async fn spawn_nul_canonical_real_provider() {
     let document: Value = serde_json::from_str(include_str!(concat!(
@@ -58,12 +159,15 @@ async fn spawn_nul_canonical_real_provider() {
     let platform = if cfg!(windows) { "win32" } else { "linux" };
     let rows = document["spawn_nul"]["cases"].as_array().unwrap();
     assert_eq!(rows.len(), 57);
+    let mut mismatches = Vec::new();
     for row in rows {
         let id = row["id"].as_str().unwrap();
         let calls = Arc::new(AtomicUsize::new(0));
         let mut provider = LocalSubprocess::new(".")
-            .with_logical_cwd(string(selected(&row["provider_cwd"], platform)))
-            .with_lossless_base_env(entries(&row["baseline"]));
+            .with_logical_cwd(string(selected(&row["provider_cwd"], platform)));
+        if !row["baseline"].is_null() {
+            provider = provider.with_lossless_base_env(entries(&row["baseline"]));
+        }
         provider.native_spawn_calls = Some(calls.clone());
         let argv = row["argv"]
             .as_array()
@@ -88,34 +192,39 @@ async fn spawn_nul_canonical_real_provider() {
             .err()
             .expect("scenario rejects");
         let expected = &row["expect"][platform];
-        assert_eq!(
-            serde_json::to_value(error.code).unwrap(),
-            expected["code"],
-            "{id}: code"
-        );
+        if serde_json::to_value(error.code).unwrap() != expected["code"] {
+            mismatches.push(format!("{id}: error code differs"));
+        }
         if expected["message"] == "os" {
             assert!(
                 error.nul_diagnostic().is_none(),
                 "{id}: native error must stay unmarked"
             );
             assert_eq!(calls.load(Ordering::SeqCst), 1, "{id}: native boundary");
-        } else {
+        } else if expected.get("message").is_some() {
             let actual = error
                 .nul_diagnostic()
                 .cloned()
                 .unwrap_or_else(|| error.message.as_str().into());
-            assert_eq!(
-                actual,
-                string(&expected["message"]),
-                "{id}: exact diagnostic units"
-            );
+            if actual != string(&expected["message"]) {
+                mismatches.push(format!("{id}: exact diagnostic units differ: {actual:?}"));
+            }
             assert_eq!(
                 calls.load(Ordering::SeqCst),
                 0,
                 "{id}: no native spawn after rejection"
             );
+        } else {
+            assert!(error.nul_diagnostic().is_none(), "{id}: abort is unmarked");
+            assert_eq!(
+                calls.load(Ordering::SeqCst),
+                0,
+                "{id}: no native spawn after abort"
+            );
         }
     }
+    // Collect all observations, but never suppress a failed canonical row.
+    assert!(mismatches.is_empty(), "canonical-mismatch: {mismatches:#?}");
 }
 
 #[tokio::test]
@@ -175,6 +284,7 @@ fn spawn_nul_unrelated_invalid_input_is_not_a_typed_rejection() {
 
 #[tokio::test]
 async fn spawn_nul_long_numeric_name_is_ordinary() {
+    crate::spawn_nul_evidence::install();
     let provider = LocalSubprocess::new(".").with_base_env(BTreeMap::new());
     let error = provider
         .spawn_lossless(

@@ -68,10 +68,12 @@ fn inherited_drive_view(device: &[u16]) -> Option<FsPath> {
         .map(|value| native_view(&native_units(Path::new(&value))))
 }
 
-fn process_cwd_view() -> FsPath {
-    native_view(&logical_provider_path(
-        &env::current_dir().expect("native process cwd for Node path resolution"),
-    ))
+fn process_cwd_view() -> std::io::Result<FsPath> {
+    view_native_cwd_read(env::current_dir())
+}
+
+fn view_native_cwd_read(read: std::io::Result<PathBuf>) -> std::io::Result<FsPath> {
+    read.map(|cwd| native_view(&logical_provider_path(&cwd)))
 }
 
 fn starts(path: &FsPath, prefix: &str) -> bool {
@@ -89,13 +91,13 @@ pub fn file_url_to_js_path(raw: &FsPath, windows: bool) -> Option<FsPath> {
         .map(FsPath::from)
 }
 
-pub(crate) fn resolve(cwd: &Path, raw: &FsPath) -> FsPath {
+pub(crate) fn resolve(cwd: &Path, raw: &FsPath) -> std::io::Result<FsPath> {
     resolve_logical(&logical_provider_path(cwd), raw)
 }
 
 /// Logical cwd and input are both JavaScript strings. The OS-path convenience
 /// adapter above does not make this entry point project either string.
-pub(crate) fn resolve_logical(cwd: &FsPath, raw: &FsPath) -> FsPath {
+pub(crate) fn resolve_logical(cwd: &FsPath, raw: &FsPath) -> std::io::Result<FsPath> {
     let mut expanded = raw.clone();
     if starts(raw, "file://") {
         if let Some(converted) = file_url_to_js_path(raw, cfg!(windows)) {
@@ -220,6 +222,24 @@ fn normalize(units: &[u16]) -> FsPath {
 mod tests {
     use super::*;
 
+    #[test]
+    fn native_cwd_read_failure_is_an_error_value() {
+        let error = std::io::Error::new(std::io::ErrorKind::PermissionDenied, "native cwd denied");
+        let error = view_native_cwd_read(Err(error)).unwrap_err();
+        assert_eq!(error.kind(), std::io::ErrorKind::PermissionDenied);
+        assert_eq!(error.to_string(), "native cwd denied");
+        let error = view_native_cwd_read(Err(std::io::Error::from_raw_os_error(2))).unwrap_err();
+        assert_eq!(
+            error.raw_os_error(),
+            Some(2),
+            "retain the native code for the existing error mapper"
+        );
+        assert_eq!(
+            view_native_cwd_read(Ok(PathBuf::from("native-cwd"))).unwrap(),
+            "native-cwd"
+        );
+    }
+
     #[tokio::test]
     async fn logical_provider_cwd_stays_raw() {
         let fixture: serde_json::Value =
@@ -260,7 +280,7 @@ mod tests {
                 providers += 1;
             }
             assert_eq!(
-                resolve_logical(&cwd, &input),
+                resolve_logical(&cwd, &input).unwrap(),
                 expected,
                 "logical cwd {}",
                 row["label"]
@@ -358,11 +378,11 @@ mod tests {
         for units in inputs {
             let input = FsPath::from_code_units(units);
             let actual = fs.absolute_path(&input, None).await.unwrap();
-            let logical = resolve(&provider, &input);
+            let logical = resolve(&provider, &input).unwrap();
             let scalar = String::from_utf16(input.code_units()).ok().map(|raw| {
-                native_units(&super::super::filesystem::resolve_local_path(
-                    &provider, &raw,
-                ))
+                native_units(
+                    &super::super::filesystem::resolve_local_path(&provider, &raw).unwrap(),
+                )
             });
             rows.push(json!({"absolute_path":actual.code_units(),"logical":logical.code_units(),"scalar":scalar.map(|v|v.code_units().to_vec())}));
         }
@@ -387,8 +407,8 @@ mod tests {
         };
         for raw in ["", ".", "a/./b", "a/../b", "../b", "~", "~/file", "~\\file"] {
             assert_eq!(
-                resolve(cwd, &raw.into()),
-                from_native(&super::super::filesystem::resolve_local_path(cwd, raw)),
+                resolve(cwd, &raw.into()).unwrap(),
+                from_native(&super::super::filesystem::resolve_local_path(cwd, raw).unwrap()),
                 "{raw:?}"
             );
         }
@@ -401,7 +421,7 @@ mod tests {
             Path::new("/root")
         };
         let raw = FsPath::from_code_units(vec![97, 47, 0xd800, 47, 46, 46, 47, 0xdc00]);
-        let path = resolve(cwd, &raw);
+        let path = resolve(cwd, &raw).unwrap();
         assert_eq!(basename(&path).code_units(), &[0xdc00]);
         assert!(path.code_units().contains(&0xdc00));
         assert!(!from_native(&native(&path)).code_units().contains(&0xdc00));

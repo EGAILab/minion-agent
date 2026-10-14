@@ -45,8 +45,8 @@ def controls():
         ("raw-native-entry", EXEC + "path.rs", ".map(|value| native_view(&native_units(Path::new(&value))))",
          ".map(|value| { FIRE native_units(Path::new(&value)) })", "native", "entry/lone-high-backslash", True),
         ("raw-native-cwd", EXEC + "path.rs",
-         'native_view(&logical_provider_path(\n        &env::current_dir().expect("native process cwd for Node path resolution"),\n    ))',
-         '{ FIRE logical_provider_path(&env::current_dir().expect("native process cwd for Node path resolution")) }',
+         'read.map(|cwd| native_view(&logical_provider_path(&cwd)))',
+         'read.map(|cwd| { FIRE logical_provider_path(&cwd) })',
          "native", "cwd/lone-high/absent", True),
         ("logical-projected", EXEC + "path.rs", "let mut expanded = raw.clone();",
          "FIRE let mut expanded = native_view(raw);", PATHS + "lexical_paths_do_not_project_surrogates", "assertion `left == right` failed", False),
@@ -63,6 +63,12 @@ def controls():
          "execution::node_lower::tests::node_unicode16_lowercase_is_not_host_unicode17", "assertion `left == right` failed", False),
         ("logical-provider-cwd-projected", EXEC + "path.rs", "let base = cwd.clone();",
          "let base = { FIRE native_view(cwd) };", PATHS + "logical_provider_cwd_stays_raw", "high", False),
+        ("cwd-read-error-panics", EXEC + "path.rs", "read.map(|cwd| native_view(&logical_provider_path(&cwd)))",
+         '{ FIRE Ok(native_view(&logical_provider_path(&read.expect("CONTROL CWD PANIC")))) }',
+         PATHS + "native_cwd_read_failure_is_an_error_value", "CONTROL CWD PANIC", False),
+        ("cwd-read-error-guesses-root", EXEC + "path_resolve.rs", "None => process_cwd()?,",
+         "None => { FIRE process_cwd().unwrap_or_else(|_| { let mut guessed = device.clone(); guessed.push(92); FsPath::from_code_units(guessed) }) },",
+         "execution::path_resolve::tests::native_cwd_error_is_returned_without_guessing", "called `Result::unwrap_err()` on an `Ok` value", False),
     ]
     return [(name, file, old, new.replace("FIRE", f'eprintln!("CONTROL FIRED {name}");'), witness, reason, native)
             for name, file, old, new, witness, reason, native in rows]
@@ -83,8 +89,8 @@ def main():
     original_bytes = {file: (tree / file).read_bytes() for file in originals}
     for name, file, old, *_ in controls():
         assert originals[file].count(old) == 1, f"INVALID ANCHOR {name}: count={originals[file].count(old)}"
-    assert len(controls()) == 13, "all declared control classes must remain present"
-    print("PATH CONTROL ANCHORS 13/13 MATCH ONCE", flush=True)
+    assert len(controls()) == 15, "all declared control classes must remain present"
+    print("PATH CONTROL ANCHORS 15/15 MATCH ONCE", flush=True)
     if args.check_anchors:
         return
     assert "control-code" in tree.parts, "explicit disposable control-code tree required"

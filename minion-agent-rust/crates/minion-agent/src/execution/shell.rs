@@ -85,10 +85,10 @@ impl LocalShell {
         self
     }
 
-    fn resolved_cwd(&self, requested: Option<&Path>) -> PathBuf {
+    fn resolved_cwd(&self, requested: Option<&Path>) -> std::io::Result<PathBuf> {
         match requested {
             Some(path) => resolve_local_path(self.subprocess.cwd(), &path.to_string_lossy()),
-            None => self.subprocess.cwd().to_owned(),
+            None => Ok(self.subprocess.cwd().to_owned()),
         }
     }
 
@@ -163,7 +163,9 @@ impl Shell for LocalShell {
                 "invalid shell timeout",
             ));
         }
-        let cwd = self.resolved_cwd(options.cwd.as_deref());
+        let cwd = self
+            .resolved_cwd(options.cwd.as_deref())
+            .map_err(|error| ShellError::new(ShellErrorCode::SpawnError, error.to_string()))?;
         let shell = self.resolve_shell()?;
         if !cwd.exists() {
             return Err(ShellError::new(

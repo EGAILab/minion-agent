@@ -2,6 +2,7 @@
 //! No PathBuf component interpretation and no filesystem access belong here.
 //! Adapted from Node's lib/path.js; see THIRD-PARTY-NOTICES.md.
 use super::{FsPath, node_lower::lower};
+use std::io;
 
 fn sep(unit: u16, windows: bool) -> bool {
     unit == 47 || (windows && unit == 92)
@@ -93,8 +94,8 @@ pub(super) fn resolve(
     parts: &[&FsPath],
     windows: bool,
     mut inherited: impl FnMut(&[u16]) -> Option<FsPath>,
-    mut process_cwd: impl FnMut() -> FsPath,
-) -> FsPath {
+    mut process_cwd: impl FnMut() -> io::Result<FsPath>,
+) -> io::Result<FsPath> {
     let mut device = Vec::new();
     let mut combined = Vec::new();
     let mut absolute = false;
@@ -105,9 +106,10 @@ pub(super) fn resolve(
             }
             (*parts[index - 1]).clone()
         } else if windows && !device.is_empty() {
-            let selected = inherited(&device)
-                .filter(|value| !value.code_units().is_empty())
-                .unwrap_or_else(&mut process_cwd);
+            let selected = match inherited(&device).filter(|value| !value.code_units().is_empty()) {
+                Some(value) => value,
+                None => process_cwd()?,
+            };
             let units = selected.code_units();
             if lower(&units[..units.len().min(2)]) != lower(&device) && units.get(2) == Some(&92) {
                 let mut rooted = device.clone();
@@ -117,7 +119,7 @@ pub(super) fn resolve(
                 selected
             }
         } else {
-            process_cwd()
+            process_cwd()?
         };
         let units = path.code_units();
         let parsed = if windows {
@@ -155,7 +157,7 @@ pub(super) fn resolve(
     if result.is_empty() {
         result.push(46);
     }
-    FsPath::from_code_units(result)
+    Ok(FsPath::from_code_units(result))
 }
 
 pub(super) fn is_absolute(path: &FsPath, windows: bool) -> bool {
@@ -205,7 +207,8 @@ mod tests {
                     )
                 },
                 || panic!("unexpected native cwd read: {row}"),
-            );
+            )
+            .unwrap();
             assert_eq!(actual, row["out"].as_str().unwrap(), "{row}");
         }
     }
@@ -224,7 +227,8 @@ mod tests {
                     row["platform"] == "win32",
                     |_| panic!("logical cwd must not consult native env"),
                     || panic!("logical cwd must not consult native cwd")
-                ),
+                )
+                .unwrap(),
                 string(&row["node"]),
                 "{row}"
             );
@@ -246,8 +250,9 @@ mod tests {
                     (!row["entry"].is_null())
                         .then(|| super::super::path::native_view(&string(&row["entry"])))
                 },
-                || "E:\\native".into(),
-            );
+                || Ok("E:\\native".into()),
+            )
+            .unwrap();
             assert_eq!(actual, string(&row["node"]), "{}", row["label"]);
         }
         for row in fixture["logical_rows"].as_array().unwrap() {
@@ -258,7 +263,8 @@ mod tests {
                 true,
                 |_| Some(super::super::path::native_view(&string(&row["entry"]))),
                 || panic!("truthy inherited entry must keep cwd lazy"),
-            );
+            )
+            .unwrap();
             assert_eq!(actual, string(&row["node"]), "{}", row["label"]);
         }
     }
@@ -277,9 +283,45 @@ mod tests {
                     false,
                     |_| panic!("POSIX has no per-drive lookup"),
                     || panic!("absolute provider")
-                ),
+                )
+                .unwrap(),
                 expected
             );
         }
+    }
+
+    #[test]
+    fn native_cwd_error_is_returned_without_guessing() {
+        for (windows, base, input) in [(true, "C:\\x", "a:leaf"), (false, "relative", "leaf")] {
+            let base: FsPath = base.into();
+            let input: FsPath = input.into();
+            let calls = std::cell::Cell::new(0);
+            let error = resolve(
+                &[&base, &input],
+                windows,
+                |_| None,
+                || {
+                    calls.set(calls.get() + 1);
+                    Err(io::Error::new(
+                        io::ErrorKind::PermissionDenied,
+                        "native cwd denied",
+                    ))
+                },
+            )
+            .unwrap_err();
+            assert_eq!(calls.get(), 1);
+            assert_eq!(error.kind(), io::ErrorKind::PermissionDenied);
+            assert_eq!(error.to_string(), "native cwd denied");
+        }
+        let base: FsPath = "C:\\x".into();
+        let input: FsPath = "a:leaf".into();
+        let result = resolve(
+            &[&base, &input],
+            true,
+            |_| Some("A:\\entry".into()),
+            || panic!("truthy inherited entry must not consult even a failing cwd getter"),
+        )
+        .unwrap();
+        assert_eq!(result, "a:\\entry\\leaf");
     }
 }

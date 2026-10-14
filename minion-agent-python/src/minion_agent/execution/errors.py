@@ -77,11 +77,14 @@ class ShellError:
 
 @dataclass(frozen=True, slots=True)
 class SubprocessError:
-    """A `ctx.subprocess` operation's typed failure."""
+    """A `ctx.subprocess` operation's typed failure. `nul_input` marks `L12-D011`'s pre-spawn
+    NUL rejection (spec/execution.md section 21), so a tool can surface that diagnostic unchanged
+    without matching message text (section 21.5)."""
 
     code: SubprocessErrorCode
     message: str
     cause: BaseException | None = None
+    nul_input: bool = False
 
 
 # L12-D007 (spec/execution.md section 19): pinned libuv 1.49.2 `uv_translate_sys_error`

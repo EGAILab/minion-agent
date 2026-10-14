@@ -28,6 +28,7 @@ from .environment import EnvSnapshot, Platform, host_platform, local_baseline
 from .errors import SubprocessError, SubprocessErrorCode
 from .filesystem import resolve_local_path
 from .result import Err, Ok, Result
+from .spawn_nul import spawn_rejection
 from .world import ExecutionWorldIdentity
 
 _SIGNAL_POLL_INTERVAL_S = 0.01
@@ -67,15 +68,16 @@ class ExitStatus:
     exit_code: int | None
 
 
-def _effective_env(env: dict[str, str] | None, inherit_env: bool) -> dict[str, str]:
+def _effective_env(
+    env: dict[str, str] | None, inherit_env: bool, baseline: list[tuple[str, str]]
+) -> dict[str, str]:
     """`EXEC-005`'s own cwd/environment rule, mirroring `ctx.shell`'s (`EXEC-004`) identically --
-    `inherit_env=True` overlays the provider's own base environment with the call's own `env`;
-    `inherit_env=False` is EXACTLY the call's own `env` and nothing else."""
+    `inherit_env=True` overlays the provider's own base environment (`baseline`, read once by the
+    caller) with the call's own `env`; `inherit_env=False` is EXACTLY the call's own `env` and
+    nothing else."""
     if not inherit_env:
         return dict(env) if env else {}
-    # `WP12E4-C002` = B: the baseline is `base_env()`'s own source, read now -- the live native
-    # environment on Windows, `os.environ` on POSIX (spec/execution.md section 15.4).
-    base = dict(local_baseline())
+    base = dict(baseline)
     if env:
         base.update(env)
     return base
@@ -537,7 +539,22 @@ class LocalSubprocess:
         if opts.signal is not None and opts.signal.aborted:
             return Err(SubprocessError(SubprocessErrorCode.ABORTED, "aborted"))
         resolved_cwd = resolve_local_path(self.cwd, opts.cwd) if opts.cwd is not None else self.cwd
-        effective_env = _effective_env(opts.env, opts.inherit_env)
+        # `WP12E4-C002` = B: the baseline is `base_env()`'s own source, read now -- the live native
+        # environment on Windows, `os.environ` on POSIX (spec/execution.md section 15.4).
+        baseline = local_baseline() if opts.inherit_env else []
+        effective_env = _effective_env(opts.env, opts.inherit_env, baseline)
+        # `L12-D011` (section 21): every input is checked for U+0000 before any native call --
+        # argv, the effective (resolved or default) cwd, then the effective environment.
+        rejected = spawn_rejection(
+            argv,
+            resolved_cwd,
+            effective_env,
+            [name for name, _ in baseline],
+            list(opts.env or ()),
+            self._platform,
+        )
+        if rejected is not None:
+            return Err(rejected)
         spawn_kwargs: dict[str, object] = {}
         if os.name != "nt":  # pragma: no cover -- POSIX-only, unreachable on Windows
             spawn_kwargs["start_new_session"] = True

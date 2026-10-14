@@ -287,7 +287,13 @@ async def test_inherit_env_false_is_exactly_the_callers_environment() -> None:
 @windows_only
 async def test_control_changing_inherit_env_false_fails(monkeypatch: Any) -> None:
     real = subprocess_module._effective_env
-    monkeypatch.setattr(subprocess_module, "_effective_env", lambda env, inherit: real(env, True))
+    # L12-D011: `_effective_env` now receives the baseline the provider read once; forcing inherit
+    # must also supply the real baseline (the caller passes none when inherit_env is False).
+    monkeypatch.setattr(
+        subprocess_module,
+        "_effective_env",
+        lambda env, inherit, baseline: real(env, True, subprocess_module.local_baseline()),
+    )
     with pytest.raises(AssertionError):
         await test_inherit_env_false_is_exactly_the_callers_environment()
 

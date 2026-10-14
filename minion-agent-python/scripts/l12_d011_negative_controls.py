@@ -296,6 +296,8 @@ def run_mutant(name: str, work: Path, base_passed: set[str]) -> dict[str, object
         "name": name,
         "expected": control.expected,
         **credit(control, base_passed, result),
+        "exit": result.returncode,
+        "errors": len(result.errors),
         "summary": result.summary,
     }
 

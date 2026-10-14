@@ -18,8 +18,7 @@ fn in_ranges(value: u32, ranges: &[(u32, u32)]) -> bool {
 pub(crate) fn lower(units: &[u16]) -> Vec<u16> {
     static TABLE: OnceLock<Table> = OnceLock::new();
     let table = TABLE.get_or_init(|| {
-        serde_json::from_str(include_str!("node_lower.json"))
-            .expect("pinned Node lowercase table")
+        serde_json::from_str(include_str!("node_lower.json")).expect("pinned Node lowercase table")
     });
     let points: Vec<u32> = char::decode_utf16(units.iter().copied())
         .map(|value| value.map_or_else(|e| u32::from(e.unpaired_surrogate()), u32::from))

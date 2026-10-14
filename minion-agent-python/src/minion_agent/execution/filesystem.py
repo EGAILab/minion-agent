@@ -143,7 +143,7 @@ def resolve_local_path(cwd: str, path: str) -> str:
         # on failure) reproduces that exact fallthrough.
         with suppress(ValueError, OSError):
             normalized = _file_url_to_path(normalized)
-    if os.name == "nt" and _is_other_drive_relative(cwd, normalized):
+    if sys.platform == "win32" and _is_other_drive_relative(cwd, normalized):
         # L12-D012 (L12D012-F002): a drive-relative path on another drive than `cwd`'s takes
         # Node's own `win32.resolve` branch -- the inherited per-drive entry (or the process cwd)
         # is SELECTED first and only then device-checked. Every other path keeps the certified

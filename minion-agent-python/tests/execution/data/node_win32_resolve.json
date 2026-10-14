@@ -266,6 +266,38 @@
    "entry": "A:rel\\..\\..",
    "input": "a:leaf",
    "out": "a:..\\leaf"
+  },
+  {
+   "normalize": "a\\b\\..\\c",
+   "out": "a\\c"
+  },
+  {
+   "normalize": "..\\x\\..\\..\\y",
+   "out": "..\\..\\y"
+  },
+  {
+   "normalize": "x\\.",
+   "out": "x"
+  },
+  {
+   "normalize": "a/b",
+   "out": "a\\b"
+  },
+  {
+   "normalize": "..",
+   "out": ".."
+  },
+  {
+   "normalize": "a\\..\\..",
+   "out": ".."
+  },
+  {
+   "normalize": "...",
+   "out": "..."
+  },
+  {
+   "normalize": "x/.\\y",
+   "out": "x\\y"
   }
  ]
 }

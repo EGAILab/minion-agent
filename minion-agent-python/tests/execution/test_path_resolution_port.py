@@ -19,6 +19,14 @@ FIXTURE = json.loads(
 )
 BASE_ROWS = [r for r in FIXTURE["rows"] if "base" in r]
 ENTRY_ROWS = [r for r in FIXTURE["rows"] if "entry" in r]
+NORMALIZE_ROWS = [r for r in FIXTURE["rows"] if "normalize" in r]
+
+
+@pytest.mark.parametrize("row", NORMALIZE_ROWS, ids=lambda r: r["normalize"])
+def test_normalize_string_equals_node(row: dict[str, str]) -> None:
+    """For a relative, device-free path not ending in a separator, Node's `path.win32.normalize` is
+    exactly `normalizeString(path, true)` (a tail that does not end in a separator)."""
+    assert filesystem._node_normalize_string(row["normalize"], True) == row["out"]
 
 
 def _unused(*_: Any) -> Any:

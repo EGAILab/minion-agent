@@ -147,11 +147,12 @@ def resolve_local_path(cwd: str, path: str) -> str:
         # L12-D012 (L12D012-F002): a drive-relative path on another drive than `cwd`'s takes
         # Node's own `win32.resolve` branch -- the inherited per-drive entry (or the process cwd)
         # is SELECTED first and only then device-checked. Every other path keeps the certified
-        # pipeline below, which already equals Pi there.
-        from . import _libuv_win32
-
+        # pipeline below, which already equals Pi there. Both native operands take Node's own
+        # string view (L12D012-PY-I002); the logical `cwd` and `normalized` stay raw.
         return node_win32_resolve(
-            [cwd, normalized], inherited=_libuv_win32.inherited_drive_cwd, process_cwd=os.getcwd
+            [cwd, normalized],
+            inherited=_native_inherited_view,
+            process_cwd=_native_process_cwd_view,
         )
     if os.path.isabs(normalized):
         resolved = os.path.normpath(normalized)
@@ -259,12 +260,40 @@ def _select_drive_base(
     device: str, inherited: Callable[[str], str | None], process_cwd: Callable[[], str]
 ) -> str:
     """The verbatim branch (Node v22.15.1, record section 3.1): `process.env['=' + device] ||
-    process.cwd()`, then the drive root only when the selected value's first two characters are
-    not the device (case-insensitively) and its third character is `\\`."""
+    process.cwd()`, then the drive root only when the selected value's first two UTF-16 code
+    units are not the device (case-insensitively) and its third code unit is `\\` (L12D012-PY-I002:
+    `StringPrototypeSlice(path, 0, 2)` and `StringPrototypeCharCodeAt(path, 2)` count UTF-16 units,
+    not code points). Both operands are lazy: a non-empty entry never reads the process cwd."""
     path = inherited(device) or process_cwd()
-    if path[:2].lower() != device.lower() and path[2:3] == "\\":
+    units = path.encode("utf-16-le", "surrogatepass")
+    first_two = units[:4].decode("utf-16-le", "surrogatepass")
+    if first_two.lower() != device.lower() and units[4:6] == b"\\\x00":
         path = f"{device}\\"
     return path
+
+
+def node_native_string_view(text: str) -> str:
+    """Node's JavaScript-string view of a NATIVE Windows string it reads through UTF-8 (spec
+    section 15, "Node's view of the native environment"; L12D012-PY-I002): the generalized UTF-8 of
+    the UTF-16 code units (a valid pair as its 4-byte sequence, a lone surrogate as its 3-byte
+    sequence), then a WHATWG UTF-8 decode with replacement -- one U+FFFD per maximal invalid
+    subpart, so a lone surrogate becomes three. Applied ONLY to the drive-relative branch's native
+    operands (the inherited per-drive entry and the process cwd), never to a logical argument."""
+    units = text.encode("utf-16-le", "surrogatepass").decode("utf-16-le", "surrogatepass")
+    return units.encode("utf-8", "surrogatepass").decode("utf-8", "replace")
+
+
+def _native_inherited_view(device: str) -> str | None:
+    if sys.platform == "win32":  # scopes the Win32-only module to its platform
+        from . import _libuv_win32
+
+        entry = _libuv_win32.inherited_drive_cwd(device)
+        return None if entry is None else node_native_string_view(entry)
+    return None  # pragma: no cover -- the hook that calls this runs only on win32
+
+
+def _native_process_cwd_view() -> str:
+    return node_native_string_view(os.getcwd())
 
 
 def node_win32_resolve(

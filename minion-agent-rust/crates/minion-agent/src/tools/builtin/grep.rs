@@ -10,8 +10,8 @@ use super::{
 };
 use crate::{
     execution::{
-        DirEntryProbeKind, ExecutionWorldError, FileSystem, FsPath, SpawnOptions, Subprocess,
-        validate_execution_worlds,
+        DirEntryProbeKind, ExecutionWorldError, FileSystem, FsPath, LosslessSpawnOptions,
+        Subprocess, validate_execution_worlds,
     },
     javascript::{js_json_loads, js_trim},
     tools::{
@@ -56,7 +56,6 @@ async fn execute(
         directory.kind,
         DirEntryProbeKind::Directory | DirEntryProbeKind::SymlinkToDirectory
     );
-    let root = String::from_utf16_lossy(search.code_units());
     let platform = subprocess.platform();
     let context = request
         .params
@@ -73,11 +72,13 @@ async fn execute(
             .unwrap_or(100.0),
     );
     let pattern = match request.params.get("pattern") {
-        Some(PreparedValue::String(s)) => s.to_utf8_lossy(),
+        Some(PreparedValue::String(s)) => {
+            crate::llm::ResultString::from_code_units(s.code_units().to_vec())
+        }
         _ => return Err(ToolCapabilityError::new("pattern is required")),
     };
-    let mut argv = vec![
-        rg.to_string_lossy().into_owned(),
+    let mut argv: Vec<crate::llm::ResultString> = vec![
+        rg.to_string_lossy().into_owned().into(),
         "--json".into(),
         "--line-number".into(),
         "--color=never".into(),
@@ -100,13 +101,19 @@ async fn execute(
     if let Some(PreparedValue::String(glob)) = request.params.get("glob")
         && !glob.code_units().is_empty()
     {
-        argv.extend(["--glob".into(), glob.to_utf8_lossy()]);
+        argv.extend([
+            "--glob".into(),
+            crate::llm::ResultString::from_code_units(glob.code_units().to_vec()),
+        ]);
     }
-    argv.extend(["--".into(), pattern, root.clone()]);
+    argv.extend(["--".into(), pattern, search.clone()]);
     let process = subprocess
-        .spawn(&argv, SpawnOptions::default())
+        .spawn_lossless(&argv, LosslessSpawnOptions::default())
         .await
-        .map_err(|e| ToolCapabilityError::new(format!("Failed to run ripgrep: {}", e.message)))?;
+        .map_err(|e| match e.nul_diagnostic() {
+            Some(message) => ToolCapabilityError::new(message.clone()),
+            None => ToolCapabilityError::new(format!("Failed to run ripgrep: {}", e.message)),
+        })?;
     let mut count = 0usize;
     let mut reached = false;
     let mut matches = Vec::new();

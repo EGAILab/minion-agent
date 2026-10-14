@@ -94,4 +94,41 @@ pub enum SubprocessErrorCode {
     Unknown,
 }
 
-execution_error!(SubprocessError, SubprocessErrorCode);
+/// Legacy scalar diagnostics remain available in `message`; EXEC-013 diagnostics
+/// additionally retain their exact JavaScript string, including a split surrogate.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SubprocessError {
+    pub code: SubprocessErrorCode,
+    pub message: String,
+    nul_diagnostic: Option<crate::llm::ResultString>,
+}
+
+impl SubprocessError {
+    pub fn new(code: SubprocessErrorCode, message: impl Into<String>) -> Self {
+        Self {
+            code,
+            message: message.into(),
+            nul_diagnostic: None,
+        }
+    }
+
+    pub(super) fn nul_input(message: crate::llm::ResultString) -> Self {
+        Self {
+            code: SubprocessErrorCode::SpawnError,
+            message: String::from_utf16_lossy(message.code_units()),
+            nul_diagnostic: Some(message),
+        }
+    }
+
+    /// Typed rejection identity, never inferred from an OS diagnostic's text.
+    pub fn nul_diagnostic(&self) -> Option<&crate::llm::ResultString> {
+        self.nul_diagnostic.as_ref()
+    }
+}
+
+impl fmt::Display for SubprocessError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(formatter, "{}", self.message)
+    }
+}
+impl std::error::Error for SubprocessError {}

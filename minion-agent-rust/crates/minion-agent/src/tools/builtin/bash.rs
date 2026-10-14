@@ -8,8 +8,8 @@ use super::{
 };
 use crate::{
     execution::{
-        AbortSignal, ExecutionWorldError, FileSystem, FsPath, SpawnOptions, StdioMode, Subprocess,
-        SubprocessErrorCode, validate_execution_worlds,
+        AbortSignal, ExecutionWorldError, FileSystem, FsPath, LosslessSpawnOptions, StdioMode,
+        Subprocess, SubprocessErrorCode, validate_execution_worlds,
     },
     tools::{
         AgentToolResult, PreparedValue, ToolCapabilityError, ToolDefinition, ToolExecutionRequest,
@@ -140,15 +140,23 @@ async fn execute(
     let shell =
         bash_shell::select(&fs, &subprocess, &snapshot, options.shell_path.as_deref()).await?;
     bash_shell::check_cwd(&fs, &subprocess).await?;
-    let command = match request.params.get("command") {
-        Some(PreparedValue::String(s)) => s.to_utf8_lossy(),
+    let logical_command = match request.params.get("command") {
+        Some(PreparedValue::String(s)) => {
+            crate::llm::ResultString::from_code_units(s.code_units().to_vec())
+        }
         _ => return Err(ToolCapabilityError::new("command is required")),
     };
+    let command = String::from_utf16_lossy(logical_command.code_units());
+    let mut argv: Vec<crate::llm::ResultString> =
+        shell.argv(&command).into_iter().map(Into::into).collect();
+    if !shell.stdin {
+        argv[2] = logical_command;
+    }
     let process = subprocess
-        .spawn(
-            &shell.argv(&command),
-            SpawnOptions {
-                env,
+        .spawn_lossless(
+            &argv,
+            LosslessSpawnOptions {
+                env: env.into_iter().map(|(n, v)| (n.into(), v.into())).collect(),
                 inherit_env: false,
                 stdin: if shell.stdin {
                     StdioMode::Piped
@@ -159,12 +167,14 @@ async fn execute(
                     .signal
                     .as_ref()
                     .map(|s| Arc::new(Signal(s.clone())) as Arc<dyn AbortSignal>),
-                ..SpawnOptions::default()
+                ..LosslessSpawnOptions::default()
             },
         )
         .await
         .map_err(|error| {
-            if error.code == SubprocessErrorCode::Aborted {
+            if let Some(message) = error.nul_diagnostic() {
+                ToolCapabilityError::new(message.clone())
+            } else if error.code == SubprocessErrorCode::Aborted {
                 ToolCapabilityError::new("Command aborted")
             } else {
                 ToolCapabilityError::new(format!("Failed to start the shell {}", shell.shell))

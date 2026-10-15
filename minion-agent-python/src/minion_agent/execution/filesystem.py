@@ -154,6 +154,17 @@ def resolve_local_path(cwd: str, path: str) -> str:
             inherited=_native_inherited_view,
             process_cwd=_native_process_cwd_view,
         )
+    if sys.platform == "win32" and normalized[:1] in ("\\", "/"):
+        # L12-D013 (spec section 3.2, rooted and UNC-root inputs): an input with a leading
+        # separator is Node's `win32.resolve(input)` ALONE. A complete UNC root is its own device;
+        # any other root has no device and takes the PROCESS cwd's (never the provider `cwd`'s),
+        # and no inherited `=X:` entry is consulted. ntpath differs on all three (M1 provider
+        # drive, M2 incomplete UNC kept, M3 server/share separator run kept).
+        return node_win32_resolve(
+            [normalized],
+            inherited=_native_inherited_view,
+            process_cwd=_native_process_cwd_view,
+        )
     if os.path.isabs(normalized):
         resolved = os.path.normpath(normalized)
         if os.name == "nt":
@@ -165,8 +176,15 @@ def resolve_local_path(cwd: str, path: str) -> str:
             drive, tail = os.path.splitdrive(resolved)
             if drive and not tail:
                 resolved += os.sep
-        return resolved
-    return os.path.normpath(os.path.join(cwd, normalized))
+        return resolved if os.name == "nt" else node_posix_single_root(resolved)
+    joined = os.path.normpath(os.path.join(cwd, normalized))
+    return joined if os.name == "nt" else node_posix_single_root(joined)
+
+
+def node_posix_single_root(path: str) -> str:
+    """L12-D013 M4: Node's `path.posix.resolve` result has exactly one leading `/`, where POSIX
+    `os.path.normpath` keeps exactly two (`//leaf` stays `//leaf`; Node gives `/leaf`)."""
+    return "/" + path.lstrip("/") if path.startswith("//") else path
 
 
 def _is_separator(char: str) -> bool:

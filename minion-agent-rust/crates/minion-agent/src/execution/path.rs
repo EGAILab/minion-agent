@@ -489,11 +489,18 @@ mod tests {
                     .map(|value| native_units(Path::new(&value)).code_units().to_vec()),
             )
         });
+        let cwd_view = process_cwd_view().unwrap();
+        let entry_views = ["A", "E", "X"].map(|drive| {
+            (
+                drive,
+                inherited_drive_view(&format!("{drive}:").encode_utf16().collect::<Vec<_>>())
+                    .map(|value| value.code_units().to_vec()),
+            )
+        });
         println!(
             "PATH_PROBE {}",
             json!({"cwd":cwd.code_units(),"entries":entries,"rows":rows,
-                "cwd_view":process_cwd_view().unwrap().code_units(),
-                "entry_views":["A", "E", "X"].map(|drive| (drive, inherited_drive_view(&format!("{drive}:").encode_utf16().collect::<Vec<_>>()).map(|v| v.code_units().to_vec())))})
+                "cwd_view":cwd_view.code_units(), "entry_views":entry_views})
         );
     }
     #[test]

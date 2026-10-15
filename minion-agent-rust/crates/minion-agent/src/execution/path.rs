@@ -65,7 +65,30 @@ fn inherited_drive_view(device: &[u16]) -> Option<FsPath> {
     let mut name = vec![61];
     name.extend_from_slice(device);
     env::var_os(String::from_utf16_lossy(&name))
-        .map(|value| native_view(&native_units(Path::new(&value))))
+        .map(|value| inherited_native_view(&native_units(Path::new(&value))))
+}
+
+fn inherited_native_view(raw: &FsPath) -> FsPath {
+    native_view(raw)
+}
+
+fn native_cwd_view(raw: &FsPath, windows: bool) -> FsPath {
+    // libuv uv_cwd trims exactly one native separator, except the literal
+    // drive-root predicate on Windows and the single slash root on POSIX.
+    // This is NOT the provider/display namespace mapping.
+    let units = raw.code_units();
+    let separator = if windows { 92 } else { 47 };
+    let keep_root = if windows {
+        units.len() == 3 && units.get(1) == Some(&58)
+    } else {
+        units.len() == 1
+    };
+    let end = if units.last() == Some(&separator) && !keep_root {
+        units.len() - 1
+    } else {
+        units.len()
+    };
+    native_view(&FsPath::from_code_units(units[..end].to_vec()))
 }
 
 fn process_cwd_view() -> std::io::Result<FsPath> {
@@ -73,7 +96,7 @@ fn process_cwd_view() -> std::io::Result<FsPath> {
 }
 
 fn view_native_cwd_read(read: std::io::Result<PathBuf>) -> std::io::Result<FsPath> {
-    read.map(|cwd| native_view(&logical_provider_path(&cwd)))
+    read.map(|cwd| native_cwd_view(&native_units(&cwd), cfg!(windows)))
 }
 
 fn starts(path: &FsPath, prefix: &str) -> bool {
@@ -221,6 +244,79 @@ fn normalize(units: &[u16]) -> FsPath {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn native_cwd_windows_frozen() {
+        let fixture: serde_json::Value =
+            serde_json::from_str(include_str!("../../tests/data/node_native_operand.json"))
+                .unwrap();
+        for row in fixture["cwd_rows"].as_array().unwrap() {
+            let raw = FsPath::from_code_units(serde_json::from_value(row["raw"].clone()).unwrap());
+            let expected =
+                FsPath::from_code_units(serde_json::from_value(row["node"].clone()).unwrap());
+            assert_eq!(
+                native_cwd_view(&raw, true),
+                expected,
+                "native-cwd/{}",
+                row["label"]
+            );
+        }
+        for row in fixture["predicate_rows"].as_array().unwrap() {
+            let raw = FsPath::from_code_units(serde_json::from_value(row["raw"].clone()).unwrap());
+            let expected =
+                FsPath::from_code_units(serde_json::from_value(row["expected"].clone()).unwrap());
+            assert_eq!(
+                native_cwd_view(&raw, true),
+                expected,
+                "predicate/{}",
+                row["label"]
+            );
+        }
+    }
+
+    #[test]
+    fn inherited_native_boundary_frozen() {
+        let fixture: serde_json::Value =
+            serde_json::from_str(include_str!("../../tests/data/node_native_operand.json"))
+                .unwrap();
+        for row in fixture["entry_rows"].as_array().unwrap() {
+            let raw = FsPath::from_code_units(serde_json::from_value(row["raw"].clone()).unwrap());
+            let expected =
+                FsPath::from_code_units(serde_json::from_value(row["node"].clone()).unwrap());
+            assert_eq!(
+                inherited_native_view(&raw),
+                expected,
+                "native-entry/{}",
+                row["label"]
+            );
+        }
+    }
+
+    #[test]
+    fn native_cwd_posix_boundary() {
+        for (label, raw, expected) in [
+            ("root", "/", "/"),
+            ("trailing", "/tmp/native/", "/tmp/native"),
+            ("one-only", "/tmp/native//", "/tmp/native/"),
+            ("not-backslash", "/tmp/native\\", "/tmp/native\\"),
+            ("bom", "/tmp/\u{feff}/", "/tmp/\u{feff}"),
+        ] {
+            assert_eq!(
+                native_cwd_view(&raw.into(), false),
+                expected,
+                "posix-cwd/{label}"
+            );
+        }
+        #[cfg(unix)]
+        {
+            use std::os::unix::ffi::OsStringExt;
+            let raw = std::ffi::OsString::from_vec(vec![47, 120, 47, 0xed, 0xa0, 0x80]);
+            assert_eq!(
+                view_native_cwd_read(Ok(PathBuf::from(raw))).unwrap(),
+                "/x/\u{fffd}\u{fffd}\u{fffd}"
+            );
+        }
+    }
 
     #[test]
     fn native_cwd_read_failure_is_an_error_value() {
@@ -395,7 +491,9 @@ mod tests {
         });
         println!(
             "PATH_PROBE {}",
-            json!({"cwd":cwd.code_units(),"entries":entries,"rows":rows})
+            json!({"cwd":cwd.code_units(),"entries":entries,"rows":rows,
+                "cwd_view":process_cwd_view().unwrap().code_units(),
+                "entry_views":["A", "E", "X"].map(|drive| (drive, inherited_drive_view(&format!("{drive}:").encode_utf16().collect::<Vec<_>>()).map(|v| v.code_units().to_vec())))})
         );
     }
     #[test]

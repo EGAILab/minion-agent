@@ -182,6 +182,9 @@ def main():
         if not WINDOWS:
             probe = ["setpriv", "--reuid", "1000", "--regid", "1000", "--clear-groups", *probe]
         run("path-probe", probe)
+        if WINDOWS:
+            run("ce02-probe", [sys.executable, "scripts/path-resolution-ce02-probe.py", "--binary", binaries[0],
+                "--sandbox", str(private / "ce02-fixture")])
         if not WINDOWS:
             targets = ("fs_path_domain_conformance", "fs_remove_readonly_conformance", "fs_path_domain")
             command = ["cargo", "test", "-p", "minion-agent", "--all-features"]

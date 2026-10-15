@@ -42,11 +42,11 @@ def controls():
          SELECTED, "astral-backslash", False),
         ("one-replacement-native-view", EXEC + "path.rs", "Err(_) => output.extend_from_slice(&[0xfffd; 3]),",
          "Err(_) => { FIRE output.extend_from_slice(&[0xfffd; 1]); },", SELECTED, "lone-high-backslash", False),
-        ("raw-native-entry", EXEC + "path.rs", ".map(|value| native_view(&native_units(Path::new(&value))))",
+        ("raw-native-entry", EXEC + "path.rs", ".map(|value| inherited_native_view(&native_units(Path::new(&value))))",
          ".map(|value| { FIRE native_units(Path::new(&value)) })", "native", "entry/lone-high-backslash", True),
         ("raw-native-cwd", EXEC + "path.rs",
-         'read.map(|cwd| native_view(&logical_provider_path(&cwd)))',
-         'read.map(|cwd| { FIRE logical_provider_path(&cwd) })',
+         'read.map(|cwd| native_cwd_view(&native_units(&cwd), cfg!(windows)))',
+         'read.map(|cwd| { FIRE native_units(&cwd) })',
          "native", "cwd/lone-high/absent", True),
         ("logical-projected", EXEC + "path.rs", "let mut expanded = raw.clone();",
          "FIRE let mut expanded = native_view(raw);", PATHS + "lexical_paths_do_not_project_surrogates", "assertion `left == right` failed", False),
@@ -63,12 +63,26 @@ def controls():
          "execution::node_lower::tests::node_unicode16_lowercase_is_not_host_unicode17", "assertion `left == right` failed", False),
         ("logical-provider-cwd-projected", EXEC + "path.rs", "let base = cwd.clone();",
          "let base = { FIRE native_view(cwd) };", PATHS + "logical_provider_cwd_stays_raw", "high", False),
-        ("cwd-read-error-panics", EXEC + "path.rs", "read.map(|cwd| native_view(&logical_provider_path(&cwd)))",
-         '{ FIRE Ok(native_view(&logical_provider_path(&read.expect("CONTROL CWD PANIC")))) }',
+        ("cwd-read-error-panics", EXEC + "path.rs", "read.map(|cwd| native_cwd_view(&native_units(&cwd), cfg!(windows)))",
+         '{ FIRE Ok(native_cwd_view(&native_units(&read.expect("CONTROL CWD PANIC")), cfg!(windows))) }',
          PATHS + "native_cwd_read_failure_is_an_error_value", "CONTROL CWD PANIC", False),
         ("cwd-read-error-guesses-root", EXEC + "path_resolve.rs", "None => process_cwd()?,",
          "None => { FIRE process_cwd().unwrap_or_else(|_| { let mut guessed = device.clone(); guessed.push(92); FsPath::from_code_units(guessed) }) },",
          "execution::path_resolve::tests::native_cwd_error_is_returned_without_guessing", "called `Result::unwrap_err()` on an `Ok` value", False),
+        # The original 15 run first. CE02 controls change exactly one boundary.
+        ("CE02-C1", EXEC + "path.rs", "native_view(&FsPath::from_code_units(units[..end].to_vec()))",
+         "{ FIRE native_view(&without_extended_prefix(FsPath::from_code_units(units[..end].to_vec()))) }",
+         "ce02/prefix", ["extended/absent/cwd_view", "extended/absent/absolute_path/0", "extended/absent/logical/0", "extended/absent/absolute_path/1", "extended/absent/logical/1"], True),
+        ("CE02-C2", EXEC + "path.rs", "let end = if units.last() == Some(&separator) && !keep_root {",
+         "let end = if { FIRE let _ = (separator, keep_root); false } {",
+         "ce02/roots" if os.name == "nt" else PATHS + "native_cwd_posix_boundary",
+         ["extended-root/absent/cwd_view"] if os.name == "nt" else "posix-cwd/trailing", False),
+        ("CE02-C3", EXEC + "path.rs", "fn inherited_native_view(raw: &FsPath) -> FsPath {\n    native_view(raw)\n}",
+         "fn inherited_native_view(raw: &FsPath) -> FsPath {\n    FIRE native_view(&without_extended_prefix(raw.clone()))\n}",
+         "ce02/entry-prefix", ["plain/extended/entry_view", "plain/extended/absolute_path/0", "plain/extended/logical/0"], True),
+        ("CE02-C4", EXEC + "path.rs", "fn inherited_native_view(raw: &FsPath) -> FsPath {\n    native_view(raw)\n}",
+         "fn inherited_native_view(raw: &FsPath) -> FsPath {\n    FIRE native_cwd_view(raw, true)\n}",
+         "ce02/entry-trim", ["plain/matching-trailing/entry_view"], True),
     ]
     return [(name, file, old, new.replace("FIRE", f'eprintln!("CONTROL FIRED {name}");'), witness, reason, native)
             for name, file, old, new, witness, reason, native in rows]
@@ -89,8 +103,8 @@ def main():
     original_bytes = {file: (tree / file).read_bytes() for file in originals}
     for name, file, old, *_ in controls():
         assert originals[file].count(old) == 1, f"INVALID ANCHOR {name}: count={originals[file].count(old)}"
-    assert len(controls()) == 15, "all declared control classes must remain present"
-    print("PATH CONTROL ANCHORS 15/15 MATCH ONCE", flush=True)
+    assert len(controls()) == 19, "original 15 plus CE02 four must remain present"
+    print("PATH CONTROL ANCHORS 19/19 MATCH ONCE (original 15 then CE02-C1..C4)", flush=True)
     if args.check_anchors:
         return
     assert "control-code" in tree.parts, "explicit disposable control-code tree required"
@@ -125,6 +139,9 @@ def main():
         return binaries[0]
 
     def observe(name, binary, witness):
+        if witness.startswith("ce02/"):
+            return run(name, [sys.executable, str(HERE / "path-resolution-ce02-probe.py"), "--binary", binary,
+                              "--sandbox", str(logs / (name + "-fixture")), "--focus", witness.split("/")[1]])
         if witness == "native":
             return run(name, [sys.executable, str(HERE / "path-resolution-probe.py"), "--binary", binary,
                               "--sandbox", str(logs / (name + "-fixture"))])
@@ -138,12 +155,15 @@ def main():
                 continue
             binary = build(name + "-baseline")
             code, output = observe(name + "-baseline", binary, witness)
-            assert code == 0 and (witness == "native" or "1 passed; 0 failed" in output) and "CONTROL FIRED " not in output, f"INVALID BASELINE {name}"
+            assert code == 0 and (witness == "native" or witness.startswith("ce02/") or "1 passed; 0 failed" in output) and "CONTROL FIRED " not in output, f"INVALID BASELINE {name}"
             source = safety.checked(tree / file, ROOT)
             safety.checked(source, ROOT).write_text(originals[file].replace(old, new), encoding="utf-8")
             binary = build(name)
             code, output = observe(name, binary, witness)
-            if witness == "native":
+            if witness.startswith("ce02/"):
+                record = json.loads(output)
+                killed = code == 1 and record.get("status") == "FAIL" and sorted(row["id"] for row in record["failures"]) == sorted(reason) and f"CONTROL FIRED {name}" in record.get("fired", [])
+            elif witness == "native":
                 record = json.loads(output)
                 killed = code == 1 and record.get("status") == "FAIL" and record.get("id") == reason and f"CONTROL FIRED {name}" in record.get("fired", [])
             else:
@@ -161,6 +181,10 @@ def main():
     assert code == 0 and "0 failed" in output and "CONTROL FIRED " not in output, "INVALID RESTORED LIB BASELINE"
     code, output = observe("restored-native", binary, "native")
     assert code == 0 and "CONTROL FIRED " not in output, "INVALID RESTORED NATIVE BASELINE"
+    if os.name == "nt":
+        code, output = run("restored-ce02", [sys.executable, str(HERE / "path-resolution-ce02-probe.py"), "--binary", binary,
+            "--sandbox", str(logs / "restored-ce02-fixture")])
+        assert code == 0 and json.loads(output)["status"] == "MATCH" and "CONTROL FIRED " not in output, "INVALID RESTORED CE02 BASELINE"
     with safety.checked(logs / "summary.json", ROOT).open("w", encoding="utf-8") as stream:
         json.dump({"controls": results, "restored": "GREEN"}, stream, indent=2)
     print(json.dumps({"killed": sum(row["status"] == "KILLED" for row in results), "not_applicable": sum(row["status"] == "NOT_APPLICABLE" for row in results), "restored": "GREEN"}), flush=True)

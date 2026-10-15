@@ -92,7 +92,9 @@ async def test_exec005_rooted_spawn_cwd_uses_the_process_device(tmp_path: Path) 
     this process's own drive, where merged Python's M1 would spawn in `C:` instead."""
     drive = os.getcwd()[:2]
     if drive.upper() == "C:" or str(tmp_path)[:2].upper() != drive.upper():
-        raise AssertionError(f"PRECONDITION REFUSED: process cwd {drive} must be tmp_path's, not C:")
+        raise AssertionError(
+            f"PRECONDITION REFUSED: process cwd {drive} must be tmp_path's, not C:"
+        )
     rooted = str(tmp_path)[2:]
     assert rooted.startswith("\\") and not rooted.startswith("\\\\")
     sp = LocalSubprocess(cwd="C:\\never-used")

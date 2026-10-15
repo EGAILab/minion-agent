@@ -1588,8 +1588,8 @@ def test_path_resolution_schema_accepts_cwd_tail_for_ordinary_cwd(
 
 
 def test_path_resolution_corpus_shape() -> None:
-    """L12-D012: 23 win32 baseline + 32 win32 host-state + 25 linux baseline cases (record §§2, 3.2);
-    L12-D013 (record 12-l12-d013-rooted.md §5): 4 win32 complete-UNC baseline + 9 ordinary-cwd and
+    """L12-D012: 23 win32 baseline + 32 win32 host-state + 25 linux baseline cases (record
+    §§2, 3.2); L12-D013 (record 12-l12-d013-rooted.md §5): 4 win32 complete-UNC baseline + 9 ordinary-cwd and
     2 extended-cwd rooted host cases + 4 linux no-regression baseline cases."""
     cases = _path_resolution_document()["path_resolution"]["cases"]
     ids = [c["id"] for c in cases]

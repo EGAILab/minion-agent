@@ -103,7 +103,9 @@ def _resolve(case: dict[str, Any], monkeypatch: pytest.MonkeyPatch) -> str:
         raise AssertionError(f"inherited ={device} consulted for a rooted input")
 
     monkeypatch.setattr(filesystem, "_native_inherited_view", no_entry)
-    monkeypatch.setattr(filesystem, "_native_process_cwd_view", lambda: _synthetic_process_cwd(case))
+    monkeypatch.setattr(
+        filesystem, "_native_process_cwd_view", lambda: _synthetic_process_cwd(case)
+    )
     path = instantiate(case["input"], SYNTHETIC_CWD)
     return filesystem.resolve_local_path(text(case["provider_cwd"]), path)
 

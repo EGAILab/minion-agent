@@ -162,4 +162,6 @@ def run_host_case(case: dict[str, Any], sandbox: Path) -> tuple[str, str]:
         raise AssertionError(f"PRECONDITION REFUSED (cwd form): child observed {observed['cwd']!r}")
     # An ordinary child's reported cwd fills the templates, as before L12-D013; an extended child's
     # is the namespace spelling, so its templates come from the ordinary sandbox path.
-    return observed["value"], instantiate(case["expect"], observed["cwd"] if spelling == cwd else cwd)
+    return observed["value"], instantiate(
+        case["expect"], observed["cwd"] if spelling == cwd else cwd
+    )

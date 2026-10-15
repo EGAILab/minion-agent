@@ -166,16 +166,11 @@ def resolve_local_path(cwd: str, path: str) -> str:
             process_cwd=_native_process_cwd_view,
         )
     if os.path.isabs(normalized):
+        # `L12-PY-R002`'s bare-root trailing-separator fix-up is gone (L12-D013): on win32 a bare
+        # UNC root (`\\host\share`) now takes the `win32.resolve` port above, which emits that
+        # separator itself, and a bare drive (`C:`) is not absolute, so every win32 input reaching
+        # here is `X:\...` with a non-empty tail.
         resolved = os.path.normpath(normalized)
-        if os.name == "nt":
-            # `L12-PY-R002` (refined a third time): a bare drive letter (`C:`) or UNC share
-            # (`\\host\share`) root, with nothing past it, gets a trailing separator here --
-            # matching `path.win32.resolve`'s own root-canonicalization (live-verified:
-            # `resolve('C:')` -> `"C:\\"`, `resolve('\\\\a\\share')` -> `"\\\\a\\share\\"`),
-            # which `os.path.normpath` alone does not add.
-            drive, tail = os.path.splitdrive(resolved)
-            if drive and not tail:
-                resolved += os.sep
         return resolved if os.name == "nt" else node_posix_single_root(resolved)
     joined = os.path.normpath(os.path.join(cwd, normalized))
     return joined if os.name == "nt" else node_posix_single_root(joined)

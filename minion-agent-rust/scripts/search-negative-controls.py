@@ -51,8 +51,8 @@ CONTROLS = {
     "strip-bom": ("search_run.rs", "for ch in text.chars() {", "for ch in text.trim_start_matches('\\u{feff}').chars() {", "readline_handles_cr_and_utf8_chunks_without_stripping_bom"),
     "utf16-cut-off-by-one": ("search_text.rs", "units.truncate(500);", "units.truncate(501);", "surrogate_cut_and_empty_body_do_not_lossily_serialize"),
     "lossy-result": ("search_text.rs", "ResultString::from_code_units(text)", "ResultString::from(String::from_utf16_lossy(&text))", "surrogate_cut_and_empty_body_do_not_lossily_serialize"),
-    "case-sensitive-windows-relative": ("search_paths.rs", "super::search_node_lower::lower(left) == super::search_node_lower::lower(right)", "left == right", "windows_relative_is_case_insensitive_not_prefix_matching"),
-    "host-unicode-lowercase": ("search_node_lower.rs", "let points: Vec<u32>", "return String::from_utf16_lossy(units).to_lowercase().encode_utf16().collect(); #[allow(unreachable_code)] let points: Vec<u32>", "node_unicode16_lowercase_is_not_host_unicode17"),
+    "case-sensitive-windows-relative": ("search_paths.rs", "crate::execution::node_lower::lower(left) == crate::execution::node_lower::lower(right)", "left == right", "windows_relative_is_case_insensitive_not_prefix_matching"),
+    "host-unicode-lowercase": ("node_lower.rs", "let points: Vec<u32>", "return String::from_utf16_lossy(units).to_lowercase().encode_utf16().collect(); #[allow(unreachable_code)] let points: Vec<u32>", "node_unicode16_lowercase_is_not_host_unicode17"),
     "sort-find-output": ("find.rs", "Ok(search_text::finish(", "let mut entries=entries; entries.sort(); Ok(search_text::finish(", "find_stream_order_duplicates_and_untrimmed_empty_decision"),
     "deduplicate-find-output": ("find.rs", "Ok(search_text::finish(", "let mut entries=entries; entries.dedup(); Ok(search_text::finish(", "find_stream_order_duplicates_and_untrimmed_empty_decision"),
     "trim-before-empty-decision": ("find.rs", 'if lines.join("\\n").is_empty() {', 'if js_trim(&lines.join("\\n")).is_empty() {', "find_stream_order_duplicates_and_untrimmed_empty_decision"),
@@ -79,7 +79,11 @@ def main():
         (root / oracle).parent.mkdir(parents=True)
         shutil.copyfile(workspace.parent / oracle, root / oracle)
         source = scratch / "crates/minion-agent/src/tools/builtin"
-        originals = {file: (source / file).read_text(encoding="utf-8") for file, *_ in CONTROLS.values()}
+        def source_path(file):
+            if file == "node_lower.rs":
+                return scratch / "crates/minion-agent/src/execution/node_lower.rs"
+            return source / file
+        originals = {file: source_path(file).read_text(encoding="utf-8") for file, *_ in CONTROLS.values()}
         results = []
         for name in selected:
             windows_only = {"following-windows-git-probe", "adjacent-recursive-not-collapsed", "empty-alternative-zero-form", "lex-original-pattern"}
@@ -87,11 +91,11 @@ def main():
                 print(json.dumps({"control":name,"not_applicable":"platform-specific production branch"}),flush=True)
                 continue
             for file, original in originals.items():
-                (source / file).write_text(original, encoding="utf-8", newline="\n")
+                source_path(file).write_text(original, encoding="utf-8", newline="\n")
             file, old, new, witness = CONTROLS[name]
             if old not in originals[file]:
                 raise SystemExit(f"MISSING_ANCHOR: {name}: {old!r}")
-            (source / file).write_text(originals[file].replace(old,new),encoding="utf-8",newline="\n")
+            source_path(file).write_text(originals[file].replace(old,new),encoding="utf-8",newline="\n")
             canonical = witness.startswith("canonical:")
             target = ["--test","builtin_search_conformance"] if canonical else ["--lib"]
             build = subprocess.run(["cargo","test","--locked","--offline","-p","minion-agent","--all-features",*target,"--no-run","--message-format=json"],cwd=scratch,text=True,encoding="utf-8",errors="replace",capture_output=True)

@@ -85,7 +85,7 @@ fn same_component(left: &[u16], right: &[u16], platform: Platform) -> bool {
     if platform == Platform::Posix {
         return left == right;
     }
-    super::search_node_lower::lower(left) == super::search_node_lower::lower(right)
+    crate::execution::node_lower::lower(left) == crate::execution::node_lower::lower(right)
 }
 pub(super) fn relative_logical(base: &FsPath, path: &str, platform: Platform) -> String {
     let left = components(base.code_units(), platform);

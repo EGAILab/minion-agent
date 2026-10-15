@@ -41,7 +41,7 @@ async fn actual_provider_handle_failures_are_unknown_before_eof_and_keep_the_log
         handle_operations: operations.clone(),
         ..LocalFileSystem::new(fixture.path())
     };
-    let logical = fs.resolved(&path);
+    let logical = fs.resolved(&path).unwrap();
     for result in [
         fs.read_text_file(&path, None).await.map(|_| ()),
         fs.read_text_lines(&path, None, None).await.map(|_| ()),

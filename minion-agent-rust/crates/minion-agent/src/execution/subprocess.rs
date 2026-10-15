@@ -137,10 +137,10 @@ impl LocalSubprocess {
         self
     }
 
-    fn resolved_cwd(&self, cwd: Option<&Path>) -> PathBuf {
+    fn resolved_cwd(&self, cwd: Option<&Path>) -> std::io::Result<PathBuf> {
         match cwd {
             Some(cwd) => resolve_local_path(&self.cwd, &cwd.to_string_lossy()),
-            None => self.cwd.clone(),
+            None => Ok(self.cwd.clone()),
         }
     }
 }
@@ -186,7 +186,10 @@ impl Subprocess for LocalSubprocess {
         };
         let mut command = Command::new(program);
         command.args(&argv[1..]);
-        command.current_dir(self.resolved_cwd(options.cwd.as_deref()));
+        command.current_dir(
+            self.resolved_cwd(options.cwd.as_deref())
+                .map_err(map_spawn_error)?,
+        );
         if !options.inherit_env {
             command.env_clear();
         } else {

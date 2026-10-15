@@ -1,7 +1,9 @@
 mod environment;
 mod error;
 mod filesystem;
+pub(crate) mod node_lower;
 pub(crate) mod path;
+mod path_resolve;
 mod service;
 mod shell;
 mod signal;

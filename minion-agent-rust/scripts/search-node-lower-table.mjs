@@ -1,4 +1,4 @@
-// Reproduce search_node_lower.json with pinned Node; stdout is the artifact.
+// Reproduce src/execution/node_lower.json with pinned Node; stdout is the artifact.
 if (process.version !== 'v22.15.1' || process.versions.unicode !== '16.0') {
   throw new Error(`Wrong authority runtime: ${process.version}/${process.versions.unicode}`);
 }

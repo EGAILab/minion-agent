@@ -1,10 +1,9 @@
 use std::{
-    collections::VecDeque,
     env,
     fmt::Debug,
     future::Future,
     io,
-    path::{Component, Path, PathBuf},
+    path::{Path, PathBuf},
     sync::Arc,
     time::UNIX_EPOCH,
 };
@@ -14,6 +13,9 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use uuid::Uuid;
+
+#[cfg(test)]
+use std::path::Component;
 
 use super::path::{basename, from_native, join, native, resolve};
 use super::{AbortSignal, ExecutionWorldIdentity, FsError, FsErrorCode, FsPath};
@@ -332,8 +334,8 @@ impl LocalFileSystem {
         }
     }
 
-    fn resolved(&self, raw: &FsPath) -> FsPath {
-        resolve(&self.cwd, raw)
+    fn resolved(&self, raw: &FsPath) -> Result<FsPath, FsError> {
+        resolve(&self.cwd, raw).map_err(map_fs_error)
     }
 
     fn aborted(signal: Option<&dyn AbortSignal>, logical: &FsPath) -> Result<(), FsError> {
@@ -392,7 +394,7 @@ impl FileSystem for LocalFileSystem {
         path: &FsPath,
         _signal: Option<&dyn AbortSignal>,
     ) -> Result<FsPath, FsError> {
-        Ok(self.resolved(path))
+        self.resolved(path)
     }
     async fn join_path(
         &self,
@@ -415,7 +417,7 @@ impl FileSystem for LocalFileSystem {
         max_lines: Option<isize>,
         signal: Option<&dyn AbortSignal>,
     ) -> Result<Vec<String>, FsError> {
-        let logical = self.resolved(path);
+        let logical = self.resolved(path)?;
         Self::aborted(signal, &logical)?;
         if max_lines.is_some_and(|limit| limit <= 0) {
             return Ok(Vec::new());
@@ -459,7 +461,7 @@ impl FileSystem for LocalFileSystem {
         path: &FsPath,
         signal: Option<&dyn AbortSignal>,
     ) -> Result<Vec<u8>, FsError> {
-        let logical = self.resolved(path);
+        let logical = self.resolved(path)?;
         Self::aborted(signal, &logical)?;
         let os = native(&logical);
         let mut file = open_pi_file(&os, false, false)
@@ -482,7 +484,7 @@ impl FileSystem for LocalFileSystem {
         content: &[u8],
         signal: Option<&dyn AbortSignal>,
     ) -> Result<(), FsError> {
-        let logical = self.resolved(path);
+        let logical = self.resolved(path)?;
         Self::aborted(signal, &logical)?;
         let os = native(&logical);
         if let Some(parent) = os.parent() {
@@ -509,7 +511,7 @@ impl FileSystem for LocalFileSystem {
         content: &[u8],
         _signal: Option<&dyn AbortSignal>,
     ) -> Result<(), FsError> {
-        let logical = self.resolved(path);
+        let logical = self.resolved(path)?;
         let os = native(&logical);
         if let Some(parent) = os.parent() {
             node_mkdirp(parent)
@@ -530,9 +532,9 @@ impl FileSystem for LocalFileSystem {
         destination: &FsPath,
         signal: Option<&dyn AbortSignal>,
     ) -> Result<(), FsError> {
-        let logical = self.resolved(source);
+        let logical = self.resolved(source)?;
         // Pi's pre-call abort uses the destination; caught OS errors use source.
-        let logical_destination = self.resolved(destination);
+        let logical_destination = self.resolved(destination)?;
         Self::aborted(signal, &logical_destination)?;
         let source = native(&logical);
         let destination = native(&logical_destination);
@@ -566,14 +568,14 @@ impl FileSystem for LocalFileSystem {
         path: &FsPath,
         _signal: Option<&dyn AbortSignal>,
     ) -> Result<FileInfo, FsError> {
-        self.info_for(&self.resolved(path)).await
+        self.info_for(&self.resolved(path)?).await
     }
     async fn list_dir(
         &self,
         path: &FsPath,
         signal: Option<&dyn AbortSignal>,
     ) -> Result<Vec<FileInfo>, FsError> {
-        let logical = self.resolved(path);
+        let logical = self.resolved(path)?;
         Self::aborted(signal, &logical)?;
         let os = native(&logical);
         let names = self
@@ -594,7 +596,7 @@ impl FileSystem for LocalFileSystem {
         path: &FsPath,
         signal: Option<&dyn AbortSignal>,
     ) -> Result<Vec<String>, FsError> {
-        let logical = self.resolved(path);
+        let logical = self.resolved(path)?;
         Self::aborted(signal, &logical)?;
         let os = native(&logical);
         self.directory_probe_operations
@@ -607,7 +609,7 @@ impl FileSystem for LocalFileSystem {
         path: &FsPath,
         _signal: Option<&dyn AbortSignal>,
     ) -> Result<DirEntryProbe, FsError> {
-        let logical = self.resolved(path);
+        let logical = self.resolved(path)?;
         let os = native(&logical);
         let addressed = self
             .directory_probe_operations
@@ -646,7 +648,7 @@ impl FileSystem for LocalFileSystem {
         path: &FsPath,
         _signal: Option<&dyn AbortSignal>,
     ) -> Result<(), FsError> {
-        let logical = self.resolved(path);
+        let logical = self.resolved(path)?;
         let os = native(&logical);
         let worker_path = os.clone();
         tokio::task::spawn_blocking(move || check_local_readable(&worker_path))
@@ -659,7 +661,7 @@ impl FileSystem for LocalFileSystem {
         path: &FsPath,
         _signal: Option<&dyn AbortSignal>,
     ) -> Result<(), FsError> {
-        let logical = self.resolved(path);
+        let logical = self.resolved(path)?;
         let os = native(&logical);
         let worker_path = os.clone();
         tokio::task::spawn_blocking(move || check_local_read_write(&worker_path))
@@ -672,7 +674,7 @@ impl FileSystem for LocalFileSystem {
         path: &FsPath,
         _signal: Option<&dyn AbortSignal>,
     ) -> Result<FsPath, FsError> {
-        let logical = self.resolved(path);
+        let logical = self.resolved(path)?;
         // Node realpath validates the whole resolved argument before any walk.
         // This is not an operation-wide preflight for the other filesystem calls.
         if logical.code_units().contains(&0) {
@@ -692,7 +694,7 @@ impl FileSystem for LocalFileSystem {
         path: &FsPath,
         _signal: Option<&dyn AbortSignal>,
     ) -> Result<bool, FsError> {
-        match self.info_for(&self.resolved(path)).await {
+        match <Self as FileSystem>::file_info(self, path, None).await {
             Ok(_) => Ok(true),
             Err(e) if e.code == FsErrorCode::NotFound => Ok(false),
             Err(e) => Err(e),
@@ -704,7 +706,7 @@ impl FileSystem for LocalFileSystem {
         recursive: bool,
         _signal: Option<&dyn AbortSignal>,
     ) -> Result<(), FsError> {
-        let logical = self.resolved(path);
+        let logical = self.resolved(path)?;
         let os = native(&logical);
         if recursive {
             node_mkdirp(&os)
@@ -723,7 +725,7 @@ impl FileSystem for LocalFileSystem {
         force: bool,
         _signal: Option<&dyn AbortSignal>,
     ) -> Result<(), FsError> {
-        let logical = self.resolved(path);
+        let logical = self.resolved(path)?;
         rimraf::remove(
             &native(&logical),
             recursive,
@@ -771,7 +773,7 @@ impl FileSystem for LocalFileSystem {
         path: &FsPath,
         signal: Option<&dyn AbortSignal>,
     ) -> Result<FsTarget, FsError> {
-        let absolute = self.resolved(path);
+        let absolute = self.resolved(path)?;
         let key = match <Self as FileSystem>::canonical_path(self, path, signal).await {
             Ok(canonical) => canonical,
             Err(e) if matches!(e.code, FsErrorCode::NotFound | FsErrorCode::NotSupported) => {
@@ -1107,30 +1109,8 @@ fn remove_addressed(
     ))
 }
 
-pub(crate) fn resolve_local_path(cwd: &Path, raw: &str) -> PathBuf {
-    let expanded = expand_path(raw);
-    let path = if expanded.is_absolute() {
-        expanded
-    } else {
-        cwd.join(expanded)
-    };
-    lexical_normalize(&path)
-}
-
-fn expand_path(raw: &str) -> PathBuf {
-    if raw.starts_with("file://")
-        && let Some(path) = file_url_to_path(raw, cfg!(windows))
-    {
-        return PathBuf::from(path);
-    }
-    if raw == "~" || raw.starts_with("~/") || raw.starts_with("~\\") {
-        let home = env::var_os("HOME").or_else(|| env::var_os("USERPROFILE"));
-        if let Some(home) = home {
-            let rest = raw.strip_prefix('~').unwrap_or(raw);
-            return PathBuf::from(home).join(rest.trim_start_matches(['/', '\\']));
-        }
-    }
-    PathBuf::from(raw)
+pub(crate) fn resolve_local_path(cwd: &Path, raw: &str) -> io::Result<PathBuf> {
+    resolve(cwd, &raw.into()).map(|logical| native(&logical))
 }
 
 /// Strict form of the already-certified file URL conversion, exposed for callers that must
@@ -1215,36 +1195,6 @@ fn hex_value(value: u8) -> Option<u8> {
     }
 }
 
-fn lexical_normalize(path: &Path) -> PathBuf {
-    let mut prefix = None;
-    let mut root = false;
-    let mut parts = VecDeque::new();
-    for component in path.components() {
-        match component {
-            Component::Prefix(value) => prefix = Some(value.as_os_str().to_owned()),
-            Component::RootDir => root = true,
-            Component::CurDir => {}
-            Component::ParentDir => {
-                if parts.back().is_some_and(|part| part != "..") {
-                    parts.pop_back();
-                } else if !root {
-                    parts.push_back("..".into());
-                }
-            }
-            Component::Normal(value) => parts.push_back(value.to_owned()),
-        }
-    }
-    let mut result = PathBuf::new();
-    if let Some(prefix) = prefix {
-        result.push(prefix);
-    }
-    if root {
-        result.push(Path::new(std::path::MAIN_SEPARATOR_STR));
-    }
-    result.extend(parts);
-    result
-}
-
 fn map_fs_error(error: io::Error) -> FsError {
     #[cfg(windows)]
     if let Some(raw) = error.raw_os_error() {
@@ -1259,6 +1209,24 @@ fn map_fs_error(error: io::Error) -> FsError {
         _ => FsErrorCode::Unknown,
     };
     FsError::new(code, error.to_string())
+}
+
+#[cfg(test)]
+#[test]
+fn resolution_read_failure_uses_fs_domain_without_an_addressed_path() {
+    let error = map_fs_error(io::Error::from_raw_os_error(2));
+    assert_eq!(error.code, FsErrorCode::NotFound);
+    assert!(
+        error.path.is_none(),
+        "a failed native cwd read has no resolved target"
+    );
+    let error = map_fs_error(io::Error::new(
+        io::ErrorKind::PermissionDenied,
+        "native cwd denied",
+    ));
+    assert_eq!(error.code, FsErrorCode::PermissionDenied);
+    assert_eq!(error.message, "native cwd denied");
+    assert!(error.path.is_none());
 }
 
 /// Projection of the complete libuv 1.49.2 uv_translate_sys_error table through

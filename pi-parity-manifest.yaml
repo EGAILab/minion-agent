@@ -6376,6 +6376,13 @@ rows:
     replay scripts/path-resolution-ce02-probe.py. Cross-language CLOSED for
     L12-D012; win32 rooted drive-less input (#235 L12-D013) and the home source (#236 L12-D014) are tracked
     separately. Certification history preserved.'
+  - 'fs_path_resolution_rooted_and_unc_root -- L12-D013 (minion-agent#235; WORKFLOW 11.8.11(c); section 3.2 rooted
+    and UNC-root statement; CONTRACT_DRAFT): conformance/agent/path-resolution/path-resolution.json win32/baseline/
+    rooted-*, win32/host/rooted/*, win32/host/rooted-extended/* and linux/baseline/rooted-* (19 cases generated from
+    pinned Pi resolvePath on native Node v22.15.1): a device-less rooted or incomplete-UNC input takes the PROCESS
+    cwd''s device (ordinary or extended child cwd; host cases in crafted children with verified cwd form), a complete
+    UNC root keeps its own device with a collapsed separator run. REVALIDATE_REQUIRED: Python on win32
+    (L12D013-F001); Rust (revalidation against the merged cases). Cross-language NOT CLOSED.'
   - 'fs_path_javascript_string_domain -- L12-D001 (minion-agent#123; Owner decision FSP-Q001 Option 1; intentional
     divergence NONE; CONTRACT_DRAFT, Rust NOT_IMPLEMENTED): ctx.fs paths are JavaScript strings; the local provider
     projects unpaired surrogates to U+FFFD ONLY at the OS call (pinned Node), so canonical_path / listings / OS error
@@ -6898,6 +6905,9 @@ rows:
     merged). Python on win32 (L12D012-F002): APPROVED AND MERGED (code #232 -> 8bb165e5, docs #306 -> b2e8148c).
     Rust (L12D012-F001): APPROVED AND MERGED (code #234 -> 83a78655, docs #308 -> 3cfb7998). Cross-language CLOSED
     for L12-D012.'
+  - 'fs_path_resolution_rooted_and_unc_root -- L12-D013 (minion-agent#235): the effective spawn cwd uses the same
+    section 3.2 rooted/UNC-root rule (CONTRACT_DRAFT); an EXEC-005 consumer witness is required of each binding.
+    REVALIDATE_REQUIRED: Python on win32 (L12D013-F001); Rust. Cross-language NOT CLOSED.'
   - minion-agent-rust/crates/minion-agent/tests/execution_process.rs
   - minion-agent-python/tests/execution/test_subprocess.py
   python: 'minion-agent-python/src/minion_agent/execution/subprocess.py; integration evidence in

@@ -4,23 +4,26 @@ use std::sync::atomic::AtomicUsize;
 
 #[cfg(windows)]
 #[test]
-fn existing_cwd_normalizer_colon_component_characterization() {
-    // Pure computation through the certified resolver; no native operation.
+fn merged_d012_cwd_literal_fallback_retains_components() {
+    // Pure computation through the merged D012 resolver; no native operation.
     for tail in ["file:///C:/a%2Fb", "file:///C:/a%2Fb\0"] {
-        let actual = super::super::path::resolve(Path::new("C:\\x"), &tail.into());
-        println!(
-            "legacy cwd resolution: {:?}",
-            super::super::filesystem::resolve_local_path(Path::new("C:\\x"), tail)
-        );
-        let expected_bad = if tail.ends_with('\0') {
-            "C:\\x\\file:C:a%2Fb\0"
+        let actual =
+            super::super::path::resolve(Path::new("C:\\x"), &tail.into()).expect("pure resolver");
+        let expected = if tail.ends_with('\0') {
+            "C:\\x\\file:\\C:\\a%2Fb\0"
         } else {
-            "C:\\x\\file:C:a%2Fb"
+            "C:\\x\\file:\\C:\\a%2Fb"
         };
         assert_eq!(
             actual.as_str(),
-            Some(expected_bad),
-            "unchanged-normalizer-characterization"
+            Some(expected),
+            "merged-d012-literal-fallback"
+        );
+        assert_eq!(
+            super::super::filesystem::resolve_local_path(Path::new("C:\\x"), tail)
+                .expect("native-path transport"),
+            PathBuf::from(expected),
+            "merged-d012-native-literal-fallback"
         );
     }
 }

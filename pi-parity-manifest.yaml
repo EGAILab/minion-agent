@@ -6368,8 +6368,14 @@ rows:
     is Node''s section 15 view of the native per-drive entry, else of the process cwd, indexed by UTF-16 code units;
     witnesses tests/execution/test_path_resolution_port.py, tests/execution/test_path_resolution_selected_value.py,
     tests/conformance/test_path_resolution_conformance.py. Linux configured coverage/mypy limitation base-equal and
-    disclosed, not waived. Rust (L12D012-F001): REVALIDATE_REQUIRED. Cross-language NOT CLOSED; certification
-    history preserved.'
+    disclosed, not waived. Rust (L12D012-F001): APPROVED AND MERGED (final complete review issuecomment-6187144794 at
+    code #234 666e7365 / docs #308 8183e103, merged -> 83a78655 / 3cfb7998; RUST-I001 closed; convergence episode
+    CE-L12D012-02): Node-literal UTF-16 resolver; native cwd = libuv uv_cwd single final-separator trim then the
+    section 15 view, inherited entry = view only; witnesses minion-agent-rust/crates/minion-agent/src/execution/
+    path_resolve.rs and path.rs (unit tests), crates/minion-agent/tests/data/node_native_operand.json, native
+    replay scripts/path-resolution-ce02-probe.py. Cross-language CLOSED for
+    L12-D012; win32 rooted drive-less input (#235 L12-D013) and the home source (#236 L12-D014) are tracked
+    separately. Certification history preserved.'
   - 'fs_path_javascript_string_domain -- L12-D001 (minion-agent#123; Owner decision FSP-Q001 Option 1; intentional
     divergence NONE; CONTRACT_DRAFT, Rust NOT_IMPLEMENTED): ctx.fs paths are JavaScript strings; the local provider
     projects unpaired surrogates to U+FFFD ONLY at the OS call (pinned Node), so canonical_path / listings / OS error
@@ -6890,7 +6896,8 @@ rows:
   - 'fs_path_resolution_colon_and_drive_relative -- L12-D012 (minion-agent#229): the spawn cwd uses the same section 3.2
     resolver as ctx.fs.absolute_path; conformance/agent/path-resolution/path-resolution.json (contract approved and
     merged). Python on win32 (L12D012-F002): APPROVED AND MERGED (code #232 -> 8bb165e5, docs #306 -> b2e8148c).
-    Rust (L12D012-F001): REVALIDATE_REQUIRED. Cross-language NOT CLOSED.'
+    Rust (L12D012-F001): APPROVED AND MERGED (code #234 -> 83a78655, docs #308 -> 3cfb7998). Cross-language CLOSED
+    for L12-D012.'
   - minion-agent-rust/crates/minion-agent/tests/execution_process.rs
   - minion-agent-python/tests/execution/test_subprocess.py
   python: 'minion-agent-python/src/minion_agent/execution/subprocess.py; integration evidence in

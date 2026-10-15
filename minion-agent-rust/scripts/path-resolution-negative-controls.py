@@ -72,7 +72,7 @@ def controls():
         # The original 15 run first. CE02 controls change exactly one boundary.
         ("CE02-C1", EXEC + "path.rs", "native_view(&FsPath::from_code_units(units[..end].to_vec()))",
          "{ FIRE native_view(&without_extended_prefix(FsPath::from_code_units(units[..end].to_vec()))) }",
-         "ce02/prefix", ["extended/absent/cwd_view", "extended/absent/absolute_path/0", "extended/absent/logical/0", "extended/absent/absolute_path/1", "extended/absent/logical/1"], True),
+         "ce02/prefix", ["extended/absent/cwd_view", "extended/absent/absolute_path/0", "extended/absent/logical/0", "extended/absent/absolute_path/1", "extended/absent/logical/1", "extended/absent/absolute_path/4", "extended/absent/logical/4"], True),
         ("CE02-C2", EXEC + "path.rs", "let end = if units.last() == Some(&separator) && !keep_root {",
          "let end = if { FIRE let _ = (separator, keep_root); false } {",
          "ce02/roots" if os.name == "nt" else PATHS + "native_cwd_posix_boundary",

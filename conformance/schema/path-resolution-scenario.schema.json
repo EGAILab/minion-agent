@@ -34,6 +34,7 @@
   },
   "template": {"type": "object", "required": ["parts"], "additionalProperties": false, "properties": {"parts": {"type": "array", "items": {"$ref": "#/$defs/part"}}}},
   "text_or_template": {"oneOf": [{"$ref": "#/$defs/text"}, {"$ref": "#/$defs/template"}]},
+  "no_cwd_tail": {"$comment": "L12-D013: an extended-cwd case uses no cwd_tail part, in input or in expect.", "not": {"type": "object", "required": ["parts"], "properties": {"parts": {"contains": {"type": "object", "required": ["cwd_tail"]}}}}},
   "drive_letter": {"type": "string", "pattern": "^[A-Z]$"},
   "preconditions": {
    "$comment": "Verified at runner entry; a run whose host state does not satisfy them REFUSES (fails closed) -- never rewrites the expectation.",
@@ -74,7 +75,7 @@
     {"if": {"properties": {"host": {"type": "null"}}}, "then": {"properties": {"input": {"$ref": "#/$defs/text"}, "expect": {"$ref": "#/$defs/text"}}}},
     {"if": {"properties": {"host": {"type": "object"}}}, "then": {"properties": {"platform": {"const": "win32"}}}},
     {"if": {"properties": {"host": {"type": "object", "required": ["cwd_form"], "properties": {"cwd_form": {"const": "extended"}}}}},
-     "then": {"properties": {"expect": {"not": {"type": "object", "required": ["parts"], "properties": {"parts": {"contains": {"type": "object", "required": ["cwd_tail"]}}}}}}}}
+     "then": {"properties": {"input": {"$ref": "#/$defs/no_cwd_tail"}, "expect": {"$ref": "#/$defs/no_cwd_tail"}}}}
    ]
   }
  }

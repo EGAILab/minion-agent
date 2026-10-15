@@ -14,7 +14,7 @@
   "linux",
   "win32"
  ],
- "notes": "spec/execution.md section 3.2 (DIRECT_PI_PARITY), unchanged; record 12-l12-d012-path-colon.md. Lexical ctx.fs.absolute_path only: never create, write or use as a cwd any of these paths. baseline cases run in-process under VERIFIED preconditions (absent per-drive entries, process cwd drive) and REFUSE otherwise; host cases run the real resolver seam in a CHILD process whose environment block carries exactly the case's per-drive entry (and no other '='-prefixed entry) and whose cwd is a contained sandbox directory; cwd_drive / cwd_tail parts are filled from that child cwd. L12-D013 (record 12-l12-d013-rooted.md): host cases may name cwd_form; 'extended' runs the child with cwd \\\\?\\ + the ordinary sandbox path, and every template part is filled from the ORDINARY sandbox path.",
+ "notes": "spec/execution.md section 3.2 (DIRECT_PI_PARITY), as amended by L12-D013; record 12-l12-d012-path-colon.md. Lexical ctx.fs.absolute_path only: never create, write or use as a cwd any of these paths. baseline cases run in-process under VERIFIED preconditions (absent per-drive entries, process cwd drive) and REFUSE otherwise; host cases run the real resolver seam in a CHILD process whose environment block carries exactly the case's per-drive entry (and no other '='-prefixed entry) and whose cwd is a contained sandbox directory; cwd_drive / cwd_tail parts are filled from that child cwd. L12-D013 (record 12-l12-d013-rooted.md): host cases may name cwd_form; 'extended' runs the child with cwd \\\\?\\ + the ordinary sandbox path, and every template part is filled from the ORDINARY sandbox path.",
  "path_resolution": {
   "cases": [
    {

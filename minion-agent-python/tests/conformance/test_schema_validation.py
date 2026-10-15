@@ -1556,8 +1556,12 @@ def _first(document: dict[str, Any], prefix: str) -> dict[str, Any]:
             "entry", {"parts": []}
         ),
         lambda d: _first(d, "win32/host/rooted-extended/")["host"].__setitem__("drive", "A"),
+        # An extended case uses no cwd_tail part, in expect or in input (contract review 2, C001).
         lambda d: _first(d, "win32/host/rooted-extended/")["expect"]["parts"].append(
             {"cwd_tail": True}
+        ),
+        lambda d: _first(d, "win32/host/rooted-extended/").__setitem__(
+            "input", {"parts": [{"cwd_tail": True}]}
         ),
     ],
 )
@@ -1565,6 +1569,22 @@ def test_path_resolution_schema_rejects_malformed_documents(mutation: Any) -> No
     document = _path_resolution_document()
     mutation(document)
     assert list(_path_resolution_validator().iter_errors(document))
+
+
+@pytest.mark.parametrize("cwd_form", ["ordinary", None])
+@pytest.mark.parametrize("field", ["input", "expect"])
+def test_path_resolution_schema_accepts_cwd_tail_for_ordinary_cwd(
+    field: str, cwd_form: str | None
+) -> None:
+    """L12-D013 C001 positive: the cwd_tail restriction applies only to the extended cwd form."""
+    document = _path_resolution_document()
+    case = _first(document, "win32/host/rooted/")
+    if cwd_form is None:
+        del case["host"]["cwd_form"]
+    else:
+        case["host"]["cwd_form"] = cwd_form
+    case[field] = {"parts": [{"cwd_tail": True}]}
+    assert not list(_path_resolution_validator().iter_errors(document))
 
 
 def test_path_resolution_corpus_shape() -> None:

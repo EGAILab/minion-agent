@@ -6541,16 +6541,20 @@ rows:
     before its access catch (376), every filesystem operation resolves first: a failed native read throws and
     the operation rejects, contrary to the interface rule types.ts:228-229'
   surface: Layer 12, L12-D013 amendment -- a failed native process-cwd read during path resolution (EXEC-002
-    ctx.fs; traceability EXEC-004 ctx.shell.exec, EXEC-005 ctx.subprocess.spawn)
+    ctx.fs; traceability EXEC-003 resolve, EXEC-004 ctx.shell.exec, EXEC-005 ctx.subprocess.spawn)
   rule: 'DIV-009 (assurance/pi-divergences.md; Owner decision minion-agent#235 issuecomment-6205758223;
     provenance L12D013-PY-I001). spec/execution.md section 22 with sections 2 and 3.2 as corrected: the read
     stays where and when the certified resolver makes it (lazy; win32 rooted/incomplete-UNC and L12-D012
     drive-relative with an absent or empty inherited entry; POSIX only when no argument is absolute). When it
     fails with an operational OS error: ctx.fs returns FsError classified from the ORIGINAL native error by the
-    existing mapper, with its own diagnostic and path = the caller''s logical argument as passed (rename_file:
-    source before destination); ctx.shell.exec returns ShellError spawn_error; ctx.subprocess.spawn returns
-    SubprocessError spawn_error with no process created. Existing precedence kept; no retry, fallback or
-    substitution; only that read''s operational failure is converted.'
+    existing mapper, with its own diagnostic and path = the caller''s logical argument as passed;
+    ctx.shell.exec returns ShellError spawn_error; ctx.subprocess.spawn returns SubprocessError spawn_error with
+    no process created. Existing precedence kept; no retry, fallback or substitution; only that read''s
+    operational failure is converted. Derived operations propagate it unchanged: exists returns the error (never
+    Ok(False)), resolve (EXEC-003) makes no absolute_path fallback after it, the NUL error path performs no
+    further read. rename_file order in every binding, by the Owner amendment (issuecomment-6206113367): source,
+    destination, abort, rename; Python aligned. Read domain and outcomes: CE-L12D013-01
+    (minion-agent-docs assurance/layers/12-l12-d013-convergence-ce01.md).'
   tests:
   - 'PENDING (contract amendment under independent review): the Owner-required permanent witnesses and
     negative controls of DIV-009 (pinned-Pi-versus-Minion rows, injected native-read failures through the real

@@ -17,7 +17,9 @@ use uuid::Uuid;
 #[cfg(test)]
 use std::path::Component;
 
-use super::path::{basename, from_native, join, native, resolve};
+#[cfg(test)]
+use super::path::resolve;
+use super::path::{basename, from_native, join, native};
 use super::{AbortSignal, ExecutionWorldIdentity, FsError, FsErrorCode, FsPath};
 
 #[cfg(test)]
@@ -25,7 +27,10 @@ mod readonly_tests;
 mod rimraf;
 
 #[async_trait]
-trait HandleOperations: Debug + Send + Sync {
+pub(super) trait HandleOperations: Debug + Send + Sync {
+    async fn rename(&self, source: &Path, destination: &Path) -> io::Result<()> {
+        tokio::fs::rename(source, destination).await
+    }
     async fn read_end(&self, file: &mut tokio::fs::File, bytes: &mut Vec<u8>) -> io::Result<usize> {
         file.read_to_end(bytes).await
     }
@@ -315,7 +320,8 @@ pub struct LocalFileSystem {
     world: ExecutionWorldIdentity,
     directory_probe_operations: Arc<dyn DirectoryProbeOperations>,
     remove_operations: Arc<dyn rimraf::Operations>,
-    handle_operations: Arc<dyn HandleOperations>,
+    pub(super) handle_operations: Arc<dyn HandleOperations>,
+    pub(super) native_inputs: Arc<dyn super::path::NativeInputs>,
 }
 
 impl LocalFileSystem {
@@ -331,11 +337,16 @@ impl LocalFileSystem {
             directory_probe_operations: Arc::new(TokioDirectoryProbeOperations),
             remove_operations: Arc::new(rimraf::NativeOperations),
             handle_operations: Arc::new(NativeHandleOperations),
+            native_inputs: Arc::new(super::path::ProcessInputs),
         }
     }
 
     fn resolved(&self, raw: &FsPath) -> Result<FsPath, FsError> {
-        resolve(&self.cwd, raw).map_err(map_fs_error)
+        super::path::resolve_with_inputs(&self.cwd, raw, self.native_inputs.as_ref()).map_err(|e| {
+            let mut error = map_fs_error(e).with_path(raw);
+            error.process_cwd_read = true;
+            error
+        })
     }
 
     fn aborted(signal: Option<&dyn AbortSignal>, logical: &FsPath) -> Result<(), FsError> {
@@ -536,29 +547,36 @@ impl FileSystem for LocalFileSystem {
         // Pi's pre-call abort uses the destination; caught OS errors use source.
         let logical_destination = self.resolved(destination)?;
         Self::aborted(signal, &logical_destination)?;
-        let source = native(&logical);
-        let destination = native(&logical_destination);
-        match tokio::fs::rename(&source, &destination).await {
+        let native_source = native(&logical);
+        let native_destination = native(&logical_destination);
+        match self
+            .handle_operations
+            .rename(&native_source, &native_destination)
+            .await
+        {
             Ok(()) => Ok(()),
             #[cfg(windows)]
             Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
-                remove_addressed(&destination, true, true)
+                remove_addressed(&native_destination, true, true)
                     .await
-                    .map_err(|e| e.with_path(from_native(&source)))?;
-                tokio::fs::rename(&source, &destination)
+                    .map_err(|e| e.with_path(from_native(&native_source)))?;
+                self.handle_operations
+                    .rename(&native_source, &native_destination)
                     .await
-                    .map_err(|e| native_error(e, &source))
+                    .map_err(|e| native_error(e, &native_source))
             }
             Err(error) => {
-                if nul_binding_error(&error, &source) || nul_binding_error(&error, &destination) {
-                    let rejected = if nul_binding_error(&error, &source) {
-                        &source
+                if nul_binding_error(&error, &native_source)
+                    || nul_binding_error(&error, &native_destination)
+                {
+                    let rejected = if nul_binding_error(&error, &native_source) {
+                        &native_source
                     } else {
-                        &destination
+                        &native_destination
                     };
                     Err(map_path_error(error, rejected).with_path(&logical))
                 } else {
-                    Err(native_error(error, &source))
+                    Err(native_error(error, &native_source))
                 }
             }
         }
@@ -696,7 +714,7 @@ impl FileSystem for LocalFileSystem {
     ) -> Result<bool, FsError> {
         match <Self as FileSystem>::file_info(self, path, None).await {
             Ok(_) => Ok(true),
-            Err(e) if e.code == FsErrorCode::NotFound => Ok(false),
+            Err(e) if e.code == FsErrorCode::NotFound && !e.process_cwd_read => Ok(false),
             Err(e) => Err(e),
         }
     }
@@ -776,7 +794,10 @@ impl FileSystem for LocalFileSystem {
         let absolute = self.resolved(path)?;
         let key = match <Self as FileSystem>::canonical_path(self, path, signal).await {
             Ok(canonical) => canonical,
-            Err(e) if matches!(e.code, FsErrorCode::NotFound | FsErrorCode::NotSupported) => {
+            Err(e)
+                if !e.process_cwd_read
+                    && matches!(e.code, FsErrorCode::NotFound | FsErrorCode::NotSupported) =>
+            {
                 absolute
             }
             Err(e) => return Err(e),
@@ -1109,6 +1130,7 @@ fn remove_addressed(
     ))
 }
 
+#[cfg(test)]
 pub(crate) fn resolve_local_path(cwd: &Path, raw: &str) -> io::Result<PathBuf> {
     resolve(cwd, &raw.into()).map(|logical| native(&logical))
 }
@@ -1806,6 +1828,7 @@ mod tests {
             directory_probe_operations: operations.clone(),
             remove_operations: Arc::new(rimraf::NativeOperations),
             handle_operations: Arc::new(NativeHandleOperations),
+            native_inputs: Arc::new(super::super::path::ProcessInputs),
         };
 
         assert_eq!(
@@ -1832,6 +1855,7 @@ mod tests {
             directory_probe_operations: operations.clone(),
             remove_operations: Arc::new(rimraf::NativeOperations),
             handle_operations: Arc::new(NativeHandleOperations),
+            native_inputs: Arc::new(super::super::path::ProcessInputs),
         };
 
         let names = filesystem.list_dir_raw(".", None).await.unwrap();

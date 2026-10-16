@@ -10,6 +10,7 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+from div009_controls import controls as div009_controls
 
 HERE = Path(__file__).resolve().parent
 spec = importlib.util.spec_from_file_location("cache_safety", HERE / "cargo-cache-safety.py")
@@ -85,7 +86,7 @@ def controls():
          "ce02/entry-trim", ["plain/matching-trailing/entry_view"], True),
     ]
     return [(name, file, old, new.replace("FIRE", f'eprintln!("CONTROL FIRED {name}");'), witness, reason, native)
-            for name, file, old, new, witness, reason, native in rows]
+            for name, file, old, new, witness, reason, native in rows + div009_controls()]
 
 
 def main():
@@ -103,8 +104,8 @@ def main():
     original_bytes = {file: (tree / file).read_bytes() for file in originals}
     for name, file, old, *_ in controls():
         assert originals[file].count(old) == 1, f"INVALID ANCHOR {name}: count={originals[file].count(old)}"
-    assert len(controls()) == 19, "original 15 plus CE02 four must remain present"
-    print("PATH CONTROL ANCHORS 19/19 MATCH ONCE (original 15 then CE02-C1..C4)", flush=True)
+    assert len(controls()) == 33, "original 15 plus CE02 four plus DIV009 fourteen"
+    print("PATH CONTROL ANCHORS 33/33 MATCH ONCE (original 15, CE02 four, DIV009 fourteen)", flush=True)
     if args.check_anchors:
         return
     assert "control-code" in tree.parts, "explicit disposable control-code tree required"
@@ -126,7 +127,7 @@ def main():
     def run(name, command):
         path = safety.checked(logs / (name + ".log"), ROOT)
         with safety.checked(path, ROOT).open("w", encoding="utf-8") as stream:
-            result = subprocess.run(command, cwd=tree, stdout=stream, stderr=subprocess.STDOUT, timeout=1800)
+            result = subprocess.run(command, cwd=tree, stdout=stream, stderr=subprocess.STDOUT)
         return result.returncode, path.read_text(encoding="utf-8", errors="replace")
 
     def build(name):

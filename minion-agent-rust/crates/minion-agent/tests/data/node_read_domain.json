@@ -1,0 +1,3355 @@
+{
+ "node": "v22.15.1",
+ "pi": "b7bb00b936dbe21b8e160b3e89efdec361846699",
+ "blob": "1225efb92af89ddd67c34d8d2fd0e4a4c2b30645",
+ "procCwd": {
+  "win32": "E:\\proc",
+  "posix": "/proc"
+ },
+ "rows": [
+  {
+   "platform": "win32",
+   "provider": "C:\\base",
+   "input": "C:\\x",
+   "entries": "absent",
+   "value": "C:\\x",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "C:\\base",
+   "input": "C:\\x",
+   "entries": "empty",
+   "value": "C:\\x",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "C:\\base",
+   "input": "C:\\x",
+   "entries": "same",
+   "value": "C:\\x",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "C:\\base",
+   "input": "C:\\x",
+   "entries": "other",
+   "value": "C:\\x",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "C:\\base",
+   "input": "\\\\srv\\share\\x",
+   "entries": "absent",
+   "value": "\\\\srv\\share\\x",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "C:\\base",
+   "input": "\\\\srv\\share\\x",
+   "entries": "empty",
+   "value": "\\\\srv\\share\\x",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "C:\\base",
+   "input": "\\\\srv\\share\\x",
+   "entries": "same",
+   "value": "\\\\srv\\share\\x",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "C:\\base",
+   "input": "\\\\srv\\share\\x",
+   "entries": "other",
+   "value": "\\\\srv\\share\\x",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "C:\\base",
+   "input": "\\leaf",
+   "entries": "absent",
+   "value": "E:\\leaf",
+   "cwdReads": 1,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "C:\\base",
+   "input": "\\leaf",
+   "entries": "empty",
+   "value": "E:\\leaf",
+   "cwdReads": 1,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "C:\\base",
+   "input": "\\leaf",
+   "entries": "same",
+   "value": "E:\\leaf",
+   "cwdReads": 1,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "C:\\base",
+   "input": "\\leaf",
+   "entries": "other",
+   "value": "E:\\leaf",
+   "cwdReads": 1,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "C:\\base",
+   "input": "/leaf",
+   "entries": "absent",
+   "value": "E:\\leaf",
+   "cwdReads": 1,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "C:\\base",
+   "input": "/leaf",
+   "entries": "empty",
+   "value": "E:\\leaf",
+   "cwdReads": 1,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "C:\\base",
+   "input": "/leaf",
+   "entries": "same",
+   "value": "E:\\leaf",
+   "cwdReads": 1,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "C:\\base",
+   "input": "/leaf",
+   "entries": "other",
+   "value": "E:\\leaf",
+   "cwdReads": 1,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "C:\\base",
+   "input": "\\\\leaf",
+   "entries": "absent",
+   "value": "E:\\leaf",
+   "cwdReads": 1,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "C:\\base",
+   "input": "\\\\leaf",
+   "entries": "empty",
+   "value": "E:\\leaf",
+   "cwdReads": 1,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "C:\\base",
+   "input": "\\\\leaf",
+   "entries": "same",
+   "value": "E:\\leaf",
+   "cwdReads": 1,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "C:\\base",
+   "input": "\\\\leaf",
+   "entries": "other",
+   "value": "E:\\leaf",
+   "cwdReads": 1,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "C:\\base",
+   "input": "\\\\srv\\",
+   "entries": "absent",
+   "value": "E:\\srv",
+   "cwdReads": 1,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "C:\\base",
+   "input": "\\\\srv\\",
+   "entries": "empty",
+   "value": "E:\\srv",
+   "cwdReads": 1,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "C:\\base",
+   "input": "\\\\srv\\",
+   "entries": "same",
+   "value": "E:\\srv",
+   "cwdReads": 1,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "C:\\base",
+   "input": "\\\\srv\\",
+   "entries": "other",
+   "value": "E:\\srv",
+   "cwdReads": 1,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "C:\\base",
+   "input": "a:leaf",
+   "entries": "absent",
+   "value": "a:\\leaf",
+   "cwdReads": 1,
+   "envReads": [
+    "=a:"
+   ]
+  },
+  {
+   "platform": "win32",
+   "provider": "C:\\base",
+   "input": "a:leaf",
+   "entries": "empty",
+   "value": "a:\\leaf",
+   "cwdReads": 1,
+   "envReads": [
+    "=a:"
+   ]
+  },
+  {
+   "platform": "win32",
+   "provider": "C:\\base",
+   "input": "a:leaf",
+   "entries": "same",
+   "value": "a:\\deep\\leaf",
+   "cwdReads": 0,
+   "envReads": [
+    "=a:"
+   ]
+  },
+  {
+   "platform": "win32",
+   "provider": "C:\\base",
+   "input": "a:leaf",
+   "entries": "other",
+   "value": "a:\\leaf",
+   "cwdReads": 0,
+   "envReads": [
+    "=a:"
+   ]
+  },
+  {
+   "platform": "win32",
+   "provider": "C:\\base",
+   "input": "c:leaf",
+   "entries": "absent",
+   "value": "c:\\base\\leaf",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "C:\\base",
+   "input": "c:leaf",
+   "entries": "empty",
+   "value": "c:\\base\\leaf",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "C:\\base",
+   "input": "c:leaf",
+   "entries": "same",
+   "value": "c:\\base\\leaf",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "C:\\base",
+   "input": "c:leaf",
+   "entries": "other",
+   "value": "c:\\base\\leaf",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "C:\\base",
+   "input": "leaf",
+   "entries": "absent",
+   "value": "C:\\base\\leaf",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "C:\\base",
+   "input": "leaf",
+   "entries": "empty",
+   "value": "C:\\base\\leaf",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "C:\\base",
+   "input": "leaf",
+   "entries": "same",
+   "value": "C:\\base\\leaf",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "C:\\base",
+   "input": "leaf",
+   "entries": "other",
+   "value": "C:\\base\\leaf",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "C:\\base",
+   "input": "",
+   "entries": "absent",
+   "value": "C:\\base",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "C:\\base",
+   "input": "",
+   "entries": "empty",
+   "value": "C:\\base",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "C:\\base",
+   "input": "",
+   "entries": "same",
+   "value": "C:\\base",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "C:\\base",
+   "input": "",
+   "entries": "other",
+   "value": "C:\\base",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "C:\\base",
+   "input": "file:///C:/x",
+   "entries": "absent",
+   "value": "C:\\x",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "C:\\base",
+   "input": "file:///C:/x",
+   "entries": "empty",
+   "value": "C:\\x",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "C:\\base",
+   "input": "file:///C:/x",
+   "entries": "same",
+   "value": "C:\\x",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "C:\\base",
+   "input": "file:///C:/x",
+   "entries": "other",
+   "value": "C:\\x",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "C:\\base",
+   "input": "file://srv/share/x",
+   "entries": "absent",
+   "value": "\\\\srv\\share\\x",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "C:\\base",
+   "input": "file://srv/share/x",
+   "entries": "empty",
+   "value": "\\\\srv\\share\\x",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "C:\\base",
+   "input": "file://srv/share/x",
+   "entries": "same",
+   "value": "\\\\srv\\share\\x",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "C:\\base",
+   "input": "file://srv/share/x",
+   "entries": "other",
+   "value": "\\\\srv\\share\\x",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "\\base",
+   "input": "C:\\x",
+   "entries": "absent",
+   "value": "C:\\x",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "\\base",
+   "input": "C:\\x",
+   "entries": "empty",
+   "value": "C:\\x",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "\\base",
+   "input": "C:\\x",
+   "entries": "same",
+   "value": "C:\\x",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "\\base",
+   "input": "C:\\x",
+   "entries": "other",
+   "value": "C:\\x",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "\\base",
+   "input": "\\\\srv\\share\\x",
+   "entries": "absent",
+   "value": "\\\\srv\\share\\x",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "\\base",
+   "input": "\\\\srv\\share\\x",
+   "entries": "empty",
+   "value": "\\\\srv\\share\\x",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "\\base",
+   "input": "\\\\srv\\share\\x",
+   "entries": "same",
+   "value": "\\\\srv\\share\\x",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "\\base",
+   "input": "\\\\srv\\share\\x",
+   "entries": "other",
+   "value": "\\\\srv\\share\\x",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "\\base",
+   "input": "\\leaf",
+   "entries": "absent",
+   "value": "E:\\leaf",
+   "cwdReads": 1,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "\\base",
+   "input": "\\leaf",
+   "entries": "empty",
+   "value": "E:\\leaf",
+   "cwdReads": 1,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "\\base",
+   "input": "\\leaf",
+   "entries": "same",
+   "value": "E:\\leaf",
+   "cwdReads": 1,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "\\base",
+   "input": "\\leaf",
+   "entries": "other",
+   "value": "E:\\leaf",
+   "cwdReads": 1,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "\\base",
+   "input": "/leaf",
+   "entries": "absent",
+   "value": "E:\\leaf",
+   "cwdReads": 1,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "\\base",
+   "input": "/leaf",
+   "entries": "empty",
+   "value": "E:\\leaf",
+   "cwdReads": 1,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "\\base",
+   "input": "/leaf",
+   "entries": "same",
+   "value": "E:\\leaf",
+   "cwdReads": 1,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "\\base",
+   "input": "/leaf",
+   "entries": "other",
+   "value": "E:\\leaf",
+   "cwdReads": 1,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "\\base",
+   "input": "\\\\leaf",
+   "entries": "absent",
+   "value": "E:\\leaf",
+   "cwdReads": 1,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "\\base",
+   "input": "\\\\leaf",
+   "entries": "empty",
+   "value": "E:\\leaf",
+   "cwdReads": 1,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "\\base",
+   "input": "\\\\leaf",
+   "entries": "same",
+   "value": "E:\\leaf",
+   "cwdReads": 1,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "\\base",
+   "input": "\\\\leaf",
+   "entries": "other",
+   "value": "E:\\leaf",
+   "cwdReads": 1,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "\\base",
+   "input": "\\\\srv\\",
+   "entries": "absent",
+   "value": "E:\\srv",
+   "cwdReads": 1,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "\\base",
+   "input": "\\\\srv\\",
+   "entries": "empty",
+   "value": "E:\\srv",
+   "cwdReads": 1,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "\\base",
+   "input": "\\\\srv\\",
+   "entries": "same",
+   "value": "E:\\srv",
+   "cwdReads": 1,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "\\base",
+   "input": "\\\\srv\\",
+   "entries": "other",
+   "value": "E:\\srv",
+   "cwdReads": 1,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "\\base",
+   "input": "a:leaf",
+   "entries": "absent",
+   "value": "a:\\base\\leaf",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "\\base",
+   "input": "a:leaf",
+   "entries": "empty",
+   "value": "a:\\base\\leaf",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "\\base",
+   "input": "a:leaf",
+   "entries": "same",
+   "value": "a:\\base\\leaf",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "\\base",
+   "input": "a:leaf",
+   "entries": "other",
+   "value": "a:\\base\\leaf",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "\\base",
+   "input": "c:leaf",
+   "entries": "absent",
+   "value": "c:\\base\\leaf",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "\\base",
+   "input": "c:leaf",
+   "entries": "empty",
+   "value": "c:\\base\\leaf",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "\\base",
+   "input": "c:leaf",
+   "entries": "same",
+   "value": "c:\\base\\leaf",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "\\base",
+   "input": "c:leaf",
+   "entries": "other",
+   "value": "c:\\base\\leaf",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "\\base",
+   "input": "leaf",
+   "entries": "absent",
+   "value": "E:\\base\\leaf",
+   "cwdReads": 1,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "\\base",
+   "input": "leaf",
+   "entries": "empty",
+   "value": "E:\\base\\leaf",
+   "cwdReads": 1,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "\\base",
+   "input": "leaf",
+   "entries": "same",
+   "value": "E:\\base\\leaf",
+   "cwdReads": 1,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "\\base",
+   "input": "leaf",
+   "entries": "other",
+   "value": "E:\\base\\leaf",
+   "cwdReads": 1,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "\\base",
+   "input": "",
+   "entries": "absent",
+   "value": "E:\\base",
+   "cwdReads": 1,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "\\base",
+   "input": "",
+   "entries": "empty",
+   "value": "E:\\base",
+   "cwdReads": 1,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "\\base",
+   "input": "",
+   "entries": "same",
+   "value": "E:\\base",
+   "cwdReads": 1,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "\\base",
+   "input": "",
+   "entries": "other",
+   "value": "E:\\base",
+   "cwdReads": 1,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "\\base",
+   "input": "file:///C:/x",
+   "entries": "absent",
+   "value": "C:\\x",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "\\base",
+   "input": "file:///C:/x",
+   "entries": "empty",
+   "value": "C:\\x",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "\\base",
+   "input": "file:///C:/x",
+   "entries": "same",
+   "value": "C:\\x",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "\\base",
+   "input": "file:///C:/x",
+   "entries": "other",
+   "value": "C:\\x",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "\\base",
+   "input": "file://srv/share/x",
+   "entries": "absent",
+   "value": "\\\\srv\\share\\x",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "\\base",
+   "input": "file://srv/share/x",
+   "entries": "empty",
+   "value": "\\\\srv\\share\\x",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "\\base",
+   "input": "file://srv/share/x",
+   "entries": "same",
+   "value": "\\\\srv\\share\\x",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "\\base",
+   "input": "file://srv/share/x",
+   "entries": "other",
+   "value": "\\\\srv\\share\\x",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "C:base",
+   "input": "C:\\x",
+   "entries": "absent",
+   "value": "C:\\x",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "C:base",
+   "input": "C:\\x",
+   "entries": "empty",
+   "value": "C:\\x",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "C:base",
+   "input": "C:\\x",
+   "entries": "same",
+   "value": "C:\\x",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "C:base",
+   "input": "C:\\x",
+   "entries": "other",
+   "value": "C:\\x",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "C:base",
+   "input": "\\\\srv\\share\\x",
+   "entries": "absent",
+   "value": "\\\\srv\\share\\x",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "C:base",
+   "input": "\\\\srv\\share\\x",
+   "entries": "empty",
+   "value": "\\\\srv\\share\\x",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "C:base",
+   "input": "\\\\srv\\share\\x",
+   "entries": "same",
+   "value": "\\\\srv\\share\\x",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "C:base",
+   "input": "\\\\srv\\share\\x",
+   "entries": "other",
+   "value": "\\\\srv\\share\\x",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "C:base",
+   "input": "\\leaf",
+   "entries": "absent",
+   "value": "E:\\leaf",
+   "cwdReads": 1,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "C:base",
+   "input": "\\leaf",
+   "entries": "empty",
+   "value": "E:\\leaf",
+   "cwdReads": 1,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "C:base",
+   "input": "\\leaf",
+   "entries": "same",
+   "value": "E:\\leaf",
+   "cwdReads": 1,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "C:base",
+   "input": "\\leaf",
+   "entries": "other",
+   "value": "E:\\leaf",
+   "cwdReads": 1,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "C:base",
+   "input": "/leaf",
+   "entries": "absent",
+   "value": "E:\\leaf",
+   "cwdReads": 1,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "C:base",
+   "input": "/leaf",
+   "entries": "empty",
+   "value": "E:\\leaf",
+   "cwdReads": 1,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "C:base",
+   "input": "/leaf",
+   "entries": "same",
+   "value": "E:\\leaf",
+   "cwdReads": 1,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "C:base",
+   "input": "/leaf",
+   "entries": "other",
+   "value": "E:\\leaf",
+   "cwdReads": 1,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "C:base",
+   "input": "\\\\leaf",
+   "entries": "absent",
+   "value": "E:\\leaf",
+   "cwdReads": 1,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "C:base",
+   "input": "\\\\leaf",
+   "entries": "empty",
+   "value": "E:\\leaf",
+   "cwdReads": 1,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "C:base",
+   "input": "\\\\leaf",
+   "entries": "same",
+   "value": "E:\\leaf",
+   "cwdReads": 1,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "C:base",
+   "input": "\\\\leaf",
+   "entries": "other",
+   "value": "E:\\leaf",
+   "cwdReads": 1,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "C:base",
+   "input": "\\\\srv\\",
+   "entries": "absent",
+   "value": "E:\\srv",
+   "cwdReads": 1,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "C:base",
+   "input": "\\\\srv\\",
+   "entries": "empty",
+   "value": "E:\\srv",
+   "cwdReads": 1,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "C:base",
+   "input": "\\\\srv\\",
+   "entries": "same",
+   "value": "E:\\srv",
+   "cwdReads": 1,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "C:base",
+   "input": "\\\\srv\\",
+   "entries": "other",
+   "value": "E:\\srv",
+   "cwdReads": 1,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "C:base",
+   "input": "a:leaf",
+   "entries": "absent",
+   "value": "a:\\leaf",
+   "cwdReads": 1,
+   "envReads": [
+    "=a:"
+   ]
+  },
+  {
+   "platform": "win32",
+   "provider": "C:base",
+   "input": "a:leaf",
+   "entries": "empty",
+   "value": "a:\\leaf",
+   "cwdReads": 1,
+   "envReads": [
+    "=a:"
+   ]
+  },
+  {
+   "platform": "win32",
+   "provider": "C:base",
+   "input": "a:leaf",
+   "entries": "same",
+   "value": "a:\\deep\\leaf",
+   "cwdReads": 0,
+   "envReads": [
+    "=a:"
+   ]
+  },
+  {
+   "platform": "win32",
+   "provider": "C:base",
+   "input": "a:leaf",
+   "entries": "other",
+   "value": "a:\\leaf",
+   "cwdReads": 0,
+   "envReads": [
+    "=a:"
+   ]
+  },
+  {
+   "platform": "win32",
+   "provider": "C:base",
+   "input": "c:leaf",
+   "entries": "absent",
+   "value": "c:\\base\\leaf",
+   "cwdReads": 1,
+   "envReads": [
+    "=c:"
+   ]
+  },
+  {
+   "platform": "win32",
+   "provider": "C:base",
+   "input": "c:leaf",
+   "entries": "empty",
+   "value": "c:\\base\\leaf",
+   "cwdReads": 1,
+   "envReads": [
+    "=c:"
+   ]
+  },
+  {
+   "platform": "win32",
+   "provider": "C:base",
+   "input": "c:leaf",
+   "entries": "same",
+   "value": "c:\\deep\\base\\leaf",
+   "cwdReads": 0,
+   "envReads": [
+    "=c:"
+   ]
+  },
+  {
+   "platform": "win32",
+   "provider": "C:base",
+   "input": "c:leaf",
+   "entries": "other",
+   "value": "c:\\base\\leaf",
+   "cwdReads": 0,
+   "envReads": [
+    "=c:"
+   ]
+  },
+  {
+   "platform": "win32",
+   "provider": "C:base",
+   "input": "leaf",
+   "entries": "absent",
+   "value": "C:\\base\\leaf",
+   "cwdReads": 1,
+   "envReads": [
+    "=C:"
+   ]
+  },
+  {
+   "platform": "win32",
+   "provider": "C:base",
+   "input": "leaf",
+   "entries": "empty",
+   "value": "C:\\base\\leaf",
+   "cwdReads": 1,
+   "envReads": [
+    "=C:"
+   ]
+  },
+  {
+   "platform": "win32",
+   "provider": "C:base",
+   "input": "leaf",
+   "entries": "same",
+   "value": "C:\\deep\\base\\leaf",
+   "cwdReads": 0,
+   "envReads": [
+    "=C:"
+   ]
+  },
+  {
+   "platform": "win32",
+   "provider": "C:base",
+   "input": "leaf",
+   "entries": "other",
+   "value": "C:\\base\\leaf",
+   "cwdReads": 0,
+   "envReads": [
+    "=C:"
+   ]
+  },
+  {
+   "platform": "win32",
+   "provider": "C:base",
+   "input": "",
+   "entries": "absent",
+   "value": "C:\\base",
+   "cwdReads": 1,
+   "envReads": [
+    "=C:"
+   ]
+  },
+  {
+   "platform": "win32",
+   "provider": "C:base",
+   "input": "",
+   "entries": "empty",
+   "value": "C:\\base",
+   "cwdReads": 1,
+   "envReads": [
+    "=C:"
+   ]
+  },
+  {
+   "platform": "win32",
+   "provider": "C:base",
+   "input": "",
+   "entries": "same",
+   "value": "C:\\deep\\base",
+   "cwdReads": 0,
+   "envReads": [
+    "=C:"
+   ]
+  },
+  {
+   "platform": "win32",
+   "provider": "C:base",
+   "input": "",
+   "entries": "other",
+   "value": "C:\\base",
+   "cwdReads": 0,
+   "envReads": [
+    "=C:"
+   ]
+  },
+  {
+   "platform": "win32",
+   "provider": "C:base",
+   "input": "file:///C:/x",
+   "entries": "absent",
+   "value": "C:\\x",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "C:base",
+   "input": "file:///C:/x",
+   "entries": "empty",
+   "value": "C:\\x",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "C:base",
+   "input": "file:///C:/x",
+   "entries": "same",
+   "value": "C:\\x",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "C:base",
+   "input": "file:///C:/x",
+   "entries": "other",
+   "value": "C:\\x",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "C:base",
+   "input": "file://srv/share/x",
+   "entries": "absent",
+   "value": "\\\\srv\\share\\x",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "C:base",
+   "input": "file://srv/share/x",
+   "entries": "empty",
+   "value": "\\\\srv\\share\\x",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "C:base",
+   "input": "file://srv/share/x",
+   "entries": "same",
+   "value": "\\\\srv\\share\\x",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "C:base",
+   "input": "file://srv/share/x",
+   "entries": "other",
+   "value": "\\\\srv\\share\\x",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "base",
+   "input": "C:\\x",
+   "entries": "absent",
+   "value": "C:\\x",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "base",
+   "input": "C:\\x",
+   "entries": "empty",
+   "value": "C:\\x",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "base",
+   "input": "C:\\x",
+   "entries": "same",
+   "value": "C:\\x",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "base",
+   "input": "C:\\x",
+   "entries": "other",
+   "value": "C:\\x",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "base",
+   "input": "\\\\srv\\share\\x",
+   "entries": "absent",
+   "value": "\\\\srv\\share\\x",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "base",
+   "input": "\\\\srv\\share\\x",
+   "entries": "empty",
+   "value": "\\\\srv\\share\\x",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "base",
+   "input": "\\\\srv\\share\\x",
+   "entries": "same",
+   "value": "\\\\srv\\share\\x",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "base",
+   "input": "\\\\srv\\share\\x",
+   "entries": "other",
+   "value": "\\\\srv\\share\\x",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "base",
+   "input": "\\leaf",
+   "entries": "absent",
+   "value": "E:\\leaf",
+   "cwdReads": 1,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "base",
+   "input": "\\leaf",
+   "entries": "empty",
+   "value": "E:\\leaf",
+   "cwdReads": 1,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "base",
+   "input": "\\leaf",
+   "entries": "same",
+   "value": "E:\\leaf",
+   "cwdReads": 1,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "base",
+   "input": "\\leaf",
+   "entries": "other",
+   "value": "E:\\leaf",
+   "cwdReads": 1,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "base",
+   "input": "/leaf",
+   "entries": "absent",
+   "value": "E:\\leaf",
+   "cwdReads": 1,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "base",
+   "input": "/leaf",
+   "entries": "empty",
+   "value": "E:\\leaf",
+   "cwdReads": 1,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "base",
+   "input": "/leaf",
+   "entries": "same",
+   "value": "E:\\leaf",
+   "cwdReads": 1,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "base",
+   "input": "/leaf",
+   "entries": "other",
+   "value": "E:\\leaf",
+   "cwdReads": 1,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "base",
+   "input": "\\\\leaf",
+   "entries": "absent",
+   "value": "E:\\leaf",
+   "cwdReads": 1,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "base",
+   "input": "\\\\leaf",
+   "entries": "empty",
+   "value": "E:\\leaf",
+   "cwdReads": 1,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "base",
+   "input": "\\\\leaf",
+   "entries": "same",
+   "value": "E:\\leaf",
+   "cwdReads": 1,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "base",
+   "input": "\\\\leaf",
+   "entries": "other",
+   "value": "E:\\leaf",
+   "cwdReads": 1,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "base",
+   "input": "\\\\srv\\",
+   "entries": "absent",
+   "value": "E:\\srv",
+   "cwdReads": 1,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "base",
+   "input": "\\\\srv\\",
+   "entries": "empty",
+   "value": "E:\\srv",
+   "cwdReads": 1,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "base",
+   "input": "\\\\srv\\",
+   "entries": "same",
+   "value": "E:\\srv",
+   "cwdReads": 1,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "base",
+   "input": "\\\\srv\\",
+   "entries": "other",
+   "value": "E:\\srv",
+   "cwdReads": 1,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "base",
+   "input": "a:leaf",
+   "entries": "absent",
+   "value": "a:\\base\\leaf",
+   "cwdReads": 1,
+   "envReads": [
+    "=a:"
+   ]
+  },
+  {
+   "platform": "win32",
+   "provider": "base",
+   "input": "a:leaf",
+   "entries": "empty",
+   "value": "a:\\base\\leaf",
+   "cwdReads": 1,
+   "envReads": [
+    "=a:"
+   ]
+  },
+  {
+   "platform": "win32",
+   "provider": "base",
+   "input": "a:leaf",
+   "entries": "same",
+   "value": "a:\\deep\\base\\leaf",
+   "cwdReads": 0,
+   "envReads": [
+    "=a:"
+   ]
+  },
+  {
+   "platform": "win32",
+   "provider": "base",
+   "input": "a:leaf",
+   "entries": "other",
+   "value": "a:\\base\\leaf",
+   "cwdReads": 0,
+   "envReads": [
+    "=a:"
+   ]
+  },
+  {
+   "platform": "win32",
+   "provider": "base",
+   "input": "c:leaf",
+   "entries": "absent",
+   "value": "c:\\base\\leaf",
+   "cwdReads": 1,
+   "envReads": [
+    "=c:"
+   ]
+  },
+  {
+   "platform": "win32",
+   "provider": "base",
+   "input": "c:leaf",
+   "entries": "empty",
+   "value": "c:\\base\\leaf",
+   "cwdReads": 1,
+   "envReads": [
+    "=c:"
+   ]
+  },
+  {
+   "platform": "win32",
+   "provider": "base",
+   "input": "c:leaf",
+   "entries": "same",
+   "value": "c:\\deep\\base\\leaf",
+   "cwdReads": 0,
+   "envReads": [
+    "=c:"
+   ]
+  },
+  {
+   "platform": "win32",
+   "provider": "base",
+   "input": "c:leaf",
+   "entries": "other",
+   "value": "c:\\base\\leaf",
+   "cwdReads": 0,
+   "envReads": [
+    "=c:"
+   ]
+  },
+  {
+   "platform": "win32",
+   "provider": "base",
+   "input": "leaf",
+   "entries": "absent",
+   "value": "E:\\proc\\base\\leaf",
+   "cwdReads": 1,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "base",
+   "input": "leaf",
+   "entries": "empty",
+   "value": "E:\\proc\\base\\leaf",
+   "cwdReads": 1,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "base",
+   "input": "leaf",
+   "entries": "same",
+   "value": "E:\\proc\\base\\leaf",
+   "cwdReads": 1,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "base",
+   "input": "leaf",
+   "entries": "other",
+   "value": "E:\\proc\\base\\leaf",
+   "cwdReads": 1,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "base",
+   "input": "",
+   "entries": "absent",
+   "value": "E:\\proc\\base",
+   "cwdReads": 1,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "base",
+   "input": "",
+   "entries": "empty",
+   "value": "E:\\proc\\base",
+   "cwdReads": 1,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "base",
+   "input": "",
+   "entries": "same",
+   "value": "E:\\proc\\base",
+   "cwdReads": 1,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "base",
+   "input": "",
+   "entries": "other",
+   "value": "E:\\proc\\base",
+   "cwdReads": 1,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "base",
+   "input": "file:///C:/x",
+   "entries": "absent",
+   "value": "C:\\x",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "base",
+   "input": "file:///C:/x",
+   "entries": "empty",
+   "value": "C:\\x",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "base",
+   "input": "file:///C:/x",
+   "entries": "same",
+   "value": "C:\\x",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "base",
+   "input": "file:///C:/x",
+   "entries": "other",
+   "value": "C:\\x",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "base",
+   "input": "file://srv/share/x",
+   "entries": "absent",
+   "value": "\\\\srv\\share\\x",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "base",
+   "input": "file://srv/share/x",
+   "entries": "empty",
+   "value": "\\\\srv\\share\\x",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "base",
+   "input": "file://srv/share/x",
+   "entries": "same",
+   "value": "\\\\srv\\share\\x",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "base",
+   "input": "file://srv/share/x",
+   "entries": "other",
+   "value": "\\\\srv\\share\\x",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "",
+   "input": "C:\\x",
+   "entries": "absent",
+   "value": "C:\\x",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "",
+   "input": "C:\\x",
+   "entries": "empty",
+   "value": "C:\\x",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "",
+   "input": "C:\\x",
+   "entries": "same",
+   "value": "C:\\x",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "",
+   "input": "C:\\x",
+   "entries": "other",
+   "value": "C:\\x",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "",
+   "input": "\\\\srv\\share\\x",
+   "entries": "absent",
+   "value": "\\\\srv\\share\\x",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "",
+   "input": "\\\\srv\\share\\x",
+   "entries": "empty",
+   "value": "\\\\srv\\share\\x",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "",
+   "input": "\\\\srv\\share\\x",
+   "entries": "same",
+   "value": "\\\\srv\\share\\x",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "",
+   "input": "\\\\srv\\share\\x",
+   "entries": "other",
+   "value": "\\\\srv\\share\\x",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "",
+   "input": "\\leaf",
+   "entries": "absent",
+   "value": "E:\\leaf",
+   "cwdReads": 1,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "",
+   "input": "\\leaf",
+   "entries": "empty",
+   "value": "E:\\leaf",
+   "cwdReads": 1,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "",
+   "input": "\\leaf",
+   "entries": "same",
+   "value": "E:\\leaf",
+   "cwdReads": 1,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "",
+   "input": "\\leaf",
+   "entries": "other",
+   "value": "E:\\leaf",
+   "cwdReads": 1,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "",
+   "input": "/leaf",
+   "entries": "absent",
+   "value": "E:\\leaf",
+   "cwdReads": 1,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "",
+   "input": "/leaf",
+   "entries": "empty",
+   "value": "E:\\leaf",
+   "cwdReads": 1,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "",
+   "input": "/leaf",
+   "entries": "same",
+   "value": "E:\\leaf",
+   "cwdReads": 1,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "",
+   "input": "/leaf",
+   "entries": "other",
+   "value": "E:\\leaf",
+   "cwdReads": 1,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "",
+   "input": "\\\\leaf",
+   "entries": "absent",
+   "value": "E:\\leaf",
+   "cwdReads": 1,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "",
+   "input": "\\\\leaf",
+   "entries": "empty",
+   "value": "E:\\leaf",
+   "cwdReads": 1,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "",
+   "input": "\\\\leaf",
+   "entries": "same",
+   "value": "E:\\leaf",
+   "cwdReads": 1,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "",
+   "input": "\\\\leaf",
+   "entries": "other",
+   "value": "E:\\leaf",
+   "cwdReads": 1,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "",
+   "input": "\\\\srv\\",
+   "entries": "absent",
+   "value": "E:\\srv",
+   "cwdReads": 1,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "",
+   "input": "\\\\srv\\",
+   "entries": "empty",
+   "value": "E:\\srv",
+   "cwdReads": 1,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "",
+   "input": "\\\\srv\\",
+   "entries": "same",
+   "value": "E:\\srv",
+   "cwdReads": 1,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "",
+   "input": "\\\\srv\\",
+   "entries": "other",
+   "value": "E:\\srv",
+   "cwdReads": 1,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "",
+   "input": "a:leaf",
+   "entries": "absent",
+   "value": "a:\\leaf",
+   "cwdReads": 1,
+   "envReads": [
+    "=a:"
+   ]
+  },
+  {
+   "platform": "win32",
+   "provider": "",
+   "input": "a:leaf",
+   "entries": "empty",
+   "value": "a:\\leaf",
+   "cwdReads": 1,
+   "envReads": [
+    "=a:"
+   ]
+  },
+  {
+   "platform": "win32",
+   "provider": "",
+   "input": "a:leaf",
+   "entries": "same",
+   "value": "a:\\deep\\leaf",
+   "cwdReads": 0,
+   "envReads": [
+    "=a:"
+   ]
+  },
+  {
+   "platform": "win32",
+   "provider": "",
+   "input": "a:leaf",
+   "entries": "other",
+   "value": "a:\\leaf",
+   "cwdReads": 0,
+   "envReads": [
+    "=a:"
+   ]
+  },
+  {
+   "platform": "win32",
+   "provider": "",
+   "input": "c:leaf",
+   "entries": "absent",
+   "value": "c:\\leaf",
+   "cwdReads": 1,
+   "envReads": [
+    "=c:"
+   ]
+  },
+  {
+   "platform": "win32",
+   "provider": "",
+   "input": "c:leaf",
+   "entries": "empty",
+   "value": "c:\\leaf",
+   "cwdReads": 1,
+   "envReads": [
+    "=c:"
+   ]
+  },
+  {
+   "platform": "win32",
+   "provider": "",
+   "input": "c:leaf",
+   "entries": "same",
+   "value": "c:\\deep\\leaf",
+   "cwdReads": 0,
+   "envReads": [
+    "=c:"
+   ]
+  },
+  {
+   "platform": "win32",
+   "provider": "",
+   "input": "c:leaf",
+   "entries": "other",
+   "value": "c:\\leaf",
+   "cwdReads": 0,
+   "envReads": [
+    "=c:"
+   ]
+  },
+  {
+   "platform": "win32",
+   "provider": "",
+   "input": "leaf",
+   "entries": "absent",
+   "value": "E:\\proc\\leaf",
+   "cwdReads": 1,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "",
+   "input": "leaf",
+   "entries": "empty",
+   "value": "E:\\proc\\leaf",
+   "cwdReads": 1,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "",
+   "input": "leaf",
+   "entries": "same",
+   "value": "E:\\proc\\leaf",
+   "cwdReads": 1,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "",
+   "input": "leaf",
+   "entries": "other",
+   "value": "E:\\proc\\leaf",
+   "cwdReads": 1,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "",
+   "input": "",
+   "entries": "absent",
+   "value": "E:\\proc",
+   "cwdReads": 1,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "",
+   "input": "",
+   "entries": "empty",
+   "value": "E:\\proc",
+   "cwdReads": 1,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "",
+   "input": "",
+   "entries": "same",
+   "value": "E:\\proc",
+   "cwdReads": 1,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "",
+   "input": "",
+   "entries": "other",
+   "value": "E:\\proc",
+   "cwdReads": 1,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "",
+   "input": "file:///C:/x",
+   "entries": "absent",
+   "value": "C:\\x",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "",
+   "input": "file:///C:/x",
+   "entries": "empty",
+   "value": "C:\\x",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "",
+   "input": "file:///C:/x",
+   "entries": "same",
+   "value": "C:\\x",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "",
+   "input": "file:///C:/x",
+   "entries": "other",
+   "value": "C:\\x",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "",
+   "input": "file://srv/share/x",
+   "entries": "absent",
+   "value": "\\\\srv\\share\\x",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "",
+   "input": "file://srv/share/x",
+   "entries": "empty",
+   "value": "\\\\srv\\share\\x",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "",
+   "input": "file://srv/share/x",
+   "entries": "same",
+   "value": "\\\\srv\\share\\x",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "",
+   "input": "file://srv/share/x",
+   "entries": "other",
+   "value": "\\\\srv\\share\\x",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "\\\\srv\\share\\base",
+   "input": "C:\\x",
+   "entries": "absent",
+   "value": "C:\\x",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "\\\\srv\\share\\base",
+   "input": "C:\\x",
+   "entries": "empty",
+   "value": "C:\\x",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "\\\\srv\\share\\base",
+   "input": "C:\\x",
+   "entries": "same",
+   "value": "C:\\x",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "\\\\srv\\share\\base",
+   "input": "C:\\x",
+   "entries": "other",
+   "value": "C:\\x",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "\\\\srv\\share\\base",
+   "input": "\\\\srv\\share\\x",
+   "entries": "absent",
+   "value": "\\\\srv\\share\\x",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "\\\\srv\\share\\base",
+   "input": "\\\\srv\\share\\x",
+   "entries": "empty",
+   "value": "\\\\srv\\share\\x",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "\\\\srv\\share\\base",
+   "input": "\\\\srv\\share\\x",
+   "entries": "same",
+   "value": "\\\\srv\\share\\x",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "\\\\srv\\share\\base",
+   "input": "\\\\srv\\share\\x",
+   "entries": "other",
+   "value": "\\\\srv\\share\\x",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "\\\\srv\\share\\base",
+   "input": "\\leaf",
+   "entries": "absent",
+   "value": "E:\\leaf",
+   "cwdReads": 1,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "\\\\srv\\share\\base",
+   "input": "\\leaf",
+   "entries": "empty",
+   "value": "E:\\leaf",
+   "cwdReads": 1,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "\\\\srv\\share\\base",
+   "input": "\\leaf",
+   "entries": "same",
+   "value": "E:\\leaf",
+   "cwdReads": 1,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "\\\\srv\\share\\base",
+   "input": "\\leaf",
+   "entries": "other",
+   "value": "E:\\leaf",
+   "cwdReads": 1,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "\\\\srv\\share\\base",
+   "input": "/leaf",
+   "entries": "absent",
+   "value": "E:\\leaf",
+   "cwdReads": 1,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "\\\\srv\\share\\base",
+   "input": "/leaf",
+   "entries": "empty",
+   "value": "E:\\leaf",
+   "cwdReads": 1,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "\\\\srv\\share\\base",
+   "input": "/leaf",
+   "entries": "same",
+   "value": "E:\\leaf",
+   "cwdReads": 1,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "\\\\srv\\share\\base",
+   "input": "/leaf",
+   "entries": "other",
+   "value": "E:\\leaf",
+   "cwdReads": 1,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "\\\\srv\\share\\base",
+   "input": "\\\\leaf",
+   "entries": "absent",
+   "value": "E:\\leaf",
+   "cwdReads": 1,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "\\\\srv\\share\\base",
+   "input": "\\\\leaf",
+   "entries": "empty",
+   "value": "E:\\leaf",
+   "cwdReads": 1,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "\\\\srv\\share\\base",
+   "input": "\\\\leaf",
+   "entries": "same",
+   "value": "E:\\leaf",
+   "cwdReads": 1,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "\\\\srv\\share\\base",
+   "input": "\\\\leaf",
+   "entries": "other",
+   "value": "E:\\leaf",
+   "cwdReads": 1,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "\\\\srv\\share\\base",
+   "input": "\\\\srv\\",
+   "entries": "absent",
+   "value": "E:\\srv",
+   "cwdReads": 1,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "\\\\srv\\share\\base",
+   "input": "\\\\srv\\",
+   "entries": "empty",
+   "value": "E:\\srv",
+   "cwdReads": 1,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "\\\\srv\\share\\base",
+   "input": "\\\\srv\\",
+   "entries": "same",
+   "value": "E:\\srv",
+   "cwdReads": 1,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "\\\\srv\\share\\base",
+   "input": "\\\\srv\\",
+   "entries": "other",
+   "value": "E:\\srv",
+   "cwdReads": 1,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "\\\\srv\\share\\base",
+   "input": "a:leaf",
+   "entries": "absent",
+   "value": "a:\\leaf",
+   "cwdReads": 1,
+   "envReads": [
+    "=a:"
+   ]
+  },
+  {
+   "platform": "win32",
+   "provider": "\\\\srv\\share\\base",
+   "input": "a:leaf",
+   "entries": "empty",
+   "value": "a:\\leaf",
+   "cwdReads": 1,
+   "envReads": [
+    "=a:"
+   ]
+  },
+  {
+   "platform": "win32",
+   "provider": "\\\\srv\\share\\base",
+   "input": "a:leaf",
+   "entries": "same",
+   "value": "a:\\deep\\leaf",
+   "cwdReads": 0,
+   "envReads": [
+    "=a:"
+   ]
+  },
+  {
+   "platform": "win32",
+   "provider": "\\\\srv\\share\\base",
+   "input": "a:leaf",
+   "entries": "other",
+   "value": "a:\\leaf",
+   "cwdReads": 0,
+   "envReads": [
+    "=a:"
+   ]
+  },
+  {
+   "platform": "win32",
+   "provider": "\\\\srv\\share\\base",
+   "input": "c:leaf",
+   "entries": "absent",
+   "value": "c:\\leaf",
+   "cwdReads": 1,
+   "envReads": [
+    "=c:"
+   ]
+  },
+  {
+   "platform": "win32",
+   "provider": "\\\\srv\\share\\base",
+   "input": "c:leaf",
+   "entries": "empty",
+   "value": "c:\\leaf",
+   "cwdReads": 1,
+   "envReads": [
+    "=c:"
+   ]
+  },
+  {
+   "platform": "win32",
+   "provider": "\\\\srv\\share\\base",
+   "input": "c:leaf",
+   "entries": "same",
+   "value": "c:\\deep\\leaf",
+   "cwdReads": 0,
+   "envReads": [
+    "=c:"
+   ]
+  },
+  {
+   "platform": "win32",
+   "provider": "\\\\srv\\share\\base",
+   "input": "c:leaf",
+   "entries": "other",
+   "value": "c:\\leaf",
+   "cwdReads": 0,
+   "envReads": [
+    "=c:"
+   ]
+  },
+  {
+   "platform": "win32",
+   "provider": "\\\\srv\\share\\base",
+   "input": "leaf",
+   "entries": "absent",
+   "value": "\\\\srv\\share\\base\\leaf",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "\\\\srv\\share\\base",
+   "input": "leaf",
+   "entries": "empty",
+   "value": "\\\\srv\\share\\base\\leaf",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "\\\\srv\\share\\base",
+   "input": "leaf",
+   "entries": "same",
+   "value": "\\\\srv\\share\\base\\leaf",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "\\\\srv\\share\\base",
+   "input": "leaf",
+   "entries": "other",
+   "value": "\\\\srv\\share\\base\\leaf",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "\\\\srv\\share\\base",
+   "input": "",
+   "entries": "absent",
+   "value": "\\\\srv\\share\\base",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "\\\\srv\\share\\base",
+   "input": "",
+   "entries": "empty",
+   "value": "\\\\srv\\share\\base",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "\\\\srv\\share\\base",
+   "input": "",
+   "entries": "same",
+   "value": "\\\\srv\\share\\base",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "\\\\srv\\share\\base",
+   "input": "",
+   "entries": "other",
+   "value": "\\\\srv\\share\\base",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "\\\\srv\\share\\base",
+   "input": "file:///C:/x",
+   "entries": "absent",
+   "value": "C:\\x",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "\\\\srv\\share\\base",
+   "input": "file:///C:/x",
+   "entries": "empty",
+   "value": "C:\\x",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "\\\\srv\\share\\base",
+   "input": "file:///C:/x",
+   "entries": "same",
+   "value": "C:\\x",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "\\\\srv\\share\\base",
+   "input": "file:///C:/x",
+   "entries": "other",
+   "value": "C:\\x",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "\\\\srv\\share\\base",
+   "input": "file://srv/share/x",
+   "entries": "absent",
+   "value": "\\\\srv\\share\\x",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "\\\\srv\\share\\base",
+   "input": "file://srv/share/x",
+   "entries": "empty",
+   "value": "\\\\srv\\share\\x",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "\\\\srv\\share\\base",
+   "input": "file://srv/share/x",
+   "entries": "same",
+   "value": "\\\\srv\\share\\x",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "\\\\srv\\share\\base",
+   "input": "file://srv/share/x",
+   "entries": "other",
+   "value": "\\\\srv\\share\\x",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "\\\\?\\C:\\base",
+   "input": "C:\\x",
+   "entries": "absent",
+   "value": "C:\\x",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "\\\\?\\C:\\base",
+   "input": "C:\\x",
+   "entries": "empty",
+   "value": "C:\\x",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "\\\\?\\C:\\base",
+   "input": "C:\\x",
+   "entries": "same",
+   "value": "C:\\x",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "\\\\?\\C:\\base",
+   "input": "C:\\x",
+   "entries": "other",
+   "value": "C:\\x",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "\\\\?\\C:\\base",
+   "input": "\\\\srv\\share\\x",
+   "entries": "absent",
+   "value": "\\\\srv\\share\\x",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "\\\\?\\C:\\base",
+   "input": "\\\\srv\\share\\x",
+   "entries": "empty",
+   "value": "\\\\srv\\share\\x",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "\\\\?\\C:\\base",
+   "input": "\\\\srv\\share\\x",
+   "entries": "same",
+   "value": "\\\\srv\\share\\x",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "\\\\?\\C:\\base",
+   "input": "\\\\srv\\share\\x",
+   "entries": "other",
+   "value": "\\\\srv\\share\\x",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "\\\\?\\C:\\base",
+   "input": "\\leaf",
+   "entries": "absent",
+   "value": "E:\\leaf",
+   "cwdReads": 1,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "\\\\?\\C:\\base",
+   "input": "\\leaf",
+   "entries": "empty",
+   "value": "E:\\leaf",
+   "cwdReads": 1,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "\\\\?\\C:\\base",
+   "input": "\\leaf",
+   "entries": "same",
+   "value": "E:\\leaf",
+   "cwdReads": 1,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "\\\\?\\C:\\base",
+   "input": "\\leaf",
+   "entries": "other",
+   "value": "E:\\leaf",
+   "cwdReads": 1,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "\\\\?\\C:\\base",
+   "input": "/leaf",
+   "entries": "absent",
+   "value": "E:\\leaf",
+   "cwdReads": 1,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "\\\\?\\C:\\base",
+   "input": "/leaf",
+   "entries": "empty",
+   "value": "E:\\leaf",
+   "cwdReads": 1,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "\\\\?\\C:\\base",
+   "input": "/leaf",
+   "entries": "same",
+   "value": "E:\\leaf",
+   "cwdReads": 1,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "\\\\?\\C:\\base",
+   "input": "/leaf",
+   "entries": "other",
+   "value": "E:\\leaf",
+   "cwdReads": 1,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "\\\\?\\C:\\base",
+   "input": "\\\\leaf",
+   "entries": "absent",
+   "value": "E:\\leaf",
+   "cwdReads": 1,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "\\\\?\\C:\\base",
+   "input": "\\\\leaf",
+   "entries": "empty",
+   "value": "E:\\leaf",
+   "cwdReads": 1,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "\\\\?\\C:\\base",
+   "input": "\\\\leaf",
+   "entries": "same",
+   "value": "E:\\leaf",
+   "cwdReads": 1,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "\\\\?\\C:\\base",
+   "input": "\\\\leaf",
+   "entries": "other",
+   "value": "E:\\leaf",
+   "cwdReads": 1,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "\\\\?\\C:\\base",
+   "input": "\\\\srv\\",
+   "entries": "absent",
+   "value": "E:\\srv",
+   "cwdReads": 1,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "\\\\?\\C:\\base",
+   "input": "\\\\srv\\",
+   "entries": "empty",
+   "value": "E:\\srv",
+   "cwdReads": 1,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "\\\\?\\C:\\base",
+   "input": "\\\\srv\\",
+   "entries": "same",
+   "value": "E:\\srv",
+   "cwdReads": 1,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "\\\\?\\C:\\base",
+   "input": "\\\\srv\\",
+   "entries": "other",
+   "value": "E:\\srv",
+   "cwdReads": 1,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "\\\\?\\C:\\base",
+   "input": "a:leaf",
+   "entries": "absent",
+   "value": "a:\\leaf",
+   "cwdReads": 1,
+   "envReads": [
+    "=a:"
+   ]
+  },
+  {
+   "platform": "win32",
+   "provider": "\\\\?\\C:\\base",
+   "input": "a:leaf",
+   "entries": "empty",
+   "value": "a:\\leaf",
+   "cwdReads": 1,
+   "envReads": [
+    "=a:"
+   ]
+  },
+  {
+   "platform": "win32",
+   "provider": "\\\\?\\C:\\base",
+   "input": "a:leaf",
+   "entries": "same",
+   "value": "a:\\deep\\leaf",
+   "cwdReads": 0,
+   "envReads": [
+    "=a:"
+   ]
+  },
+  {
+   "platform": "win32",
+   "provider": "\\\\?\\C:\\base",
+   "input": "a:leaf",
+   "entries": "other",
+   "value": "a:\\leaf",
+   "cwdReads": 0,
+   "envReads": [
+    "=a:"
+   ]
+  },
+  {
+   "platform": "win32",
+   "provider": "\\\\?\\C:\\base",
+   "input": "c:leaf",
+   "entries": "absent",
+   "value": "c:\\leaf",
+   "cwdReads": 1,
+   "envReads": [
+    "=c:"
+   ]
+  },
+  {
+   "platform": "win32",
+   "provider": "\\\\?\\C:\\base",
+   "input": "c:leaf",
+   "entries": "empty",
+   "value": "c:\\leaf",
+   "cwdReads": 1,
+   "envReads": [
+    "=c:"
+   ]
+  },
+  {
+   "platform": "win32",
+   "provider": "\\\\?\\C:\\base",
+   "input": "c:leaf",
+   "entries": "same",
+   "value": "c:\\deep\\leaf",
+   "cwdReads": 0,
+   "envReads": [
+    "=c:"
+   ]
+  },
+  {
+   "platform": "win32",
+   "provider": "\\\\?\\C:\\base",
+   "input": "c:leaf",
+   "entries": "other",
+   "value": "c:\\leaf",
+   "cwdReads": 0,
+   "envReads": [
+    "=c:"
+   ]
+  },
+  {
+   "platform": "win32",
+   "provider": "\\\\?\\C:\\base",
+   "input": "leaf",
+   "entries": "absent",
+   "value": "\\\\?\\C:\\base\\leaf",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "\\\\?\\C:\\base",
+   "input": "leaf",
+   "entries": "empty",
+   "value": "\\\\?\\C:\\base\\leaf",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "\\\\?\\C:\\base",
+   "input": "leaf",
+   "entries": "same",
+   "value": "\\\\?\\C:\\base\\leaf",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "\\\\?\\C:\\base",
+   "input": "leaf",
+   "entries": "other",
+   "value": "\\\\?\\C:\\base\\leaf",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "\\\\?\\C:\\base",
+   "input": "",
+   "entries": "absent",
+   "value": "\\\\?\\C:\\base",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "\\\\?\\C:\\base",
+   "input": "",
+   "entries": "empty",
+   "value": "\\\\?\\C:\\base",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "\\\\?\\C:\\base",
+   "input": "",
+   "entries": "same",
+   "value": "\\\\?\\C:\\base",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "\\\\?\\C:\\base",
+   "input": "",
+   "entries": "other",
+   "value": "\\\\?\\C:\\base",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "\\\\?\\C:\\base",
+   "input": "file:///C:/x",
+   "entries": "absent",
+   "value": "C:\\x",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "\\\\?\\C:\\base",
+   "input": "file:///C:/x",
+   "entries": "empty",
+   "value": "C:\\x",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "\\\\?\\C:\\base",
+   "input": "file:///C:/x",
+   "entries": "same",
+   "value": "C:\\x",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "\\\\?\\C:\\base",
+   "input": "file:///C:/x",
+   "entries": "other",
+   "value": "C:\\x",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "\\\\?\\C:\\base",
+   "input": "file://srv/share/x",
+   "entries": "absent",
+   "value": "\\\\srv\\share\\x",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "\\\\?\\C:\\base",
+   "input": "file://srv/share/x",
+   "entries": "empty",
+   "value": "\\\\srv\\share\\x",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "\\\\?\\C:\\base",
+   "input": "file://srv/share/x",
+   "entries": "same",
+   "value": "\\\\srv\\share\\x",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "win32",
+   "provider": "\\\\?\\C:\\base",
+   "input": "file://srv/share/x",
+   "entries": "other",
+   "value": "\\\\srv\\share\\x",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "posix",
+   "provider": "/base",
+   "input": "/x",
+   "entries": "n/a",
+   "value": "/x",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "posix",
+   "provider": "/base",
+   "input": "//x",
+   "entries": "n/a",
+   "value": "/x",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "posix",
+   "provider": "/base",
+   "input": "x",
+   "entries": "n/a",
+   "value": "/base/x",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "posix",
+   "provider": "/base",
+   "input": "",
+   "entries": "n/a",
+   "value": "/base",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "posix",
+   "provider": "/base",
+   "input": "\\leaf",
+   "entries": "n/a",
+   "value": "/base/\\leaf",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "posix",
+   "provider": "/base",
+   "input": "file:///x",
+   "entries": "n/a",
+   "value": "/x",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "posix",
+   "provider": "base",
+   "input": "/x",
+   "entries": "n/a",
+   "value": "/x",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "posix",
+   "provider": "base",
+   "input": "//x",
+   "entries": "n/a",
+   "value": "/x",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "posix",
+   "provider": "base",
+   "input": "x",
+   "entries": "n/a",
+   "value": "/proc/base/x",
+   "cwdReads": 1,
+   "envReads": []
+  },
+  {
+   "platform": "posix",
+   "provider": "base",
+   "input": "",
+   "entries": "n/a",
+   "value": "/proc/base",
+   "cwdReads": 1,
+   "envReads": []
+  },
+  {
+   "platform": "posix",
+   "provider": "base",
+   "input": "\\leaf",
+   "entries": "n/a",
+   "value": "/proc/base/\\leaf",
+   "cwdReads": 1,
+   "envReads": []
+  },
+  {
+   "platform": "posix",
+   "provider": "base",
+   "input": "file:///x",
+   "entries": "n/a",
+   "value": "/x",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "posix",
+   "provider": "",
+   "input": "/x",
+   "entries": "n/a",
+   "value": "/x",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "posix",
+   "provider": "",
+   "input": "//x",
+   "entries": "n/a",
+   "value": "/x",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "posix",
+   "provider": "",
+   "input": "x",
+   "entries": "n/a",
+   "value": "/proc/x",
+   "cwdReads": 1,
+   "envReads": []
+  },
+  {
+   "platform": "posix",
+   "provider": "",
+   "input": "",
+   "entries": "n/a",
+   "value": "/proc",
+   "cwdReads": 1,
+   "envReads": []
+  },
+  {
+   "platform": "posix",
+   "provider": "",
+   "input": "\\leaf",
+   "entries": "n/a",
+   "value": "/proc/\\leaf",
+   "cwdReads": 1,
+   "envReads": []
+  },
+  {
+   "platform": "posix",
+   "provider": "",
+   "input": "file:///x",
+   "entries": "n/a",
+   "value": "/x",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "posix",
+   "provider": "//base",
+   "input": "/x",
+   "entries": "n/a",
+   "value": "/x",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "posix",
+   "provider": "//base",
+   "input": "//x",
+   "entries": "n/a",
+   "value": "/x",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "posix",
+   "provider": "//base",
+   "input": "x",
+   "entries": "n/a",
+   "value": "/base/x",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "posix",
+   "provider": "//base",
+   "input": "",
+   "entries": "n/a",
+   "value": "/base",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "posix",
+   "provider": "//base",
+   "input": "\\leaf",
+   "entries": "n/a",
+   "value": "/base/\\leaf",
+   "cwdReads": 0,
+   "envReads": []
+  },
+  {
+   "platform": "posix",
+   "provider": "//base",
+   "input": "file:///x",
+   "entries": "n/a",
+   "value": "/x",
+   "cwdReads": 0,
+   "envReads": []
+  }
+ ]
+}

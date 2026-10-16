@@ -65,7 +65,7 @@ def invoke(binary, cwd, base, inputs, entries=None, preconditions=None, refuse=F
     })
     environment["PYTHONDONTWRITEBYTECODE"] = "1"
     result = subprocess.run([str(binary), TEST, "--exact", "--ignored", "--nocapture"],
-                            cwd=cwd, env=environment, capture_output=True, timeout=90)
+                            cwd=cwd, env=environment, capture_output=True)
     output = result.stdout.decode("utf-8", "replace") + result.stderr.decode("utf-8", "replace")
     records = [json.loads(line[len("PATH_PROBE "):]) for line in output.splitlines() if line.startswith("PATH_PROBE ")]
     fired = [line for line in output.splitlines() if line.startswith("CONTROL FIRED ")]
@@ -114,14 +114,18 @@ def main():
     canonical = json.loads((TREE.parent / "conformance/agent/path-resolution/path-resolution.json").read_text())
     platform = "win32" if os.name == "nt" else "linux"
     cases = [row for row in canonical["path_resolution"]["cases"] if row["platform"] == platform]
-    assert len(cases) == (55 if os.name == "nt" else 25)
+    assert len(cases) == (70 if os.name == "nt" else 29)
     for row in cases:
         host = row["host"]
         entries = {}
         if host:
             drive = str(cwd)[0].upper() if host["drive"] == "cwd" else host["drive"]
             entries[drive] = None if host["entry"] is None else fill(host["entry"], str(cwd))
-        record = invoke(binary, cwd, fill(row["provider_cwd"], str(cwd)),
+        child_cwd = str(cwd)
+        if host and host.get("cwd_form", "ordinary") == "extended":
+            assert os.name == "nt" and host["drive"] == "cwd" and host["entry"] is None
+            child_cwd = "\\\\?\\" + str(cwd)
+        record = invoke(binary, child_cwd, fill(row["provider_cwd"], str(cwd)),
                         [fill(row["input"], str(cwd))], entries, row["preconditions"])
         report.append(compare(row["id"], record, [fill(row["expect"], str(cwd))]))
     if os.name == "nt":

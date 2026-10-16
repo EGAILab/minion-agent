@@ -11,7 +11,7 @@ use tokio::sync::mpsc;
 
 use super::{
     AbortSignal, ExecutionWorldIdentity, Process, ShellError, ShellErrorCode, SpawnOptions,
-    StdioMode, Subprocess, SubprocessErrorCode, filesystem::resolve_local_path,
+    StdioMode, Subprocess, SubprocessErrorCode,
 };
 
 pub type StreamCallback = Arc<dyn Fn(&str) -> Result<(), String> + Send + Sync>;
@@ -69,6 +69,7 @@ pub struct LocalShell {
     subprocess: Arc<dyn Subprocess>,
     configured_shell: Option<PathBuf>,
     active: Mutex<BTreeMap<u32, Weak<dyn Process>>>,
+    pub(super) native_inputs: Arc<dyn super::path::NativeInputs>,
 }
 
 impl LocalShell {
@@ -77,6 +78,7 @@ impl LocalShell {
             subprocess,
             configured_shell: None,
             active: Mutex::new(BTreeMap::new()),
+            native_inputs: Arc::new(super::path::ProcessInputs),
         }
     }
 
@@ -87,7 +89,12 @@ impl LocalShell {
 
     fn resolved_cwd(&self, requested: Option<&Path>) -> std::io::Result<PathBuf> {
         match requested {
-            Some(path) => resolve_local_path(self.subprocess.cwd(), &path.to_string_lossy()),
+            Some(path) => super::path::resolve_with_inputs(
+                self.subprocess.cwd(),
+                &path.to_string_lossy().as_ref().into(),
+                self.native_inputs.as_ref(),
+            )
+            .map(|logical| super::path::native(&logical)),
             None => Ok(self.subprocess.cwd().to_owned()),
         }
     }

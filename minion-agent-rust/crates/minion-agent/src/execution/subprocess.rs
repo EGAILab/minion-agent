@@ -20,7 +20,7 @@ use tokio::{
 
 use super::{
     AbortSignal, EnvSnapshot, ExecutionWorldIdentity, Platform, SubprocessError,
-    SubprocessErrorCode, filesystem::resolve_local_path,
+    SubprocessErrorCode,
 };
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -100,6 +100,19 @@ pub trait Subprocess: Send + Sync {
     ) -> Result<Arc<dyn Process>, SubprocessError>;
 }
 
+pub(super) trait NativeSpawner: std::fmt::Debug + Send + Sync {
+    fn spawn(&self, command: &mut Command) -> io::Result<Child>;
+}
+
+#[derive(Debug)]
+struct TokioSpawner;
+
+impl NativeSpawner for TokioSpawner {
+    fn spawn(&self, command: &mut Command) -> io::Result<Child> {
+        command.spawn()
+    }
+}
+
 #[derive(Clone, Debug)]
 /// The local platform declaration cannot be retagged through the public API.
 /// ```compile_fail
@@ -117,6 +130,8 @@ pub struct LocalSubprocess {
     cwd: PathBuf,
     base_env: BTreeMap<String, String>,
     world: ExecutionWorldIdentity,
+    pub(super) native_inputs: Arc<dyn super::path::NativeInputs>,
+    pub(super) native_spawner: Arc<dyn NativeSpawner>,
 }
 
 impl LocalSubprocess {
@@ -129,6 +144,8 @@ impl LocalSubprocess {
             cwd: cwd.into(),
             base_env: std::env::vars().collect(),
             world,
+            native_inputs: Arc::new(super::path::ProcessInputs),
+            native_spawner: Arc::new(TokioSpawner),
         }
     }
 
@@ -139,7 +156,12 @@ impl LocalSubprocess {
 
     fn resolved_cwd(&self, cwd: Option<&Path>) -> std::io::Result<PathBuf> {
         match cwd {
-            Some(cwd) => resolve_local_path(&self.cwd, &cwd.to_string_lossy()),
+            Some(cwd) => super::path::resolve_with_inputs(
+                &self.cwd,
+                &cwd.to_string_lossy().as_ref().into(),
+                self.native_inputs.as_ref(),
+            )
+            .map(|logical| super::path::native(&logical)),
             None => Ok(self.cwd.clone()),
         }
     }
@@ -204,7 +226,10 @@ impl Subprocess for LocalSubprocess {
         #[cfg(unix)]
         command.process_group(0);
 
-        let mut child = command.spawn().map_err(map_spawn_error)?;
+        let mut child = self
+            .native_spawner
+            .spawn(&mut command)
+            .map_err(map_spawn_error)?;
         let pid = child.id().ok_or_else(|| {
             SubprocessError::new(
                 SubprocessErrorCode::SpawnError,

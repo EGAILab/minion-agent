@@ -46,7 +46,8 @@ pub enum FsErrorCode {
 pub struct FsError {
     pub code: FsErrorCode,
     pub message: String,
-    /// Actual failing OS-call path, or the logical operation fallback.
+    /// Actual failing OS-call path, or the logical operation fallback. A failed
+    /// process-cwd read instead carries the caller's raw logical argument.
     pub path: Option<super::FsPath>,
 }
 

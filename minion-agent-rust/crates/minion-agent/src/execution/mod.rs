@@ -10,6 +10,9 @@ mod signal;
 mod subprocess;
 mod world;
 
+#[cfg(test)]
+mod div009_tests;
+
 pub use environment::{EnvEntries, EnvSnapshot, EnvValue, Platform, pinned_windows_uppercase};
 pub use error::{
     FsError, FsErrorCode, ShellError, ShellErrorCode, SubprocessError, SubprocessErrorCode,

@@ -6386,7 +6386,9 @@ rows:
     Python: implemented for win32 (M1-M3) and POSIX (M4), PENDING INDEPENDENT REVIEW (L12D013-F001 open);
     tests/conformance/test_path_resolution_conformance.py (controls D013-C1..C5),
     tests/execution/test_path_resolution_rooted.py (Node-recorded port fixture with the UNC process cwd, EXEC-005
-    spawn-cwd witness). Rust: revalidation against the merged cases. Cross-language NOT CLOSED.'
+    spawn-cwd witness). A failed native process-cwd read is DIV-009 (row EXEC-002-DIV-009; spec section 22):
+    Python REMEDIATION_REQUIRED (L12D013-PY-I001). Rust: revalidation against the merged cases. Cross-language
+    NOT CLOSED.'
   - 'fs_path_javascript_string_domain -- L12-D001 (minion-agent#123; Owner decision FSP-Q001 Option 1; intentional
     divergence NONE; CONTRACT_DRAFT, Rust NOT_IMPLEMENTED): ctx.fs paths are JavaScript strings; the local provider
     projects unpaired surrogates to U+FFFD ONLY at the OS call (pinned Node), so canonical_path / listings / OS error
@@ -6531,6 +6533,33 @@ rows:
     assurance/layers/12-l12-d008-rust-implementation.md. Approved and merged (code #219 -> f7400987, docs
     #296 -> 299dba21; closure review 3 #215 issuecomment-6134407241). CERTIFIED_CLOSED cross-language.
     Non-blocking follow-up L12D008-RR003: parameterize the gate/controls targets in the launchers.'
+  disposition: intentional divergence
+- id: EXEC-002-DIV-009
+  phase: 6
+  pi: 'packages/agent/src/harness/env/nodejs.ts resolvePath (51-65) -> Node v22.15.1 path.resolve reads
+    process.cwd() outside any try; absolutePath returns ok(resolvePath(...)) (359-360), exec resolves its cwd
+    before its access catch (376), every filesystem operation resolves first: a failed native read throws and
+    the operation rejects, contrary to the interface rule types.ts:228-229'
+  surface: Layer 12, L12-D013 amendment -- a failed native process-cwd read during path resolution (EXEC-002
+    ctx.fs; traceability EXEC-004 ctx.shell.exec, EXEC-005 ctx.subprocess.spawn)
+  rule: 'DIV-009 (assurance/pi-divergences.md; Owner decision minion-agent#235 issuecomment-6205758223;
+    provenance L12D013-PY-I001). spec/execution.md section 22 with sections 2 and 3.2 as corrected: the read
+    stays where and when the certified resolver makes it (lazy; win32 rooted/incomplete-UNC and L12-D012
+    drive-relative with an absent or empty inherited entry; POSIX only when no argument is absolute). When it
+    fails with an operational OS error: ctx.fs returns FsError classified from the ORIGINAL native error by the
+    existing mapper, with its own diagnostic and path = the caller''s logical argument as passed (rename_file:
+    source before destination); ctx.shell.exec returns ShellError spawn_error; ctx.subprocess.spawn returns
+    SubprocessError spawn_error with no process created. Existing precedence kept; no retry, fallback or
+    substitution; only that read''s operational failure is converted.'
+  tests:
+  - 'PENDING (contract amendment under independent review): the Owner-required permanent witnesses and
+    negative controls of DIV-009 (pinned-Pi-versus-Minion rows, injected native-read failures through the real
+    public seams), to be added by the Python remediation and the Rust revalidation'
+  python: 'REMEDIATION_REQUIRED (L12D013-PY-I001): merged Python lets the bare OSError escape from every
+    resolver consumer.'
+  rust: 'REVALIDATE_REQUIRED for this surface only (Owner reconciliation): typed handling exists (ctx.fs
+    map_fs_error without a path; ctx.shell and ctx.subprocess spawn_error); the ctx.fs mapping must gain the
+    caller''s logical path. Earlier certification preserved as historical evidence.'
   disposition: intentional divergence
 - id: EXEC-003
   phase: 6
@@ -6795,6 +6824,10 @@ rows:
   tests:
   - minion-agent-rust/crates/minion-agent/tests/execution_shell.rs
   - minion-agent-python/tests/execution/test_shell.py
+  - 'process_cwd_read_failure -- L12-D013 amendment DIV-009 (minion-agent#235; spec section 22): a failed native
+    process-cwd read while resolving the exec cwd returns ShellError spawn_error after pre-abort and timeout
+    validation, before shell discovery; row EXEC-002-DIV-009. Witnesses PENDING (Python remediation, Rust
+    revalidation).'
   python: 'minion-agent-python/src/minion_agent/execution/shell.py; integration evidence in
     minion-agent-python/tests/execution/test_shell.py'
   rust: 'minion-agent-rust/crates/minion-agent/src/execution/shell.rs; integration evidence in
@@ -6912,8 +6945,10 @@ rows:
   - 'fs_path_resolution_rooted_and_unc_root -- L12-D013 (minion-agent#235): the effective spawn cwd uses the same
     section 3.2 rooted/UNC-root rule (CONTRACT_DRAFT); an EXEC-005 consumer witness is required of each binding.
     Python: implemented (M1-M4), PENDING INDEPENDENT REVIEW (L12D013-F001 open), with the EXEC-005 witness
-    tests/execution/test_path_resolution_rooted.py::test_exec005_rooted_spawn_cwd_uses_the_process_device; Rust.
-    Cross-language NOT CLOSED.'
+    tests/execution/test_path_resolution_rooted.py::test_exec005_rooted_spawn_cwd_uses_the_process_device. A
+    failed native process-cwd read while resolving the spawn cwd is DIV-009 (row EXEC-002-DIV-009; spec section
+    22): SubprocessError spawn_error after pre-abort, before the section 21 checks, with no process created;
+    Python REMEDIATION_REQUIRED (L12D013-PY-I001). Rust. Cross-language NOT CLOSED.'
   - minion-agent-rust/crates/minion-agent/tests/execution_process.rs
   - minion-agent-python/tests/execution/test_subprocess.py
   python: 'minion-agent-python/src/minion_agent/execution/subprocess.py; integration evidence in

@@ -427,6 +427,63 @@ async def test_r10_nul_path_without_reread(monkeypatch: pytest.MonkeyPatch) -> N
     assert await r10_nul_path_without_reread(monkeypatch)
 
 
+# R11 (`L12D013-PY-I001`, review 7): the NUL fallback is the SOURCE slot's own resolution, even
+# when source and destination are spelled alike and the two process-cwd reads disagree. Rows:
+# (id, source, destination, the two reads, expected source resolution, expected destination one).
+SRC, DST, SAME = "\\src\x00x", "\\dst\x00x", "\\same\x00x"
+RAW = "\\s\ud800\x00x"  # a lone surrogate: the fallback keeps it raw, never the native projection
+STABLE, VARYING = (PROC, PROC), (PROC, "F:\\proc")
+SLOT_ROWS = [
+    ("distinct-stable", SRC, DST, STABLE, "E:" + SRC, "E:" + DST),
+    ("distinct-varying", SRC, DST, VARYING, "E:" + SRC, "F:" + DST),
+    ("equal-stable", SAME, SAME, STABLE, "E:" + SAME, "E:" + SAME),
+    ("equal-varying", SAME, SAME, VARYING, "E:" + SAME, "F:" + SAME),
+    ("equal-varying-raw", RAW, RAW, VARYING, "E:" + RAW, "F:" + RAW),
+]
+
+
+async def slot_identity_row(
+    mp: pytest.MonkeyPatch,
+    source: str,
+    destination: str,
+    reads: tuple[str, str],
+    want_source: str,
+    want_destination: str,
+) -> bool:
+    """Both arguments read the process cwd once each; the native rename is a spy that sees the two
+    native arguments and rejects them as the host does a NUL. No filesystem call is made."""
+    reader = install(mp, Reader(*reads))
+    seen: list[tuple[Any, ...]] = []
+
+    def reject(*args: Any) -> None:
+        seen.append(args)
+        raise ValueError("embedded null character")
+
+    mp.setattr(os, "replace", reject)
+    result = await LocalFileSystem("C:\\base").rename_file(source, destination)
+    native = (filesystem.native_path(want_source), filesystem.native_path(want_destination))
+    return (
+        isinstance(result, Err)
+        and result.error.code == FsErrorCode.UNKNOWN
+        and result.error.path == want_source
+        and reader.calls == 2
+        and seen == [native]
+    )
+
+
+@WIN
+@pytest.mark.parametrize("row", SLOT_ROWS, ids=[r[0] for r in SLOT_ROWS])
+async def test_r11_nul_fallback_is_the_source_slot(
+    row: tuple[Any, ...], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    assert await slot_identity_row(monkeypatch, *row[1:])
+
+
+def slot_row(name: str) -> Callable[[pytest.MonkeyPatch], Callable[[], Coroutine[Any, Any, bool]]]:
+    row = next(r for r in SLOT_ROWS if r[0] == name)
+    return lambda mp: lambda: slot_identity_row(mp, *row[1:])
+
+
 @WIN
 @pytest.mark.parametrize("name", ["write_file", "append_file"])
 async def test_nul_after_parent_effect_keeps_it(
@@ -729,6 +786,25 @@ def k12_nul_reread(mp: pytest.MonkeyPatch) -> None:
     mp.setattr(LocalFileSystem, "rename_file", filesystem._typed_cwd_failure(wrong))
 
 
+def k13_value_keyed_slots(mp: pytest.MonkeyPatch) -> None:
+    raw = LocalFileSystem.rename_file.__wrapped__.__wrapped__  # type: ignore[attr-defined]
+
+    async def wrong(
+        self: LocalFileSystem, source: str, destination: str, signal: RunSignal | None = None
+    ) -> Any:
+        recorded: list[tuple[str, str, str]] = []
+        token = filesystem._RESOLUTIONS.set(recorded)
+        try:
+            return await raw(self, source, destination, signal)
+        except ValueError as exc:  # WRONG: keyed by argument value, the last resolution wins
+            by_value = {(cwd, path): resolved for cwd, path, resolved in recorded}
+            return Err(filesystem._nul_failure(exc, by_value[(self.cwd, source)]))
+        finally:
+            filesystem._RESOLUTIONS.reset(token)
+
+    mp.setattr(LocalFileSystem, "rename_file", filesystem._typed_cwd_failure(wrong))
+
+
 def witness_of(
     fn: Callable[[pytest.MonkeyPatch], Coroutine[Any, Any, bool]],
 ) -> Callable[[pytest.MonkeyPatch], Callable[[], Coroutine[Any, Any, bool]]]:
@@ -748,6 +824,8 @@ CONTROLS: list[tuple[str, Callable[[pytest.MonkeyPatch], None], Any]] = [
     ("K10-exists-false", k10_exists_false, witness_of(exists_propagates)),
     ("K11-resolve-fallback", k11_resolve_fallback, witness_of(resolve_propagates)),
     ("K12-nul-reread", k12_nul_reread, witness_of(r10_nul_path_without_reread)),
+    ("K13-value-keyed-slots", k13_value_keyed_slots, slot_row("equal-varying")),
+    ("K13-value-keyed-slots-raw", k13_value_keyed_slots, slot_row("equal-varying-raw")),
 ]
 
 
@@ -775,6 +853,21 @@ async def test_nul_wrapper_reraises_a_value_error_before_resolution() -> None:
 
     with pytest.raises(ValueError, match="before resolution"):
         await filesystem._contain_nul(early)(Owner(), "a\x00b")
+
+
+async def test_nul_wrapper_reraises_when_a_slot_is_another_resolution() -> None:
+    """Slot `i` must be the resolution of argument `i`: a first resolution of some other path is
+    not the argument's, so the rejection is not classified as that argument's NUL failure."""
+
+    class Owner:
+        cwd = "C:\\base"
+
+    async def other_first(self: Owner, path: str, signal: RunSignal | None = None) -> Any:
+        filesystem.resolve_local_path(self.cwd, "C:\\elsewhere\x00")
+        raise ValueError("embedded null character")
+
+    with pytest.raises(ValueError, match="embedded null"):
+        await filesystem._contain_nul(other_first)(Owner(), "C:\\a\x00b")
 
 
 def test_shell_module_converts_only_the_read_error() -> None:

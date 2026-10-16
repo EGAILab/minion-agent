@@ -155,7 +155,11 @@ def _process_cwd_reader(argument: str) -> Callable[[], str]:
 
 # L12-D006 x DIV-009 (spec section 22.2): the resolutions an operation made, recorded while the NUL
 # wrapper is active, so its error path reuses them and never reads the process cwd a second time.
-_RESOLUTIONS: ContextVar[dict[tuple[str, str], str] | None] = ContextVar(
+# One `(cwd, path, resolved)` entry per resolution, in call order: an entry is an argument SLOT,
+# not an argument value (`L12D013-PY-I001`, review 7) -- `rename_file` with equal source and
+# destination spellings makes two resolutions that need not agree (the process cwd is mutable
+# process-wide), and the source fallback is the source's own.
+_RESOLUTIONS: ContextVar[list[tuple[str, str, str]] | None] = ContextVar(
     "minion_agent_fs_resolutions", default=None
 )
 
@@ -177,7 +181,7 @@ def resolve_local_path(cwd: str, path: str) -> str:
     resolved = _resolve_local_path(cwd, path)
     recorded = _RESOLUTIONS.get()
     if recorded is not None:
-        recorded[(cwd, path)] = resolved
+        recorded.append((cwd, path, resolved))
     return resolved
 
 
@@ -1554,7 +1558,7 @@ def _contain_nul[**P, T](
     signature = inspect.signature(method)
 
     async def contained(*args: P.args, **kwargs: P.kwargs) -> Result[T, FsError]:
-        recorded: dict[tuple[str, str], str] = {}
+        recorded: list[tuple[str, str, str]] = []
         token = _RESOLUTIONS.set(recorded)
         try:
             return await method(*args, **kwargs)
@@ -1566,13 +1570,17 @@ def _contain_nul[**P, T](
             # the native call rejects, with no literal NUL in the caller's string. `rename_file` has
             # a second path, its destination; every other operation's other arguments are not paths.
             # DIV-009 (spec section 22.2): they are the resolutions the operation already made --
-            # never a second resolution, which would read the process cwd again.
+            # never a second resolution, which would read the process cwd again. Each operation
+            # resolves its path arguments once each, in argument order, so slot `i` is entry `i`:
+            # never looked up by argument value, which loses the source when the spellings agree.
             paths = [source]
             if isinstance(bound.get("destination"), str):
                 paths.append(bound["destination"])
-            if any((cwd, p) not in recorded for p in paths):
+            if len(recorded) < len(paths) or any(
+                recorded[slot][:2] != (cwd, p) for slot, p in enumerate(paths)
+            ):
                 raise  # the native call failed before its own path was resolved: not a NUL case
-            resolved = [recorded[(cwd, p)] for p in paths]
+            resolved = [entry[2] for entry in recorded[: len(paths)]]
             if not _nul_rejected(exc, *resolved):
                 raise
             return Err(_nul_failure(exc, resolved[0]))

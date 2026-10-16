@@ -365,9 +365,7 @@ async def test_r7_both_resolve_then_abort(monkeypatch: pytest.MonkeyPatch) -> No
 
 @WIN
 async def test_r8_complete_roots_never_read(monkeypatch: pytest.MonkeyPatch) -> None:
-    result, calls = await rename_row(
-        monkeypatch, "E:\\abs\\src", "\\\\srv\\share\\dst", aborted()
-    )
+    result, calls = await rename_row(monkeypatch, "E:\\abs\\src", "\\\\srv\\share\\dst", aborted())
     assert isinstance(result, Err)
     assert (result.error.code, result.error.path) == (
         FsErrorCode.ABORTED,

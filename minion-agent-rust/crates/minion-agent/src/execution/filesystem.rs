@@ -316,6 +316,7 @@ pub struct LocalFileSystem {
     directory_probe_operations: Arc<dyn DirectoryProbeOperations>,
     remove_operations: Arc<dyn rimraf::Operations>,
     handle_operations: Arc<dyn HandleOperations>,
+    pub(super) native_inputs: Arc<dyn super::path::NativeInputs>,
 }
 
 impl LocalFileSystem {
@@ -331,11 +332,13 @@ impl LocalFileSystem {
             directory_probe_operations: Arc::new(TokioDirectoryProbeOperations),
             remove_operations: Arc::new(rimraf::NativeOperations),
             handle_operations: Arc::new(NativeHandleOperations),
+            native_inputs: Arc::new(super::path::ProcessInputs),
         }
     }
 
     fn resolved(&self, raw: &FsPath) -> Result<FsPath, FsError> {
-        resolve(&self.cwd, raw).map_err(map_fs_error)
+        super::path::resolve_with_inputs(&self.cwd, raw, self.native_inputs.as_ref())
+            .map_err(map_fs_error)
     }
 
     fn aborted(signal: Option<&dyn AbortSignal>, logical: &FsPath) -> Result<(), FsError> {
@@ -1806,6 +1809,7 @@ mod tests {
             directory_probe_operations: operations.clone(),
             remove_operations: Arc::new(rimraf::NativeOperations),
             handle_operations: Arc::new(NativeHandleOperations),
+            native_inputs: Arc::new(super::super::path::ProcessInputs),
         };
 
         assert_eq!(
@@ -1832,6 +1836,7 @@ mod tests {
             directory_probe_operations: operations.clone(),
             remove_operations: Arc::new(rimraf::NativeOperations),
             handle_operations: Arc::new(NativeHandleOperations),
+            native_inputs: Arc::new(super::super::path::ProcessInputs),
         };
 
         let names = filesystem.list_dir_raw(".", None).await.unwrap();

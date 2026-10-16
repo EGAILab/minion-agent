@@ -95,6 +95,26 @@ fn process_cwd_view() -> std::io::Result<FsPath> {
     view_native_cwd_read(env::current_dir())
 }
 
+/// The native-read boundary is instance-owned, not process-global. Tests can
+/// script a failed read without deleting a real cwd or changing the host env.
+pub(super) trait NativeInputs: std::fmt::Debug + Send + Sync {
+    fn cwd_view(&self) -> std::io::Result<FsPath>;
+    fn drive_view(&self, device: &[u16]) -> Option<FsPath>;
+}
+
+#[derive(Debug)]
+pub(super) struct ProcessInputs;
+
+impl NativeInputs for ProcessInputs {
+    fn cwd_view(&self) -> std::io::Result<FsPath> {
+        process_cwd_view()
+    }
+
+    fn drive_view(&self, device: &[u16]) -> Option<FsPath> {
+        inherited_drive_view(device)
+    }
+}
+
 fn view_native_cwd_read(read: std::io::Result<PathBuf>) -> std::io::Result<FsPath> {
     read.map(|cwd| native_cwd_view(&native_units(&cwd), cfg!(windows)))
 }
@@ -115,12 +135,29 @@ pub fn file_url_to_js_path(raw: &FsPath, windows: bool) -> Option<FsPath> {
 }
 
 pub(crate) fn resolve(cwd: &Path, raw: &FsPath) -> std::io::Result<FsPath> {
-    resolve_logical(&logical_provider_path(cwd), raw)
+    resolve_with_inputs(cwd, raw, &ProcessInputs)
+}
+
+pub(super) fn resolve_with_inputs(
+    cwd: &Path,
+    raw: &FsPath,
+    inputs: &dyn NativeInputs,
+) -> std::io::Result<FsPath> {
+    resolve_logical_with_inputs(&logical_provider_path(cwd), raw, inputs)
 }
 
 /// Logical cwd and input are both JavaScript strings. The OS-path convenience
 /// adapter above does not make this entry point project either string.
+#[cfg(test)]
 pub(crate) fn resolve_logical(cwd: &FsPath, raw: &FsPath) -> std::io::Result<FsPath> {
+    resolve_logical_with_inputs(cwd, raw, &ProcessInputs)
+}
+
+pub(super) fn resolve_logical_with_inputs(
+    cwd: &FsPath,
+    raw: &FsPath,
+    inputs: &dyn NativeInputs,
+) -> std::io::Result<FsPath> {
     let mut expanded = raw.clone();
     if starts(raw, "file://") {
         if let Some(converted) = file_url_to_js_path(raw, cfg!(windows)) {
@@ -142,8 +179,8 @@ pub(crate) fn resolve_logical(cwd: &FsPath, raw: &FsPath) -> std::io::Result<FsP
     super::path_resolve::resolve(
         &parts,
         cfg!(windows),
-        inherited_drive_view,
-        process_cwd_view,
+        |device| inputs.drive_view(device),
+        || inputs.cwd_view(),
     )
 }
 

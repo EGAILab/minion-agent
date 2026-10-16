@@ -7,64 +7,64 @@ enum Token {
     Open,
     Close,
     Comma,
-    Text(String),
+    Text(Vec<u16>),
 }
-fn lex(text: &str) -> Vec<Token> {
+fn lex(text: &[u16]) -> Vec<Token> {
     let mut out = Vec::new();
     let mut offset = 0;
     while offset < text.len() {
         let tail = &text[offset..];
-        if tail.starts_with(SEP) {
+        if tail.starts_with(&SEP.encode_utf16().collect::<Vec<_>>()) {
             out.push(Token::Sep);
             offset += SEP.len();
             continue;
         }
-        let ch = tail.chars().next().unwrap();
-        if ch == '[' {
+        let ch = tail[0];
+        if ch == 91 {
             let mut end = offset + 1;
-            if matches!(text.as_bytes().get(end), Some(b'!' | b'^')) {
+            if matches!(text.get(end), Some(33 | 94)) {
                 end += 1;
             }
-            if text.as_bytes().get(end) == Some(&b']') {
+            if text.get(end) == Some(&93) {
                 end += 1;
             }
-            if let Some(n) = text[end..].find(']') {
+            if let Some(n) = text[end..].iter().position(|u| *u == 93) {
                 end += n + 1;
             } else {
                 end = text.len();
             }
-            out.push(Token::Text(text[offset..end].into()));
+            out.push(Token::Text(text[offset..end].to_vec()));
             offset = end;
             continue;
         }
-        if ch == '*' {
-            let n = tail.bytes().take_while(|b| *b == b'*').count();
+        if ch == 42 {
+            let n = tail.iter().take_while(|u| **u == 42).count();
             out.push(Token::Stars(n));
             offset += n;
             continue;
         }
         out.push(match ch {
-            '{' => Token::Open,
-            '}' => Token::Close,
-            ',' => Token::Comma,
-            _ => Token::Text(ch.to_string()),
+            123 => Token::Open,
+            125 => Token::Close,
+            44 => Token::Comma,
+            _ => Token::Text(vec![ch]),
         });
-        offset += ch.len_utf8();
+        offset += 1;
     }
     out
 }
-fn render(token: &Token) -> String {
+fn render(token: &Token) -> Vec<u16> {
     match token {
-        Token::Sep => SEP.into(),
-        Token::Stars(n) => "*".repeat(*n),
-        Token::Open => "{".into(),
-        Token::Close => "}".into(),
-        Token::Comma => ",".into(),
+        Token::Sep => SEP.encode_utf16().collect(),
+        Token::Stars(n) => vec![42; *n],
+        Token::Open => vec![123],
+        Token::Close => vec![125],
+        Token::Comma => vec![44],
         Token::Text(s) => s.clone(),
     }
 }
-fn rewrite(tokens: &[Token], alternative: bool) -> String {
-    let mut out = String::new();
+fn rewrite(tokens: &[Token], alternative: bool) -> Vec<u16> {
+    let mut out = Vec::new();
     let mut i = 0;
     while i < tokens.len() {
         if tokens[i] == Token::Open {
@@ -81,7 +81,7 @@ fn rewrite(tokens: &[Token], alternative: bool) -> String {
                 }
             }
             if depth != 0 {
-                out.extend(tokens[i..].iter().map(render));
+                out.extend(tokens[i..].iter().flat_map(render));
                 return out;
             }
             let mut begin = i + 1;
@@ -99,7 +99,14 @@ fn rewrite(tokens: &[Token], alternative: bool) -> String {
                 }
             }
             parts.push(rewrite(&tokens[begin..end], true));
-            out.push_str(&format!("{{{}}}", parts.join(",")));
+            out.push(123);
+            for (n, part) in parts.into_iter().enumerate() {
+                if n != 0 {
+                    out.push(44);
+                }
+                out.extend(part);
+            }
+            out.push(125);
             i = end + 1;
             continue;
         }
@@ -109,7 +116,7 @@ fn rewrite(tokens: &[Token], alternative: bool) -> String {
             && tokens.get(i + 1) == Some(&Token::Stars(2))
             && tokens.get(i + 2) == Some(&Token::Sep)
         {
-            out.push_str(&format!("{{{SEP},{SEP}**{SEP}}}"));
+            out.extend(format!("{{{SEP},{SEP}**{SEP}}}").encode_utf16());
             i += 3;
             while tokens.get(i) == Some(&Token::Stars(2)) && tokens.get(i + 1) == Some(&Token::Sep)
             {
@@ -125,20 +132,47 @@ fn rewrite(tokens: &[Token], alternative: bool) -> String {
             && tokens.get(i + 1) == Some(&Token::Sep)
         {
             let rest = rewrite(&tokens[2..], true);
-            out.push_str(&format!("{{{rest},**{SEP}{rest}}}"));
+            out.push(123);
+            out.extend_from_slice(&rest);
+            out.extend(format!(",**{SEP}").encode_utf16());
+            out.extend(rest);
+            out.push(125);
             return out;
         }
-        out.push_str(&render(&tokens[i]));
+        out.extend(render(&tokens[i]));
         i += 1;
     }
     out
 }
+#[cfg(test)]
 pub(super) fn windows_full_path(pattern: &str) -> String {
-    let pi = pattern.replace('/', SEP);
-    rewrite(&lex(&pi), false)
+    windows_full_path_lossless(&pattern.into())
+        .as_str()
+        .expect("scalar input stays scalar")
+        .to_owned()
 }
+#[cfg(test)]
 pub(super) fn pi_windows(pattern: &str) -> String {
     pattern.replace('/', SEP)
+}
+
+pub(super) fn pi_windows_lossless(pattern: &crate::llm::ResultString) -> crate::llm::ResultString {
+    let mut units = Vec::new();
+    for &unit in pattern.code_units() {
+        if unit == 47 {
+            units.extend(SEP.encode_utf16());
+        } else {
+            units.push(unit);
+        }
+    }
+    crate::llm::ResultString::from_code_units(units)
+}
+
+pub(super) fn windows_full_path_lossless(
+    pattern: &crate::llm::ResultString,
+) -> crate::llm::ResultString {
+    let pi = pi_windows_lossless(pattern);
+    crate::llm::ResultString::from_code_units(rewrite(&lex(pi.code_units()), false))
 }
 
 #[cfg(test)]

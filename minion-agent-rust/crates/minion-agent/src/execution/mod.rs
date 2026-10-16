@@ -7,6 +7,7 @@ mod path_resolve;
 mod service;
 mod shell;
 mod signal;
+mod spawn_nul;
 mod subprocess;
 mod world;
 
@@ -23,8 +24,8 @@ pub use service::{FileSystemService, LocalExecutionProviders, ShellService, Subp
 pub use shell::{LocalShell, Shell, ShellExecOptions, ShellOutput, StreamCallback};
 pub use signal::{AbortSignal, CancellationController, CancellationSignal};
 pub use subprocess::{
-    ExitStatus, LocalProcess, LocalSubprocess, Process, ReadableStream, SpawnOptions, StdioMode,
-    Subprocess, WritableStream,
+    ExitStatus, LocalProcess, LocalSubprocess, LosslessSpawnOptions, Process, ReadableStream,
+    SpawnOptions, StdioMode, Subprocess, WritableStream,
 };
 pub use world::{
     ExecutionWorldError, ExecutionWorldIdentity, IncompatiblePair, compatible,

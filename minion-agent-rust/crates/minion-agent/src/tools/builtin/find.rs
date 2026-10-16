@@ -10,7 +10,7 @@ use super::{
 };
 use crate::{
     execution::{
-        ExecutionWorldError, FileSystem, FsPath, Platform, SpawnOptions, Subprocess,
+        ExecutionWorldError, FileSystem, FsPath, LosslessSpawnOptions, Platform, Subprocess,
         validate_execution_worlds,
     },
     javascript::js_trim,
@@ -41,7 +41,6 @@ async fn execute(
         .absolute_path(&working, None)
         .await
         .map_err(|e| ToolCapabilityError::new(e.to_string()))?;
-    let root = String::from_utf16_lossy(search.code_units());
     let fd = engines
         .resolve(SearchEngine::Fd, subprocess.execution_world())
         .await?;
@@ -53,10 +52,13 @@ async fn execute(
         .get("limit")
         .and_then(|v| v.as_f64())
         .unwrap_or(1000.0);
-    let pattern = match request.params.get("pattern") {
-        Some(PreparedValue::String(s)) => s.to_utf8_lossy(),
+    let logical_pattern = match request.params.get("pattern") {
+        Some(PreparedValue::String(s)) => {
+            crate::llm::ResultString::from_code_units(s.code_units().to_vec())
+        }
         _ => return Err(ToolCapabilityError::new("pattern is required")),
     };
+    let pattern = String::from_utf16_lossy(logical_pattern.code_units());
     let platform = subprocess.platform();
     let mut current = search.clone();
     let mut repo = false;
@@ -86,17 +88,19 @@ async fn execute(
         args.push("--no-require-git".into());
     }
     args.extend(["--max-results".into(), number_to_string(limit)]);
-    let mut effective = pattern.clone();
-    let mut pi = pattern.clone();
+    let mut effective = logical_pattern.clone();
+    let mut pi = logical_pattern;
     if pattern.contains('/') {
         args.push("--full-path".into());
         if !pattern.starts_with('/') && !pattern.starts_with("**/") && pattern != "**" {
-            effective = format!("**/{pattern}");
+            let mut units: Vec<u16> = "**/".encode_utf16().collect();
+            units.extend_from_slice(effective.code_units());
+            effective = crate::llm::ResultString::from_code_units(units);
         }
         pi = effective.clone();
         if platform == Platform::Windows {
-            effective = search_glob::windows_full_path(&effective);
-            pi = search_glob::pi_windows(&pi);
+            effective = search_glob::windows_full_path_lossless(&effective);
+            pi = search_glob::pi_windows_lossless(&pi);
         }
     }
     let mut first = true;
@@ -115,17 +119,21 @@ async fn execute(
         if request.signal.as_ref().is_some_and(|s| s.is_cancelled()) {
             return Err(ToolCapabilityError::new(OPERATION_ABORTED));
         }
-        let mut argv = vec![binary.to_string_lossy().into_owned()];
-        argv.extend(args.clone());
+        let mut argv: Vec<crate::llm::ResultString> =
+            vec![binary.to_string_lossy().into_owned().into()];
+        argv.extend(args.iter().map(|a| a.as_str().into()));
         argv.extend([
             "--".into(),
             if first { effective.clone() } else { pi.clone() },
-            root.clone(),
+            search.clone(),
         ]);
         let process = subprocess
-            .spawn(&argv, SpawnOptions::default())
+            .spawn_lossless(&argv, LosslessSpawnOptions::default())
             .await
-            .map_err(|e| ToolCapabilityError::new(format!("Failed to run fd: {}", e.message)))?;
+            .map_err(|e| match e.nul_diagnostic() {
+                Some(message) => ToolCapabilityError::new(message.clone()),
+                None => ToolCapabilityError::new(format!("Failed to run fd: {}", e.message)),
+            })?;
         let lines = std::sync::Mutex::new(Vec::new());
         let mut retry = false;
         let outcome = search_run::run_with_completion(

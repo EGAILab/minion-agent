@@ -19,9 +19,104 @@ use tokio::{
 };
 
 use super::{
-    AbortSignal, EnvSnapshot, ExecutionWorldIdentity, Platform, SubprocessError,
-    SubprocessErrorCode, filesystem::resolve_local_path,
+    AbortSignal, EnvEntries, EnvSnapshot, ExecutionWorldIdentity, Platform, SubprocessError,
+    SubprocessErrorCode,
 };
+use crate::llm::ResultString;
+#[cfg(test)]
+#[path = "spawn_nul_tests.rs"]
+mod spawn_nul_tests;
+
+/// Lossless, ordered additive EXEC-013 carrier. Repeated exact overlay names
+/// overwrite their value without moving their first insertion position.
+#[derive(Clone)]
+pub struct LosslessSpawnOptions {
+    pub cwd: Option<ResultString>,
+    pub env: Vec<(ResultString, ResultString)>,
+    pub inherit_env: bool,
+    pub stdin: StdioMode,
+    pub stdout: StdioMode,
+    pub stderr: StdioMode,
+    pub signal: Option<Arc<dyn AbortSignal>>,
+}
+
+impl Default for LosslessSpawnOptions {
+    fn default() -> Self {
+        SpawnOptions::default().into()
+    }
+}
+
+impl From<SpawnOptions> for LosslessSpawnOptions {
+    fn from(options: SpawnOptions) -> Self {
+        Self {
+            cwd: options.cwd.as_deref().map(super::path::from_native),
+            env: options
+                .env
+                .into_iter()
+                .map(|(n, v)| (n.into(), v.into()))
+                .collect(),
+            inherit_env: options.inherit_env,
+            stdin: options.stdin,
+            stdout: options.stdout,
+            stderr: options.stderr,
+            signal: options.signal,
+        }
+    }
+}
+
+fn snapshot_entries(snapshot: EnvSnapshot) -> Vec<(ResultString, ResultString)> {
+    match snapshot.copy() {
+        EnvEntries::Windows(entries) => entries
+            .into_iter()
+            .map(|(n, v)| (n.into(), v.into()))
+            .collect(),
+        EnvEntries::Posix(entries) => entries
+            .into_iter()
+            .filter_map(|(n, v)| {
+                String::from_utf8(n)
+                    .ok()
+                    .map(|n| (n.into(), String::from_utf8_lossy(&v).into_owned().into()))
+            })
+            .collect(),
+    }
+}
+
+fn prepare_spawn<S: Subprocess + ?Sized>(
+    provider: &S,
+    argv: &[ResultString],
+    options: &LosslessSpawnOptions,
+) -> Result<ResultString, SubprocessError> {
+    if options.signal.as_ref().is_some_and(|s| s.aborted()) {
+        return Err(SubprocessError::new(
+            SubprocessErrorCode::Aborted,
+            "operation aborted",
+        ));
+    }
+    if argv.is_empty() {
+        return Err(SubprocessError::new(
+            SubprocessErrorCode::SpawnError,
+            "argv must contain a program",
+        ));
+    }
+    let logical_base = provider.logical_cwd();
+    let cwd = match options.cwd.as_ref() {
+        Some(raw) => super::path::resolve_logical(&logical_base, raw).map_err(map_spawn_error)?,
+        None => logical_base,
+    };
+    let baseline = if options.inherit_env {
+        provider.spawn_environment()
+    } else {
+        Vec::new()
+    };
+    let env = super::spawn_nul::effective_environment(
+        &baseline,
+        &options.env,
+        options.inherit_env,
+        provider.platform(),
+    );
+    super::spawn_nul::validate(argv, &cwd, &env)?;
+    Ok(cwd)
+}
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum StdioMode {
@@ -93,6 +188,47 @@ pub trait Subprocess: Send + Sync {
     fn platform(&self) -> Platform;
     /// Isolated snapshot of this provider's configured inheritance baseline.
     fn base_env(&self) -> EnvSnapshot;
+    fn logical_cwd(&self) -> ResultString {
+        super::path::from_native(self.cwd())
+    }
+    /// Logical configured inheritance entries before strings-to-OS projection.
+    fn spawn_environment(&self) -> Vec<(ResultString, ResultString)> {
+        snapshot_entries(self.base_env())
+    }
+    /// Providers retaining the legacy seam get validation before its projection.
+    async fn spawn_lossless(
+        &self,
+        argv: &[ResultString],
+        options: LosslessSpawnOptions,
+    ) -> Result<Arc<dyn Process>, SubprocessError> {
+        prepare_spawn(self, argv, &options)?;
+        let argv: Vec<_> = argv
+            .iter()
+            .map(|a| String::from_utf16_lossy(a.code_units()))
+            .collect();
+        self.spawn(
+            &argv,
+            SpawnOptions {
+                cwd: options.cwd.as_ref().map(super::path::native),
+                env: options
+                    .env
+                    .into_iter()
+                    .map(|(n, v)| {
+                        (
+                            String::from_utf16_lossy(n.code_units()),
+                            String::from_utf16_lossy(v.code_units()),
+                        )
+                    })
+                    .collect(),
+                inherit_env: options.inherit_env,
+                stdin: options.stdin,
+                stdout: options.stdout,
+                stderr: options.stderr,
+                signal: options.signal,
+            },
+        )
+        .await
+    }
     async fn spawn(
         &self,
         argv: &[String],
@@ -116,7 +252,11 @@ pub trait Subprocess: Send + Sync {
 pub struct LocalSubprocess {
     cwd: PathBuf,
     base_env: BTreeMap<String, String>,
+    logical_base_env: Option<Vec<(ResultString, ResultString)>>,
+    logical_cwd: Option<ResultString>,
     world: ExecutionWorldIdentity,
+    #[cfg(test)]
+    native_spawn_calls: Option<Arc<std::sync::atomic::AtomicUsize>>,
 }
 
 impl LocalSubprocess {
@@ -128,30 +268,80 @@ impl LocalSubprocess {
         Self {
             cwd: cwd.into(),
             base_env: std::env::vars().collect(),
+            logical_base_env: None,
+            logical_cwd: None,
             world,
+            #[cfg(test)]
+            native_spawn_calls: None,
         }
     }
 
     pub fn with_base_env(mut self, base_env: BTreeMap<String, String>) -> Self {
         self.base_env = base_env;
+        self.logical_base_env = None;
         self
     }
 
-    fn resolved_cwd(&self, cwd: Option<&Path>) -> std::io::Result<PathBuf> {
-        match cwd {
-            Some(cwd) => resolve_local_path(&self.cwd, &cwd.to_string_lossy()),
-            None => Ok(self.cwd.clone()),
-        }
+    pub fn with_lossless_base_env(mut self, entries: Vec<(ResultString, ResultString)>) -> Self {
+        self.base_env = entries
+            .iter()
+            .map(|(n, v)| {
+                (
+                    String::from_utf16_lossy(n.code_units()),
+                    String::from_utf16_lossy(v.code_units()),
+                )
+            })
+            .collect();
+        self.logical_base_env = Some(entries);
+        self
+    }
+
+    pub fn with_logical_cwd(mut self, cwd: ResultString) -> Self {
+        self.cwd = super::path::native(&cwd);
+        self.logical_cwd = Some(cwd);
+        self
     }
 }
 
 #[async_trait]
 impl Subprocess for LocalSubprocess {
+    fn logical_cwd(&self) -> ResultString {
+        self.logical_cwd
+            .clone()
+            .unwrap_or_else(|| super::path::from_native(&self.cwd))
+    }
+
+    fn spawn_environment(&self) -> Vec<(ResultString, ResultString)> {
+        self.logical_base_env.clone().unwrap_or_else(|| {
+            self.base_env
+                .iter()
+                .map(|(n, v)| (n.as_str().into(), v.as_str().into()))
+                .collect()
+        })
+    }
     fn platform(&self) -> Platform {
         Platform::local()
     }
 
     fn base_env(&self) -> EnvSnapshot {
+        if let Some(entries) = &self.logical_base_env {
+            return EnvSnapshot::new(match self.platform() {
+                Platform::Windows => {
+                    EnvEntries::Windows(entries.iter().map(|(n, v)| (n.into(), v.into())).collect())
+                }
+                Platform::Posix => EnvEntries::Posix(
+                    entries
+                        .iter()
+                        .map(|(n, v)| {
+                            (
+                                String::from_utf16_lossy(n.code_units()).into_bytes(),
+                                String::from_utf16_lossy(v.code_units()).into_bytes(),
+                            )
+                        })
+                        .collect(),
+                ),
+            });
+        }
         EnvSnapshot::configured(self.platform(), &self.base_env)
     }
 
@@ -168,35 +358,35 @@ impl Subprocess for LocalSubprocess {
         argv: &[String],
         options: SpawnOptions,
     ) -> Result<Arc<dyn Process>, SubprocessError> {
-        if options
-            .signal
-            .as_ref()
-            .is_some_and(|signal| signal.aborted())
-        {
-            return Err(SubprocessError::new(
-                SubprocessErrorCode::Aborted,
-                "operation aborted",
-            ));
-        }
-        let Some(program) = argv.first() else {
-            return Err(SubprocessError::new(
-                SubprocessErrorCode::SpawnError,
-                "argv must contain a program",
-            ));
-        };
-        let mut command = Command::new(program);
-        command.args(&argv[1..]);
-        command.current_dir(
-            self.resolved_cwd(options.cwd.as_deref())
-                .map_err(map_spawn_error)?,
+        let argv: Vec<_> = argv.iter().map(|a| a.as_str().into()).collect();
+        self.spawn_lossless(&argv, options.into()).await
+    }
+
+    async fn spawn_lossless(
+        &self,
+        argv: &[ResultString],
+        options: LosslessSpawnOptions,
+    ) -> Result<Arc<dyn Process>, SubprocessError> {
+        let cwd = prepare_spawn(self, argv, &options)?;
+        let mut command = Command::new(String::from_utf16_lossy(argv[0].code_units()));
+        command.args(
+            argv[1..]
+                .iter()
+                .map(|a| String::from_utf16_lossy(a.code_units())),
         );
-        if !options.inherit_env {
-            command.env_clear();
-        } else {
-            command.env_clear();
+        command.current_dir(super::path::native(&cwd));
+        command.env_clear();
+        // The diagnostic order is not the native environment insertion order.
+        // Preserve the certified baseline-then-overlay command composition.
+        if options.inherit_env {
             command.envs(&self.base_env);
         }
-        command.envs(&options.env);
+        command.envs(options.env.iter().map(|(n, v)| {
+            (
+                String::from_utf16_lossy(n.code_units()),
+                String::from_utf16_lossy(v.code_units()),
+            )
+        }));
         command.stdin(to_stdio(options.stdin));
         command.stdout(to_stdio(options.stdout));
         command.stderr(to_stdio(options.stderr));
@@ -204,6 +394,10 @@ impl Subprocess for LocalSubprocess {
         #[cfg(unix)]
         command.process_group(0);
 
+        #[cfg(test)]
+        if let Some(calls) = &self.native_spawn_calls {
+            calls.fetch_add(1, Ordering::SeqCst);
+        }
         let mut child = command.spawn().map_err(map_spawn_error)?;
         let pid = child.id().ok_or_else(|| {
             SubprocessError::new(

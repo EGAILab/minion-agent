@@ -342,11 +342,25 @@ impl LocalFileSystem {
     }
 
     fn resolved(&self, raw: &FsPath) -> Result<FsPath, FsError> {
-        super::path::resolve_with_inputs(&self.cwd, raw, self.native_inputs.as_ref()).map_err(|e| {
-            let mut error = map_fs_error(e).with_path(raw);
-            error.process_cwd_read = true;
-            error
-        })
+        super::path::resolve_with_inputs(&self.cwd, raw, self.native_inputs.as_ref())
+            .map_err(|e| map_fs_error(e).with_path(raw))
+    }
+
+    // Accept only an already-resolved path. Derived consumers can therefore
+    // handle native realpath absence without accidentally handling cwd absence.
+    async fn canonical_resolved(logical: &FsPath) -> Result<FsPath, FsError> {
+        // Node realpath validates the whole argument before any native walk.
+        if logical.code_units().contains(&0) {
+            return Err(
+                FsError::new(FsErrorCode::Unknown, "path contains an embedded NUL byte")
+                    .with_path(logical),
+            );
+        }
+        let os = native(logical);
+        tokio::fs::canonicalize(&os)
+            .await
+            .map(|p| from_native(&p))
+            .map_err(|e| call_error(e, &os, logical))
     }
 
     fn aborted(signal: Option<&dyn AbortSignal>, logical: &FsPath) -> Result<(), FsError> {
@@ -693,28 +707,18 @@ impl FileSystem for LocalFileSystem {
         _signal: Option<&dyn AbortSignal>,
     ) -> Result<FsPath, FsError> {
         let logical = self.resolved(path)?;
-        // Node realpath validates the whole resolved argument before any walk.
-        // This is not an operation-wide preflight for the other filesystem calls.
-        if logical.code_units().contains(&0) {
-            return Err(
-                FsError::new(FsErrorCode::Unknown, "path contains an embedded NUL byte")
-                    .with_path(&logical),
-            );
-        }
-        let os = native(&logical);
-        tokio::fs::canonicalize(&os)
-            .await
-            .map(|p| from_native(&p))
-            .map_err(|e| call_error(e, &os, &logical))
+        Self::canonical_resolved(&logical).await
     }
     async fn exists(
         &self,
         path: &FsPath,
         _signal: Option<&dyn AbortSignal>,
     ) -> Result<bool, FsError> {
-        match <Self as FileSystem>::file_info(self, path, None).await {
+        // A resolver error propagates before the native lstat-error handler.
+        let logical = self.resolved(path)?;
+        match self.info_for(&logical).await {
             Ok(_) => Ok(true),
-            Err(e) if e.code == FsErrorCode::NotFound && !e.process_cwd_read => Ok(false),
+            Err(e) if e.code == FsErrorCode::NotFound => Ok(false),
             Err(e) => Err(e),
         }
     }
@@ -789,15 +793,15 @@ impl FileSystem for LocalFileSystem {
     async fn resolve(
         &self,
         path: &FsPath,
-        signal: Option<&dyn AbortSignal>,
+        _signal: Option<&dyn AbortSignal>,
     ) -> Result<FsTarget, FsError> {
         let absolute = self.resolved(path)?;
-        let key = match <Self as FileSystem>::canonical_path(self, path, signal).await {
+        // Preserve both existing reads and their order, but do not include the
+        // second read inside the native realpath-absence fallback's scope.
+        let canonical_logical = self.resolved(path)?;
+        let key = match Self::canonical_resolved(&canonical_logical).await {
             Ok(canonical) => canonical,
-            Err(e)
-                if !e.process_cwd_read
-                    && matches!(e.code, FsErrorCode::NotFound | FsErrorCode::NotSupported) =>
-            {
+            Err(e) if matches!(e.code, FsErrorCode::NotFound | FsErrorCode::NotSupported) => {
                 absolute
             }
             Err(e) => return Err(e),

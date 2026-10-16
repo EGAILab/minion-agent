@@ -49,9 +49,6 @@ pub struct FsError {
     /// Actual failing OS-call path, or the logical operation fallback. A failed
     /// process-cwd read instead carries the caller's raw logical argument.
     pub path: Option<super::FsPath>,
-    // Origin is private: code/text/path cannot distinguish a failed cwd read
-    // from a target lstat/realpath failure with exactly the same OS error.
-    pub(super) process_cwd_read: bool,
 }
 
 impl FsError {
@@ -60,7 +57,6 @@ impl FsError {
             code,
             message: message.into(),
             path: None,
-            process_cwd_read: false,
         }
     }
 

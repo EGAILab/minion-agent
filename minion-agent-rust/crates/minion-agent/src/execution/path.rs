@@ -438,7 +438,11 @@ mod tests {
                 continue;
             }
             if cfg!(windows) {
-                for drive in row["preconditions"]["absent_entries"].as_array().unwrap() {
+                for drive in row["preconditions"]["absent_entries"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                {
                     let key = format!("={drive}:", drive = drive.as_str().unwrap());
                     assert!(env::var_os(key).is_none(), "PRECONDITION REFUSED");
                 }
@@ -446,7 +450,8 @@ mod tests {
                 let drive = native_units(&cwd).code_units()[0] as u8;
                 for forbidden in row["preconditions"]["process_cwd_drive_not"]
                     .as_array()
-                    .unwrap()
+                    .into_iter()
+                    .flatten()
                 {
                     assert_ne!(
                         drive.to_ascii_uppercase(),

@@ -22,7 +22,7 @@ from typing import Protocol
 
 from ..runtime.signal import RunSignal
 from .errors import ShellError, ShellErrorCode, SubprocessErrorCode
-from .filesystem import resolve_local_path
+from .filesystem import ProcessCwdReadError, resolve_local_path
 from .result import Err, Ok, Result
 from .subprocess import (
     LocalSubprocess,
@@ -227,8 +227,12 @@ class LocalShell:
         if isinstance(timeout_result, Err):
             return timeout_result
         timeout_s = timeout_result.value
-        # Step 3: lexical cwd resolution.
-        resolved_cwd = resolve_local_path(self.cwd, cwd) if cwd is not None else self.cwd
+        # Step 3: lexical cwd resolution. DIV-009 (spec section 22.2): a failed native process-cwd
+        # read is `spawn_error` carrying the native failure, before shell discovery.
+        try:
+            resolved_cwd = resolve_local_path(self.cwd, cwd) if cwd is not None else self.cwd
+        except ProcessCwdReadError as exc:
+            return Err(ShellError(ShellErrorCode.SPAWN_ERROR, str(exc.native), exc.native))
         # Step 4: shell discovery -- BEFORE the cwd existence check (L12-R010).
         shell_result = await self._resolve_shell()
         if isinstance(shell_result, Err):

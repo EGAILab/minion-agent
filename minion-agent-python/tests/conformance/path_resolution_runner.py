@@ -9,7 +9,10 @@ seam (`LocalFileSystem`).
 - host cases (win32) run the seam in a CHILD Python process whose environment block is this
   process's ordinary variables (CPython's `os.environ` holds no `=`-prefixed entry) plus exactly the
   case's `=<drive>:` entry, and whose cwd is a contained sandbox directory; `cwd_drive` / `cwd_tail`
-  template parts are filled from the cwd the child reports.
+  template parts are filled from the cwd the child reports;
+- L12-D013: a host case's `cwd_form` `extended` runs the child at `\\\\?\\` + the sandbox path; the
+  runner REFUSES unless the child observes exactly that spelling, and fills templates from the
+  ordinary sandbox path.
 
 No case path is ever passed to a filesystem operation or used as a cwd.
 """
@@ -40,13 +43,13 @@ SRC = str(Path(minion_agent.__file__).resolve().parents[1])
 _CHILD = """
 import asyncio, json, os, sys
 from minion_agent.execution.filesystem import LocalFileSystem
-provider_cwd, letter, input_parts = json.loads(sys.argv[1])
-cwd = os.getcwd()
-case = {"upper": cwd[0].upper(), "lower": cwd[0].lower()}
+provider_cwd, ordinary, input_parts = json.loads(sys.argv[1])
+case = {"upper": ordinary[0].upper(), "lower": ordinary[0].lower()}
 path = "".join(value if kind == "text" else case[value] for kind, value in input_parts)
 result = asyncio.run(LocalFileSystem(provider_cwd).absolute_path(path))
-print(json.dumps({"cwd": cwd, "path": path, "value": result.value}))
+print(json.dumps({"cwd": os.getcwd(), "path": path, "value": result.value}))
 """
+EXTENDED_PREFIX = "\\\\?\\"
 
 
 def text(value: dict[str, Any]) -> str:
@@ -121,27 +124,44 @@ def host_child_env(case: dict[str, Any], cwd: str) -> dict[str, str]:
     return env
 
 
+def child_cwd_spelling(case: dict[str, Any], ordinary: str) -> str:
+    """The child's cwd for the case's `cwd_form` (L12-D013): the ordinary sandbox path, or the
+    four units `\\\\?\\` followed by it."""
+    extended = case["host"].get("cwd_form", "ordinary") == "extended"
+    return EXTENDED_PREFIX + ordinary if extended else ordinary
+
+
 def run_host_case(case: dict[str, Any], sandbox: Path) -> tuple[str, str]:
     """(observed, expected) for a host case, from a child run in `sandbox` (a contained, existing,
-    empty directory)."""
+    empty directory), spelled as the case's `cwd_form`. Templates are filled from the ORDINARY
+    sandbox path; a child that does not observe exactly the case's cwd spelling REFUSES."""
     cwd = str(sandbox)
     refusal = precondition_refusal(case, inherited=lambda _: None, process_cwd=cwd)
     if refusal is not None:
         raise AssertionError(f"PRECONDITION REFUSED (child cwd): {refusal}")
-    letter = cwd[0].upper() if case["host"]["drive"] == "cwd" else case["host"]["drive"]
+    spelling = child_cwd_spelling(case, cwd)
     parts: list[tuple[str, str]] = []
     value = case["input"]
     for part in value.get("parts", [value]):
         parts.append(("text", text(part)) if "utf16" in part else ("drive", part["cwd_drive"]))
     done = subprocess.run(
-        [sys.executable, "-c", _CHILD, json.dumps([text(case["provider_cwd"]), letter, parts])],
+        [sys.executable, "-c", _CHILD, json.dumps([text(case["provider_cwd"]), cwd, parts])],
         env=host_child_env(case, cwd),
-        cwd=cwd,
+        cwd=spelling,
         capture_output=True,
         text=True,
         timeout=60,
         check=True,
     )
     observed = json.loads(done.stdout)
-    assert os.path.normcase(observed["cwd"]) == os.path.normcase(cwd), observed
-    return observed["value"], instantiate(case["expect"], observed["cwd"])
+    if spelling == cwd:
+        same = os.path.normcase(observed["cwd"]) == os.path.normcase(cwd)
+    else:
+        same = observed["cwd"] == spelling
+    if not same:
+        raise AssertionError(f"PRECONDITION REFUSED (cwd form): child observed {observed['cwd']!r}")
+    # An ordinary child's reported cwd fills the templates, as before L12-D013; an extended child's
+    # is the namespace spelling, so its templates come from the ordinary sandbox path.
+    return observed["value"], instantiate(
+        case["expect"], observed["cwd"] if spelling == cwd else cwd
+    )

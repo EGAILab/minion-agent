@@ -1550,6 +1550,19 @@ def _first(document: dict[str, Any], prefix: str) -> dict[str, Any]:
         lambda d: _first(d, "win32/host/").__setitem__("id", "darwin/host/01"),
         lambda d: d.__setitem__("requirements", ["EXEC-013"]),
         lambda d: d.__setitem__("platforms", ["darwin"]),
+        # L12-D013 (minion-agent#235): the child cwd form.
+        lambda d: _first(d, "win32/host/rooted/")["host"].__setitem__("cwd_form", "unc"),
+        lambda d: _first(d, "win32/host/rooted-extended/")["host"].__setitem__(
+            "entry", {"parts": []}
+        ),
+        lambda d: _first(d, "win32/host/rooted-extended/")["host"].__setitem__("drive", "A"),
+        # An extended case uses no cwd_tail part, in expect or in input (contract review 2, C001).
+        lambda d: _first(d, "win32/host/rooted-extended/")["expect"]["parts"].append(
+            {"cwd_tail": True}
+        ),
+        lambda d: _first(d, "win32/host/rooted-extended/").__setitem__(
+            "input", {"parts": [{"cwd_tail": True}]}
+        ),
     ],
 )
 def test_path_resolution_schema_rejects_malformed_documents(mutation: Any) -> None:
@@ -1558,10 +1571,40 @@ def test_path_resolution_schema_rejects_malformed_documents(mutation: Any) -> No
     assert list(_path_resolution_validator().iter_errors(document))
 
 
+@pytest.mark.parametrize("cwd_form", ["ordinary", None])
+@pytest.mark.parametrize("field", ["input", "expect"])
+def test_path_resolution_schema_accepts_cwd_tail_for_ordinary_cwd(
+    field: str, cwd_form: str | None
+) -> None:
+    """L12-D013 C001 positive: the cwd_tail restriction applies only to the extended cwd form."""
+    document = _path_resolution_document()
+    case = _first(document, "win32/host/rooted/")
+    if cwd_form is None:
+        del case["host"]["cwd_form"]
+    else:
+        case["host"]["cwd_form"] = cwd_form
+    case[field] = {"parts": [{"cwd_tail": True}]}
+    assert not list(_path_resolution_validator().iter_errors(document))
+
+
 def test_path_resolution_corpus_shape() -> None:
-    """23 win32 baseline + 32 win32 host-state + 25 linux baseline cases (record §§2, 3.2)."""
-    ids = [c["id"] for c in _path_resolution_document()["path_resolution"]["cases"]]
-    assert len(ids) == len(set(ids)) == 80
-    assert sum(i.startswith("win32/baseline/") for i in ids) == 23
-    assert sum(i.startswith("win32/host/") for i in ids) == 32
-    assert sum(i.startswith("linux/baseline/") for i in ids) == 25
+    """L12-D012: 23 win32 baseline + 32 win32 host-state + 25 linux baseline cases (record
+    §§2, 3.2); L12-D013 (record 12-l12-d013-rooted.md §5): 4 win32 complete-UNC baseline +
+    9 ordinary-cwd and 2 extended-cwd rooted host cases + 4 linux no-regression baseline
+    cases."""
+    cases = _path_resolution_document()["path_resolution"]["cases"]
+    ids = [c["id"] for c in cases]
+    assert len(ids) == len(set(ids)) == 99
+    assert sum(i.startswith("win32/baseline/rooted-") for i in ids) == 4
+    assert sum(i.startswith("win32/baseline/") for i in ids) == 23 + 4
+    assert sum(i.startswith("win32/host/rooted/") for i in ids) == 9
+    assert sum(i.startswith("win32/host/rooted-extended/") for i in ids) == 2
+    assert sum(i.startswith("win32/host/") for i in ids) == 32 + 11
+    assert sum(i.startswith("linux/baseline/rooted-") for i in ids) == 4
+    assert sum(i.startswith("linux/baseline/") for i in ids) == 25 + 4
+    extended = [c for c in cases if (c["host"] or {}).get("cwd_form") == "extended"]
+    assert [c["id"] for c in extended] == [
+        "win32/host/rooted-extended/01",
+        "win32/host/rooted-extended/02",
+    ]
+    assert cases[:80] == [c for c in cases if "rooted" not in c["id"]]

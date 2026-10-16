@@ -41,6 +41,7 @@ import tempfile
 import uuid
 from collections.abc import Callable, Coroutine, Sequence
 from contextlib import suppress
+from contextvars import ContextVar
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import IO, Any, Protocol
@@ -115,6 +116,54 @@ class _UnsupportedFileType(Exception):
     `fileInfoFromStats` returning an `invalid` `Result` rather than throwing."""
 
 
+class ProcessCwdReadError(Exception):
+    """`DIV-009` (spec/execution.md section 22): the native process-cwd read made by path resolution
+    failed with an operational OS error. Raised by `resolve_local_path` and converted by each seam
+    into its typed failure; deliberately NOT an `OSError`, so no unrelated `except OSError` handler
+    can reclassify it. `native` is the original error (also chained as `__cause__`); `argument` is
+    the caller's logical path argument exactly as passed to the resolver (before `~` and `file://`,
+    unresolved, unprojected)."""
+
+    def __init__(self, native: OSError, argument: str) -> None:
+        super().__init__(str(native))
+        self.native = native
+        self.argument = argument
+
+
+_DIV009_MARK = "_minion_div009_process_cwd_read"
+
+
+def is_process_cwd_read_failure(error: FsError) -> bool:
+    """`DIV-009`: this `FsError` is a failed native process-cwd read, not evidence about the target
+    (spec section 22.2): derived operations (`exists`, `resolve`) propagate it unchanged."""
+    return bool(getattr(error.cause, _DIV009_MARK, False))
+
+
+def _process_cwd_reader(argument: str) -> Callable[[], str]:
+    """The ONE converted boundary (spec section 22.4): only an `OSError` raised by the native
+    process-cwd read itself becomes a `ProcessCwdReadError`. Every other exception propagates."""
+
+    def read() -> str:
+        try:
+            return _native_process_cwd_view()
+        except OSError as native:
+            setattr(native, _DIV009_MARK, True)
+            raise ProcessCwdReadError(native, argument) from native
+
+    return read
+
+
+# L12-D006 x DIV-009 (spec section 22.2): the resolutions an operation made, recorded while the NUL
+# wrapper is active, so its error path reuses them and never reads the process cwd a second time.
+# One `(cwd, path, resolved)` entry per resolution, in call order: an entry is an argument SLOT,
+# not an argument value (`L12D013-PY-I001`, review 7) -- `rename_file` with equal source and
+# destination spellings makes two resolutions that need not agree (the process cwd is mutable
+# process-wide), and the source fallback is the source's own.
+_RESOLUTIONS: ContextVar[list[tuple[str, str, str]] | None] = ContextVar(
+    "minion_agent_fs_resolutions", default=None
+)
+
+
 def resolve_local_path(cwd: str, path: str) -> str:
     """Lexical path resolution shared by every local execution-seam provider (`ctx.fs`,
     `ctx.shell`, `ctx.subprocess`) -- matches pinned Pi's own `resolvePath` (`nodejs.ts:51-65`)
@@ -125,7 +174,18 @@ def resolve_local_path(cwd: str, path: str) -> str:
     function for their own cwd resolution (`EXEC-004`/`EXEC-005`) rather than reimplementing it --
     duplicating this logic with a bare path join was a genuine Rust-side defect (`L12-R012`) this
     Python implementation does not repeat.
+
+    `DIV-009` (spec section 22): a failed native process-cwd read raises `ProcessCwdReadError`
+    naming `path`; the read point and laziness are unchanged.
     """
+    resolved = _resolve_local_path(cwd, path)
+    recorded = _RESOLUTIONS.get()
+    if recorded is not None:
+        recorded.append((cwd, path, resolved))
+    return resolved
+
+
+def _resolve_local_path(cwd: str, path: str) -> str:
     normalized = path
     if normalized == "~":
         normalized = os.path.expanduser("~")
@@ -152,21 +212,34 @@ def resolve_local_path(cwd: str, path: str) -> str:
         return node_win32_resolve(
             [cwd, normalized],
             inherited=_native_inherited_view,
-            process_cwd=_native_process_cwd_view,
+            process_cwd=_process_cwd_reader(path),
+        )
+    if sys.platform == "win32" and normalized[:1] in ("\\", "/"):
+        # L12-D013 (spec section 3.2, rooted and UNC-root inputs): an input with a leading
+        # separator is Node's `win32.resolve(input)` ALONE. A complete UNC root is its own device;
+        # any other root has no device and takes the PROCESS cwd's (never the provider `cwd`'s),
+        # and no inherited `=X:` entry is consulted. ntpath differs on all three (M1 provider
+        # drive, M2 incomplete UNC kept, M3 server/share separator run kept).
+        return node_win32_resolve(
+            [normalized],
+            inherited=_native_inherited_view,
+            process_cwd=_process_cwd_reader(path),
         )
     if os.path.isabs(normalized):
+        # `L12-PY-R002`'s bare-root trailing-separator fix-up is gone (L12-D013): on win32 a bare
+        # UNC root (`\\host\share`) now takes the `win32.resolve` port above, which emits that
+        # separator itself, and a bare drive (`C:`) is not absolute, so every win32 input reaching
+        # here is `X:\...` with a non-empty tail.
         resolved = os.path.normpath(normalized)
-        if os.name == "nt":
-            # `L12-PY-R002` (refined a third time): a bare drive letter (`C:`) or UNC share
-            # (`\\host\share`) root, with nothing past it, gets a trailing separator here --
-            # matching `path.win32.resolve`'s own root-canonicalization (live-verified:
-            # `resolve('C:')` -> `"C:\\"`, `resolve('\\\\a\\share')` -> `"\\\\a\\share\\"`),
-            # which `os.path.normpath` alone does not add.
-            drive, tail = os.path.splitdrive(resolved)
-            if drive and not tail:
-                resolved += os.sep
-        return resolved
-    return os.path.normpath(os.path.join(cwd, normalized))
+        return resolved if os.name == "nt" else node_posix_single_root(resolved)
+    joined = os.path.normpath(os.path.join(cwd, normalized))
+    return joined if os.name == "nt" else node_posix_single_root(joined)
+
+
+def node_posix_single_root(path: str) -> str:
+    """L12-D013 M4: Node's `path.posix.resolve` result has exactly one leading `/`, where POSIX
+    `os.path.normpath` keeps exactly two (`//leaf` stays `//leaf`; Node gives `/leaf`)."""
+    return "/" + path.lstrip("/") if path.startswith("//") else path
 
 
 def _is_separator(char: str) -> bool:
@@ -1485,6 +1558,8 @@ def _contain_nul[**P, T](
     signature = inspect.signature(method)
 
     async def contained(*args: P.args, **kwargs: P.kwargs) -> Result[T, FsError]:
+        recorded: list[tuple[str, str, str]] = []
+        token = _RESOLUTIONS.set(recorded)
         try:
             return await method(*args, **kwargs)
         except ValueError as exc:
@@ -1494,16 +1569,44 @@ def _contain_nul[**P, T](
             # The RESOLVED path arguments (L12D006-C001): a `file://` URL's `%00` decodes to the NUL
             # the native call rejects, with no literal NUL in the caller's string. `rename_file` has
             # a second path, its destination; every other operation's other arguments are not paths.
-            logical = resolve_local_path(cwd, source)
-            resolved = [logical]
+            # DIV-009 (spec section 22.2): they are the resolutions the operation already made --
+            # never a second resolution, which would read the process cwd again. Each operation
+            # resolves its path arguments once each, in argument order, so slot `i` is entry `i`:
+            # never looked up by argument value, which loses the source when the spellings agree.
+            paths = [source]
             if isinstance(bound.get("destination"), str):
-                resolved.append(resolve_local_path(cwd, bound["destination"]))
+                paths.append(bound["destination"])
+            if len(recorded) < len(paths) or any(
+                recorded[slot][:2] != (cwd, p) for slot, p in enumerate(paths)
+            ):
+                raise  # the native call failed before its own path was resolved: not a NUL case
+            resolved = [entry[2] for entry in recorded[: len(paths)]]
             if not _nul_rejected(exc, *resolved):
                 raise
-            return Err(_nul_failure(exc, logical))
+            return Err(_nul_failure(exc, resolved[0]))
+        finally:
+            _RESOLUTIONS.reset(token)
 
     functools.update_wrapper(contained, method)
     return contained
+
+
+def _typed_cwd_failure[**P, T](
+    method: Callable[P, Coroutine[Any, Any, Result[T, FsError]]],
+) -> Callable[P, Coroutine[Any, Any, Result[T, FsError]]]:
+    """`DIV-009` (spec section 22.2): a failed native process-cwd read while the operation resolves
+    a path argument returns `Err(FsError)` -- the ORIGINAL native error classified by the existing
+    mapper, its own diagnostic, and the caller's raw argument as `path` -- at that point, so no
+    further filesystem call is made. Only `ProcessCwdReadError` is converted."""
+
+    async def typed(*args: P.args, **kwargs: P.kwargs) -> Result[T, FsError]:
+        try:
+            return await method(*args, **kwargs)
+        except ProcessCwdReadError as exc:
+            return Err(to_pi_fs_error(exc.native, exc.argument))
+
+    functools.update_wrapper(typed, method)
+    return typed
 
 
 class LocalFileSystem:
@@ -1523,6 +1626,7 @@ class LocalFileSystem:
             execution_world if execution_world is not None else ExecutionWorldIdentity.local()
         )
 
+    @_typed_cwd_failure
     async def absolute_path(
         self, path: str, signal: RunSignal | None = None
     ) -> Result[str, FsError]:
@@ -1543,6 +1647,7 @@ class LocalFileSystem:
             return Ok(".")
         return Ok(os.path.normpath(os.sep.join(p for p in parts if p)))
 
+    @_typed_cwd_failure
     @_contain_nul
     async def read_text_file(
         self, path: str, signal: RunSignal | None = None
@@ -1564,6 +1669,7 @@ class LocalFileSystem:
             return Err(to_pi_fs_error(exc, _failing_path(exc, native, resolved)))
         return Ok(content)
 
+    @_typed_cwd_failure
     @_contain_nul
     async def read_text_lines(
         self, path: str, max_lines: int | None = None, signal: RunSignal | None = None
@@ -1583,6 +1689,7 @@ class LocalFileSystem:
             return Err(to_pi_fs_error(exc, _failing_path(exc, native, resolved)))
         return Ok(lines)
 
+    @_typed_cwd_failure
     @_contain_nul
     async def read_binary_file(
         self, path: str, signal: RunSignal | None = None
@@ -1604,6 +1711,7 @@ class LocalFileSystem:
             return Err(to_pi_fs_error(exc, _failing_path(exc, native, resolved)))
         return Ok(content)
 
+    @_typed_cwd_failure
     @_contain_nul
     async def write_file(
         self, path: str, content: str | bytes, signal: RunSignal | None = None
@@ -1630,6 +1738,7 @@ class LocalFileSystem:
             return Err(to_pi_fs_error(exc, _failing_path(exc, native, resolved)))
         return Ok(None)
 
+    @_typed_cwd_failure
     @_contain_nul
     async def append_file(
         self, path: str, content: str | bytes, signal: RunSignal | None = None
@@ -1650,14 +1759,19 @@ class LocalFileSystem:
             return Err(to_pi_fs_error(exc, _failing_path(exc, native, resolved)))
         return Ok(None)
 
+    @_typed_cwd_failure
     @_contain_nul
     async def rename_file(
         self, source: str, destination: str, signal: RunSignal | None = None
     ) -> Result[None, FsError]:
+        # Pinned Pi's order (`nodejs.ts:590-592`; Owner amendment to DIV-009, #235
+        # issuecomment-6206113367): source, destination, then abort, so a failed process-cwd read
+        # while resolving the source is reported before the destination is resolved or abort is
+        # checked.
+        src = resolve_local_path(self.cwd, source)
         dst = resolve_local_path(self.cwd, destination)
         if signal is not None and signal.aborted:
             return Err(_aborted(dst))
-        src = resolve_local_path(self.cwd, source)
         try:
             # os.replace, not os.rename: spec section 3.5 requires an existing destination to
             # be REPLACED atomically. POSIX rename() already does this; os.rename on Windows
@@ -1670,6 +1784,7 @@ class LocalFileSystem:
             return Err(to_pi_fs_error(exc, native_path(src)))
         return Ok(None)
 
+    @_typed_cwd_failure
     @_contain_nul
     async def file_info(
         self, path: str, signal: RunSignal | None = None
@@ -1684,6 +1799,7 @@ class LocalFileSystem:
             return Err(to_pi_fs_error(exc, native))
         return Ok(info)
 
+    @_typed_cwd_failure
     @_contain_nul
     async def list_dir(
         self, path: str, signal: RunSignal | None = None
@@ -1701,6 +1817,7 @@ class LocalFileSystem:
             return Err(to_pi_fs_error(exc, exc.filename if exc.filename is not None else native))
         return Ok(infos)
 
+    @_typed_cwd_failure
     @_contain_nul
     async def list_dir_raw(
         self, path: str, signal: RunSignal | None = None
@@ -1717,6 +1834,7 @@ class LocalFileSystem:
             return Err(to_pi_fs_error(exc, native))
         return Ok(names)
 
+    @_typed_cwd_failure
     @_contain_nul
     async def probe_dir_entry(
         self, path: str, signal: RunSignal | None = None
@@ -1733,6 +1851,7 @@ class LocalFileSystem:
             return Err(to_pi_fs_error(exc, native))
         return Ok(probe)
 
+    @_typed_cwd_failure
     @_contain_nul
     async def check_readable(
         self, path: str, signal: RunSignal | None = None
@@ -1753,6 +1872,7 @@ class LocalFileSystem:
             return Err(FsError(FsErrorCode.UNKNOWN, str(exc), resolved, exc))
         return Ok(None)
 
+    @_typed_cwd_failure
     @_contain_nul
     async def check_read_write(
         self, path: str, signal: RunSignal | None = None
@@ -1774,6 +1894,7 @@ class LocalFileSystem:
             return Err(FsError(FsErrorCode.UNKNOWN, str(exc), resolved, exc))
         return Ok(None)
 
+    @_typed_cwd_failure
     @_contain_nul
     async def canonical_path(
         self, path: str, signal: RunSignal | None = None
@@ -1792,10 +1913,13 @@ class LocalFileSystem:
         info = await self.file_info(path)
         if isinstance(info, Ok):
             return Ok(True)
-        if info.error.code == FsErrorCode.NOT_FOUND:
+        # DIV-009 (spec section 22.2): a failed process-cwd read is no evidence about the target,
+        # even when classified `not_found`; only `file_info`'s own native failure means "absent".
+        if info.error.code == FsErrorCode.NOT_FOUND and not is_process_cwd_read_failure(info.error):
             return Ok(False)
         return info
 
+    @_typed_cwd_failure
     @_contain_nul
     async def create_dir(
         self, path: str, recursive: bool = True, signal: RunSignal | None = None
@@ -1815,6 +1939,7 @@ class LocalFileSystem:
             return Err(_mkdir_error(exc))
         return Ok(None)
 
+    @_typed_cwd_failure
     @_contain_nul
     async def remove(
         self,
@@ -1884,7 +2009,12 @@ class LocalFileSystem:
         canonical = await self.canonical_path(path)
         if isinstance(canonical, Ok):
             return Ok(FsTarget(target_key=canonical.value, _provider=self))
-        if canonical.error.code in (FsErrorCode.NOT_FOUND, FsErrorCode.NOT_SUPPORTED):
+        # DIV-009 (spec section 22.2): a failed process-cwd read propagates; the fallback applies
+        # only to the native `realpath` failure, so the cwd is never read a second time.
+        if canonical.error.code in (
+            FsErrorCode.NOT_FOUND,
+            FsErrorCode.NOT_SUPPORTED,
+        ) and not is_process_cwd_read_failure(canonical.error):
             absolute = await self.absolute_path(path)
             if isinstance(absolute, Err):
                 return absolute

@@ -34,6 +34,7 @@
   },
   "template": {"type": "object", "required": ["parts"], "additionalProperties": false, "properties": {"parts": {"type": "array", "items": {"$ref": "#/$defs/part"}}}},
   "text_or_template": {"oneOf": [{"$ref": "#/$defs/text"}, {"$ref": "#/$defs/template"}]},
+  "no_cwd_tail": {"$comment": "L12-D013: an extended-cwd case uses no cwd_tail part, in input or in expect.", "not": {"type": "object", "required": ["parts"], "properties": {"parts": {"contains": {"type": "object", "required": ["cwd_tail"]}}}}},
   "drive_letter": {"type": "string", "pattern": "^[A-Z]$"},
   "preconditions": {
    "$comment": "Verified at runner entry; a run whose host state does not satisfy them REFUSES (fails closed) -- never rewrites the expectation.",
@@ -45,14 +46,17 @@
    }
   },
   "host": {
-   "$comment": "A host-state case: the runner launches a CHILD process running the real resolver seam, whose environment block carries exactly this per-drive entry (=<drive>:) and no other '='-prefixed entry, and whose cwd is a contained sandbox directory. drive 'cwd' means the child cwd's own drive. entry null means the entry is absent; a template with no parts is the empty string.",
+   "$comment": "A host-state case: the runner launches a CHILD process running the real resolver seam, whose environment block carries exactly this per-drive entry (=<drive>:) and no other '='-prefixed entry, and whose cwd is a contained sandbox directory. drive 'cwd' means the child cwd's own drive. entry null means the entry is absent; a template with no parts is the empty string. cwd_form (L12-D013) selects the spelling of the child's cwd: 'ordinary' (the default when absent) is the sandbox path itself; 'extended' is the four units \\\\?\\ followed by that ordinary sandbox path. The runner VERIFIES at entry that the child observes exactly that spelling and REFUSES otherwise. Template parts are always filled from the ORDINARY sandbox path. An extended case has entry null and uses no cwd_tail part.",
    "type": "object",
    "required": ["drive", "entry"],
    "additionalProperties": false,
    "properties": {
     "drive": {"oneOf": [{"const": "cwd"}, {"$ref": "#/$defs/drive_letter"}]},
-    "entry": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/template"}]}
-   }
+    "entry": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/template"}]},
+    "cwd_form": {"enum": ["ordinary", "extended"]}
+   },
+   "if": {"required": ["cwd_form"], "properties": {"cwd_form": {"const": "extended"}}},
+   "then": {"properties": {"drive": {"const": "cwd"}, "entry": {"type": "null"}}}
   },
   "case": {
    "type": "object",
@@ -69,7 +73,9 @@
    },
    "allOf": [
     {"if": {"properties": {"host": {"type": "null"}}}, "then": {"properties": {"input": {"$ref": "#/$defs/text"}, "expect": {"$ref": "#/$defs/text"}}}},
-    {"if": {"properties": {"host": {"type": "object"}}}, "then": {"properties": {"platform": {"const": "win32"}}}}
+    {"if": {"properties": {"host": {"type": "object"}}}, "then": {"properties": {"platform": {"const": "win32"}}}},
+    {"if": {"properties": {"host": {"type": "object", "required": ["cwd_form"], "properties": {"cwd_form": {"const": "extended"}}}}},
+     "then": {"properties": {"input": {"$ref": "#/$defs/no_cwd_tail"}, "expect": {"$ref": "#/$defs/no_cwd_tail"}}}}
    ]
   }
  }

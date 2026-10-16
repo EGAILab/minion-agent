@@ -26,7 +26,7 @@ from typing import Literal, Protocol
 from ..runtime.signal import RunSignal
 from .environment import EnvSnapshot, Platform, host_platform, local_baseline
 from .errors import SubprocessError, SubprocessErrorCode
-from .filesystem import resolve_local_path
+from .filesystem import ProcessCwdReadError, resolve_local_path
 from .result import Err, Ok, Result
 from .spawn_nul import spawn_rejection
 from .world import ExecutionWorldIdentity
@@ -538,7 +538,15 @@ class LocalSubprocess:
         opts = options if options is not None else SpawnOptions()
         if opts.signal is not None and opts.signal.aborted:
             return Err(SubprocessError(SubprocessErrorCode.ABORTED, "aborted"))
-        resolved_cwd = resolve_local_path(self.cwd, opts.cwd) if opts.cwd is not None else self.cwd
+        # DIV-009 (spec section 22.2): a failed native process-cwd read is `spawn_error` carrying
+        # the native failure, after pre-abort and before the section 21 checks; no process starts.
+        try:
+            resolved_cwd = (
+                resolve_local_path(self.cwd, opts.cwd) if opts.cwd is not None else self.cwd
+            )
+        except ProcessCwdReadError as exc:
+            native = exc.native
+            return Err(SubprocessError(SubprocessErrorCode.SPAWN_ERROR, str(native), native))
         # `WP12E4-C002` = B: the baseline is `base_env()`'s own source, read now -- the live native
         # environment on Windows, `os.environ` on POSIX (spec/execution.md section 15.4).
         baseline = local_baseline() if opts.inherit_env else []

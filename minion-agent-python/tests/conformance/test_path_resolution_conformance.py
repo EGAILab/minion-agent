@@ -1,9 +1,13 @@
 """Execute the L12-D012 `path-resolution` canonical cases on this host's platform (spec/execution.md
 section 3.2; record 12-l12-d012-path-colon.md sections 9 and 10) through the real `ctx.fs`
-`absolute_path` seam, plus the permanent controls the contract requires of every runner."""
+`absolute_path` seam, plus the permanent controls the contract requires of every runner. L12-D013
+(record 12-l12-d013-rooted.md sections 7 and 8) adds the rooted and UNC-root cases, the extended
+child cwd form and controls D013-C1..C5."""
 
 from __future__ import annotations
 
+import json
+import ntpath
 import os
 import subprocess as subprocess_module
 import sys
@@ -31,7 +35,10 @@ MINE = [c for c in CASES if c["platform"] == HOST_PLATFORM]
 BASELINE = [c for c in MINE if c["host"] is None]
 HOST = [c for c in MINE if c["host"] is not None]
 ALL_HOST = [c for c in CASES if c["host"] is not None]
+D012_HOST = [c for c in ALL_HOST if "/rooted" not in c["id"]]
+ROOTED_WIN = [c for c in CASES if c["platform"] == "win32" and "/rooted" in c["id"]]
 BY_ID = {c["id"]: c for c in CASES}
+WIN = pytest.mark.skipif(sys.platform != "win32", reason="the win32 resolver branch")
 SYNTHETIC_CWD = "E:\\sandbox\\child"  # the in-process port witnesses' process cwd (E: is not A:/C:)
 
 
@@ -48,7 +55,8 @@ def test_host_case_in_crafted_child(case: dict[str, Any], tmp_path: Path) -> Non
 
 
 def test_every_case_of_this_platform_is_selected() -> None:
-    assert len(MINE) == (55 if HOST_PLATFORM == "win32" else 25)
+    """L12-D012's 55/25 plus L12-D013's 15 win32 and 4 linux rooted cases."""
+    assert len(MINE) == (70 if HOST_PLATFORM == "win32" else 29)
     assert len(BASELINE) + len(HOST) == len(MINE)
 
 
@@ -74,9 +82,149 @@ def _port(case: dict[str, Any]) -> str:
     )
 
 
-@pytest.mark.parametrize("case", ALL_HOST, ids=lambda c: c["id"])
+@pytest.mark.parametrize("case", D012_HOST, ids=lambda c: c["id"])
 def test_port_reproduces_every_host_class(case: dict[str, Any]) -> None:
     assert _port(case) == instantiate(case["expect"], SYNTHETIC_CWD)
+
+
+# --- L12-D013 rooted cases through the real resolver, with injected host state (win32) -----------
+
+
+def _synthetic_process_cwd(case: dict[str, Any] | None) -> str:
+    extended = case is not None and (case["host"] or {}).get("cwd_form") == "extended"
+    return runner.EXTENDED_PREFIX + SYNTHETIC_CWD if extended else SYNTHETIC_CWD
+
+
+def _resolve(case: dict[str, Any], monkeypatch: pytest.MonkeyPatch) -> str:
+    """The real `resolve_local_path` (Pi's absolute-or-relative decision included), whose native
+    process cwd is the case's synthetic cwd spelling. No inherited entry may be consulted."""
+
+    def no_entry(device: str) -> str | None:
+        raise AssertionError(f"inherited ={device} consulted for a rooted input")
+
+    monkeypatch.setattr(filesystem, "_native_inherited_view", no_entry)
+    monkeypatch.setattr(
+        filesystem, "_native_process_cwd_view", lambda: _synthetic_process_cwd(case)
+    )
+    path = instantiate(case["input"], SYNTHETIC_CWD)
+    return filesystem.resolve_local_path(text(case["provider_cwd"]), path)
+
+
+def _expected(case: dict[str, Any]) -> str:
+    return instantiate(case["expect"], SYNTHETIC_CWD)
+
+
+@WIN
+@pytest.mark.parametrize("case", ROOTED_WIN, ids=lambda c: c["id"])
+def test_resolver_reproduces_every_rooted_class(
+    case: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    assert _resolve(case, monkeypatch) == _expected(case)
+
+
+# --- D013-C1..C5 (record 12-l12-d013-rooted.md sections 7.2 and 8.2): green baseline, then the --
+# --- wrong behavior, killed by its named case while its paired positive stays green --------------
+
+
+def _c1_provider_drive(monkeypatch: pytest.MonkeyPatch) -> None:
+    """WRONG: a device-less root takes the provider cwd's drive (merged Python's M1)."""
+    monkeypatch.setattr(filesystem, "_native_process_cwd_view", lambda: "C:\\x")
+
+
+def _ntpath_unc_root(real: Any) -> Any:
+    def wrong(path: str) -> tuple[str, int, bool]:
+        if len(path) > 1 and path[0] in "\\/" and path[1] in "\\/":
+            device = ntpath.splitdrive(path)[0]
+            return device, len(device), True
+        return real(path)  # type: ignore[no-any-return]
+
+    return wrong
+
+
+def _c2_incomplete_unc(monkeypatch: pytest.MonkeyPatch) -> None:
+    """WRONG: an incomplete UNC (`\\\\leaf`, `\\\\srv\\`) is kept as a UNC device (ntpath's split,
+    M2)."""
+    monkeypatch.setattr(filesystem, "_win32_root", _ntpath_unc_root(filesystem._win32_root))
+
+
+def _c3_separator_run(monkeypatch: pytest.MonkeyPatch) -> None:
+    """WRONG: a complete UNC root keeps its raw server/share separator run (M3)."""
+    real = filesystem._win32_root
+
+    def wrong(path: str) -> tuple[str, int, bool]:
+        device, root_end, is_absolute = real(path)
+        if device.startswith("\\\\") and root_end:
+            return path[:root_end].replace("/", "\\"), root_end, is_absolute
+        return device, root_end, is_absolute
+
+    monkeypatch.setattr(filesystem, "_win32_root", wrong)
+
+
+def _c4_namespace_stripped(monkeypatch: pytest.MonkeyPatch) -> None:
+    """WRONG: the extended process cwd loses its `\\\\?\\` prefix (the wrong cwd operand)."""
+    monkeypatch.setattr(filesystem, "_native_process_cwd_view", lambda: SYNTHETIC_CWD)
+
+
+D013_WIN_CONTROLS = [
+    (_c1_provider_drive, "win32/host/rooted/01", "win32/baseline/rooted-01"),
+    (_c2_incomplete_unc, "win32/host/rooted/06", "win32/baseline/rooted-01"),
+    (_c2_incomplete_unc, "win32/host/rooted/08", "win32/baseline/rooted-01"),
+    (_c3_separator_run, "win32/baseline/rooted-03", "win32/baseline/rooted-02"),
+    (_c4_namespace_stripped, "win32/host/rooted-extended/01", "win32/host/rooted/01"),
+]
+
+
+@WIN
+@pytest.mark.parametrize(
+    ("wrong", "killed_by", "positive"),
+    D013_WIN_CONTROLS,
+    ids=["C1", "C2-06", "C2-08", "C3", "C4"],
+)
+def test_control_d013_is_killed_by_its_named_case(
+    wrong: Any, killed_by: str, positive: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    case, pair = BY_ID[killed_by], BY_ID[positive]
+    assert _resolve(case, monkeypatch) == _expected(case)  # green baseline
+    assert _resolve(pair, monkeypatch) == _expected(pair)
+    with monkeypatch.context() as wrong_state:
+        _resolve(case, wrong_state)  # install the case's own host state, then the wrong behavior
+        wrong(wrong_state)
+        assert filesystem.resolve_local_path(
+            text(case["provider_cwd"]), instantiate(case["input"], SYNTHETIC_CWD)
+        ) != _expected(case), f"{wrong.__name__} survived {killed_by}"
+    with monkeypatch.context() as pair_state:
+        _resolve(pair, pair_state)
+        wrong(pair_state)
+        assert filesystem.resolve_local_path(
+            text(pair["provider_cwd"]), instantiate(pair["input"], SYNTHETIC_CWD)
+        ) == _expected(pair), f"{wrong.__name__} also broke its positive {positive}"
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="D013-C5 is the POSIX normalization control")
+async def test_control_d013_c5_two_leading_slashes_is_killed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """D013-C5: keeping exactly two POSIX leading slashes (merged Python's M4) is killed by
+    linux/baseline/rooted-02 (`//leaf` is `/leaf`); rooted-01 (`/leaf`) stays green."""
+    case, pair = BY_ID["linux/baseline/rooted-02"], BY_ID["linux/baseline/rooted-01"]
+    assert await run_baseline_case(case) == text(case["expect"])
+    assert await run_baseline_case(pair) == text(pair["expect"])
+    monkeypatch.setattr(filesystem, "node_posix_single_root", lambda path: path)
+    assert await run_baseline_case(case) != text(case["expect"])
+    assert await run_baseline_case(pair) == text(pair["expect"])
+
+
+def test_ported_posix_single_root() -> None:
+    """The pure M4 helper on both platforms: Node's `path.posix.resolve` keeps one leading `/`."""
+    single = filesystem.node_posix_single_root
+    assert [single(p) for p in ("//leaf", "///leaf", "//", "/leaf", "/", "a//b")] == [
+        "/leaf",
+        "/leaf",
+        "/",
+        "/leaf",
+        "/",
+        "a//b",
+    ]
 
 
 # --- permanent controls (record section 9, runner requirement 3) ---------------------------------
@@ -249,6 +397,43 @@ def test_host_entry_admits_and_reaches_the_child(monkeypatch: pytest.MonkeyPatch
     with pytest.raises(_Reached):
         runner.run_host_case(BY_ID["win32/host/a-drive/01"], Path("E:\\never-created"))
     assert len(observed.child) == 1
+
+
+def _scripted_child(monkeypatch: pytest.MonkeyPatch, reported: str) -> list[dict[str, Any]]:
+    """A child launch that only REPORTS `reported` as its cwd (nothing is launched or accessed)."""
+    calls: list[dict[str, Any]] = []
+
+    def run(args: list[str], **kwargs: Any) -> Any:
+        calls.append(kwargs)
+        out = json.dumps({"cwd": reported, "path": "", "value": "V"})
+        return subprocess_module.CompletedProcess(args, 0, stdout=out, stderr="")
+
+    monkeypatch.setattr(subprocess_module, "run", run)
+    return calls
+
+
+@pytest.mark.parametrize(
+    "reported",
+    ["E:\\never-created", "\\\\?\\e:\\never-created", "\\\\.\\E:\\never-created"],
+)
+def test_host_entry_refuses_a_child_without_the_extended_spelling(
+    reported: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """L12-D013: an extended case whose child does not observe exactly `\\\\?\\` + the sandbox
+    path REFUSES (no case-folding, no other namespace)."""
+    calls = _scripted_child(monkeypatch, reported)
+    with pytest.raises(AssertionError, match=r"^PRECONDITION REFUSED \(cwd form\)"):
+        runner.run_host_case(BY_ID["win32/host/rooted-extended/01"], Path("E:\\never-created"))
+    assert [c["cwd"] for c in calls] == ["\\\\?\\E:\\never-created"]
+
+
+def test_host_entry_admits_the_exact_extended_spelling(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Positive: the exact spelling is admitted, and templates fill from the ORDINARY path."""
+    _scripted_child(monkeypatch, "\\\\?\\E:\\never-created")
+    observed, expected = runner.run_host_case(
+        BY_ID["win32/host/rooted-extended/01"], Path("E:\\never-created")
+    )
+    assert (observed, expected) == ("V", "\\\\?\\E:\\leaf")
 
 
 def _without_enforcement(marker: str) -> Any:

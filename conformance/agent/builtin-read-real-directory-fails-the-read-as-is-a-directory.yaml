@@ -1,0 +1,32 @@
+name: builtin-read-real-directory-fails-the-read-as-is-a-directory
+family: agent
+authority: minion-agent-docs spec/tools.md WP-13.1, as re-baselined by L13-D001 (minion-agent#244)
+pi_revision: b7bb00b936dbe21b8e160b3e89efdec361846699
+requirements:
+- TOOL-025
+- TOOL-039
+witnesses:
+- read_real_directory_fails_the_read_as_is_a_directory
+notes: 'L13-D001: a real, readable directory passes the access stage (check_readable, EXEC-008) and fails
+  the one content read with Node''s EISDIR, which is ''Cannot read <path>: is a directory'' on every platform.
+  On Windows this retires the former disclosure W-3 (''permission denied''), which L12-D007 (spec/execution.md
+  section 19) corrected at the Layer-12 mapper. The directory is not scripted: the real provider answers both
+  operations, so the access site cannot stand in for the read site. <path> is the resolved absolute path
+  (IMPL-C003).'
+builtin_tool:
+  tool: read
+  fixture:
+  - path: sub
+    dir: true
+  cases:
+  - id: real-directory
+    arguments:
+      path: sub
+    expect:
+      is_error: true
+      text: 'Cannot read {abs:sub}: is a directory'
+      details: {}
+      fs_calls:
+      - check_readable sub
+      - read_binary_file sub
+      - absolute_path sub

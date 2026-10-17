@@ -7532,7 +7532,17 @@ rows:
     EXEC-007 dependency (CE13-C006). L13-WP131-I001: the outcome is decided by order at the work''s
     settle point -- an abort before the work settles (including before a failure it throws) is
     "Operation aborted", a result settled first stands; in-flight ctx.fs work is never cancelled.
-    Python -- implemented and merged at `b60f47157965c4aa81c96a20a6105758d33cbf9f` (minion-agent#60) after exact-SHA final review. Rust -- implemented and merged at `9802721fd4099ea6b6b1ecc1396f64889e4a1bc5` (minion-agent#72; assurance minion-agent-docs#171, master `e2f35bfadb04bb77463f753ac955c6d4aa2f2ba0`) after exact-SHA independent review. Cross-language closure: CERTIFIED_CLOSED per the owner closure decision (minion-agent#48 issuecomment-5870661040).'
+    Python -- implemented and merged at `b60f47157965c4aa81c96a20a6105758d33cbf9f` (minion-agent#60) after exact-SHA final review. Rust -- implemented and merged at `9802721fd4099ea6b6b1ecc1396f64889e4a1bc5` (minion-agent#72; assurance minion-agent-docs#171, master `e2f35bfadb04bb77463f753ac955c6d4aa2f2ba0`) after exact-SHA independent review. Cross-language closure: CERTIFIED_CLOSED per the owner closure decision (minion-agent#48 issuecomment-5870661040).
+
+
+    Re-baseline, L13-D001 (minion-agent#244, WP-13.1 re-baseline; scoping review 1 issuecomment-6228470708):
+    WP-13.1''s certification is unchanged. The read disclosures W-2/W-3 are retired as closed by L12-D007
+    (spec/execution.md section 19): a readable Windows directory now reads ''Cannot read <path>: is a directory''
+    and a Windows link loop is unknown, both Pi''s. W-1 and the provider-without-EXEC-008 fallback stay. Resolution
+    and <path> text inherit Layer 12 section 3.2 as amended by L12-D012/L12-D013 and DIV-009. Markers: the
+    home-directory source of ~ (#236, frozen) and an extended \\?\ provider cwd (#241, frozen, Rust), and a relative
+    or empty provider cwd (Owner Q1, #244 issuecomment-6228334676): no parity claimed; Layer 13 inherits the current
+    per-binding Layer-12 behaviour, and no Layer-13 case uses it.'
   tests:
   - 'fs_path_javascript_string_domain -- L12-D001 inheritance (minion-agent#123): conformance/agent/fs-path-domain/
     fs-path-tools.json -- a surrogate-bearing path reaches ctx.fs (no refusal, no "." substitution); tool text keeps
@@ -7561,6 +7571,10 @@ rows:
   - read_image_first_eligible_jpeg_quality_wins (canonical scenario conformance/agent/builtin-read-image-first-eligible-jpeg-quality-wins.yaml; minion-agent#74)
   - read_image_no_resize_fast_path_exact_base64_cutoff (canonical scenario conformance/agent/builtin-read-image-no-resize-fast-path-exact-base64-cutoff.yaml; minion-agent#74)
   - read_animated_png_control_chunk_before_idat_is_not_an_image (canonical scenario conformance/agent/builtin-read-animated-png-control-chunk-before-idat-is-not-an-image.yaml; minion-agent#74)
+  - read_real_directory_fails_the_read_as_is_a_directory (canonical scenario
+    conformance/agent/builtin-read-real-directory-fails-the-read-as-is-a-directory.yaml; L13-D001, retires W-3)
+  - read_bare_file_colon_input_reaches_the_resolver_unconverted (canonical scenario
+    conformance/agent/builtin-read-bare-file-colon-input-reaches-the-resolver-unconverted.yaml; L13-D001)
   python: 'minion_agent/tools/builtin/read.py (create_read_tool, ReadToolOptions), image.py + photon/ (pinned photon_rs_bg.wasm via wasmtime 49.0.0), mime.py, truncate.py, _js.py; tests/tools/builtin/; canonical builtin_tool scenarios below'
   rust: 'minion-agent-rust/crates/minion-agent/src/tools/builtin/read.rs (create_read_tool, ReadToolOptions),
     image.rs + photon.rs (pinned photon_rs_bg.wasm via wasmtime 49.0.0), mime.rs, truncate.rs, text.rs,
@@ -7613,7 +7627,18 @@ rows:
     (pinned Pi''s resolveToCwd, which read''s and ls''s resolution also build on), including R002-A''s
     strict pre-ctx.fs rejection with the same text -- never step 5''s read-only dispatch, which stays
     read/ls-specific (L13-WP132-R002). No pipeline semantics change; WP-13.1''s certification of this row
-    is unchanged.'
+    is unchanged.
+
+
+    Re-baseline, L13-D001 (minion-agent#244, WP-13.1 re-baseline; scoping review 1 issuecomment-6228470708):
+    WP-13.1''s certification is unchanged. Status update: WP-13.2 is CLOSED (minion-agent#49), so the scope
+    extension''s "contract draft ... not yet certified" above is historical. Step 4 converts only a string starting
+    with "file://" (pinned Pi normalizePath); a bare "file:" prefix without "//" is an ordinary input that reaches
+    ctx.fs unconverted. Markers, each with this rule: no parity claimed; Layer 13 inherits the current per-binding
+    Layer-12 behaviour, and no Layer-13 case uses it. (1) The home-directory source of ~ (#236, frozen; this row''s
+    pi field cites the ~ branch, and its adopted disposition does not extend to that source). (2) An extended \\?\
+    provider cwd (#241, frozen, Rust). (3) A relative or empty provider cwd (spec/execution.md section 22.1
+    observation; Owner Q1, #244 issuecomment-6228334676).'
   tests:
   - read_leading_ascii_space_not_trimmed (canonical scenario conformance/agent/builtin-read-leading-ascii-space-not-trimmed.yaml)
   - read_unicode_space_normalized (canonical scenario conformance/agent/builtin-read-unicode-space-normalized.yaml)
@@ -7621,6 +7646,11 @@ rows:
     row asserts the REJECTION-BEFORE-ctx.fs mechanism and its INVALID classification; TOOL-039''s
     own test of the same name asserts the resulting MESSAGE TEXT specifically -- two distinct
     assertions sharing one canonical scenario name deliberately, not an accidental duplicate)
+  - read_bare_file_colon_input_reaches_the_resolver_unconverted and
+    ls_bare_file_colon_input_reaches_the_resolver_unconverted (canonical scenarios
+    conformance/agent/builtin-read-bare-file-colon-input-reaches-the-resolver-unconverted.yaml +
+    conformance/agent/builtin-ls-bare-file-colon-input-reaches-the-resolver-unconverted.yaml; L13-D001, paired with
+    the malformed file:// rejection)
   python: 'minion_agent/tools/builtin/paths.py::preprocess_path (steps 1-4; step 4 calls execution.filesystem.file_url_to_path, the certified conversion under a public name); canonical builtin_tool scenarios below. write/edit (WP-13.2) consume steps 1-4 through the same preprocess_path (implementation candidate, minion-agent#49).'
   rust: 'minion-agent-rust/crates/minion-agent/src/tools/builtin/paths.rs::preprocess_path (step 4 calls the
     certified execution::file_url_to_path); canonical builtin_tool scenarios below'
@@ -7683,7 +7713,20 @@ rows:
 
     MINION_ARCHITECTURAL_MAPPING points, disclosed in the contract: the ctx.fs seam instead of node:fs;
     and Pi''s race-only raw stat(dirPath) site has no counterpart, because existence and kind come from
-    one probe. Python -- implemented and merged at `b60f47157965c4aa81c96a20a6105758d33cbf9f` (minion-agent#60) after exact-SHA final review. Rust -- implemented and merged at `9802721fd4099ea6b6b1ecc1396f64889e4a1bc5` (minion-agent#72; assurance minion-agent-docs#171, master `e2f35bfadb04bb77463f753ac955c6d4aa2f2ba0`) after exact-SHA independent review. Cross-language closure: CERTIFIED_CLOSED per the owner closure decision (minion-agent#48 issuecomment-5870661040).'
+    one probe. Python -- implemented and merged at `b60f47157965c4aa81c96a20a6105758d33cbf9f` (minion-agent#60) after exact-SHA final review. Rust -- implemented and merged at `9802721fd4099ea6b6b1ecc1396f64889e4a1bc5` (minion-agent#72; assurance minion-agent-docs#171, master `e2f35bfadb04bb77463f753ac955c6d4aa2f2ba0`) after exact-SHA independent review. Cross-language closure: CERTIFIED_CLOSED per the owner closure decision (minion-agent#48 issuecomment-5870661040).
+
+
+    Re-baseline, L13-D001 (minion-agent#244, WP-13.1 re-baseline; scoping review 1 issuecomment-6228470708):
+    WP-13.1''s certification is unchanged, and the status-history line "pending the complete WP-13.1 final
+    contract-convergence review" above is historical. S13 (CONTRACT_ASSURANCE_DEFECT, behaviour-neutral): when
+    ctx.fs.absolute_path itself fails (possible since DIV-009), <path> is the step-5 string, the probe still runs on
+    that same string, and no early return, extra read or reordered call is introduced; both bindings already behave
+    so. Markers, each with this rule: no parity claimed; Layer 13 inherits the current per-binding Layer-12
+    behaviour, and no Layer-13 case uses it. (1) An extended \\?\ provider cwd (#241, frozen, Rust), including the
+    default ".". (2) A relative or empty provider cwd (Owner Q1). (3) Windows exotic reparse entries -- a
+    volume-GUID junction, a non-surrogate tag, a malformed APPEXECLINK -- for the probe_dir_entry kind (#207; Owner
+    Q1). (4) Non-Unicode native directory-entry names (#133-F2, RECORDED; Owner Q2). The JavaScript-string INPUT
+    domain of L12-D001 is a different domain and stays witnessed by fs-path-tools.'
   tests:
   - 'fs_path_javascript_string_domain -- L12-D001 inheritance (minion-agent#123): conformance/agent/fs-path-domain/
     fs-path-tools.json -- a surrogate-bearing path reaches ctx.fs (no refusal, no "." substitution); tool text keeps
@@ -7702,6 +7745,11 @@ rows:
   - ls_both_notices_in_order (canonical scenario conformance/agent/builtin-ls-both-notices-in-order.yaml)
   - ls_pre_aborted_signal (canonical scenario conformance/agent/builtin-ls-pre-aborted-signal.yaml)
   - ls_collation_case_ties_keep_enumeration_order (canonical scenario conformance/agent/builtin-ls-collation-case-ties-keep-enumeration-order-order-a.yaml + conformance/agent/builtin-ls-collation-case-ties-keep-enumeration-order-order-b.yaml)
+  - ls_bare_file_colon_input_reaches_the_resolver_unconverted (canonical scenario
+    conformance/agent/builtin-ls-bare-file-colon-input-reaches-the-resolver-unconverted.yaml; L13-D001)
+  - ls_falls_back_to_the_pipeline_path_when_absolute_path_fails -- L13-D001 S13 binding witness
+    (minion-agent-python/tests/tools/builtin/test_tools.py::test_ls_falls_back_to_the_pipeline_path_when_absolute_path_fails;
+    Rust witness PENDING its contract stage)
   python: 'minion_agent/tools/builtin/ls.py (create_ls_tool); tests/tools/builtin/; canonical builtin_tool scenarios below'
   rust: 'minion-agent-rust/crates/minion-agent/src/tools/builtin/ls.rs (create_ls_tool); canonical
     builtin_tool scenarios below'
@@ -8067,13 +8115,20 @@ rows:
     read'', and edit''s kept frame ''Could not edit file: <path>. <cause>.''; spec/tools.md WP-13.2 ''Error
     text''). It does NOT cover ctx.shell/ctx.subprocess errors, command output, fd/ripgrep output or other
     external-process text. WP-13.1''s certified behavior and record are unchanged; the new sites are
-    certified by WP-13.2 (CERTIFIED_CLOSED, minion-agent#49).'
+    certified by WP-13.2 (CERTIFIED_CLOSED, minion-agent#49).
+
+
+    Re-baseline, L13-D001 (minion-agent#244, WP-13.1 re-baseline; scoping review 1 issuecomment-6228470708): no
+    vocabulary change. The real-directory read case witnesses the existing ''is a directory'' phrase at the read
+    site.'
   tests:
   - read_error_text_matches_r010b_closed_vocabulary_per_fserrorcode (canonical scenario conformance/agent/builtin-read-error-text-matches-r010b-closed-vocabulary-per-fserrorcode.yaml)
   - W-G10 fallback site mapping (canonical scenario conformance/agent/builtin-read-provider-without-exec-008-uses-disclosed-fallback.yaml)
   - malformed_file_url_rejected_before_ctx_fs_access_as_invalid (canonical scenario conformance/agent/builtin-ls-malformed-file-url-rejected-before-ctx-fs-access-as-invalid.yaml + conformance/agent/builtin-read-malformed-file-url-rejected-before-ctx-fs-access-as-invalid.yaml)
   - ls_enumeration_failure_cannot_read_directory (canonical scenario conformance/agent/builtin-ls-enumeration-failure-cannot-read-directory.yaml)
   - ls_provider_without_extension_not_supported (canonical scenario conformance/agent/builtin-ls-provider-without-extension-not-supported.yaml)
+  - read_real_directory_fails_the_read_as_is_a_directory (canonical scenario
+    conformance/agent/builtin-read-real-directory-fails-the-read-as-is-a-directory.yaml; L13-D001)
   python: 'minion_agent/tools/builtin/paths.py (CAUSE_PHRASES, BuiltinToolError); read.py/ls.py error sites; canonical builtin_tool scenarios below. WP-13.2 sites (write.py, edit.py, mutation_queue.py) are an implementation candidate (minion-agent#49), pending independent review.'
   rust: 'minion-agent-rust/crates/minion-agent/src/tools/builtin/paths.rs (cause, OPERATION_ABORTED);
     read.rs/ls.rs error sites; canonical builtin_tool scenarios below'
@@ -8100,7 +8155,13 @@ rows:
     NORMALIZATION_MODE ON is an owner-ratified correction to R006-C (governance https://github.com/EGAILab/minion-agent/issues/48#issuecomment-5810098437;
     it supersedes only the normalization bit of #159''s evidence): without it, non-FCD canonically-equivalent
     names compare unequal on ICU 78.3 while Pi on en-001 compares them equal. The ICU root-locale lowercase
-    was accepted by the independent final review (INT-F2). Python -- implemented and merged at `b60f47157965c4aa81c96a20a6105758d33cbf9f` (minion-agent#60) after exact-SHA final review. Rust -- implemented and merged at `9802721fd4099ea6b6b1ecc1396f64889e4a1bc5` (minion-agent#72; assurance minion-agent-docs#171, master `e2f35bfadb04bb77463f753ac955c6d4aa2f2ba0`) after exact-SHA independent review. Cross-language closure: CERTIFIED_CLOSED per the owner closure decision (minion-agent#48 issuecomment-5870661040).'
+    was accepted by the independent final review (INT-F2). Python -- implemented and merged at `b60f47157965c4aa81c96a20a6105758d33cbf9f` (minion-agent#60) after exact-SHA final review. Rust -- implemented and merged at `9802721fd4099ea6b6b1ecc1396f64889e4a1bc5` (minion-agent#72; assurance minion-agent-docs#171, master `e2f35bfadb04bb77463f753ac955c6d4aa2f2ba0`) after exact-SHA independent review. Cross-language closure: CERTIFIED_CLOSED per the owner closure decision (minion-agent#48 issuecomment-5870661040).
+
+
+    Re-baseline, L13-D001 (minion-agent#244, WP-13.1 re-baseline; scoping review 1 issuecomment-6228470708): no
+    collation change. Marker: non-Unicode native directory-entry names (#133-F2, RECORDED; Owner Q2, #244
+    issuecomment-6228334676): no parity claimed; Layer 13 inherits the current per-binding Layer-12 behaviour, and
+    no Layer-13 case uses it.'
   tests:
   - ls_collation_r006c_corpus_order (canonical scenario conformance/agent/builtin-ls-collation-r006c-corpus-order.yaml)
   - ls_collation_canonical_equivalents_tie (canonical scenario conformance/agent/builtin-ls-collation-canonical-equivalents-tie-order-a.yaml + conformance/agent/builtin-ls-collation-canonical-equivalents-tie-order-b.yaml)

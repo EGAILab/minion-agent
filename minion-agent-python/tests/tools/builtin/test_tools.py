@@ -3,6 +3,7 @@ Layer 06 pipeline answers an already-aborted signal before `execute` runs), a li
 provider results no local filesystem produces, and mounting through the plugin."""
 
 import asyncio
+import re
 from pathlib import Path
 from typing import Any
 
@@ -104,6 +105,43 @@ async def test_read_falls_back_to_the_pipeline_path_when_absolute_path_fails(
         BuiltinToolError, match=r"^Cannot access missing.txt: no such file or directory$"
     ):
         await tool.execute("id", {"path": "missing.txt"}, None)
+
+
+async def test_ls_falls_back_to_the_pipeline_path_when_absolute_path_fails(
+    tmp_path: Path,
+) -> None:
+    """`L13-D001` S13: `ctx.fs.absolute_path` can fail (DIV-009), and `ls`'s `<path>` is then the
+    step-5 string. That is the PREPROCESSED input (`@` stripped, U+202F mapped to a space), never
+    the caller's raw argument, and the probe still runs on that same string after
+    `absolute_path`. The real `absolute_path` is the positive that tells the two branches apart."""
+    (tmp_path / "a file").write_text("x")
+    local = LocalFileSystem(str(tmp_path))
+    calls: list[str] = []
+
+    async def failing_absolute(path: str, signal: Any = None) -> Any:
+        calls.append(f"absolute_path {path}")
+        return Err(FsError(FsErrorCode.UNKNOWN, "process cwd read failed", path))
+
+    async def probe(path: str, signal: Any = None) -> Any:
+        calls.append(f"probe_dir_entry {path}")
+        return await local.probe_dir_entry(path, signal)
+
+    failing = create_ls_tool(
+        _Provider(tmp_path, absolute_path=failing_absolute, probe_dir_entry=probe)  # type: ignore[arg-type]
+    )
+    with pytest.raises(BuiltinToolError, match=r"^Path not found: no such$"):
+        await failing.execute("id", {"path": "@no\u202fsuch"}, None)
+    assert calls == ["absolute_path no such", "probe_dir_entry no such"]
+    calls.clear()
+    with pytest.raises(BuiltinToolError, match=r"^Not a directory: a file$"):
+        await failing.execute("id", {"path": "@a\u202ffile"}, None)
+    assert calls == ["absolute_path a file", "probe_dir_entry a file"]
+
+    resolved = await local.absolute_path("no such")
+    assert isinstance(resolved, Ok)
+    real = create_ls_tool(local)
+    with pytest.raises(BuiltinToolError, match=rf"^Path not found: {re.escape(resolved.value)}$"):
+        await real.execute("id", {"path": "@no\u202fsuch"}, None)
 
 
 class _Recording(_Provider):

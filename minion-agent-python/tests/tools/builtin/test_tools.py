@@ -130,18 +130,18 @@ async def test_ls_falls_back_to_the_pipeline_path_when_absolute_path_fails(
         _Provider(tmp_path, absolute_path=failing_absolute, probe_dir_entry=probe)  # type: ignore[arg-type]
     )
     with pytest.raises(BuiltinToolError, match=r"^Path not found: no such$"):
-        await failing.execute("id", {"path": "@no such"}, None)
+        await failing.execute("id", {"path": "@no\u202fsuch"}, None)
     assert calls == ["absolute_path no such", "probe_dir_entry no such"]
     calls.clear()
     with pytest.raises(BuiltinToolError, match=r"^Not a directory: a file$"):
-        await failing.execute("id", {"path": "@a file"}, None)
+        await failing.execute("id", {"path": "@a\u202ffile"}, None)
     assert calls == ["absolute_path a file", "probe_dir_entry a file"]
 
     resolved = await local.absolute_path("no such")
     assert isinstance(resolved, Ok)
     real = create_ls_tool(local)
     with pytest.raises(BuiltinToolError, match=rf"^Path not found: {re.escape(resolved.value)}$"):
-        await real.execute("id", {"path": "@no such"}, None)
+        await real.execute("id", {"path": "@no\u202fsuch"}, None)
 
 
 class _Recording(_Provider):

@@ -1,0 +1,27 @@
+name: builtin-ls-bare-file-colon-input-reaches-the-resolver-unconverted
+family: agent
+authority: minion-agent-docs spec/tools.md WP-13.1, as re-baselined by L13-D001 (minion-agent#244)
+pi_revision: b7bb00b936dbe21b8e160b3e89efdec361846699
+requirements:
+- TOOL-026
+- TOOL-028
+witnesses:
+- ls_bare_file_colon_input_reaches_the_resolver_unconverted
+notes: 'L13-D001: the ls side of builtin-read-bare-file-colon-input-reaches-the-resolver-unconverted. A
+  "file:" prefix without "//" is not converted at TOOL-026 step 4. The unchanged string reaches
+  ctx.fs.absolute_path, then the directory probe, and the missing path reports Pi''s ''Path not found: <path>''
+  with the resolved absolute path. The paired boundary is
+  builtin-ls-malformed-file-url-rejected-before-ctx-fs-access-as-invalid.'
+builtin_tool:
+  tool: ls
+  cases:
+  - id: bare-file-colon
+    arguments:
+      path: file:missing
+    expect:
+      is_error: true
+      text: 'Path not found: {abs:file:missing}'
+      details: {}
+      fs_calls:
+      - absolute_path file:missing
+      - probe_dir_entry file:missing

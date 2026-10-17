@@ -1,0 +1,30 @@
+name: builtin-read-bare-file-colon-input-reaches-the-resolver-unconverted
+family: agent
+authority: minion-agent-docs spec/tools.md WP-13.1, as re-baselined by L13-D001 (minion-agent#244)
+pi_revision: b7bb00b936dbe21b8e160b3e89efdec361846699
+requirements:
+- TOOL-026
+- TOOL-025
+witnesses:
+- read_bare_file_colon_input_reaches_the_resolver_unconverted
+notes: 'L13-D001: TOOL-026 step 4 converts only a string that starts with "file://" (pinned Pi normalizePath).
+  A "file:" prefix without "//" is an ordinary relative input: steps 1-4 leave it unchanged, no strict
+  file-URL conversion or R002-A rejection happens, and the string reaches ctx.fs as given, where Layer 12
+  section 3.2 resolves it as an ordinary colon-bearing component (L12-D012). The path is missing, so the
+  answer is the access failure for its resolved absolute path. The paired boundary is
+  builtin-read-malformed-file-url-rejected-before-ctx-fs-access-as-invalid, where a malformed "file://"
+  URL is rejected with no ctx.fs call. The path is missing on purpose: on Windows NTFS, "file:x" names an
+  alternate data stream of "file", so a fixture of that name cannot be created portably.'
+builtin_tool:
+  tool: read
+  cases:
+  - id: bare-file-colon
+    arguments:
+      path: file:missing
+    expect:
+      is_error: true
+      text: 'Cannot access {abs:file:missing}: no such file or directory'
+      details: {}
+      fs_calls:
+      - check_readable file:missing
+      - absolute_path file:missing

@@ -155,6 +155,9 @@ impl FileSystem for FixtureFs {
         signal: Option<&dyn AbortSignal>,
     ) -> Result<minion_agent::execution::FsPath, FsError> {
         self.log("absolute_path", path);
+        if let Some(error) = self.scripted_error("absolute_path", path) {
+            return Err(error);
+        }
         self.local.absolute_path(path, signal).await
     }
     async fn join_path(
@@ -628,9 +631,105 @@ async fn every_builtin_scenario_uses_real_rust_tools_and_execution() {
         }
     }
     assert_eq!(
-        documents, 50,
+        documents, 53,
         "all WP-13.1 canonical documents must be discovered"
     );
     assert!(count >= documents, "every document has an executable case");
     eprintln!("WP-13.1 canonical: {documents} documents, {count} cases passed");
+}
+
+// L13-D001 S13: exercise the public tool and real Layer-06 dispatch, not a
+// reproduction of ls's fallback. Provider faults are scripted; no native
+// filesystem mutation or missing-root fixture is needed for these witnesses.
+async fn assert_ls_s13(absolute_fails: bool, file: bool) {
+    let working = if file { "a file" } else { "no such" };
+    let raw = if file {
+        "@a\u{202f}file"
+    } else {
+        "@no\u{202f}such"
+    };
+    let mut provider = json!({});
+    if absolute_fails {
+        provider["absolute_path"] = json!([{"path": working, "error": "unknown"}]);
+    }
+    provider["probe_dir_entry"] = if file {
+        json!([{"path": working, "kind": "file"}])
+    } else {
+        json!([{"path": working, "error": "not_found"}])
+    };
+    let fs = Arc::new(FixtureFs::new(
+        &root(),
+        provider,
+        None,
+        ToggleSignal::default(),
+    ));
+    let message_path = if absolute_fails {
+        working.to_owned()
+    } else {
+        fs.local
+            .absolute_path(working, None)
+            .await
+            .unwrap()
+            .as_str()
+            .unwrap()
+            .to_owned()
+    };
+    let expected = format!(
+        "{}: {message_path}",
+        if file {
+            "Not a directory"
+        } else {
+            "Path not found"
+        }
+    );
+    let runtime = Runtime::new();
+    runtime
+        .tools()
+        .register_for_scope(None, create_ls_tool(fs.clone()))
+        .unwrap();
+    let context = runtime.context();
+    let call = ToolCall::new("s13", "ls", BTreeMap::from([("path".into(), json!(raw))]));
+    let batch = execute_tool_calls(
+        &context,
+        &[call],
+        ToolExecutionOptions::new(StopReason::ToolUse, 0.0),
+    )
+    .await
+    .unwrap();
+    assert_eq!(batch.messages.len(), 1);
+    let result = &batch.messages[0];
+    assert!(result.is_error);
+    let ToolResultContentBlock::Text(minion_agent::llm::ResultTextBlock { text, .. }) =
+        &result.content[0]
+    else {
+        panic!("L13-S13: first block must be text");
+    };
+    assert_eq!(
+        text.as_str().unwrap(),
+        expected,
+        "L13-S13: fallback message"
+    );
+    assert_eq!(
+        *fs.calls.lock(),
+        [
+            format!("absolute_path {working}"),
+            format!("probe_dir_entry {working}")
+        ],
+        "L13-S13: preprocessed input and probe order"
+    );
+}
+
+#[tokio::test]
+async fn ls_s13_absolute_failure_keeps_preprocessed_missing_path_and_probe_order() {
+    assert_ls_s13(true, false).await;
+}
+
+#[tokio::test]
+async fn ls_s13_absolute_failure_keeps_preprocessed_not_directory_path_and_probe_order() {
+    assert_ls_s13(true, true).await;
+}
+
+#[tokio::test]
+async fn ls_s13_successful_absolute_path_is_not_replaced_by_fallback() {
+    assert_ls_s13(false, false).await;
 }
